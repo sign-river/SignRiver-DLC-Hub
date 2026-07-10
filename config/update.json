@@ -1,0 +1,7 @@
+{
+  "manifest_url": "",
+  "channel": "stable",
+  "check_on_startup": false,
+  "timeout_seconds": 20,
+  "allow_insecure_http": false
+}
