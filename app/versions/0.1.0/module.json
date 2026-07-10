@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "SignRiver DLC Hub",
+  "version": "0.1.0",
+  "api_version": 1,
+  "entrypoint": "app_entry.py:create_application"
+}

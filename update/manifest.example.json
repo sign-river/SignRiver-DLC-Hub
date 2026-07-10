@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "channel": "stable",
+  "generated_at": "2026-07-10T00:00:00Z",
+  "releases": [
+    {
+      "version": "0.1.1",
+      "kind": "module",
+      "min_launcher_version": "0.1.0",
+      "package_url": "https://example.com/releases/SignRiver-DLC-Hub-module-v0.1.1.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "mandatory": false,
+      "notes": "示例模块更新"
+    }
+  ]
+}
