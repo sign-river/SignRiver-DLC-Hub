@@ -10,9 +10,10 @@ from .games import (
     PathInput,
     ValidationResult,
 )
-from .catalog import DlcCatalogEntry, NormalizedRelease, ReleaseAsset
+from .catalog import CatalogSnapshot, CatalogTrust, DlcCatalogEntry, NormalizedRelease, ReleaseAsset, TrustedCatalogAsset
 from .downloads import DownloadSnapshot, DownloadSpec, DownloadState
-from .installs import InstallPhase, InstallPlan, InstallReceipt
+from .installs import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
+from .settings import UserSettings
 
 __all__ = [
     "AdapterCapability",
@@ -26,10 +27,17 @@ __all__ = [
     "DlcCatalogEntry",
     "NormalizedRelease",
     "ReleaseAsset",
+    "CatalogSnapshot",
+    "CatalogTrust",
+    "TrustedCatalogAsset",
     "DownloadSnapshot",
     "DownloadSpec",
     "DownloadState",
     "InstallPhase",
+    "InstallHealth",
+    "InstallAudit",
+    "OwnedFile",
+    "UserSettings",
     "InstallPlan",
     "InstallReceipt",
 ]

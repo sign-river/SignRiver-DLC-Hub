@@ -16,3 +16,7 @@ def test_download_snapshot_round_trip_and_recovery(tmp_path: Path) -> None:
     repository.save(ready)
     assert repository.list_all() == (ready,)
     assert repository.recoverable() == ()
+    assert repository.delete_terminal() == 0
+    repository.save(ready.evolve(state=DownloadState.CANCELLED))
+    assert repository.delete_terminal() == 1
+    assert repository.list_all() == ()

@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from ...domain import InstallPhase, InstallPlan, InstallReceipt
+from ...domain import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
 from ..catalog import inspect_stellaris_package
 
 _DLC_DIRECTORY = re.compile(r"^dlc\d{3}_[a-z0-9_]+$", re.I)
@@ -102,6 +102,130 @@ class StellarisInstallEngine:
             package_sha256=plan.package_sha256,
             replaced_existing=replaced_existing,
             backup_path=backup if replaced_existing else None,
+            installed_tree_sha256=self._tree_sha256(target),
+            owned_files=self._owned_files(target),
+        )
+
+    def verify(self, receipt: InstallReceipt, allowed_game_root: Path) -> bool:
+        return self.assess(receipt, allowed_game_root) is InstallHealth.HEALTHY
+
+    def assess(self, receipt: InstallReceipt, allowed_game_root: Path) -> InstallHealth:
+        return self.audit(receipt, allowed_game_root).health
+
+    def audit(self, receipt: InstallReceipt, allowed_game_root: Path) -> InstallAudit:
+        target = self._trusted_receipt_target(receipt, allowed_game_root)
+        if not target.is_dir():
+            return InstallAudit(
+                InstallHealth.MISSING,
+                missing=tuple(item.relative_path for item in receipt.owned_files),
+            )
+        expected = {item.relative_path: item for item in receipt.owned_files}
+        actual_paths = {
+            path.relative_to(target).as_posix(): path
+            for path in target.rglob("*") if path.is_file()
+        }
+        missing = tuple(sorted(set(expected) - set(actual_paths)))
+        unknown = tuple(sorted(set(actual_paths) - set(expected)))
+        modified = []
+        for relative in sorted(set(expected) & set(actual_paths)):
+            record = expected[relative]
+            path = actual_paths[relative]
+            if path.stat().st_size != record.size or self._sha256(path) != record.sha256:
+                modified.append(relative)
+        if not target.exists() or (missing and len(missing) == len(expected)):
+            health = InstallHealth.MISSING
+        elif missing or modified or unknown:
+            health = InstallHealth.MODIFIED
+        else:
+            health = InstallHealth.HEALTHY
+        return InstallAudit(health, missing, tuple(modified), unknown)
+
+    def repair_missing(
+        self,
+        receipt: InstallReceipt,
+        package_path: Path,
+        allowed_game_root: Path,
+    ) -> InstallAudit:
+        """Restore only absent owned files; modified and unknown files are preserved."""
+        target = self._trusted_receipt_target(receipt, allowed_game_root)
+        package_path = Path(package_path).resolve(strict=True)
+        if self._sha256(package_path) != receipt.package_sha256:
+            raise InstallError("repair package SHA-256 does not match install receipt")
+        before = self.audit(receipt, allowed_game_root)
+        if not before.missing:
+            return before
+        target.mkdir(parents=True, exist_ok=True)
+        root_name = target.name
+        wanted = set(before.missing)
+        restored = set()
+        with zipfile.ZipFile(package_path) as archive:
+            for info in archive.infolist():
+                member = PurePosixPath(info.filename.replace("\\", "/"))
+                if info.is_dir() or len(member.parts) < 2:
+                    continue
+                if member.parts[0].casefold() != root_name.casefold():
+                    continue
+                relative = PurePosixPath(*member.parts[1:]).as_posix()
+                if relative not in wanted:
+                    continue
+                destination = target.joinpath(*member.parts[1:])
+                self._contained(target, destination)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                temporary = destination.with_name(destination.name + ".repair.tmp")
+                with archive.open(info) as source, temporary.open("xb") as output:
+                    shutil.copyfileobj(source, output, 1024 * 1024)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, destination)
+                restored.add(relative)
+        if restored != wanted:
+            raise InstallError("repair package is missing files recorded by the receipt")
+        return self.audit(receipt, allowed_game_root)
+
+    def uninstall(self, receipt: InstallReceipt, allowed_game_root: Path) -> None:
+        """Remove exactly the recorded tree, restoring a displaced predecessor."""
+        target = self._trusted_receipt_target(receipt, allowed_game_root)
+        if not target.is_dir():
+            raise InstallError("installed DLC directory is missing")
+        if self._tree_sha256(target) != receipt.installed_tree_sha256:
+            raise InstallError("installed DLC files were modified; refusing unsafe uninstall")
+        transaction_root = self.data_root / "transactions" / f"uninstall-{receipt.transaction_id}"
+        removed = transaction_root / "removed" / target.name
+        journal = transaction_root / "journal.json"
+        transaction_root.mkdir(parents=True, exist_ok=True)
+        self._write_simple_journal(journal, "removing", receipt)
+        try:
+            removed.parent.mkdir(parents=True, exist_ok=True)
+            self._replace(target, removed)
+            if receipt.backup_path is not None and receipt.backup_path.exists():
+                self._contained(self.data_root / "backups", receipt.backup_path)
+                self._replace(receipt.backup_path, target)
+            self._write_simple_journal(journal, "committed", receipt)
+            if removed.exists():
+                shutil.rmtree(removed)
+        except Exception as error:
+            try:
+                if not target.exists() and removed.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    self._replace(removed, target)
+                self._write_simple_journal(journal, "rolled_back", receipt)
+            except Exception as rollback_error:
+                raise InstallError(f"uninstall rollback failed: {rollback_error}") from rollback_error
+            raise InstallError(f"uninstall failed and was rolled back: {error}") from error
+
+    def uninstall_committed(self, receipt: InstallReceipt) -> bool:
+        journal = (
+            self.data_root / "transactions" /
+            f"uninstall-{receipt.transaction_id}" / "journal.json"
+        )
+        try:
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+        return (
+            payload.get("operation") == "uninstall"
+            and payload.get("transaction_id") == receipt.transaction_id
+            and payload.get("phase") == "committed"
         )
 
     def recover_incomplete(self, allowed_game_roots) -> tuple[str, ...]:
@@ -215,6 +339,31 @@ class StellarisInstallEngine:
         os.replace(temporary, plan.journal_path)
 
     @staticmethod
+    def _write_simple_journal(path: Path, phase: str, receipt: InstallReceipt) -> None:
+        payload = {
+            "schema_version": 1,
+            "operation": "uninstall",
+            "phase": phase,
+            "transaction_id": receipt.transaction_id,
+            "dlc_id": receipt.dlc_id,
+            "target_path": str(receipt.target_path),
+            "installed_tree_sha256": receipt.installed_tree_sha256,
+        }
+        temporary = path.with_suffix(".json.tmp")
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+
+    def _trusted_receipt_target(self, receipt, allowed_game_root) -> Path:
+        game_root = Path(allowed_game_root).resolve(strict=True)
+        target = self._contained(game_root / "dlc", receipt.target_path)
+        if target.parent != (game_root / "dlc").resolve():
+            raise InstallError("receipt target is not a direct Stellaris DLC directory")
+        return target
+
+    @staticmethod
     def _contained(root: Path, candidate: Path) -> Path:
         root = root.resolve(strict=False)
         candidate = candidate.resolve(strict=False)
@@ -242,3 +391,33 @@ class StellarisInstallEngine:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(block)
         return digest.hexdigest()
+
+    @staticmethod
+    def _tree_sha256(root: Path) -> str:
+        digest = hashlib.sha256()
+        files = sorted(
+            (path for path in root.rglob("*") if path.is_file()),
+            key=lambda path: path.relative_to(root).as_posix().casefold(),
+        )
+        for path in files:
+            relative = path.relative_to(root).as_posix().encode("utf-8")
+            digest.update(len(relative).to_bytes(4, "big"))
+            digest.update(relative)
+            with path.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+        return digest.hexdigest()
+
+    @classmethod
+    def _owned_files(cls, root: Path) -> tuple[OwnedFile, ...]:
+        records = []
+        for path in sorted(
+            (item for item in root.rglob("*") if item.is_file()),
+            key=lambda item: item.relative_to(root).as_posix().casefold(),
+        ):
+            records.append(OwnedFile(
+                relative_path=path.relative_to(root).as_posix(),
+                size=path.stat().st_size,
+                sha256=cls._sha256(path),
+            ))
+        return tuple(records)

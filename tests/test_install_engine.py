@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from signriver_app.domain import InstallPhase
+from signriver_app.domain import InstallHealth, InstallPhase
 from signriver_app.infrastructure.installs import InstallError, StellarisInstallEngine
 
 
@@ -146,3 +146,104 @@ def test_recovery_ignores_transaction_for_unapproved_game_root(tmp_path: Path) -
     engine._write_journal(plan, InstallPhase.STAGED, False)
     assert engine.recover_incomplete([]) == ()
     assert json.loads(plan.journal_path.read_text(encoding="utf-8"))["phase"] == InstallPhase.STAGED
+
+
+def test_verify_and_uninstall_unchanged_installation(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-remove")
+    )
+    assert engine.verify(receipt, game) is True
+    assert engine.assess(receipt, game) is InstallHealth.HEALTHY
+    engine.uninstall(receipt, game)
+    assert not receipt.target_path.exists()
+    journal = json.loads(
+        (tmp_path / "data" / "transactions" / "uninstall-txn-remove" / "journal.json").read_text(encoding="utf-8")
+    )
+    assert journal["phase"] == "committed"
+
+
+def test_uninstall_refuses_user_modified_files(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-modified")
+    )
+    (receipt.target_path / "user-file.txt").write_text("keep", encoding="utf-8")
+    assert engine.verify(receipt, game) is False
+    assert engine.assess(receipt, game) is InstallHealth.MODIFIED
+    with pytest.raises(InstallError, match="modified"):
+        engine.uninstall(receipt, game)
+    assert (receipt.target_path / "user-file.txt").is_file()
+
+
+def test_assess_reports_missing_installation(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-missing")
+    )
+    import shutil
+    shutil.rmtree(receipt.target_path)
+    assert engine.assess(receipt, game) is InstallHealth.MISSING
+
+
+def test_audit_classifies_missing_modified_and_unknown_files(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-audit")
+    )
+    (receipt.target_path / "thumbnail.png").unlink()
+    (receipt.target_path / "dlc001.dlc").write_text("changed", encoding="utf-8")
+    (receipt.target_path / "notes.txt").write_text("user", encoding="utf-8")
+    audit = engine.audit(receipt, game)
+    assert audit.health is InstallHealth.MODIFIED
+    assert audit.missing == ("thumbnail.png",)
+    assert audit.modified == ("dlc001.dlc",)
+    assert audit.unknown == ("notes.txt",)
+
+
+def test_repair_restores_only_missing_owned_files(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-repair")
+    )
+    (receipt.target_path / "thumbnail.png").unlink()
+    (receipt.target_path / "dlc001.dlc").write_text("user change", encoding="utf-8")
+    (receipt.target_path / "notes.txt").write_text("keep", encoding="utf-8")
+    after = engine.repair_missing(receipt, package, game)
+    assert (receipt.target_path / "thumbnail.png").read_bytes() == b"image"
+    assert (receipt.target_path / "dlc001.dlc").read_text(encoding="utf-8") == "user change"
+    assert (receipt.target_path / "notes.txt").read_text(encoding="utf-8") == "keep"
+    assert after.missing == ()
+    assert after.modified == ("dlc001.dlc",)
+    assert after.unknown == ("notes.txt",)
+
+
+def test_uninstall_restores_pre_install_backup(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    existing = game / "dlc" / "dlc001_symbols_of_domination"
+    existing.mkdir()
+    (existing / "old.txt").write_text("old", encoding="utf-8")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(package, game, expected_sha256=digest, transaction_id="txn-restore")
+    )
+    engine.uninstall(receipt, game)
+    assert (existing / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not (existing / "dlc001.dlc").exists()

@@ -67,6 +67,21 @@ class DownloadTaskRepository:
         }
         return tuple(item for item in self.list_all() if item.state not in terminal)
 
+    def delete_terminal(self) -> int:
+        terminal = tuple(state.value for state in (
+            DownloadState.CANCELLED, DownloadState.FAILED, DownloadState.CORRUPT,
+        ))
+        placeholders = ",".join("?" for _ in terminal)
+        try:
+            with self.database.transaction() as connection:
+                cursor = connection.execute(
+                    f"DELETE FROM download_tasks WHERE state IN ({placeholders})",
+                    terminal,
+                )
+                return cursor.rowcount
+        except Exception as error:
+            raise PersistenceError("could not clear completed download tasks") from error
+
     @staticmethod
     def _from_row(row) -> DownloadSnapshot:
         spec = DownloadSpec(

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "transaction_id": "txn-remove",
+  "game_id": "stellaris",
+  "dlc_id": "dlc001",
+  "phase": "committed",
+  "package_sha256": "fdc28a6ad4838fcf3021409ddb08b16304e8a034fe5b00638c8dde4d6e3dfd50",
+  "package_path": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-release-fix-20260712\\test_verify_and_uninstall_unch0\\dlc001.zip",
+  "game_root": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-release-fix-20260712\\test_verify_and_uninstall_unch0\\Stellaris",
+  "target": "dlc/dlc001_symbols_of_domination",
+  "replaced_existing": false
+}

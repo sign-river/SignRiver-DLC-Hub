@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "transaction_id": "txn-update",
+  "game_id": "stellaris",
+  "dlc_id": "dlc001",
+  "phase": "committed",
+  "package_sha256": "4c862a58de447e6a5b095a16a3cfc4fd3b71708cb9bec85011d03200f00920bd",
+  "package_path": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-receipts-final-20260712\\test_install_replaces_existing0\\dlc001.zip",
+  "game_root": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-receipts-final-20260712\\test_install_replaces_existing0\\Stellaris",
+  "target": "dlc/dlc001_symbols_of_domination",
+  "replaced_existing": true
+}

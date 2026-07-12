@@ -15,6 +15,27 @@ class InstallPhase(StrEnum):
     ROLLED_BACK = "rolled_back"
 
 
+class InstallHealth(StrEnum):
+    HEALTHY = "healthy"
+    MISSING = "missing"
+    MODIFIED = "modified"
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedFile:
+    relative_path: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstallAudit:
+    health: InstallHealth
+    missing: tuple[str, ...] = ()
+    modified: tuple[str, ...] = ()
+    unknown: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class InstallPlan:
     transaction_id: str
@@ -42,4 +63,6 @@ class InstallReceipt:
     package_sha256: str
     replaced_existing: bool
     backup_path: Path | None
-
+    installed_tree_sha256: str
+    owned_files: tuple[OwnedFile, ...] = ()
+    previous_transaction_id: str | None = None

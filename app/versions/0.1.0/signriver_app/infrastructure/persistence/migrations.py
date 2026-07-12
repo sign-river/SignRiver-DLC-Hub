@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 7
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -64,6 +64,65 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
         """,
         """
         CREATE INDEX idx_download_tasks_state ON download_tasks (state)
+        """,
+    ),
+    3: (
+        """
+        CREATE TABLE install_receipts (
+            transaction_id TEXT PRIMARY KEY NOT NULL,
+            game_id TEXT NOT NULL,
+            dlc_id TEXT NOT NULL,
+            target_path TEXT NOT NULL,
+            package_sha256 TEXT NOT NULL,
+            replaced_existing INTEGER NOT NULL CHECK (replaced_existing IN (0, 1)),
+            backup_path TEXT,
+            installed_tree_sha256 TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('installed', 'uninstalled')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE INDEX idx_install_receipts_game_dlc
+        ON install_receipts (game_id, dlc_id, status)
+        """,
+    ),
+    4: (
+        """
+        CREATE TABLE install_owned_files (
+            transaction_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            size INTEGER NOT NULL CHECK (size >= 0),
+            sha256 TEXT NOT NULL,
+            PRIMARY KEY (transaction_id, relative_path),
+            FOREIGN KEY (transaction_id) REFERENCES install_receipts(transaction_id)
+                ON DELETE CASCADE
+        )
+        """,
+    ),
+    5: (
+        """
+        ALTER TABLE install_receipts ADD COLUMN previous_transaction_id TEXT
+        """,
+        """
+        CREATE UNIQUE INDEX ux_install_receipts_active_game_dlc
+        ON install_receipts (game_id, dlc_id) WHERE status = 'installed'
+        """,
+    ),
+    6: (
+        """
+        CREATE TABLE user_settings (
+            singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+            download_concurrency INTEGER NOT NULL CHECK (download_concurrency BETWEEN 1 AND 8),
+            bandwidth_limit_kib INTEGER CHECK (bandwidth_limit_kib IS NULL OR bandwidth_limit_kib > 0),
+            updated_at TEXT NOT NULL
+        )
+        """,
+    ),
+    7: (
+        """
+        ALTER TABLE user_settings ADD COLUMN onboarding_completed INTEGER NOT NULL
+        DEFAULT 0 CHECK (onboarding_completed IN (0, 1))
         """,
     ),
 }

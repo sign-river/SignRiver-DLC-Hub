@@ -14,6 +14,7 @@ from .game_discovery import (
 )
 from .dlc_catalog import StellarisCatalogService
 from .download_queue import DownloadQueue
+from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
 
 __all__ = [
     "DiscoveryIssue",
@@ -28,4 +29,7 @@ __all__ = [
     "InvalidAdapterResultError",
     "StellarisCatalogService",
     "DownloadQueue",
+    "AuditedInstallation",
+    "DlcInstallService",
+    "InstallServiceError",
 ]

@@ -50,7 +50,7 @@ def make_installation(
 def test_database_initializes_schema_and_connection_pragmas(tmp_path: Path) -> None:
     database = Database(tmp_path / "nested" / "hub.sqlite3")
 
-    assert database.initialize() == LATEST_SCHEMA_VERSION == 2
+    assert database.initialize() == LATEST_SCHEMA_VERSION == 7
     assert database.path.is_file()
     assert database.schema_version() == LATEST_SCHEMA_VERSION
 

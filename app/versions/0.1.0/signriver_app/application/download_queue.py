@@ -98,6 +98,23 @@ class DownloadQueue:
         with self._lock:
             return tuple(self._snapshots.values())
 
+    def clear_terminal(self) -> int:
+        terminal = {
+            DownloadState.CANCELLED, DownloadState.FAILED, DownloadState.CORRUPT,
+        }
+        with self._lock:
+            removable = [
+                task_id for task_id, snapshot in self._snapshots.items()
+                if snapshot.state in terminal
+            ]
+            if self.repository is not None:
+                self.repository.delete_terminal()
+            for task_id in removable:
+                self._snapshots.pop(task_id, None)
+                self._futures.pop(task_id, None)
+                self._controls.pop(task_id, None)
+            return len(removable)
+
     def shutdown(self, *, wait: bool = False) -> None:
         with self._lock:
             for control in self._controls.values():

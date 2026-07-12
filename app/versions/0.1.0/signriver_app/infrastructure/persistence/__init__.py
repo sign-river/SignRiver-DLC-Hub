@@ -11,6 +11,8 @@ from .errors import (
 from .game_installations import GameInstallationRepository
 from .migrations import LATEST_SCHEMA_VERSION
 from .download_tasks import DownloadTaskRepository
+from .install_receipts import InstallReceiptRepository
+from .settings import UserSettingsRepository
 
 __all__ = [
     "Database",
@@ -18,6 +20,8 @@ __all__ = [
     "InstallationNotFoundError",
     "LATEST_SCHEMA_VERSION",
     "DownloadTaskRepository",
+    "InstallReceiptRepository",
+    "UserSettingsRepository",
     "MigrationError",
     "PersistenceConflictError",
     "PersistenceError",
