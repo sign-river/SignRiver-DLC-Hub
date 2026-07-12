@@ -1,0 +1,2 @@
+[console_scripts]
+signriver-dlc-hub = signriver_launcher.main:main

@@ -1,0 +1,6 @@
+customtkinter<6,>=5.2
+Pillow<13,>=10
+
+[dev]
+pytest<10,>=8
+pyinstaller<7,>=6
