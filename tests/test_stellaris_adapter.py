@@ -15,6 +15,7 @@ from signriver_app.adapters.common import (
 from signriver_app.adapters.stellaris import (
     STELLARIS_STEAM_APP_ID,
     StellarisSteamAdapter,
+    discover_installed_dlc,
 )
 from signriver_app.application import GameDiscoveryService
 from signriver_app.domain import GameInstallation
@@ -23,6 +24,18 @@ from signriver_app.infrastructure.persistence import Database, GameInstallationR
 
 def vdf_path(path: Path) -> str:
     return str(path).replace("\\", "\\\\")
+
+
+def test_discover_installed_dlc_reads_only_valid_package_directories(tmp_path: Path) -> None:
+    dlc_root = tmp_path / "dlc"
+    (dlc_root / "dlc001_symbols_of_domination").mkdir(parents=True)
+    (dlc_root / "DLC042_VIPRA_THE_VAPOR").mkdir()
+    (dlc_root / "dlc_bad").mkdir()
+    (dlc_root / "dlc002_file_only").write_text("not a directory", encoding="utf-8")
+
+    installed = discover_installed_dlc(tmp_path)
+
+    assert set(installed) == {"dlc001", "dlc042"}
 
 
 def write_steam_fixture(
@@ -225,3 +238,32 @@ def test_stellaris_inspection_rejects_foreign_installation(tmp_path: Path) -> No
 
     with pytest.raises(ValueError, match="game_id"):
         adapter.inspect(installation)
+
+
+def test_remove_installed_dlc_only_deletes_requested_recognized_directory(
+    tmp_path: Path,
+) -> None:
+    from signriver_app.adapters.stellaris import remove_installed_dlc
+
+    root = tmp_path / "Stellaris"
+    first = root / "dlc" / "dlc001_symbols"
+    second = root / "dlc" / "dlc002_arachnoid"
+    first.mkdir(parents=True)
+    second.mkdir()
+    (first / "payload.bin").write_bytes(b"one")
+    (second / "payload.bin").write_bytes(b"two")
+
+    removed = remove_installed_dlc(root, "dlc001")
+
+    assert removed.name == "dlc001_symbols"
+    assert not first.exists()
+    assert second.is_dir()
+
+
+def test_remove_installed_dlc_rejects_invalid_id(tmp_path: Path) -> None:
+    from signriver_app.adapters.stellaris import remove_installed_dlc
+
+    root = tmp_path / "Stellaris"
+    (root / "dlc").mkdir(parents=True)
+    with pytest.raises(ValueError, match="invalid Stellaris DLC ID"):
+        remove_installed_dlc(root, "../dlc001")

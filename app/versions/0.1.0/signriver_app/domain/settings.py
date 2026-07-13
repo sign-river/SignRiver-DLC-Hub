@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class UserSettings:
-    download_concurrency: int = 2
+    download_concurrency: int = 1
     bandwidth_limit_kib: int | None = None
     onboarding_completed: bool = False
 

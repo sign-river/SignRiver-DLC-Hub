@@ -10,7 +10,7 @@ from .games import (
     PathInput,
     ValidationResult,
 )
-from .catalog import CatalogSnapshot, CatalogTrust, DlcCatalogEntry, NormalizedRelease, ReleaseAsset, TrustedCatalogAsset
+from .catalog import DlcCatalogEntry, NormalizedRelease, ReleaseAsset
 from .downloads import DownloadSnapshot, DownloadSpec, DownloadState
 from .installs import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
 from .settings import UserSettings
@@ -27,9 +27,6 @@ __all__ = [
     "DlcCatalogEntry",
     "NormalizedRelease",
     "ReleaseAsset",
-    "CatalogSnapshot",
-    "CatalogTrust",
-    "TrustedCatalogAsset",
     "DownloadSnapshot",
     "DownloadSpec",
     "DownloadState",

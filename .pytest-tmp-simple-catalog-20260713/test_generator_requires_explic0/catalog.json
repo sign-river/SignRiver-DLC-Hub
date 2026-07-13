@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "catalog_id": "stellaris-ste",
+  "game_id": "stellaris",
+  "revision": 1,
+  "assets": [
+    {
+      "dlc_id": "dlc001",
+      "asset_name": "dlc001_symbols_of_domination.zip",
+      "size": 525,
+      "sha256": "4e2f6216521ec2c1cbc3737b3096712d652310c2c8bc5f1f23a348de94ba3d0d",
+      "min_game_version": null,
+      "max_game_version": null,
+      "distribution_authorized": true
+    }
+  ],
+  "signature": {
+    "key_id": "unsigned-draft",
+    "value": "UNSIGNED_DRAFT_REQUIRES_PUBLISHER_SIGNATURE_0000000000000000"
+  }
+}

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -21,6 +23,42 @@ from ...domain import (
 
 STELLARIS_STEAM_APP_ID = "281990"
 MAX_LAUNCHER_SETTINGS_BYTES = 1024 * 1024
+_DLC_DIRECTORY = re.compile(r"^(dlc\d{3})_[a-z0-9_]+$", re.I)
+
+
+def discover_installed_dlc(game_root: Path) -> dict[str, Path]:
+    """Return DLC IDs whose package directory exists in a Stellaris install."""
+    dlc_root = Path(game_root) / "dlc"
+    try:
+        children = tuple(dlc_root.iterdir())
+    except OSError:
+        return {}
+    installed = {}
+    for path in children:
+        match = _DLC_DIRECTORY.fullmatch(path.name)
+        if match is not None and path.is_dir():
+            installed[match.group(1).casefold()] = path
+    return installed
+
+
+def remove_installed_dlc(game_root: Path, dlc_id: str) -> Path:
+    """Remove one recognized DLC directory without escaping the game DLC root."""
+    if not re.fullmatch(r"dlc\d{3}", dlc_id, re.I):
+        raise ValueError("invalid Stellaris DLC ID")
+    root = Path(game_root).resolve(strict=True)
+    dlc_root = (root / "dlc").resolve(strict=True)
+    try:
+        dlc_root.relative_to(root)
+    except ValueError as error:
+        raise ValueError("Stellaris DLC directory escapes the game root") from error
+    target = discover_installed_dlc(root).get(dlc_id.casefold())
+    if target is None:
+        raise FileNotFoundError(f"installed DLC directory not found: {dlc_id}")
+    resolved = target.resolve(strict=True)
+    if resolved.parent != dlc_root or _DLC_DIRECTORY.fullmatch(resolved.name) is None:
+        raise ValueError("refusing to remove an unsafe DLC directory")
+    shutil.rmtree(resolved)
+    return resolved
 
 
 class StellarisSteamAdapter:
@@ -245,4 +283,7 @@ def _is_process_running(executable: Path) -> bool:
     return executable.name.casefold() in result.stdout.casefold()
 
 
-__all__ = ["STELLARIS_STEAM_APP_ID", "StellarisSteamAdapter"]
+__all__ = [
+    "STELLARIS_STEAM_APP_ID", "StellarisSteamAdapter",
+    "discover_installed_dlc", "remove_installed_dlc",
+]

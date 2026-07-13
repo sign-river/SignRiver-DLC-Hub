@@ -97,21 +97,30 @@ class DownloadManager:
         for attempt in range(1, self.policy.attempts + 1):
             if control.cancel_requested:
                 part.unlink(missing_ok=True)
-                return self._emit(snapshot.evolve(state=DownloadState.CANCELLED, attempt=attempt), notify)
+                return self._emit(snapshot.evolve(
+                    state=DownloadState.CANCELLED, attempt=attempt, error=None,
+                    speed_bytes_per_second=None, eta_seconds=None,
+                ), notify)
             if control.pause_requested:
-                return self._emit(snapshot.evolve(state=DownloadState.PAUSED, attempt=attempt), notify)
+                return self._emit(snapshot.evolve(
+                    state=DownloadState.PAUSED, attempt=attempt, error=None,
+                    speed_bytes_per_second=None, eta_seconds=None,
+                ), notify)
             snapshot = self._emit(snapshot.evolve(state=DownloadState.DOWNLOADING, attempt=attempt, error=None), notify)
             digest = hashlib.sha256()
             downloaded = 0
+            cancelled = False
+            paused = False
             started_at = self._clock()
             try:
                 with closing(self._opener(spec.url, self.policy.timeout)) as response, part.open("wb") as output:
                     while True:
                         if control.cancel_requested:
-                            part.unlink(missing_ok=True)
-                            return self._emit(snapshot.evolve(state=DownloadState.CANCELLED, bytes_downloaded=downloaded), notify)
+                            cancelled = True
+                            break
                         if control.pause_requested:
-                            return self._emit(snapshot.evolve(state=DownloadState.PAUSED, bytes_downloaded=downloaded), notify)
+                            paused = True
+                            break
                         block = response.read(self.policy.chunk_size)
                         if not block:
                             break
@@ -132,8 +141,29 @@ class DownloadManager:
                             remaining_delay = expected_elapsed - (self._clock() - started_at)
                             if remaining_delay > 0:
                                 self._sleep(remaining_delay)
-                    output.flush()
-                    os.fsync(output.fileno())
+                    if not cancelled and not paused:
+                        output.flush()
+                        os.fsync(output.fileno())
+                if cancelled:
+                    part.unlink(missing_ok=True)
+                    return self._emit(snapshot.evolve(
+                        state=DownloadState.CANCELLED,
+                        bytes_downloaded=downloaded,
+                        error=None,
+                        speed_bytes_per_second=None,
+                        eta_seconds=None,
+                    ), notify)
+                if paused:
+                    # GitLink does not support a reliable Range resume. Close the
+                    # file first, discard the half package, and restart it later.
+                    part.unlink(missing_ok=True)
+                    return self._emit(snapshot.evolve(
+                        state=DownloadState.PAUSED,
+                        bytes_downloaded=0,
+                        error=None,
+                        speed_bytes_per_second=None,
+                        eta_seconds=None,
+                    ), notify)
                 actual_hash = digest.hexdigest()
                 snapshot = self._emit(snapshot.evolve(state=DownloadState.VERIFYING, bytes_downloaded=downloaded, sha256=actual_hash), notify)
                 if spec.expected_size is not None and downloaded != spec.expected_size:
@@ -154,6 +184,22 @@ class DownloadManager:
                 return self._emit(snapshot.evolve(state=DownloadState.CORRUPT, bytes_downloaded=downloaded, error=str(error)), notify)
             except (OSError, TimeoutError) as error:
                 part.unlink(missing_ok=True)
+                if control.cancel_requested:
+                    return self._emit(snapshot.evolve(
+                        state=DownloadState.CANCELLED,
+                        bytes_downloaded=0,
+                        error=None,
+                        speed_bytes_per_second=None,
+                        eta_seconds=None,
+                    ), notify)
+                if control.pause_requested:
+                    return self._emit(snapshot.evolve(
+                        state=DownloadState.PAUSED,
+                        bytes_downloaded=0,
+                        error=None,
+                        speed_bytes_per_second=None,
+                        eta_seconds=None,
+                    ), notify)
                 if attempt == self.policy.attempts:
                     return self._emit(snapshot.evolve(state=DownloadState.FAILED, bytes_downloaded=downloaded, error=str(error)), notify)
                 snapshot = self._emit(snapshot.evolve(state=DownloadState.RETRYING, bytes_downloaded=downloaded, error=str(error)), notify)

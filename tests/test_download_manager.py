@@ -108,7 +108,136 @@ def test_cancel_removes_partial_file(tmp_path: Path) -> None:
     partial.write_bytes(b"old")
     result = DownloadManager(tmp_path, opener=lambda *_args: io.BytesIO(DATA)).run(spec(), control)
     assert result.state is DownloadState.CANCELLED
+    assert result.error is None
     assert not partial.exists()
+
+
+def test_cancel_closes_partial_before_unlinking(tmp_path: Path, monkeypatch) -> None:
+    control = DownloadControl()
+    part = tmp_path / "downloads" / "stellaris-dlc001.part"
+    active = False
+    original_open = Path.open
+    original_unlink = Path.unlink
+
+    class TrackedOutput:
+        def __init__(self, handle) -> None:
+            self.handle = handle
+
+        def __enter__(self):
+            nonlocal active
+            active = True
+            return self.handle
+
+        def __exit__(self, *args):
+            nonlocal active
+            active = False
+            return self.handle.__exit__(*args)
+
+    def tracked_open(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == part and args and args[0] == "wb":
+            return TrackedOutput(handle)
+        return handle
+
+    def guarded_unlink(path, *args, **kwargs):
+        if path == part and active:
+            raise PermissionError(32, "file is still open", str(path))
+        return original_unlink(path, *args, **kwargs)
+
+    class CancelDuringRead(io.BytesIO):
+        def read(self, size=-1):
+            block = super().read(size)
+            control.cancel()
+            return block
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    monkeypatch.setattr(Path, "unlink", guarded_unlink)
+    manager = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(chunk_size=len(DATA)),
+        opener=lambda *_args: CancelDuringRead(DATA),
+    )
+
+    result = manager.run(spec(), control)
+
+    assert result.state is DownloadState.CANCELLED
+    assert result.error is None
+    assert not part.exists()
+
+
+def test_pause_closes_and_discards_partial_before_returning(tmp_path: Path, monkeypatch) -> None:
+    control = DownloadControl()
+    part = tmp_path / "downloads" / "stellaris-dlc001.part"
+    active = False
+    original_open = Path.open
+    original_unlink = Path.unlink
+
+    class TrackedOutput:
+        def __init__(self, handle) -> None:
+            self.handle = handle
+
+        def __enter__(self):
+            nonlocal active
+            active = True
+            return self.handle
+
+        def __exit__(self, *args):
+            nonlocal active
+            active = False
+            return self.handle.__exit__(*args)
+
+    def tracked_open(path, *args, **kwargs):
+        handle = original_open(path, *args, **kwargs)
+        if path == part and args and args[0] == "wb":
+            return TrackedOutput(handle)
+        return handle
+
+    def guarded_unlink(path, *args, **kwargs):
+        if path == part and active:
+            raise PermissionError(32, "file is still open", str(path))
+        return original_unlink(path, *args, **kwargs)
+
+    class PauseDuringRead(io.BytesIO):
+        def read(self, size=-1):
+            block = super().read(size)
+            control.pause()
+            return block
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    monkeypatch.setattr(Path, "unlink", guarded_unlink)
+    manager = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(chunk_size=len(DATA)),
+        opener=lambda *_args: PauseDuringRead(DATA),
+    )
+
+    result = manager.run(spec(), control)
+
+    assert result.state is DownloadState.PAUSED
+    assert result.bytes_downloaded == 0
+    assert result.error is None
+    assert not part.exists()
+
+
+def test_pause_wins_over_a_simultaneous_network_error(tmp_path: Path) -> None:
+    control = DownloadControl()
+
+    class PauseThenFail(io.BytesIO):
+        def read(self, size=-1):
+            control.pause()
+            raise OSError("connection reset while pausing")
+
+    manager = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(attempts=3, retry_delay=0),
+        opener=lambda *_args: PauseThenFail(DATA),
+    )
+
+    result = manager.run(spec(), control)
+
+    assert result.state is DownloadState.PAUSED
+    assert result.error is None
+    assert result.bytes_downloaded == 0
 
 
 def test_package_verifier_failure_is_quarantined(tmp_path: Path) -> None:

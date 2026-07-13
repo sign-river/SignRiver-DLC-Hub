@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "transaction_id": "4616ed783c554feaa739492d5f349d0d",
+  "game_id": "stellaris",
+  "dlc_id": "dlc001",
+  "phase": "committed",
+  "package_sha256": "7b8f10fdb1d3f9c2ca6be8e79c88f38214c93576bfaec0429541edb9fb3729a8",
+  "package_path": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-remove-dlc-manifest-focused-20260714\\test_receipt_save_failure_comp0\\dlc001.zip",
+  "game_root": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-remove-dlc-manifest-focused-20260714\\test_receipt_save_failure_comp0\\Stellaris",
+  "target": "dlc/dlc001_symbols_of_domination",
+  "replaced_existing": false
+}

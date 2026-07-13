@@ -82,6 +82,14 @@ class DownloadTaskRepository:
         except Exception as error:
             raise PersistenceError("could not clear completed download tasks") from error
 
+    def delete_all(self) -> int:
+        try:
+            with self.database.transaction() as connection:
+                cursor = connection.execute("DELETE FROM download_tasks")
+                return cursor.rowcount
+        except Exception as error:
+            raise PersistenceError("could not clear download task history") from error
+
     @staticmethod
     def _from_row(row) -> DownloadSnapshot:
         spec = DownloadSpec(

@@ -87,18 +87,6 @@ class GitLinkReleaseSource:
                 return release
         raise ReleaseSourceError(f"GitLink release tag not found: {tag}")
 
-    def read_asset(self, asset: ReleaseAsset, max_bytes: int = 2 * 1024 * 1024) -> bytes:
-        parsed = urlparse(asset.download_url)
-        base = urlparse(self.config.base_url)
-        if parsed.scheme != "https" or parsed.netloc != base.netloc:
-            raise ReleaseSourceError("GitLink asset is outside the configured HTTPS origin")
-        if max_bytes < 1:
-            raise ValueError("max_bytes must be positive")
-        try:
-            return self._fetch(asset.download_url, self.timeout, max_bytes)
-        except (OSError, ValueError, TypeError) as error:
-            raise ReleaseSourceError(f"unable to read GitLink asset: {error}") from error
-
     def _normalize_release(self, value: object) -> NormalizedRelease:
         if not isinstance(value, dict):
             raise ReleaseSourceError("GitLink returned a malformed release")

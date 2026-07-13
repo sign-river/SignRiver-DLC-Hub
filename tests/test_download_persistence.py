@@ -20,3 +20,18 @@ def test_download_snapshot_round_trip_and_recovery(tmp_path: Path) -> None:
     repository.save(ready.evolve(state=DownloadState.CANCELLED))
     assert repository.delete_terminal() == 1
     assert repository.list_all() == ()
+
+
+def test_download_repository_can_clear_all_states(tmp_path: Path) -> None:
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    repository.save(DownloadSnapshot(
+        DownloadSpec("ready", "https://example.test/a.zip", "a.zip"),
+        DownloadState.READY,
+    ))
+    repository.save(DownloadSnapshot(
+        DownloadSpec("paused", "https://example.test/b.zip", "b.zip"),
+        DownloadState.PAUSED,
+    ))
+
+    assert repository.delete_all() == 2
+    assert repository.list_all() == ()

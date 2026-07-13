@@ -1,6 +1,13 @@
 """Stellaris game adapter."""
 
-from .adapter import STELLARIS_STEAM_APP_ID, StellarisSteamAdapter
+from .adapter import (
+    STELLARIS_STEAM_APP_ID,
+    StellarisSteamAdapter,
+    discover_installed_dlc,
+    remove_installed_dlc,
+)
 
-__all__ = ["STELLARIS_STEAM_APP_ID", "StellarisSteamAdapter"]
-
+__all__ = [
+    "STELLARIS_STEAM_APP_ID", "StellarisSteamAdapter",
+    "discover_installed_dlc", "remove_installed_dlc",
+]

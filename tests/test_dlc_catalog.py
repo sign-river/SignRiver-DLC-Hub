@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from signriver_app.application import StellarisCatalogService
-from signriver_app.domain import CatalogTrust
 from signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig, PackageInspectionError, inspect_stellaris_package
 
 
@@ -33,9 +32,6 @@ def test_gitlink_source_normalizes_release_and_assets() -> None:
 def test_stellaris_catalog_ignores_non_dlc_assets() -> None:
     entries = StellarisCatalogService(make_source()).refresh()
     assert [(item.dlc_id, item.display_name) for item in entries] == [("dlc001", "Symbols Of Domination")]
-    snapshot = StellarisCatalogService(make_source()).refresh_snapshot()
-    assert snapshot.trust is CatalogTrust.MANIFEST_MISSING
-    assert snapshot.installation_allowed is False
 
 
 def write_package(path: Path) -> None:
@@ -71,33 +67,3 @@ def test_inspect_stellaris_package_rejects_traversal(tmp_path: Path) -> None:
 def test_gitlink_config_rejects_non_https() -> None:
     with pytest.raises(ValueError, match="HTTPS"):
         GitLinkSourceConfig("signriver", "file-warehouse", "http://example.test")
-
-
-def test_catalog_snapshot_becomes_installable_only_after_verified_manifest() -> None:
-    source_payload = json.loads(payload())
-    source_payload["releases"][0]["attachments"].append({
-        "id": 2, "title": "dlc-catalog.json", "filesize": "1 KB",
-        "url": "/signriver/file-warehouse/releases/download/ste/dlc-catalog.json",
-    })
-    source = GitLinkReleaseSource(
-        GitLinkSourceConfig("signriver", "file-warehouse"),
-        fetch=lambda *_args: json.dumps(source_payload).encode(),
-    )
-    manifest = {
-        "schema_version": 1, "catalog_id": "ste", "game_id": "stellaris", "revision": 1,
-        "assets": [{
-            "dlc_id": "dlc001", "asset_name": "dlc001_symbols_of_domination.zip",
-            "size": 77375, "sha256": "e" * 64,
-            "min_game_version": "4.4.0", "max_game_version": None,
-            "distribution_authorized": True,
-        }],
-        "signature": {"key_id": "publisher", "value": "A" * 64},
-    }
-    snapshot = StellarisCatalogService(
-        source,
-        manifest_loader=lambda _asset: json.dumps(manifest).encode(),
-        signature_verifier=lambda *_args: True,
-    ).refresh_snapshot()
-    assert snapshot.trust is CatalogTrust.VERIFIED
-    assert snapshot.installation_allowed is True
-    assert snapshot.trusted_assets[0].size == 77375
