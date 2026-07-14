@@ -6,8 +6,9 @@ from .adapter import (
     discover_installed_dlc,
     remove_installed_dlc,
 )
+from .patch_profile import STELLARIS_PATCH_PROFILE
 
 __all__ = [
-    "STELLARIS_STEAM_APP_ID", "StellarisSteamAdapter",
+    "STELLARIS_STEAM_APP_ID", "STELLARIS_PATCH_PROFILE", "StellarisSteamAdapter",
     "discover_installed_dlc", "remove_installed_dlc",
 ]

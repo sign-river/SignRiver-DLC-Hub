@@ -12,7 +12,7 @@ from .game_discovery import (
     InstallationStatus,
     InvalidAdapterResultError,
 )
-from .dlc_catalog import StellarisCatalogService
+from .dlc_catalog import CatalogSnapshot, StellarisCatalogService
 from .download_queue import DownloadQueue
 from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
 
@@ -27,6 +27,7 @@ __all__ = [
     "InstallationOrigin",
     "InstallationStatus",
     "InvalidAdapterResultError",
+    "CatalogSnapshot",
     "StellarisCatalogService",
     "DownloadQueue",
     "AuditedInstallation",

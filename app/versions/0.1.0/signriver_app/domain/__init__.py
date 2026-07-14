@@ -13,6 +13,15 @@ from .games import (
 from .catalog import DlcCatalogEntry, NormalizedRelease, ReleaseAsset
 from .downloads import DownloadSnapshot, DownloadSpec, DownloadState
 from .installs import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
+from .patches import (
+    PatchAssetRole,
+    PatchAudit,
+    PatchBundle,
+    PatchHealth,
+    PatchProfile,
+    PatchReceipt,
+    PatchTemplate,
+)
 from .settings import UserSettings
 
 __all__ = [
@@ -34,6 +43,13 @@ __all__ = [
     "InstallHealth",
     "InstallAudit",
     "OwnedFile",
+    "PatchAssetRole",
+    "PatchAudit",
+    "PatchBundle",
+    "PatchHealth",
+    "PatchProfile",
+    "PatchReceipt",
+    "PatchTemplate",
     "UserSettings",
     "InstallPlan",
     "InstallReceipt",

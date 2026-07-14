@@ -66,9 +66,20 @@ stellaris_appinfo.json
 - DLC 顺序保持与 AppInfo 一致
 - 默认模板为 `language=schinese`、`unlockall=True`、`extraprotection=False`、`forceoffline=False`
 
-客户端补丁安装需要做成可回滚事务：检查游戏未运行，确认目标 DLL 状态，保留原版 `steam_api64_o.dll`，原子替换 `steam_api64.dll`，再以 UTF-8 BOM 写入 `cream_api.ini`。重复安装只更新补丁 DLL 和 INI，不能把已经安装的补丁 DLL 覆盖到原版备份中。
+客户端补丁安装做成可回滚事务：先审计游戏目录中现有 `steam_api64.dll` 与 `steam_api64_o.dll` 的大小并与发布器产物比对，判定 `HEALTHY / ORIGINAL / MODIFIED / UNKNOWN` 四种状态；随后按下列规则处理：
 
-卸载补丁时删除补丁 DLL 和 `cream_api.ini`，把 `steam_api64_o.dll` 恢复为 `steam_api64.dll`。任一步骤失败都应回滚到操作前状态。
+- `HEALTHY`（补丁 DLL 与原版备份都与我们的一致）跳过替换，仅在 INI 需要更新时以原子写覆盖 `cream_api.ini`。
+- `ORIGINAL`（当前只有原版 DLL，尺寸与 `steam_api64_o.dll` 一致）把它重命名为 `steam_api64_o.dll`，再原子写入我们的补丁 DLL。
+- `MODIFIED` / `UNKNOWN`（同名文件大小与我们的产物差距过大，或备份缺失）判定为损坏或第三方补丁，用发布器的 DLL 强制替换并在必要时补建原版备份。
+- 所有替换都通过 `write-temp + os.replace` 完成，失败时按操作顺序逆序回滚到事务开始前的状态。
+
+`cream_api.ini` 使用发布器上传的 `<game>_appinfo.json` 及各游戏独立的 INI 模板渲染，AppInfo 中的 `appid` 与 `dlcs` 与模板占位符组合后以 UTF-8 BOM 落盘；模板不再硬编码 Stellaris 的 App ID，可为每个游戏在客户端侧提供独立的 `PatchTemplate`。
+
+客户端主入口是简洁视图上的三枚按钮：
+
+- **一键解锁**：先做补丁审计，若不健康就把三件补丁下载到内容寻址缓存并顺序应用（下载补丁 → 应用补丁 → 依次下载安装勾选的 DLC）；补丁已健康则直接跳到 DLC 下载/安装阶段。按钮文本会随阶段变成“正在下载补丁… / 正在应用补丁…”，并阻塞其他破坏性操作。
+- **一键修复**：二次确认后卸载全部已安装 DLC、清空下载记录与内容缓存、`patch_engine.reset(game_root)` 抹掉补丁三件套，然后重新走一次一键解锁流程；提示用户会下载大量数据。
+- **一键移除补丁**：只做卸载：删除补丁 DLL 与 `cream_api.ini`，把 `steam_api64_o.dll` 恢复为 `steam_api64.dll`。任一步骤失败都回滚到操作前状态。
 
 ## GitLink 仓库
 

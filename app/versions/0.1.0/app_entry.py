@@ -12,15 +12,33 @@ from tkinter import BooleanVar, TclError, filedialog, messagebox
 
 from .signriver_app.adapters import AdapterRegistry
 from .signriver_app.adapters.builtin import create_builtin_adapters
-from .signriver_app.adapters.stellaris import discover_installed_dlc, remove_installed_dlc
-from .signriver_app.application import DlcInstallService, DownloadQueue, GameDiscoveryService, StellarisCatalogService
-from .signriver_app.domain import DownloadSpec, DownloadState, InstallHealth, UserSettings
+from .signriver_app.adapters.stellaris import (
+    STELLARIS_PATCH_PROFILE,
+    discover_installed_dlc,
+    remove_installed_dlc,
+)
+from .signriver_app.application import (
+    CatalogSnapshot,
+    DlcInstallService,
+    DownloadQueue,
+    GameDiscoveryService,
+    StellarisCatalogService,
+)
+from .signriver_app.domain import (
+    DownloadSpec,
+    DownloadState,
+    InstallHealth,
+    PatchBundle,
+    PatchHealth,
+    UserSettings,
+)
 from .signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig
 from .signriver_app.infrastructure.catalog import inspect_stellaris_package
 from .signriver_app.infrastructure.cache import CacheMaintenance
 from .signriver_app.infrastructure.downloads import DownloadManager, DownloadPolicy
 from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
 from .signriver_app.infrastructure.installs import StellarisInstallEngine
+from .signriver_app.infrastructure.patching import PatchEngine, PatchError
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.persistence import (
     Database,
@@ -104,7 +122,26 @@ class DlcHubApplication:
         release_source = GitLinkReleaseSource(
             GitLinkSourceConfig("signriver", "file-warehouse")
         )
-        self.catalog = StellarisCatalogService(release_source)
+        self.patch_profile = STELLARIS_PATCH_PROFILE
+        self.catalog = StellarisCatalogService(
+            release_source, patch_profile=self.patch_profile,
+        )
+        self.patch_engine = PatchEngine(
+            self.patch_profile, self.context.paths.data,
+        )
+        self.patch_bundle: PatchBundle | None = None
+        self.patch_workflow_state = "idle"
+        self.patch_task_ids: tuple[str, ...] = ()
+        self.pending_dlc_batch_task_ids: tuple[str, ...] = ()
+        self.repair_workflow_active = False
+        self.catalog_missing_patch_assets: tuple[str, ...] = ()
+        # DownloadQueue task IDs for the three patch assets.  Filenames match
+        # what the publisher uploads to GitLink.
+        self.patch_task_roles = {
+            "stellaris-patch-unlocker": "unlocker_dll",
+            "stellaris-patch-backup": "original_backup_dll",
+            "stellaris-patch-appinfo": "appinfo_json",
+        }
         self.user_settings = UserSettings()
         self.settings_repository = None
         self.download_manager = DownloadManager(self.context.paths.cache)
@@ -414,7 +451,7 @@ class DlcHubApplication:
         self.catalog_filter.set("全部状态")
         self.catalog_filter.pack(side="left", padx=(8, 0))
         self.download_selected_button = ctk.CTkButton(
-            catalog_tools, text="一键下载所选", command=self._download_selected, width=124
+            catalog_tools, text="一键解锁", command=self._one_click_unlock, width=124
         )
         self.download_selected_button.pack(side="right")
         self.cancel_all_downloads_button = ctk.CTkButton(
@@ -429,10 +466,16 @@ class DlcHubApplication:
         self.selection_toggle_button.pack(side="right", padx=(0, 8))
         catalog_management_tools = ctk.CTkFrame(catalog_card, fg_color="transparent")
         catalog_management_tools.pack(fill="x", padx=24, pady=(0, 8))
-        ctk.CTkButton(
+        self.repair_button = ctk.CTkButton(
+            catalog_management_tools, text="一键修复",
+            command=self._one_click_repair, width=112,
+        )
+        self.repair_button.pack(side="right")
+        self.remove_patch_button = ctk.CTkButton(
             catalog_management_tools, text="一键移除补丁",
-            command=self._show_patch_removal_placeholder, width=112,
-        ).pack(side="right")
+            command=self._remove_patch, width=112,
+        )
+        self.remove_patch_button.pack(side="right", padx=(0, 8))
         ctk.CTkButton(
             catalog_management_tools, text="卸载全部 DLC",
             command=self._uninstall_all_dlc, width=112,
@@ -642,7 +685,7 @@ class DlcHubApplication:
         if isinstance(widget, ctk.CTkButton) and widget not in navigation:
             text = str(widget.cget("text"))
             if (
-                text in {"取消", "卸载"}
+                text in {"取消", "卸载", "一键移除补丁"}
                 or text.startswith("清除")
                 or text.startswith("取消全部")
                 or text.startswith("卸载全部")
@@ -654,7 +697,10 @@ class DlcHubApplication:
                     border_color=UI["danger"], corner_radius=8, height=34,
                 )
                 return
-            elif text in {"下载所选", "一键下载所选", "启动游戏", "保存设置", "检查更新", "安装"}:
+            elif text in {
+                "下载所选", "一键下载所选", "一键解锁", "一键修复",
+                "启动游戏", "保存设置", "检查更新", "安装",
+            }:
                 colors = (UI["primary"], UI["primary_hover"])
             else:
                 colors = (UI["secondary"], UI["secondary_hover"])
@@ -1156,8 +1202,8 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
-                entries = self.catalog.refresh()
-                self._post_ui(lambda entries=entries: self._show_catalog(entries))
+                snapshot = self.catalog.refresh_snapshot()
+                self._post_ui(lambda snapshot=snapshot: self._show_catalog(snapshot))
             except Exception as error:
                 self.context.logger.exception("DLC catalog refresh failed")
                 message = str(error)
@@ -1165,10 +1211,13 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _show_catalog(self, entries) -> None:
+    def _show_catalog(self, snapshot: CatalogSnapshot) -> None:
         self.catalog_online = True
         self._refresh_installed_dlc_paths()
+        entries = snapshot.entries
         self.catalog_entries = entries
+        self.patch_bundle = snapshot.patch_bundle
+        self.catalog_missing_patch_assets = snapshot.missing_patch_assets
         if entries and not self.catalog_selection_initialized:
             self.selected_dlc_ids = {
                 entry.dlc_id for entry in entries
@@ -1176,15 +1225,21 @@ class DlcHubApplication:
             }
             self.catalog_selection_initialized = True
         self.catalog_refresh_button.configure(state="normal")
+        patch_suffix = "" if snapshot.patch_bundle is not None else "（缺少补丁资源）"
         self.catalog_status.configure(
-            text=f"Stellaris · 已读取 {len(entries)} 个 DLC 资源"
+            text=f"Stellaris · 已读取 {len(entries)} 个 DLC 资源{patch_suffix}"
         )
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
             return
-        self.catalog_preview.configure(
-            text="勾选需要的内容后一键下载；包结构校验通过后会自动安装到当前游戏目录"
-        )
+        if snapshot.patch_bundle is None:
+            self.catalog_preview.configure(
+                text="补丁资源缺失，一键解锁暂不可用；请稍后刷新目录"
+            )
+        else:
+            self.catalog_preview.configure(
+                text="勾选需要的 DLC 后点击一键解锁：先打补丁，再逐个下载并安装"
+            )
         self._render_catalog_rows()
         self._reconcile_catalog_cache()
         self._schedule_ready_installs()
@@ -1192,17 +1247,18 @@ class DlcHubApplication:
     def _reconcile_catalog_cache(self) -> None:
         if self.download_queue is None or not self.catalog_entries:
             return
-        specs = tuple(self._download_spec_for_entry(entry) for entry in self.catalog_entries)
+        specs = list(self._download_spec_for_entry(entry) for entry in self.catalog_entries)
+        specs.extend(self._patch_download_specs())
 
         def worker() -> None:
             try:
-                recovered = self.download_queue.reconcile_cached(specs)
+                recovered = self.download_queue.reconcile_cached(tuple(specs))
                 if recovered:
                     self._post_ui(
                         lambda count=len(recovered): self._on_cache_reconciled(count)
                     )
             except Exception:
-                self.context.logger.exception("Unable to reconcile cached DLC packages")
+                self.context.logger.exception("Unable to reconcile cached packages")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1533,7 +1589,11 @@ class DlcHubApplication:
                 variable.set(False)
         self._update_selection_toggle_button(visible)
 
-    def _download_selected(self) -> None:
+    def _one_click_unlock(self) -> None:
+        """Button command: patch first, then download and install selected DLC."""
+        if self.patch_workflow_state in {"downloading", "applying"}:
+            self.catalog_preview.configure(text="补丁流程正在执行，请稍候……")
+            return
         if self.batch_download_state == "cancelling":
             return
         if self.batch_download_state == "running":
@@ -1542,24 +1602,59 @@ class DlcHubApplication:
         if self.batch_download_state in {"pausing", "paused", "resuming"}:
             self._continue_batch_download()
             return
-        self._start_selected_batch()
+        self._start_unlock_workflow()
 
-    def _start_selected_batch(self) -> None:
+    def _start_unlock_workflow(self) -> None:
+        """Kick off the patch phase; DLC downloads begin once patching succeeds."""
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
-        selected = [
+        if self.current_installation is None:
+            messagebox.showwarning(
+                "尚未检测游戏",
+                "请先选择或识别有效的 Stellaris 目录，再进行一键解锁。",
+                parent=self.window,
+            )
+            return
+        if self.patch_bundle is None:
+            missing = ", ".join(self.catalog_missing_patch_assets) or "全部补丁资源"
+            self._show_catalog_error(
+                f"资源仓库缺少补丁文件：{missing}；请稍后重试或刷新目录"
+            )
+            return
+        selected_entries = [
             entry for entry in self.catalog_entries
             if entry.dlc_id in self.selected_dlc_ids
         ]
-        if not selected:
-            self.catalog_preview.configure(text="请先勾选至少一个 DLC")
+        # Remember whichever DLC the user asked for; if patch download is
+        # already needed the batch launches automatically after patching.
+        self.pending_dlc_batch_task_ids = tuple(
+            f"stellaris-{entry.dlc_id}" for entry in selected_entries
+        )
+        if self._patch_is_healthy():
+            # Nothing to download or apply for the patch itself.  Fall through
+            # to the DLC batch (or just tell the user the patch is already good
+            # if they did not select any DLC).
+            self._notify_patch_healthy_and_continue(selected_entries)
             return
-        snapshots = {}
-        if self.download_queue is not None:
-            snapshots = {
-                item.spec.task_id: item for item in self.download_queue.snapshots()
-            }
+        self._start_patch_downloads()
+
+    def _notify_patch_healthy_and_continue(self, selected_entries) -> None:
+        if not selected_entries:
+            self.catalog_preview.configure(
+                text="补丁已经健康；未勾选 DLC 时无需下载。"
+            )
+            self._set_batch_download_state("idle")
+            return
+        self._start_dlc_batch(selected_entries)
+
+    def _start_dlc_batch(self, selected_entries) -> None:
+        if self.download_queue is None:
+            self._show_catalog_error("下载队列初始化失败，请查看日志")
+            return
+        snapshots = {
+            item.spec.task_id: item for item in self.download_queue.snapshots()
+        }
         active_states = {
             DownloadState.QUEUED, DownloadState.DOWNLOADING,
             DownloadState.PAUSING, DownloadState.RETRYING,
@@ -1569,7 +1664,7 @@ class DlcHubApplication:
         skipped = 0
         failed = 0
         batch_task_ids = []
-        for entry in selected:
+        for entry in selected_entries:
             task_id = f"stellaris-{entry.dlc_id}"
             snapshot = snapshots.get(task_id)
             if self._is_entry_installed(entry) or (
@@ -1589,13 +1684,14 @@ class DlcHubApplication:
                 self.context.logger.exception("Unable to enqueue selected DLC")
                 failed += 1
         self.batch_download_task_ids = tuple(dict.fromkeys(batch_task_ids))
+        self.pending_dlc_batch_task_ids = ()
         if self.batch_download_task_ids:
             self._set_batch_download_state("running")
         else:
             self._set_batch_download_state("idle")
         self.catalog_preview.configure(
             text=(
-                f"已开始 {started} 个下载任务"
+                f"补丁已完成 · 开始 {started} 个 DLC 下载任务"
                 f"，跳过 {skipped} 个已下载/已安装/进行中项目"
                 f"，提交失败 {failed} 个"
                 "；任务将按列表顺序逐个下载"
@@ -1605,12 +1701,15 @@ class DlcHubApplication:
     def _set_batch_download_state(self, state: str) -> None:
         self.batch_download_state = state
         text, enabled = {
-            "idle": ("一键下载所选", True),
+            "idle": ("一键解锁", True),
             "running": ("暂停下载", True),
             "pausing": ("继续下载", True),
             "paused": ("继续下载", True),
             "resuming": ("正在继续…", False),
             "cancelling": ("正在取消…", False),
+            "patch_downloading": ("正在下载补丁…", False),
+            "patch_applying": ("正在应用补丁…", False),
+            "repairing": ("正在一键修复…", False),
         }[state]
         self.download_selected_button.configure(
             text=text,
@@ -1618,9 +1717,24 @@ class DlcHubApplication:
             fg_color=UI["primary"],
             hover_color=UI["primary_hover"],
         )
+        # During patch download/apply and cancel/repair the DLC-level cancel
+        # button must not tear down anything; the patch flow owns those tasks.
+        interactive = state not in {
+            "cancelling", "patch_downloading", "patch_applying", "repairing",
+        }
         self.cancel_all_downloads_button.configure(
-            state="disabled" if state == "cancelling" else "normal"
+            state="normal" if interactive else "disabled"
         )
+        repair_button = getattr(self, "repair_button", None)
+        remove_patch_button = getattr(self, "remove_patch_button", None)
+        if repair_button is not None:
+            repair_button.configure(
+                state="normal" if state == "idle" else "disabled"
+            )
+        if remove_patch_button is not None:
+            remove_patch_button.configure(
+                state="normal" if state == "idle" else "disabled"
+            )
 
     def _cancel_all_downloads(self) -> None:
         if self.download_queue is None or self.batch_download_state == "cancelling":
@@ -1849,6 +1963,16 @@ class DlcHubApplication:
     def _download_finished(self, future) -> None:
         try:
             result = future.result()
+            is_patch_task = result.spec.task_id in self.patch_task_roles
+            if is_patch_task:
+                self.context.logger.info(
+                    "Patch download finished: task=%s state=%s",
+                    result.spec.task_id, result.state,
+                )
+                # Advance the patch workflow on the UI thread so it can hand
+                # off to the DLC batch (or abort with a proper message).
+                self._post_ui(self._maybe_advance_patch_workflow)
+                return
             if (
                 result.state is DownloadState.READY
                 and result.result_path is not None
@@ -1902,10 +2026,17 @@ class DlcHubApplication:
             self.pending_download_snapshots[snapshot.spec.task_id] = snapshot
 
     def _apply_download_event(self, snapshot) -> None:
-        self._show_download_state(snapshot)
-        self._update_batch_download_state(snapshot)
-        if snapshot.state is DownloadState.READY:
-            self._schedule_ready_installs()
+        is_patch_task = snapshot.spec.task_id in self.patch_task_roles
+        if not is_patch_task:
+            self._show_download_state(snapshot)
+            self._update_batch_download_state(snapshot)
+            if snapshot.state is DownloadState.READY:
+                self._schedule_ready_installs()
+        else:
+            # Patch downloads drive the unlock/repair state machine directly;
+            # the DLC catalog rows never render them.
+            if self.patch_workflow_state == "downloading":
+                self._maybe_advance_patch_workflow()
         if getattr(self, "current_page", None) == "下载任务":
             self._schedule_task_refresh()
 
@@ -1935,6 +2066,9 @@ class DlcHubApplication:
                 pass
 
     def _package_verifier_for(self, spec: DownloadSpec):
+        role = self.patch_task_roles.get(spec.task_id)
+        if role is not None:
+            return self._patch_asset_verifier(role, spec.filename)
         expected_dlc_id = spec.task_id.removeprefix("stellaris-")
 
         def verify(path: Path):
@@ -1945,6 +2079,30 @@ class DlcHubApplication:
                     f"got {metadata.dlc_id}"
                 )
             return metadata
+
+        return verify
+
+    def _patch_asset_verifier(self, role: str, filename: str):
+        """Return a verifier that rejects obviously-broken patch downloads."""
+        expected_filename = filename
+
+        def verify(path: Path):
+            if path.stat().st_size == 0:
+                raise ValueError(f"patch asset {expected_filename} is empty")
+            if role == "appinfo_json":
+                data = path.read_bytes()
+                # Reuse the same parser the patch engine will run later; if the
+                # file cannot be parsed here it will not become a valid ini.
+                from .signriver_app.infrastructure.patching import parse_appinfo_document
+                parse_appinfo_document(data)
+            elif role in {"unlocker_dll", "original_backup_dll"}:
+                # Windows PE DLLs must start with the MZ magic; anything else
+                # (usually an error page) would silently corrupt the game.
+                with path.open("rb") as stream:
+                    header = stream.read(2)
+                if header != b"MZ":
+                    raise ValueError(f"patch DLL {expected_filename} is not a valid PE file")
+            return None
 
         return verify
 
@@ -2253,13 +2411,427 @@ class DlcHubApplication:
                 detail += f"\n……另有 {len(failures) - 8} 项"
         messagebox.showinfo(title, detail, parent=self.window)
 
-    def _show_patch_removal_placeholder(self) -> None:
+    # ---- Patch workflow (一键解锁 / 一键修复 / 一键移除补丁) ----------------
+
+    def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
+        """Materialize the three patch download specs when the bundle is known."""
+        bundle = self.patch_bundle
+        if bundle is None:
+            return ()
+        mapping = {
+            "stellaris-patch-unlocker": bundle.unlocker_dll,
+            "stellaris-patch-backup": bundle.original_backup_dll,
+            "stellaris-patch-appinfo": bundle.appinfo_json,
+        }
+        return tuple(
+            self._download_spec_for_patch(task_id, asset)
+            for task_id, asset in mapping.items()
+        )
+
+    def _download_spec_for_patch(self, task_id: str, asset) -> DownloadSpec:
+        return DownloadSpec(
+            task_id=task_id,
+            url=asset.download_url,
+            filename=asset.name,
+            expected_size=asset.size_bytes,
+            expected_sha256=None,
+            supports_range=False,
+        )
+
+    def _patch_asset_for(self, task_id: str):
+        """Return the ReleaseAsset backing a patch download task, if known."""
+        role = self.patch_task_roles.get(task_id)
+        if role is None or self.patch_bundle is None:
+            return None
+        return {
+            "unlocker_dll": self.patch_bundle.unlocker_dll,
+            "original_backup_dll": self.patch_bundle.original_backup_dll,
+            "appinfo_json": self.patch_bundle.appinfo_json,
+        }[role]
+
+    def _patch_snapshots_by_task(self) -> dict[str, object]:
+        if self.download_queue is None:
+            return {}
+        return {
+            item.spec.task_id: item
+            for item in self.download_queue.snapshots()
+            if item.spec.task_id in self.patch_task_roles
+        }
+
+    def _patch_ready_paths(self) -> dict[str, Path] | None:
+        """Return {role: cached_path} when all three patch assets are ready."""
+        if self.patch_bundle is None:
+            return None
+        snapshots = self._patch_snapshots_by_task()
+        specs = {
+            spec.task_id: spec for spec in self._patch_download_specs()
+        }
+        paths: dict[str, Path] = {}
+        for task_id, role in self.patch_task_roles.items():
+            snapshot = snapshots.get(task_id)
+            if snapshot is None or snapshot.state is not DownloadState.READY:
+                return None
+            if snapshot.result_path is None or not snapshot.result_path.is_file():
+                return None
+            paths[role] = snapshot.result_path
+        # Extra sanity: make sure the ready cache still belongs to the latest
+        # bundle we resolved.  The cache is content-addressed, so a stale
+        # snapshot with a different filename means the bundle rotated.
+        for task_id, snapshot in snapshots.items():
+            expected = specs.get(task_id)
+            if expected is None:
+                continue
+            if snapshot.spec.filename != expected.filename:
+                return None
+        return paths
+
+    def _patch_is_healthy(self) -> bool:
+        """True when the current game directory already matches our patch bundle."""
+        if self.patch_bundle is None or self.current_installation is None:
+            return False
+        # Prefer local ready cache to determine expected sizes when available;
+        # otherwise trust the release-declared size_bytes.  When both are
+        # missing we cannot make a size comparison and treat the patch as
+        # potentially stale so the flow always downloads and re-applies.
+        ready = self._patch_ready_paths()
+        if ready is not None:
+            unlocker_size = ready["unlocker_dll"].stat().st_size
+            backup_size = ready["original_backup_dll"].stat().st_size
+        else:
+            unlocker_size = self.patch_bundle.unlocker_dll.size_bytes
+            backup_size = self.patch_bundle.original_backup_dll.size_bytes
+        if unlocker_size is None or backup_size is None:
+            return False
+        try:
+            audit = self.patch_engine.audit(
+                self.current_installation.root,
+                expected_unlocker_size=unlocker_size,
+                expected_backup_size=backup_size,
+            )
+        except Exception:
+            self.context.logger.exception("Patch audit failed")
+            return False
+        return audit.health is PatchHealth.HEALTHY
+
+    def _start_patch_downloads(self) -> None:
+        if self.download_queue is None or self.patch_bundle is None:
+            return
+        self.patch_workflow_state = "downloading"
+        self._set_batch_download_state("patch_downloading")
+        specs = self._patch_download_specs()
+        snapshots = self._patch_snapshots_by_task()
+        active_states = {
+            DownloadState.QUEUED, DownloadState.DOWNLOADING,
+            DownloadState.PAUSING, DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        task_ids: list[str] = []
+        for spec in specs:
+            task_ids.append(spec.task_id)
+            snapshot = snapshots.get(spec.task_id)
+            if snapshot is not None and snapshot.state is DownloadState.READY:
+                continue
+            try:
+                if snapshot is not None and snapshot.state in active_states:
+                    continue
+                if snapshot is not None and snapshot.state in {
+                    DownloadState.PAUSED, DownloadState.FAILED,
+                }:
+                    future = self.download_queue.resume(spec.task_id)
+                else:
+                    future = self.download_queue.enqueue(spec)
+                future.add_done_callback(self._download_finished)
+            except Exception as error:
+                self.context.logger.exception(
+                    "Unable to enqueue patch asset: task=%s", spec.task_id
+                )
+                self._on_patch_workflow_failed(str(error))
+                return
+        self.patch_task_ids = tuple(task_ids)
+        self.catalog_preview.configure(text="正在下载补丁资源（3 个文件）……")
+        # If everything came from the cache we may need to advance immediately.
+        self.window.after(50, self._maybe_advance_patch_workflow)
+
+    def _maybe_advance_patch_workflow(self) -> None:
+        if self.patch_workflow_state != "downloading":
+            return
+        ready = self._patch_ready_paths()
+        if ready is None:
+            snapshots = self._patch_snapshots_by_task()
+            failed_states = {
+                DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.CORRUPT,
+            }
+            for task_id in self.patch_task_ids:
+                snapshot = snapshots.get(task_id)
+                if snapshot is not None and snapshot.state in failed_states:
+                    self._on_patch_workflow_failed(
+                        f"补丁资源下载失败（{snapshot.spec.filename}），请刷新目录后重试"
+                    )
+                    return
+            return
+        self._apply_patch_after_download(ready)
+
+    def _apply_patch_after_download(self, ready_paths: dict[str, Path]) -> None:
+        if self.current_installation is None:
+            self._on_patch_workflow_failed("未选择游戏目录")
+            return
+        self.patch_workflow_state = "applying"
+        self._set_batch_download_state("patch_applying")
+        self.catalog_preview.configure(text="补丁资源已就绪，正在应用补丁……")
+        game_root = self.current_installation.root
+        engine = self.patch_engine
+        game_id = self.current_installation.game_id
+
+        def worker() -> None:
+            try:
+                result = engine.apply(
+                    game_root,
+                    unlocker_dll_source=ready_paths["unlocker_dll"],
+                    original_backup_dll_source=ready_paths["original_backup_dll"],
+                    appinfo_json_source=ready_paths["appinfo_json"],
+                    game_id=game_id,
+                )
+                self._post_ui(lambda result=result: self._on_patch_applied(result))
+            except PatchError as error:
+                self.context.logger.exception("Patch apply failed")
+                message = str(error)
+                self._post_ui(
+                    lambda message=message: self._on_patch_workflow_failed(message)
+                )
+            except Exception as error:
+                self.context.logger.exception("Patch apply crashed")
+                message = str(error) or "补丁应用失败"
+                self._post_ui(
+                    lambda message=message: self._on_patch_workflow_failed(message)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_patch_applied(self, result) -> None:
+        self.patch_workflow_state = "idle"
+        self.patch_task_ids = ()
+        detail_parts = []
+        if result.backup_created:
+            detail_parts.append("已建立原版备份")
+        if result.backup_replaced:
+            detail_parts.append("已替换异常备份 DLL")
+        if result.unlocker_replaced:
+            detail_parts.append("已更新补丁 DLL")
+        if result.ini_written:
+            detail_parts.append("已生成 cream_api.ini")
+        summary = "补丁已应用；" + ("；".join(detail_parts) or "文件与目标一致，无需变更")
+        self.catalog_preview.configure(text=summary)
+        self._notify("补丁已应用")
+        # Continue into the DLC batch that was queued on unlock.
+        if self.repair_workflow_active:
+            # The repair flow handles its own follow-up (re-download DLC list).
+            self._continue_repair_after_patch()
+            return
+        pending_ids = self.pending_dlc_batch_task_ids
+        selected_entries = [
+            entry for entry in self.catalog_entries
+            if f"stellaris-{entry.dlc_id}" in pending_ids
+        ]
+        if not selected_entries:
+            self._set_batch_download_state("idle")
+            return
+        self._start_dlc_batch(selected_entries)
+
+    def _on_patch_workflow_failed(self, message: str) -> None:
+        self.patch_workflow_state = "idle"
+        self.patch_task_ids = ()
+        self.pending_dlc_batch_task_ids = ()
+        self._set_batch_download_state("idle")
+        if self.repair_workflow_active:
+            self.repair_workflow_active = False
+        self.catalog_preview.configure(text=f"一键解锁失败：{message}")
+        self._notify(f"一键解锁失败：{message}", error=True)
+        messagebox.showerror("一键解锁失败", message, parent=self.window)
+
+    def _remove_patch(self) -> None:
+        if self.current_installation is None:
+            messagebox.showwarning(
+                "尚未检测游戏", "请先选择或识别有效的 Stellaris 目录。", parent=self.window,
+            )
+            return
+        if not messagebox.askyesno(
+            "确认移除补丁",
+            "将删除以下文件并把原版备份还原为 steam_api64.dll：\n"
+            f"· {self.patch_profile.unlocker_dll_name}\n"
+            f"· {self.patch_profile.original_backup_dll_name}\n"
+            f"· {self.patch_profile.template.ini_target_name}\n"
+            "请先关闭游戏。是否继续？",
+            parent=self.window,
+        ):
+            return
+        game_root = self.current_installation.root
+        engine = self.patch_engine
+
+        def worker() -> None:
+            try:
+                touched = engine.remove(game_root)
+                self._post_ui(
+                    lambda touched=touched: self._on_patch_removed(touched)
+                )
+            except Exception as error:
+                self.context.logger.exception("Patch removal failed")
+                message = str(error) or "补丁移除失败"
+                self._post_ui(
+                    lambda message=message: messagebox.showerror(
+                        "补丁移除失败", message, parent=self.window,
+                    )
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_patch_removed(self, touched: tuple[str, ...]) -> None:
+        if not touched:
+            self.catalog_preview.configure(text="游戏目录中未检测到补丁文件")
+            messagebox.showinfo(
+                "补丁移除", "游戏目录中未检测到需要清理的补丁文件。",
+                parent=self.window,
+            )
+            return
+        detail = "、".join(touched)
+        self.catalog_preview.configure(text=f"补丁已移除：{detail}")
+        self._notify("补丁已移除")
         messagebox.showinfo(
-            "一键移除补丁",
-            "按钮已预留，当前版本不会修改任何文件。\n"
-            "待补充补丁识别规则后再接入实际移除逻辑。",
+            "补丁移除完成",
+            f"已恢复原版并清理以下文件：\n{detail}",
             parent=self.window,
         )
+
+    def _one_click_repair(self) -> None:
+        if self.current_installation is None:
+            messagebox.showwarning(
+                "尚未检测游戏", "请先选择或识别有效的 Stellaris 目录。", parent=self.window,
+            )
+            return
+        if self.patch_bundle is None:
+            self._show_catalog_error(
+                "补丁资源缺失，暂时无法执行一键修复；请稍后刷新目录"
+            )
+            return
+        if self.download_queue is None:
+            self._show_catalog_error("下载队列初始化失败，请查看日志")
+            return
+        # A repair may re-download every DLC and the patch, so warn loudly.
+        if not messagebox.askyesno(
+            "确认一键修复",
+            "一键修复会执行以下操作：\n\n"
+            "1. 卸载游戏目录中所有已安装的 DLC；\n"
+            "2. 删除现有 steam_api64.dll、steam_api64_o.dll 和 cream_api.ini；\n"
+            "3. 重新下载所有 DLC 和三个补丁文件；\n"
+            "4. 应用补丁并重新安装全部 DLC。\n\n"
+            "整个过程会下载大量数据、耗时较长，请先关闭游戏并保证网络稳定。是否继续？",
+            parent=self.window,
+        ):
+            return
+        self.repair_workflow_active = True
+        self._set_batch_download_state("repairing")
+        self.catalog_preview.configure(text="一键修复：正在清理现有 DLC 和补丁……")
+
+        game_root = self.current_installation.root
+        patch_engine = self.patch_engine
+
+        def worker() -> None:
+            errors: list[str] = []
+            try:
+                installed = discover_installed_dlc(game_root)
+                for dlc_id in installed:
+                    try:
+                        remove_installed_dlc(game_root, dlc_id)
+                        if self.install_repository is not None:
+                            receipt = self.install_repository.find_active("stellaris", dlc_id)
+                            if receipt is not None:
+                                self.install_repository.mark_uninstalled(
+                                    receipt.transaction_id, restore_previous=False
+                                )
+                    except Exception as error:
+                        self.context.logger.exception(
+                            "Repair failed to remove installed DLC: %s", dlc_id
+                        )
+                        errors.append(f"DLC {dlc_id}: {error}")
+                try:
+                    patch_engine.reset(game_root)
+                except Exception as error:
+                    self.context.logger.exception("Repair failed to reset patch files")
+                    errors.append(f"补丁清理：{error}")
+            except Exception as error:
+                self.context.logger.exception("Repair pre-cleanup crashed")
+                errors.append(str(error) or "预清理失败")
+            self._post_ui(
+                lambda errors=errors: self._start_repair_re_download(errors)
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _start_repair_re_download(self, cleanup_errors: list[str]) -> None:
+        if self.current_installation is None:
+            self._on_repair_failed("游戏目录已不可用")
+            return
+        self._refresh_installed_dlc_paths()
+        self._render_catalog_rows()
+        if cleanup_errors:
+            self.catalog_preview.configure(
+                text=(
+                    "一键修复：清理阶段发生 "
+                    f"{len(cleanup_errors)} 个问题，但会继续尝试重新下载……"
+                )
+            )
+        # Purge cached snapshots and package files for every DLC and patch
+        # task so the download queue really does re-download everything from
+        # the release, matching the user's expectation of "重新下载一遍".
+        if self.download_queue is not None:
+            targets = tuple(
+                sorted(
+                    set(self.patch_task_roles)
+                    | {f"stellaris-{entry.dlc_id}" for entry in self.catalog_entries}
+                )
+            )
+            try:
+                self.download_queue.forget(targets, delete_cached_packages=True)
+            except Exception:
+                self.context.logger.exception(
+                    "Unable to purge cached tasks for repair"
+                )
+        # Queue every DLC as the pending batch so the patch flow will hand off
+        # into a full-catalog batch after the patch is applied.
+        self.pending_dlc_batch_task_ids = tuple(
+            f"stellaris-{entry.dlc_id}" for entry in self.catalog_entries
+        )
+        self._start_patch_downloads()
+
+    def _continue_repair_after_patch(self) -> None:
+        # Runs on the UI thread after _on_patch_applied handed off the repair.
+        self.repair_workflow_active = False
+        pending_ids = self.pending_dlc_batch_task_ids
+        selected_entries = [
+            entry for entry in self.catalog_entries
+            if f"stellaris-{entry.dlc_id}" in pending_ids
+        ]
+        self.pending_dlc_batch_task_ids = ()
+        if not selected_entries:
+            self._set_batch_download_state("idle")
+            self.catalog_preview.configure(
+                text="一键修复：补丁已就绪，没有需要重新下载的 DLC"
+            )
+            return
+        # Start the DLC batch; auto-install is already wired into the queue's
+        # completion callback, so nothing more to do here.
+        self._start_dlc_batch(selected_entries)
+        self.catalog_preview.configure(
+            text=f"一键修复：补丁已应用，正在重新下载并安装 {len(selected_entries)} 个 DLC"
+        )
+
+    def _on_repair_failed(self, message: str) -> None:
+        self.repair_workflow_active = False
+        self._set_batch_download_state("idle")
+        self.catalog_preview.configure(text=f"一键修复失败：{message}")
+        self._notify(f"一键修复失败：{message}", error=True)
+        messagebox.showerror("一键修复失败", message, parent=self.window)
+
+    # ---- End of patch workflow ---------------------------------------------
 
     def _run_install_action(self, operation, entry, success_text: str) -> None:
         def worker() -> None:

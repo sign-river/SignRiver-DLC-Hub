@@ -23,6 +23,16 @@ SignRiver-DLC-Hub/
 
 更完整的协议和发布流程见 [docs/update-architecture.md](docs/update-architecture.md)。
 
+## 客户端主要功能
+
+DLC 库页面的核心操作集中在“一键解锁 / 一键修复 / 一键移除补丁”三枚按钮：
+
+- **一键解锁**：先审计并按需下载 `steam_api64.dll`、`steam_api64_o.dll`、`<game>_appinfo.json`，事务化替换补丁并原子写入 `cream_api.ini`，再依次下载并安装勾选的 DLC。已健康的补丁会被跳过。
+- **一键修复**：在弹窗确认后清空全部 DLC、下载缓存与补丁三件套，然后重新执行一键解锁，用于处理残缺文件或异常补丁。
+- **一键移除补丁**：反向操作，删除补丁 DLL 与 `cream_api.ini`，并把 `steam_api64_o.dll` 还原为 `steam_api64.dll`。
+
+补丁安装、`cream_api.ini` 生成规则与四种审计状态见 [docs/publisher-guide.md#补丁数据与客户端流程](docs/publisher-guide.md)；总体架构与进度见 [docs/application-implementation-plan.md](docs/application-implementation-plan.md)。
+
 ## 本地开发
 
 需要 Python 3.11 或更高版本。

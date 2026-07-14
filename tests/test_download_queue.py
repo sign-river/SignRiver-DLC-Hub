@@ -249,3 +249,49 @@ def test_clear_all_rejects_active_download() -> None:
     queue.cancel("active-clear")
     assert future.result(timeout=5).state is DownloadState.CANCELLED
     queue.shutdown()
+
+
+def test_forget_drops_snapshot_and_optionally_removes_cached_package(tmp_path: Path) -> None:
+    """The repair flow needs a clean slate before re-downloading assets."""
+    digest = hashlib.sha256(DATA).hexdigest()
+    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    queue = DownloadQueue(
+        DownloadManager(tmp_path / "cache"),
+        repository=repository,
+    )
+    ready = DownloadSnapshot(
+        make_spec(), DownloadState.READY, len(DATA), len(DATA), 1,
+        result_path=package, sha256=digest,
+    )
+    queue._record(ready)
+
+    removed = queue.forget(("queue-1",), delete_cached_packages=True)
+    queue.shutdown()
+
+    assert removed == ("queue-1",)
+    assert queue.snapshots() == ()
+    assert repository.list_all() == ()
+    assert not package.exists()
+    assert not package.parent.exists()
+
+
+def test_forget_refuses_active_tasks(tmp_path: Path) -> None:
+    class BlockingManager:
+        def run(self, spec, control, callback, verifier=None):
+            callback(DownloadSnapshot(spec, DownloadState.DOWNLOADING))
+            while not control.cancel_requested:
+                control._cancel.wait(0.01)
+            result = DownloadSnapshot(spec, DownloadState.CANCELLED)
+            callback(result)
+            return result
+
+    queue = DownloadQueue(BlockingManager())
+    future = queue.enqueue(make_spec("active-forget"))
+    with pytest.raises(ValueError, match="active"):
+        queue.forget(("active-forget",))
+    queue.cancel("active-forget")
+    assert future.result(timeout=5).state is DownloadState.CANCELLED
+    queue.shutdown()

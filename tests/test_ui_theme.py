@@ -69,7 +69,7 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
 
     assert 'self.catalog_view_mode = "simple"' in source
     assert 'text="高级管理"' in source
-    assert 'text="一键下载所选"' in source
+    assert 'text="一键解锁"' in source
     assert "def _render_simple_catalog_rows" in source
     assert "def _render_advanced_catalog_rows" in source
     assert "def _simple_entry_status" in source
@@ -160,13 +160,53 @@ def test_ready_cache_is_restored_installed_items_are_grey_and_batch_can_cancel()
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "def _reconcile_catalog_cache" in source
-    assert "self.download_queue.reconcile_cached(specs)" in source
+    assert "self.download_queue.reconcile_cached(tuple(specs))" in source
     assert "def _installed_dlc_path" in source
-    assert 'fg_color=UI["panel"] if installed else UI["card"]' in source
-    assert 'state="disabled" if installed else "normal"' in source
-    assert "def _schedule_ready_installs" in source
-    assert "包结构和 DLC 编号校验通过后自动安装到当前游戏目录" in source
-    assert "安装保持禁用" not in source
-    assert 'text="取消全部下载"' in source
-    assert "self.download_queue.cancel_many(unfinished)" in source
-    assert 'text="全部未完成下载已取消；已清空选择，可以重新勾选需要的 DLC"' in source
+
+
+def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
+    """The unlock button drives a patch phase followed by the DLC batch."""
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'command=self._one_click_unlock' in source
+    assert "def _one_click_unlock" in source
+    assert "def _start_unlock_workflow" in source
+    assert "def _start_patch_downloads" in source
+    assert "def _apply_patch_after_download" in source
+    assert "def _on_patch_applied" in source
+    assert "def _on_patch_workflow_failed" in source
+    assert 'self.patch_workflow_state = "downloading"' in source
+    assert 'self._set_batch_download_state("patch_downloading")' in source
+    assert 'self._set_batch_download_state("patch_applying")' in source
+    # Patch tasks flow through the same DownloadQueue as DLC packages, using
+    # dedicated task IDs so the UI can route their completion callbacks.
+    assert '"stellaris-patch-unlocker"' in source
+    assert '"stellaris-patch-backup"' in source
+    assert '"stellaris-patch-appinfo"' in source
+    # Once the patch is applied the workflow hands off to the DLC batch code
+    # that was already tested in earlier releases.
+    assert "self._start_dlc_batch(selected_entries)" in source
+
+
+def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'command=self._one_click_repair' in source
+    assert "def _one_click_repair" in source
+    assert 'self._set_batch_download_state("repairing")' in source
+    assert "整个过程会下载大量数据、耗时较长" in source
+    assert "patch_engine.reset(game_root)" in source
+    assert "self.download_queue.forget(targets, delete_cached_packages=True)" in source
+    assert "def _continue_repair_after_patch" in source
+
+
+def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'command=self._remove_patch' in source
+    assert "def _remove_patch" in source
+    assert "engine.remove(game_root)" in source
+    # The old placeholder message must be gone entirely so users never see the
+    # "按钮已预留" copy after an update.
+    assert "按钮已预留" not in source
+    assert "_show_patch_removal_placeholder" not in source

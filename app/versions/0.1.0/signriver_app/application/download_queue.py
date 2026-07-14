@@ -246,6 +246,53 @@ class DownloadQueue:
             self._controls.clear()
             return count
 
+    def forget(
+        self,
+        task_ids,
+        *,
+        delete_cached_packages: bool = False,
+    ) -> tuple[str, ...]:
+        """Drop task snapshots so subsequent ``enqueue`` starts from scratch.
+
+        This is intended for repair-style flows that intentionally want to
+        re-download everything.  Actively running tasks are refused because
+        their worker still holds file handles for the cached package.
+        """
+        with self._lock:
+            for task_id in task_ids:
+                future = self._futures.get(task_id)
+                if future is not None and not future.done():
+                    raise ValueError(
+                        f"cannot forget an active download task: {task_id}"
+                    )
+            removed: list[str] = []
+            for task_id in list(task_ids):
+                snapshot = self._snapshots.pop(task_id, None)
+                self._futures.pop(task_id, None)
+                self._controls.pop(task_id, None)
+                if self.repository is not None:
+                    try:
+                        self.repository.delete(task_id)
+                    except Exception:
+                        LOGGER.exception(
+                            "Unable to delete download task record: %s", task_id
+                        )
+                if delete_cached_packages and snapshot is not None:
+                    path = snapshot.result_path
+                    if path is not None and path.is_file():
+                        try:
+                            path.unlink()
+                            parent = path.parent
+                            if parent.is_dir() and not any(parent.iterdir()):
+                                parent.rmdir()
+                        except OSError:
+                            LOGGER.exception(
+                                "Unable to delete cached package for %s", task_id
+                            )
+                if snapshot is not None:
+                    removed.append(task_id)
+            return tuple(removed)
+
     def shutdown(self, *, wait: bool = False) -> None:
         with self._lock:
             for control in self._controls.values():

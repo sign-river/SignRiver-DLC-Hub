@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE
 from signriver_app.application import StellarisCatalogService
 from signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig, PackageInspectionError, inspect_stellaris_package
 
@@ -18,8 +19,25 @@ def payload() -> bytes:
     ]}]}).encode()
 
 
+def full_release_payload() -> bytes:
+    return json.dumps({"status": 0, "releases": [{"id": "67956677", "tag_name": "ste", "name": "ste", "body": "4.4", "attachments": [
+        {"id": 1, "title": "dlc001_symbols_of_domination.zip", "filesize": "75.6 KB", "url": "/signriver/file-warehouse/releases/download/ste/dlc001_symbols_of_domination.zip"},
+        {"id": 2, "title": "dlc002_leviathans.zip", "filesize": "112.3 KB", "url": "/signriver/file-warehouse/releases/download/ste/dlc002_leviathans.zip"},
+        {"id": 3, "title": "steam_api64.dll", "filesize": "220.5 KB", "url": "/signriver/file-warehouse/releases/download/ste/steam_api64.dll"},
+        {"id": 4, "title": "steam_api64_o.dll", "filesize": "195.0 KB", "url": "/signriver/file-warehouse/releases/download/ste/steam_api64_o.dll"},
+        {"id": 5, "title": "stellaris_appinfo.json", "filesize": "3.2 KB", "url": "/signriver/file-warehouse/releases/download/ste/stellaris_appinfo.json"},
+    ]}]}).encode()
+
+
 def make_source() -> GitLinkReleaseSource:
     return GitLinkReleaseSource(GitLinkSourceConfig("signriver", "file-warehouse"), fetch=lambda *_args: payload())
+
+
+def make_full_source() -> GitLinkReleaseSource:
+    return GitLinkReleaseSource(
+        GitLinkSourceConfig("signriver", "file-warehouse"),
+        fetch=lambda *_args: full_release_payload(),
+    )
 
 
 def test_gitlink_source_normalizes_release_and_assets() -> None:
@@ -32,6 +50,38 @@ def test_gitlink_source_normalizes_release_and_assets() -> None:
 def test_stellaris_catalog_ignores_non_dlc_assets() -> None:
     entries = StellarisCatalogService(make_source()).refresh()
     assert [(item.dlc_id, item.display_name) for item in entries] == [("dlc001", "Symbols Of Domination")]
+
+
+def test_catalog_snapshot_returns_dlc_and_patch_bundle_together() -> None:
+    service = StellarisCatalogService(
+        make_full_source(), patch_profile=STELLARIS_PATCH_PROFILE,
+    )
+    snapshot = service.refresh_snapshot()
+    assert [entry.dlc_id for entry in snapshot.entries] == ["dlc001", "dlc002"]
+    assert snapshot.patch_bundle is not None
+    bundle = snapshot.patch_bundle
+    assert bundle.unlocker_dll.name == "steam_api64.dll"
+    assert bundle.original_backup_dll.name == "steam_api64_o.dll"
+    assert bundle.appinfo_json.name == "stellaris_appinfo.json"
+    assert snapshot.missing_patch_assets == ()
+    assert snapshot.release_tag == "ste"
+
+
+def test_catalog_snapshot_reports_missing_patch_assets() -> None:
+    service = StellarisCatalogService(
+        make_source(), patch_profile=STELLARIS_PATCH_PROFILE,
+    )
+    snapshot = service.refresh_snapshot()
+    assert snapshot.patch_bundle is None
+    # We only have the appinfo file in the small payload; both DLLs are missing.
+    assert set(snapshot.missing_patch_assets) == {"steam_api64.dll", "steam_api64_o.dll"}
+
+
+def test_catalog_snapshot_without_profile_never_returns_patch_bundle() -> None:
+    service = StellarisCatalogService(make_full_source())
+    snapshot = service.refresh_snapshot()
+    assert snapshot.patch_bundle is None
+    assert snapshot.missing_patch_assets == ()
 
 
 def write_package(path: Path) -> None:

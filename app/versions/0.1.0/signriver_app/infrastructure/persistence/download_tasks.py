@@ -90,6 +90,17 @@ class DownloadTaskRepository:
         except Exception as error:
             raise PersistenceError("could not clear download task history") from error
 
+    def delete(self, task_id: str) -> bool:
+        """Drop a single task record; returns True when a row was removed."""
+        try:
+            with self.database.transaction() as connection:
+                cursor = connection.execute(
+                    "DELETE FROM download_tasks WHERE task_id = ?", (task_id,)
+                )
+                return cursor.rowcount > 0
+        except Exception as error:
+            raise PersistenceError("could not delete download task") from error
+
     @staticmethod
     def _from_row(row) -> DownloadSnapshot:
         spec = DownloadSpec(
