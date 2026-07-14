@@ -9,7 +9,8 @@ import zipfile
 from pathlib import Path
 
 from .cream import SteamAppInfo
-from .models import GameProfile, ResourceRecord
+from .cartridges import create_builtin_cartridges
+from .models import GameProfile, PublishAsset, ResourceRecord
 from .steam import SteamApiError, SteamStoreClient
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -31,7 +32,7 @@ class PublisherWorkspace:
         self.games_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         if not self.list_games():
-            profile = GameProfile.create("stellaris", "Stellaris", "281990")
+            profile = create_builtin_cartridges()[0]
             self.save_game(profile)
             return profile
         return self.list_games()[0]
@@ -111,17 +112,43 @@ class PublisherWorkspace:
         target.mkdir(parents=True, exist_ok=True)
         records: list[ResourceRecord] = []
         expected: set[str] = set()
+        build_state = self._load_build_state(profile)
+        previous_dlcs = build_state.get("dlcs") if isinstance(build_state.get("dlcs"), dict) else {}
+        next_dlcs: dict[str, object] = {}
 
         for source in dlcs:
             dlc_id, display_name = self._parse_dlc_folder(source.name)
             asset_name = f"{source.name}.zip"
             output = target / asset_name
-            self._zip_directory(source, output, include_root=True)
-            records.append(self._record("dlc", dlc_id, display_name, source, output))
+            source_signature = self._source_signature(source)
+            cached = previous_dlcs.get(source.name) if isinstance(previous_dlcs, dict) else None
+            reusable = self._cached_output_matches(cached, source_signature, asset_name, output)
+            if reusable:
+                digest = str(cached["sha256"])
+            elif cached is None and self._existing_zip_matches_source(source, output):
+                # Adopt ZIPs produced by older publisher versions into the new
+                # incremental state without recompressing every DLC once.
+                digest = self._file_sha256(output)
+            else:
+                self._zip_directory(source, output, include_root=True)
+                digest = self._file_sha256(output)
+            output_stat = output.stat()
+            next_dlcs[source.name] = {
+                "source_signature": source_signature,
+                "asset_name": asset_name,
+                "size_bytes": output_stat.st_size,
+                "output_mtime_ns": output_stat.st_mtime_ns,
+                "sha256": digest,
+            }
+            records.append(self._record("dlc", dlc_id, display_name, source, output, digest=digest))
             expected.add(asset_name)
 
+        # Persist completed ZIP work before contacting Steam so a transient API
+        # failure does not force every unchanged DLC to be compressed again.
+        self._atomic_json(self._build_state_path(profile), {"version": 1, "dlcs": next_dlcs})
+
         patch_by_name = {path.name.lower(): path for path in patches}
-        for dll_name in ("steam_api64.dll", "steam_api64_o.dll"):
+        for dll_name in profile.patch_asset_names:
             source = patch_by_name.get(dll_name)
             if source is None or not source.is_file():
                 raise WorkspaceError(f"补丁目录缺少 {dll_name}")
@@ -159,22 +186,20 @@ class PublisherWorkspace:
         self._validate_profile(profile)
         if not profile.steam_app_id:
             raise WorkspaceError("当前游戏没有配置 Steam App ID")
+        target = self.output_dir / profile.game_id / profile.appinfo_name
+        # A failed refresh must not leave an older AppInfo publishable as if it
+        # belonged to the current build.
+        target.unlink(missing_ok=True)
+        legacy_cache = self.game_dir(profile.game_id) / ".cache" / profile.appinfo_name
+        legacy_cache.unlink(missing_ok=True)
         try:
             appinfo = self._appinfo_provider(profile.steam_app_id)
         except SteamApiError as error:
             raise WorkspaceError(str(error)) from error
         if appinfo.app_id != profile.steam_app_id:
             raise WorkspaceError(f"Steam 返回的 App ID 是 {appinfo.app_id}，当前游戏要求 {profile.steam_app_id}")
-        target = self.output_dir / profile.game_id / profile.appinfo_name
-        self._atomic_json(
-            target,
-            {
-                "app_id": appinfo.app_id,
-                "name": appinfo.name,
-                "update_time": appinfo.update_time,
-                "dlcs": [{"id": item.app_id, "name": item.name} for item in appinfo.dlcs],
-            },
-        )
+        payload = self._appinfo_payload(appinfo)
+        self._atomic_json(target, payload)
         return appinfo
 
     def publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
@@ -182,10 +207,42 @@ class PublisherWorkspace:
         appinfo = target / profile.appinfo_name
         if not appinfo.is_file():
             raise WorkspaceError("请先生成发布包")
-        for name in ("steam_api64.dll", "steam_api64_o.dll"):
+        for name in profile.patch_asset_names:
             if not (target / name).is_file():
                 raise WorkspaceError(f"发布包缺少 {name}，请先生成全部发布文件")
         return tuple(sorted(path for path in target.iterdir() if path.is_file()))
+
+    def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
+        files = self.publish_files(profile)
+        build_state = self._load_build_state(profile)
+        raw_dlcs = build_state.get("dlcs") if isinstance(build_state.get("dlcs"), dict) else {}
+        cached_by_asset: dict[str, dict[str, object]] = {}
+        if isinstance(raw_dlcs, dict):
+            for value in raw_dlcs.values():
+                if isinstance(value, dict) and isinstance(value.get("asset_name"), str):
+                    cached_by_asset[str(value["asset_name"])] = value
+        assets: list[PublishAsset] = []
+        for path in files:
+            stat = path.stat()
+            cached = cached_by_asset.get(path.name)
+            digest = self._cached_publish_digest(cached, stat.st_size, stat.st_mtime_ns) or self._file_sha256(path)
+            assets.append(PublishAsset(path, path.name, stat.st_size, digest))
+        return tuple(assets)
+
+    def load_publish_state(self, profile: GameProfile, owner: str, repository: str) -> dict[str, object]:
+        path = self._publish_state_path(profile)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(value, dict) or value.get("version") != 1:
+            return {}
+        if value.get("owner") != owner or value.get("repository") != repository or value.get("release_tag") != profile.release_tag:
+            return {}
+        return value
+
+    def save_publish_state(self, profile: GameProfile, state: dict[str, object]) -> None:
+        self._atomic_json(self._publish_state_path(profile), state)
 
     @staticmethod
     def _validate_profile(profile: GameProfile) -> None:
@@ -198,6 +255,12 @@ class PublisherWorkspace:
             raise WorkspaceError(f"AppInfo 文件名必须与游戏 ID 对应：{expected_appinfo_name}")
         if profile.steam_app_id and not profile.steam_app_id.isdigit():
             raise WorkspaceError("Steam App ID 必须是数字")
+        patch_names = profile.patch_asset_names
+        if len({name.casefold() for name in patch_names}) != len(patch_names):
+            raise WorkspaceError("补丁 DLL 文件名不能重复")
+        for name in patch_names:
+            if not name or Path(name).name != name or name in {".", ".."}:
+                raise WorkspaceError("补丁 DLL 必须使用普通文件名")
 
     @staticmethod
     def _parse_dlc_folder(name: str) -> tuple[str, str]:
@@ -233,12 +296,110 @@ class PublisherWorkspace:
             temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _record(kind: str, resource_id: str, display_name: str, source: Path, output: Path) -> ResourceRecord:
+    def _record(kind: str, resource_id: str, display_name: str, source: Path, output: Path, *, digest: str | None = None) -> ResourceRecord:
+        digest = digest or PublisherWorkspace._file_sha256(output)
+        return ResourceRecord(kind, resource_id, display_name, output.name, source, output, output.stat().st_size, digest)
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
         digest = hashlib.sha256()
-        with output.open("rb") as handle:
+        with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
-        return ResourceRecord(kind, resource_id, display_name, output.name, source, output, output.stat().st_size, digest.hexdigest())
+        return digest.hexdigest()
+
+    def _build_state_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / ".build-state.json"
+
+    def _publish_state_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / ".publish-state.json"
+
+    @staticmethod
+    def _cached_publish_digest(cached: object, size_bytes: int, mtime_ns: int) -> str:
+        if not isinstance(cached, dict):
+            return ""
+        try:
+            digest = str(cached.get("sha256", ""))
+            if int(cached.get("size_bytes", -1)) == size_bytes and int(cached.get("output_mtime_ns", -1)) == mtime_ns and len(digest) == 64:
+                return digest
+        except (TypeError, ValueError):
+            pass
+        return ""
+
+    def _load_build_state(self, profile: GameProfile) -> dict[str, object]:
+        path = self._build_state_path(profile)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, dict) and value.get("version") == 1 else {}
+
+    @staticmethod
+    def _source_signature(source: Path) -> str:
+        entries = tuple(sorted(source.rglob("*"), key=lambda item: item.relative_to(source).as_posix()))
+        if any(path.is_symlink() for path in entries):
+            raise WorkspaceError(f"不允许符号链接：{source.name}")
+        files = tuple(path for path in entries if path.is_file())
+        if not files:
+            raise WorkspaceError(f"文件夹为空：{source.name}")
+        digest = hashlib.sha256()
+        for path in files:
+            stat = path.stat()
+            digest.update(path.relative_to(source).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(stat.st_size).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(str(stat.st_mtime_ns).encode("ascii"))
+            digest.update(b"\n")
+        return digest.hexdigest()
+
+    @staticmethod
+    def _cached_output_matches(cached: object, source_signature: str, asset_name: str, output: Path) -> bool:
+        if not isinstance(cached, dict) or not output.is_file():
+            return False
+        try:
+            stat = output.stat()
+            return (
+                cached.get("source_signature") == source_signature
+                and cached.get("asset_name") == asset_name
+                and int(cached.get("size_bytes", -1)) == stat.st_size
+                and int(cached.get("output_mtime_ns", -1)) == stat.st_mtime_ns
+                and isinstance(cached.get("sha256"), str)
+                and len(str(cached["sha256"])) == 64
+            )
+        except (TypeError, ValueError, OSError):
+            return False
+
+    @staticmethod
+    def _existing_zip_matches_source(source: Path, output: Path) -> bool:
+        if not output.is_file():
+            return False
+        files = tuple(sorted((path for path in source.rglob("*") if path.is_file()), key=lambda item: item.relative_to(source).as_posix()))
+        if not files or any(path.is_symlink() for path in source.rglob("*")):
+            return False
+        try:
+            if output.stat().st_mtime_ns < max(path.stat().st_mtime_ns for path in files):
+                return False
+            expected = {
+                (Path(source.name) / path.relative_to(source)).as_posix(): path.stat().st_size
+                for path in files
+            }
+            with zipfile.ZipFile(output) as archive:
+                actual = {item.filename: item.file_size for item in archive.infolist() if not item.is_dir()}
+                if len(actual) != len(tuple(item for item in archive.infolist() if not item.is_dir())):
+                    return False
+            return actual == expected
+        except (OSError, zipfile.BadZipFile, ValueError):
+            return False
+
+    @staticmethod
+    def _appinfo_payload(appinfo: SteamAppInfo) -> dict[str, object]:
+        return {
+            "app_id": appinfo.app_id,
+            "name": appinfo.name,
+            "update_time": appinfo.update_time,
+            "dlcs": [{"id": item.app_id, "name": item.name} for item in appinfo.dlcs],
+        }
 
     @staticmethod
     def _atomic_json(path: Path, value: object) -> None:

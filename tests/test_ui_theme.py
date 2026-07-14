@@ -180,12 +180,21 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     assert 'self._set_batch_download_state("patch_applying")' in source
     # Patch tasks flow through the same DownloadQueue as DLC packages, using
     # dedicated task IDs so the UI can route their completion callbacks.
-    assert '"stellaris-patch-unlocker"' in source
-    assert '"stellaris-patch-backup"' in source
-    assert '"stellaris-patch-appinfo"' in source
+    assert "self.patch_task_roles = dict(self.cartridge.patch_task_roles)" in source
+    assert "for task_id, role in self.patch_task_roles.items()" in source
     # Once the patch is applied the workflow hands off to the DLC batch code
     # that was already tested in earlier releases.
     assert "self._start_dlc_batch(selected_entries)" in source
+
+
+def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _download_spec_for_patch", 1)[1].split(
+        "def _patch_asset_for", 1
+    )[0]
+
+    assert "expected_size=None" in method
+    assert "expected_size=asset.size_bytes" not in method
 
 
 def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:

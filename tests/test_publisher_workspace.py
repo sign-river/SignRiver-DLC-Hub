@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from signriver_publisher import GameProfile, PublisherSettings, PublisherWorkspace, SteamAppInfo, SteamDlc, SteamStoreClient, WorkspaceError, discover_settings_path, generate_cream_api_ini, load_steam_appinfo
+from signriver_publisher import GameProfile, PublisherCartridge, PublishAsset, PublisherSettings, PublisherWorkspace, SteamApiError, SteamAppInfo, SteamDlc, SteamStoreClient, WorkspaceError, create_builtin_cartridges, discover_settings_path, generate_cream_api_ini, load_steam_appinfo
 from signriver_publisher.gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository, find_release_id
 from signriver_publisher.gitlink import GitLinkError
-from signriver_publisher.remote import RemoteResourceManager, parse_release
+from signriver_publisher.remote import RemoteAsset, RemoteResourceManager, parse_release
 
 
 def sample_appinfo(app_id: str = "281990") -> SteamAppInfo:
@@ -46,6 +46,37 @@ def test_other_game_uses_its_own_appinfo_name_and_output_directory(tmp_path: Pat
     assert profile.appinfo_name == "europa_universalis_4_appinfo.json"
     assert (workspace.output_dir / "europa_universalis_4" / profile.appinfo_name).is_file()
     assert not (workspace.output_dir / "stellaris" / profile.appinfo_name).exists()
+
+
+def test_server_cartridge_owns_release_and_patch_contract(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=sample_appinfo)
+    cartridge = PublisherCartridge(
+        "other_game", "Other Game", "other_game", "other_game_appinfo.json",
+        "281990", "custom_api64.dll", "custom_api64_original.dll",
+    )
+    workspace.save_game(cartridge)
+    patches = workspace.game_dir(cartridge.game_id) / "patches"
+    (patches / cartridge.patch_unlocker_name).write_bytes(b"new")
+    (patches / cartridge.patch_original_backup_name).write_bytes(b"old")
+
+    workspace.build(cartridge)
+
+    output_names = {path.name for path in workspace.publish_files(cartridge)}
+    assert output_names == {
+        "custom_api64.dll", "custom_api64_original.dll", "other_game_appinfo.json",
+    }
+    restored = workspace.list_games()[0]
+    assert restored.patch_asset_names == cartridge.patch_asset_names
+    assert restored.release_tag == "other_game"
+
+
+def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+
+    selected = workspace.initialize()
+
+    assert selected == create_builtin_cartridges()[0]
+    assert selected.patch_asset_names == ("steam_api64.dll", "steam_api64_o.dll")
 
 
 def test_rejects_appinfo_name_that_does_not_match_game_id(tmp_path: Path) -> None:
@@ -118,6 +149,100 @@ def test_rebuild_removes_stale_output(tmp_path: Path) -> None:
 
     assert not (output / "old.zip").exists()
     assert (output / profile.appinfo_name).is_file()
+
+
+def test_build_reuses_unchanged_dlc_zip_and_rebuilds_changed_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=sample_appinfo)
+    profile = workspace.initialize()
+    source = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_example"
+    source.mkdir()
+    content = source / "content.txt"
+    content.write_text("first", encoding="utf-8")
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / "steam_api64.dll").write_bytes(b"new")
+    (patches / "steam_api64_o.dll").write_bytes(b"old")
+    workspace.build(profile)
+    original_zip = workspace._zip_directory
+    calls: list[str] = []
+
+    def tracked_zip(source_path: Path, destination: Path, *, include_root: bool) -> None:
+        calls.append(source_path.name)
+        original_zip(source_path, destination, include_root=include_root)
+
+    monkeypatch.setattr(workspace, "_zip_directory", tracked_zip)
+
+    workspace.build(profile)
+    assert calls == []
+
+    content.write_text("changed and longer", encoding="utf-8")
+    workspace.build(profile)
+    assert calls == ["dlc001_example"]
+
+
+def test_build_adopts_existing_zip_from_older_publisher_without_recompressing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=sample_appinfo)
+    profile = workspace.initialize()
+    source = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_existing"
+    source.mkdir()
+    (source / "content.txt").write_text("already packed", encoding="utf-8")
+    output = workspace.output_dir / profile.game_id / "dlc001_existing.zip"
+    output.parent.mkdir(parents=True)
+    workspace._zip_directory(source, output, include_root=True)
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / "steam_api64.dll").write_bytes(b"new")
+    (patches / "steam_api64_o.dll").write_bytes(b"old")
+
+    def should_not_recompress(*_args, **_kwargs) -> None:
+        raise AssertionError("matching legacy ZIP should be adopted")
+
+    monkeypatch.setattr(workspace, "_zip_directory", should_not_recompress)
+
+    workspace.build(profile)
+
+    assert output.is_file()
+    assert (workspace.game_dir(profile.game_id) / ".build-state.json").is_file()
+
+
+def test_build_rejects_stale_appinfo_when_steam_is_temporarily_unavailable(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=sample_appinfo)
+    profile = workspace.initialize()
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / "steam_api64.dll").write_bytes(b"new")
+    (patches / "steam_api64_o.dll").write_bytes(b"old")
+    workspace.build(profile)
+
+    def unavailable(_app_id: str) -> SteamAppInfo:
+        raise SteamApiError("HTTP Error 500")
+
+    workspace._appinfo_provider = unavailable
+    with pytest.raises(WorkspaceError, match="HTTP Error 500"):
+        workspace.build(profile)
+
+    assert not (workspace.output_dir / "stellaris" / "stellaris_appinfo.json").exists()
+    with pytest.raises(WorkspaceError, match="请先生成发布包"):
+        workspace.publish_files(profile)
+
+
+def test_every_build_fetches_and_rewrites_appinfo(tmp_path: Path) -> None:
+    calls = 0
+
+    def provider(app_id: str) -> SteamAppInfo:
+        nonlocal calls
+        calls += 1
+        return SteamAppInfo(app_id, "Stellaris", f"revision-{calls}", ())
+
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=provider)
+    profile = workspace.initialize()
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / "steam_api64.dll").write_bytes(b"new")
+    (patches / "steam_api64_o.dll").write_bytes(b"old")
+
+    workspace.build(profile)
+    workspace.build(profile)
+
+    payload = json.loads((workspace.output_dir / "stellaris" / "stellaris_appinfo.json").read_text(encoding="utf-8"))
+    assert calls == 2
+    assert payload["update_time"] == "revision-2"
 
 
 def test_import_and_remove_are_restricted_to_resource_root(tmp_path: Path) -> None:
@@ -208,10 +333,29 @@ def test_steam_store_client_combines_names_and_sorts_ids() -> None:
     assert [(item.app_id, item.name) for item in result.dlcs] == [("10", "First"), ("20", "Second")]
 
 
+def test_steam_store_client_retries_transient_request_failure() -> None:
+    attempts = 0
+
+    def fetch(url: str, _timeout: float, _limit: int) -> bytes:
+        nonlocal attempts
+        if "/api/appdetails" in url:
+            attempts += 1
+            if attempts < 3:
+                raise OSError("HTTP Error 500")
+            return json.dumps({"281990": {"success": True, "data": {"name": "Stellaris", "dlc": []}}}).encode()
+        return json.dumps({"dlc": []}).encode()
+
+    result = SteamStoreClient(fetch=fetch, retries=2, retry_delay=0, sleep=lambda _delay: None).fetch_appinfo("281990")
+
+    assert result.app_id == "281990"
+    assert attempts == 3
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [
         ({"data": {"releases": [{"id": 7, "tag_name": "stellaris"}]}}, "7"),
+        ({"releases": [{"id": 7, "version_id": 2318, "tag_name": "stellaris"}]}, "2318"),
         ({"releases": [{"version_gid": "abc", "tag_name": "stellaris"}]}, "abc"),
         ({"data": {"releases": [{"id": 7, "tag_name": "other"}]}}, None),
     ],
@@ -299,6 +443,26 @@ def test_release_api_uses_bearer_token_without_cli(monkeypatch: pytest.MonkeyPat
     assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
 
 
+def test_release_api_rejects_application_level_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        status = 200
+
+        @staticmethod
+        def read(_limit: int) -> bytes:
+            return '{"status":404,"message":"仓库不存在"}'.encode()
+
+    class Connection:
+        def __init__(self, *_args, **_kwargs) -> None: pass
+        def request(self, *_args, **_kwargs) -> None: pass
+        def getresponse(self) -> Response: return Response()
+        def close(self) -> None: pass
+
+    monkeypatch.setattr("signriver_publisher.gitlink.http.client.HTTPSConnection", Connection)
+
+    with pytest.raises(GitLinkError, match="404.*仓库不存在"):
+        GitLinkAttachmentClient("secret-token").list_releases(GitLinkRepository())
+
+
 def test_attachment_delete_accepts_empty_success_response(monkeypatch: pytest.MonkeyPatch) -> None:
     class Response:
         status = 204
@@ -327,6 +491,33 @@ def test_attachment_delete_accepts_empty_success_response(monkeypatch: pytest.Mo
     assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
 
 
+def test_attachment_head_matches_uploaded_filename(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        status = 200
+
+        @staticmethod
+        def getheader(name: str, default: str = "") -> str:
+            return 'attachment; filename="dlc001.zip"' if name == "Content-Disposition" else default
+
+    class Connection:
+        instance: "Connection"
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            Connection.instance = self
+            self.request_args = None
+
+        def request(self, *args, **kwargs) -> None: self.request_args = (args, kwargs)
+        def getresponse(self) -> Response: return Response()
+        def close(self) -> None: pass
+
+    monkeypatch.setattr("signriver_publisher.gitlink.http.client.HTTPSConnection", Connection)
+
+    assert GitLinkAttachmentClient("secret-token").attachment_matches("attachment-123", "dlc001.zip") is True
+    args, kwargs = Connection.instance.request_args
+    assert args[:2] == ("HEAD", "/api/attachments/attachment-123.json")
+    assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+
 def test_publisher_settings_loads_private_config(tmp_path: Path) -> None:
     path = tmp_path / "publisher.local.json"
     path.write_text(
@@ -347,12 +538,12 @@ def test_settings_path_honors_environment_override(tmp_path: Path, monkeypatch: 
 
 
 def test_parse_remote_release_assets() -> None:
-    payload = {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "body": "body", "attachments": [{"id": 1, "title": "a.zip", "filesize": "1 MB", "url": "/a"}]}]}
+    payload = {"releases": [{"id": 9, "version_id": 2318, "tag_name": "stellaris", "name": "Stellaris", "body": "body", "attachments": [{"id": 1, "title": "a.zip", "filesize": "1 MB", "url": "/a"}]}]}
 
     release = parse_release(payload, "stellaris")
 
     assert release is not None
-    assert release.release_id == "9"
+    assert release.release_id == "2318"
     assert [(item.asset_id, item.name, item.display_size) for item in release.assets] == [("1", "a.zip", "1 MB")]
 
 
@@ -414,3 +605,194 @@ def test_remote_upload_cleans_new_attachment_if_release_update_fails(tmp_path: P
         RemoteResourceManager(client, GitLinkRepository()).upload_file(GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990"), source)
 
     assert client.deleted == ["orphan"]
+
+
+def test_release_sync_reuses_unchanged_asset_but_always_replaces_appinfo(tmp_path: Path) -> None:
+    dlc = tmp_path / "dlc001.zip"
+    appinfo = tmp_path / "stellaris_appinfo.json"
+    dlc.write_bytes(b"dlc")
+    appinfo.write_bytes(b"appinfo")
+    assets = (
+        PublishAsset(dlc, dlc.name, dlc.stat().st_size, "a" * 64),
+        PublishAsset(appinfo, appinfo.name, appinfo.stat().st_size, "b" * 64),
+    )
+
+    class Client:
+        def __init__(self) -> None:
+            self.attachments: list[dict[str, object]] = []
+            self.names_by_id: dict[str, str] = {}
+            self.deleted: list[str] = []
+            self.counter = 0
+
+        def list_releases(self, _repo):
+            if not self.attachments:
+                return {"releases": []}
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "attachments": self.attachments}]}
+        def upload(self, path):
+            self.counter += 1
+            value = f"attachment-{self.counter}"
+            self.names_by_id[value] = path.name
+            return value
+        def create_release(self, _repo, **kwargs):
+            self.attachments = [{"id": value, "title": self.names_by_id[value]} for value in kwargs["attachment_ids"]]
+        def update_release(self, _repo, **kwargs):
+            old_names = {str(item["id"]): str(item["title"]) for item in self.attachments}
+            self.attachments = [{"id": value, "title": self.names_by_id.get(value) or old_names[value]} for value in kwargs["attachment_ids"]]
+        def delete_attachment(self, value): self.deleted.append(value)
+
+    client = Client()
+    manager = RemoteResourceManager(client, GitLinkRepository())
+    profile = GameProfile.create("stellaris", "Stellaris", "281990")
+
+    first = manager.sync_release(profile, assets, {}, force_upload=frozenset({profile.appinfo_name}))
+    second = manager.sync_release(profile, assets, first.state, force_upload=frozenset({profile.appinfo_name}))
+
+    assert (first.uploaded, first.reused, first.removed) == (2, 0, 0)
+    assert (second.uploaded, second.reused, second.removed) == (1, 1, 1)
+    assert client.deleted == ["attachment-2"]
+    assert [item["id"] for item in client.attachments] == ["attachment-1", "attachment-3"]
+
+
+def test_release_sync_rolls_back_new_uploads_when_update_fails(tmp_path: Path) -> None:
+    appinfo = tmp_path / "stellaris_appinfo.json"
+    appinfo.write_bytes(b"new")
+    asset = PublishAsset(appinfo, appinfo.name, appinfo.stat().st_size, "c" * 64)
+
+    class Client:
+        deleted: list[str] = []
+
+        def list_releases(self, _repo):
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "attachments": [{"id": "old", "title": "stellaris_appinfo.json"}]}]}
+        def upload(self, _path): return "new"
+        def update_release(self, _repo, **_kwargs): raise GitLinkError("update failed")
+        def delete_attachment(self, value): self.deleted.append(value)
+
+    client = Client()
+    with pytest.raises(GitLinkError, match="update failed"):
+        RemoteResourceManager(client, GitLinkRepository()).sync_release(
+            GameProfile.create("stellaris", "Stellaris", "281990"),
+            (asset,),
+            {},
+            force_upload=frozenset({asset.name}),
+        )
+
+    assert client.deleted == ["new"]
+
+
+def test_release_sync_recovers_existing_orphan_attachments_from_local_state(tmp_path: Path) -> None:
+    dlc = tmp_path / "dlc001.zip"
+    appinfo = tmp_path / "stellaris_appinfo.json"
+    dlc.write_bytes(b"dlc")
+    appinfo.write_bytes(b"appinfo")
+    assets = (
+        PublishAsset(dlc, dlc.name, dlc.stat().st_size, "a" * 64),
+        PublishAsset(appinfo, appinfo.name, appinfo.stat().st_size, "b" * 64),
+    )
+    previous = {
+        "assets": {
+            dlc.name: {"sha256": "a" * 64, "size_bytes": dlc.stat().st_size, "attachment_id": "old-dlc"},
+            appinfo.name: {"sha256": "b" * 64, "size_bytes": appinfo.stat().st_size, "attachment_id": "old-appinfo"},
+        }
+    }
+
+    class Client:
+        deleted: list[str] = []
+        updated_release_id = ""
+        updated_ids: list[str] = []
+
+        def list_releases(self, _repo):
+            return {"releases": [{"id": 99, "version_id": 2318, "tag_name": "stellaris", "name": "Stellaris", "attachments": []}]}
+        def attachment_matches(self, attachment_id, name): return attachment_id == "old-dlc" and name == "dlc001.zip"
+        def upload(self, _path): return "new-appinfo"
+        def update_release(self, _repo, **kwargs):
+            self.updated_release_id = kwargs["release_id"]
+            self.updated_ids = kwargs["attachment_ids"]
+        def delete_attachment(self, value): self.deleted.append(value)
+
+    client = Client()
+    result = RemoteResourceManager(client, GitLinkRepository()).sync_release(
+        GameProfile.create("stellaris", "Stellaris", "281990"),
+        assets,
+        previous,
+        force_upload=frozenset({appinfo.name}),
+    )
+
+    assert (result.uploaded, result.reused) == (1, 1)
+    assert client.updated_release_id == "2318"
+    assert client.updated_ids == ["old-dlc", "new-appinfo"]
+    assert client.deleted == ["old-appinfo"]
+
+
+def test_release_sync_maps_numeric_release_ids_to_upload_uuids_by_filename(tmp_path: Path) -> None:
+    dlc = tmp_path / "dlc001.zip"
+    appinfo = tmp_path / "stellaris_appinfo.json"
+    dlc.write_bytes(b"dlc")
+    appinfo.write_bytes(b"appinfo")
+    assets = (
+        PublishAsset(dlc, dlc.name, dlc.stat().st_size, "a" * 64),
+        PublishAsset(appinfo, appinfo.name, appinfo.stat().st_size, "b" * 64),
+    )
+    previous = {
+        "assets": {
+            dlc.name: {"sha256": "a" * 64, "size_bytes": dlc.stat().st_size, "attachment_id": "dlc-upload-uuid"},
+            appinfo.name: {"sha256": "b" * 64, "size_bytes": appinfo.stat().st_size, "attachment_id": "appinfo-upload-uuid"},
+        }
+    }
+
+    class Client:
+        deleted: list[str] = []
+        updated_ids: list[str] = []
+
+        def list_releases(self, _repo):
+            return {
+                "releases": [{
+                    "id": 99,
+                    "version_id": 2318,
+                    "tag_name": "stellaris",
+                    "name": "Stellaris",
+                    "attachments": [
+                        {"id": 485806, "title": dlc.name},
+                        {"id": 485807, "title": appinfo.name},
+                    ],
+                }]
+            }
+        def attachment_matches(self, *_args): raise AssertionError("filename mapping should avoid HEAD recovery")
+        def upload(self, path):
+            assert path.name == appinfo.name
+            return "new-appinfo-uuid"
+        def update_release(self, _repo, **kwargs): self.updated_ids = kwargs["attachment_ids"]
+        def delete_attachment(self, value): self.deleted.append(value)
+
+    client = Client()
+    result = RemoteResourceManager(client, GitLinkRepository()).sync_release(
+        GameProfile.create("stellaris", "Stellaris", "281990"),
+        assets,
+        previous,
+        force_upload=frozenset({appinfo.name}),
+    )
+
+    assert (result.uploaded, result.reused, result.removed) == (1, 1, 1)
+    assert result.warnings == ()
+    assert client.updated_ids == ["485806", "new-appinfo-uuid"]
+    assert client.deleted == ["appinfo-upload-uuid"]
+    assert result.state["assets"][dlc.name]["attachment_id"] == "dlc-upload-uuid"
+
+
+def test_remote_numeric_asset_cleanup_is_skipped_after_release_detach() -> None:
+    class Client:
+        def delete_attachment(self, _value): raise AssertionError("numeric release ID must not be deleted as an attachment UUID")
+
+    manager = RemoteResourceManager(Client(), GitLinkRepository())
+
+    assert manager._cleanup_assets((RemoteAsset("485806", "dlc001.zip", "", ""),)) == ()
+
+
+def test_publish_state_is_scoped_to_repository_and_release(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    profile = workspace.initialize()
+    state = {"version": 1, "owner": "signriver", "repository": "assets", "release_tag": "stellaris", "assets": {}}
+
+    workspace.save_publish_state(profile, state)
+
+    assert workspace.load_publish_state(profile, "signriver", "assets") == state
+    assert workspace.load_publish_state(profile, "signriver", "other") == {}

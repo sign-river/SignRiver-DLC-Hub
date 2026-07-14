@@ -11,18 +11,12 @@ import customtkinter as ctk
 from tkinter import BooleanVar, TclError, filedialog, messagebox
 
 from .signriver_app.adapters import AdapterRegistry
-from .signriver_app.adapters.builtin import create_builtin_adapters
-from .signriver_app.adapters.stellaris import (
-    STELLARIS_PATCH_PROFILE,
-    discover_installed_dlc,
-    remove_installed_dlc,
-)
+from .signriver_app.adapters.builtin import create_builtin_cartridges
 from .signriver_app.application import (
     CatalogSnapshot,
     DlcInstallService,
     DownloadQueue,
     GameDiscoveryService,
-    StellarisCatalogService,
 )
 from .signriver_app.domain import (
     DownloadSpec,
@@ -32,12 +26,9 @@ from .signriver_app.domain import (
     PatchHealth,
     UserSettings,
 )
-from .signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig
-from .signriver_app.infrastructure.catalog import inspect_stellaris_package
 from .signriver_app.infrastructure.cache import CacheMaintenance
 from .signriver_app.infrastructure.downloads import DownloadManager, DownloadPolicy
 from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
-from .signriver_app.infrastructure.installs import StellarisInstallEngine
 from .signriver_app.infrastructure.patching import PatchEngine, PatchError
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.persistence import (
@@ -119,13 +110,13 @@ class DlcHubApplication:
         self.pending_download_lock = threading.Lock()
         self.ui_event_pump_running = True
         self.discovery = None
-        release_source = GitLinkReleaseSource(
-            GitLinkSourceConfig("signriver", "file-warehouse")
-        )
-        self.patch_profile = STELLARIS_PATCH_PROFILE
-        self.catalog = StellarisCatalogService(
-            release_source, patch_profile=self.patch_profile,
-        )
+        cartridges = create_builtin_cartridges()
+        if not cartridges:
+            raise RuntimeError("没有可用的游戏卡带")
+        self.cartridges = {item.selection_name: item for item in cartridges}
+        self.cartridge = cartridges[0]
+        self.patch_profile = self.cartridge.patch_profile
+        self.catalog = self.cartridge.create_catalog()
         self.patch_engine = PatchEngine(
             self.patch_profile, self.context.paths.data,
         )
@@ -137,11 +128,7 @@ class DlcHubApplication:
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
         # DownloadQueue task IDs for the three patch assets.  Filenames match
         # what the publisher uploads to GitLink.
-        self.patch_task_roles = {
-            "stellaris-patch-unlocker": "unlocker_dll",
-            "stellaris-patch-backup": "original_backup_dll",
-            "stellaris-patch-appinfo": "appinfo_json",
-        }
+        self.patch_task_roles = dict(self.cartridge.patch_task_roles)
         self.user_settings = UserSettings()
         self.settings_repository = None
         self.download_manager = DownloadManager(self.context.paths.cache)
@@ -175,19 +162,20 @@ class DlcHubApplication:
         self.task_refresh_pending = False
         self.compact_layout = None
         self.supported_games = {
-            "Stellaris · Steam": {
-                "game_id": "stellaris",
-                "platform": "Steam",
-                "store_app_id": "281990",
+            item.selection_name: {
+                "game_id": item.adapter.descriptor.game_id,
+                "platform": item.platform_name,
+                "store_app_id": item.store_app_id,
             }
+            for item in cartridges
         }
-        self.selected_game_name = "Stellaris · Steam"
+        self.selected_game_name = self.cartridge.selection_name
         self.catalog_online = False
         self.notice_serial = 0
         self.current_installation = None
         self.installed_dlc_paths = {}
         try:
-            registry = AdapterRegistry(create_builtin_adapters())
+            registry = AdapterRegistry(item.adapter for item in cartridges)
             database = Database(self.context.paths.data / "hub.db")
             self.settings_repository = UserSettingsRepository(database)
             stored_settings = self.settings_repository.load()
@@ -211,8 +199,10 @@ class DlcHubApplication:
             self.download_repository = DownloadTaskRepository(database)
             self.install_repository = InstallReceiptRepository(database)
             self.install_service = DlcInstallService(
-                StellarisInstallEngine(self.context.paths.data),
+                self.cartridge.create_install_engine(self.context.paths.data),
                 self.install_repository,
+                game_id=self.cartridge.adapter.descriptor.game_id,
+                package_inspector=self.cartridge.inspect_package,
             )
             self.discovery = GameDiscoveryService(registry, repository)
             self.download_queue = DownloadQueue(
@@ -289,7 +279,8 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=30, weight="bold"),
         ).pack(anchor="w")
         self.top_health = ctk.CTkLabel(
-            title_group, text="Stellaris · 等待路径检测",
+            title_group,
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 等待路径检测",
             text_color="#E8F2FA", font=ctk.CTkFont(size=14),
         )
         self.top_health.pack(anchor="w", pady=(3, 0))
@@ -308,7 +299,7 @@ class DlcHubApplication:
         ctk.CTkButton(
             profile_group, text="资源仓库", width=78,
             command=lambda: self._open_external_link(
-                "https://www.gitlink.org.cn/signriver/file-warehouse"
+                "https://www.gitlink.org.cn/signriver/signriver-dlc-assets"
             ),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
@@ -350,7 +341,7 @@ class DlcHubApplication:
         self.platform_status.pack(side="right")
         self.game_status = ctk.CTkLabel(
             selector_row,
-            text="Stellaris · 等待扫描",
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 等待扫描",
             anchor="w",
             text_color=UI["text_secondary"],
         )
@@ -424,7 +415,7 @@ class DlcHubApplication:
         self.advanced_view_button.pack(side="right", padx=(0, 8))
         self.catalog_status = ctk.CTkLabel(
             catalog_card,
-            text="等待读取 GitLink · ste Release",
+            text=f"等待读取 GitLink · {self.cartridge.release_tag} Release",
             anchor="w",
         )
         self.catalog_status.pack(fill="x", padx=24)
@@ -638,7 +629,7 @@ class DlcHubApplication:
 
         self.footer_label = ctk.CTkLabel(
             self.page_host,
-            text="Stellaris Steam 已接入 · 模块化多游戏架构",
+            text=f"{self.cartridge.selection_name} 已接入 · 模块化多游戏架构",
             text_color=UI["muted"],
         )
         self.footer_label.pack(anchor="w", pady=(24, 0))
@@ -746,8 +737,29 @@ class DlcHubApplication:
     def _select_game(self, display_name: str) -> None:
         try:
             game = self.supported_games[display_name]
+            cartridge = self.cartridges[display_name]
         except KeyError:
             return
+        if cartridge is not self.cartridge:
+            self.cartridge = cartridge
+            self.patch_profile = cartridge.patch_profile
+            self.catalog = cartridge.create_catalog()
+            self.patch_engine = PatchEngine(
+                cartridge.patch_profile, self.context.paths.data,
+            )
+            self.patch_task_roles = dict(cartridge.patch_task_roles)
+            if self.install_repository is not None:
+                self.install_service = DlcInstallService(
+                    cartridge.create_install_engine(self.context.paths.data),
+                    self.install_repository,
+                    game_id=cartridge.adapter.descriptor.game_id,
+                    package_inspector=cartridge.inspect_package,
+                )
+            self.patch_bundle = None
+            self.current_installation = None
+            self.catalog_entries = ()
+            self.selected_dlc_ids.clear()
+            self.catalog_selection_initialized = False
         self.selected_game_name = display_name
         self.platform_status.configure(
             text=f"{game['platform']} · App {game['store_app_id']}"
@@ -755,6 +767,13 @@ class DlcHubApplication:
         self.top_health.configure(text=f"{display_name} · 正在刷新")
         self._scan_games()
         self._refresh_catalog()
+
+    def _dlc_task_id(self, dlc_id: str) -> str:
+        return f"{self.cartridge.adapter.descriptor.game_id}-{dlc_id}"
+
+    def _dlc_id_from_task(self, task_id: str) -> str:
+        prefix = f"{self.cartridge.adapter.descriptor.game_id}-"
+        return task_id.removeprefix(prefix)
 
     def _open_external_link(self, url: str) -> None:
         parsed = urlparse(url)
@@ -1051,7 +1070,7 @@ class DlcHubApplication:
         messagebox.showinfo(
             "欢迎使用 SignRiver DLC Hub",
             "使用流程：\n\n"
-            "1. 程序自动检测 Stellaris，也可以手动选择目录。\n"
+            "1. 程序会按当前游戏卡带自动检测，也可以手动选择目录。\n"
             "2. 刷新 DLC 目录并选择需要的内容下载。\n"
             "3. 下载完成后进行完整性检查。\n"
             "4. 包结构和 DLC 编号校验通过后自动安装到当前游戏目录。\n\n"
@@ -1198,7 +1217,9 @@ class DlcHubApplication:
 
     def _refresh_catalog(self) -> None:
         self.catalog_refresh_button.configure(state="disabled")
-        self.catalog_status.configure(text="正在读取 GitLink · ste Release……")
+        self.catalog_status.configure(
+            text=f"正在读取 GitLink · {self.cartridge.release_tag} Release……"
+        )
 
         def worker() -> None:
             try:
@@ -1227,7 +1248,10 @@ class DlcHubApplication:
         self.catalog_refresh_button.configure(state="normal")
         patch_suffix = "" if snapshot.patch_bundle is not None else "（缺少补丁资源）"
         self.catalog_status.configure(
-            text=f"Stellaris · 已读取 {len(entries)} 个 DLC 资源{patch_suffix}"
+            text=(
+                f"{self.cartridge.adapter.descriptor.display_name} · "
+                f"已读取 {len(entries)} 个 DLC 资源{patch_suffix}"
+            )
         )
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
@@ -1347,7 +1371,7 @@ class DlcHubApplication:
                 uniform="dlc" if active else "",
             )
         for index, entry in enumerate(visible_entries):
-            task_id = f"stellaris-{entry.dlc_id}"
+            task_id = self._dlc_task_id(entry.dlc_id)
             installed = self._is_entry_installed(entry)
             if installed:
                 self.selected_dlc_ids.discard(entry.dlc_id)
@@ -1457,7 +1481,7 @@ class DlcHubApplication:
                 command=lambda entry=entry: self._uninstall_entry(entry),
             )
             uninstall.grid(row=0, column=7, padx=(4, 10))
-            task_id = f"stellaris-{entry.dlc_id}"
+            task_id = self._dlc_task_id(entry.dlc_id)
             self.catalog_rows[task_id] = (status, action, cancel, manage, uninstall)
             self.catalog_selection_widgets[entry.dlc_id] = checkbox
             self.catalog_entry_frames[entry.dlc_id] = row
@@ -1498,7 +1522,7 @@ class DlcHubApplication:
         for entry in self.catalog_entries:
             if query and query not in entry.dlc_id.casefold() and query not in entry.display_name.casefold():
                 continue
-            snapshot = snapshots.get(f"stellaris-{entry.dlc_id}")
+            snapshot = snapshots.get(self._dlc_task_id(entry.dlc_id))
             state = snapshot.state if snapshot else None
             installed = self._is_entry_installed(entry)
             groups = {
@@ -1612,7 +1636,7 @@ class DlcHubApplication:
         if self.current_installation is None:
             messagebox.showwarning(
                 "尚未检测游戏",
-                "请先选择或识别有效的 Stellaris 目录，再进行一键解锁。",
+                "请先选择或识别当前游戏的有效目录，再进行一键解锁。",
                 parent=self.window,
             )
             return
@@ -1629,7 +1653,7 @@ class DlcHubApplication:
         # Remember whichever DLC the user asked for; if patch download is
         # already needed the batch launches automatically after patching.
         self.pending_dlc_batch_task_ids = tuple(
-            f"stellaris-{entry.dlc_id}" for entry in selected_entries
+            self._dlc_task_id(entry.dlc_id) for entry in selected_entries
         )
         if self._patch_is_healthy():
             # Nothing to download or apply for the patch itself.  Fall through
@@ -1665,7 +1689,7 @@ class DlcHubApplication:
         failed = 0
         batch_task_ids = []
         for entry in selected_entries:
-            task_id = f"stellaris-{entry.dlc_id}"
+            task_id = self._dlc_task_id(entry.dlc_id)
             snapshot = snapshots.get(task_id)
             if self._is_entry_installed(entry) or (
                 snapshot is not None and snapshot.state is DownloadState.READY
@@ -1952,7 +1976,7 @@ class DlcHubApplication:
 
     def _download_spec_for_entry(self, entry) -> DownloadSpec:
         return DownloadSpec(
-            task_id=f"stellaris-{entry.dlc_id}",
+            task_id=self._dlc_task_id(entry.dlc_id),
             url=entry.asset.download_url,
             filename=entry.asset.name,
             expected_size=None,
@@ -1982,7 +2006,7 @@ class DlcHubApplication:
             ):
                 entry = next((
                     item for item in self.catalog_entries
-                    if f"stellaris-{item.dlc_id}" == result.spec.task_id
+                    if self._dlc_task_id(item.dlc_id) == result.spec.task_id
                 ), None)
                 if entry is not None and not self._is_entry_installed(entry):
                     self.auto_install_attempted.add(result.spec.task_id)
@@ -2061,7 +2085,7 @@ class DlcHubApplication:
     def _cancel_entry(self, entry) -> None:
         if self.download_queue is not None:
             try:
-                self.download_queue.cancel(f"stellaris-{entry.dlc_id}")
+                self.download_queue.cancel(self._dlc_task_id(entry.dlc_id))
             except (KeyError, ValueError):
                 pass
 
@@ -2069,10 +2093,10 @@ class DlcHubApplication:
         role = self.patch_task_roles.get(spec.task_id)
         if role is not None:
             return self._patch_asset_verifier(role, spec.filename)
-        expected_dlc_id = spec.task_id.removeprefix("stellaris-")
+        expected_dlc_id = self._dlc_id_from_task(spec.task_id)
 
         def verify(path: Path):
-            metadata = inspect_stellaris_package(path)
+            metadata = self.cartridge.inspect_package(path)
             if metadata.dlc_id.casefold() != expected_dlc_id.casefold():
                 raise ValueError(
                     f"package DLC ID mismatch: expected {expected_dlc_id}, "
@@ -2111,7 +2135,7 @@ class DlcHubApplication:
 
     def _refresh_installed_dlc_paths(self) -> None:
         self.installed_dlc_paths = (
-            discover_installed_dlc(self.current_installation.root)
+            self.cartridge.discover_installed_dlc(self.current_installation.root)
             if self.current_installation is not None else {}
         )
 
@@ -2122,7 +2146,9 @@ class DlcHubApplication:
         if self.install_repository is None:
             return None
         try:
-            return self.install_repository.find_active("stellaris", dlc_id)
+            return self.install_repository.find_active(
+                self.cartridge.adapter.descriptor.game_id, dlc_id
+            )
         except Exception:
             self.context.logger.exception("Unable to read install receipt")
             return None
@@ -2132,7 +2158,7 @@ class DlcHubApplication:
             return None
         return next((
             item for item in self.download_queue.snapshots()
-            if item.spec.task_id == f"stellaris-{dlc_id}"
+            if item.spec.task_id == self._dlc_task_id(dlc_id)
             and item.state is DownloadState.READY
             and item.result_path is not None
             and item.sha256 is not None
@@ -2151,7 +2177,7 @@ class DlcHubApplication:
         }
         jobs = []
         for entry in self.catalog_entries:
-            task_id = f"stellaris-{entry.dlc_id}"
+            task_id = self._dlc_task_id(entry.dlc_id)
             snapshot = snapshots.get(task_id)
             if (
                 snapshot is None
@@ -2214,7 +2240,7 @@ class DlcHubApplication:
         self._schedule_ready_installs()
 
     def _show_install_state(self, entry) -> None:
-        task_id = f"stellaris-{entry.dlc_id}"
+        task_id = self._dlc_task_id(entry.dlc_id)
         installed = self._is_entry_installed(entry)
         checkbox = self.catalog_selection_widgets.get(entry.dlc_id)
         frame = self.catalog_entry_frames.get(entry.dlc_id)
@@ -2279,12 +2305,13 @@ class DlcHubApplication:
                 try:
                     audit = next(
                         item.audit for item in self.install_service.audit(
-                            "stellaris", game_root
+                            self.cartridge.adapter.descriptor.game_id, game_root
                         ) if item.receipt.dlc_id == entry.dlc_id
                     )
                     if audit.health is not InstallHealth.HEALTHY and audit.missing and download is not None:
                         audit = self.install_service.repair_missing(
-                            "stellaris", entry.dlc_id, download.result_path, game_root
+                            self.cartridge.adapter.descriptor.game_id,
+                            entry.dlc_id, download.result_path, game_root
                         )
                     self._post_ui(
                         lambda audit=audit: self._show_audit_result(entry, audit)
@@ -2302,7 +2329,8 @@ class DlcHubApplication:
         if download is None or download.sha256 is None:
             return
         if not messagebox.askyesno(
-            "确认安装", f"将 {entry.display_name} 安装到当前 Stellaris 目录？",
+            "确认安装",
+            f"将 {entry.display_name} 安装到当前{self.cartridge.adapter.descriptor.display_name}目录？",
             parent=self.window,
         ):
             return
@@ -2346,7 +2374,11 @@ class DlcHubApplication:
 
     def _uninstall_all_dlc(self) -> None:
         if self.current_installation is None:
-            messagebox.showwarning("尚未检测游戏", "请先选择有效的 Stellaris 目录。", parent=self.window)
+            messagebox.showwarning(
+                "尚未检测游戏",
+                f"请先选择有效的{self.cartridge.adapter.descriptor.display_name}目录。",
+                parent=self.window,
+            )
             return
         self._refresh_installed_dlc_paths()
         installed = dict(self.installed_dlc_paths)
@@ -2379,9 +2411,11 @@ class DlcHubApplication:
             failures = []
             for dlc_id, display_name in targets.items():
                 try:
-                    remove_installed_dlc(game_root, dlc_id)
+                    self.cartridge.remove_installed_dlc(game_root, dlc_id)
                     if repository is not None:
-                        receipt = repository.find_active("stellaris", dlc_id)
+                        receipt = repository.find_active(
+                            self.cartridge.adapter.descriptor.game_id, dlc_id
+                        )
                         if receipt is not None:
                             repository.mark_uninstalled(
                                 receipt.transaction_id, restore_previous=False
@@ -2418,14 +2452,14 @@ class DlcHubApplication:
         bundle = self.patch_bundle
         if bundle is None:
             return ()
-        mapping = {
-            "stellaris-patch-unlocker": bundle.unlocker_dll,
-            "stellaris-patch-backup": bundle.original_backup_dll,
-            "stellaris-patch-appinfo": bundle.appinfo_json,
+        assets_by_role = {
+            "unlocker_dll": bundle.unlocker_dll,
+            "original_backup_dll": bundle.original_backup_dll,
+            "appinfo_json": bundle.appinfo_json,
         }
         return tuple(
-            self._download_spec_for_patch(task_id, asset)
-            for task_id, asset in mapping.items()
+            self._download_spec_for_patch(task_id, assets_by_role[role])
+            for task_id, role in self.patch_task_roles.items()
         )
 
     def _download_spec_for_patch(self, task_id: str, asset) -> DownloadSpec:
@@ -2433,7 +2467,10 @@ class DlcHubApplication:
             task_id=task_id,
             url=asset.download_url,
             filename=asset.name,
-            expected_size=asset.size_bytes,
+            # GitLink only exposes a rounded display value (for example
+            # "5.0 MB"), not the byte-exact attachment length. Treating that
+            # estimate as exact quarantines valid files with a size mismatch.
+            expected_size=None,
             expected_sha256=None,
             supports_range=False,
         )
@@ -2564,8 +2601,10 @@ class DlcHubApplication:
             for task_id in self.patch_task_ids:
                 snapshot = snapshots.get(task_id)
                 if snapshot is not None and snapshot.state in failed_states:
+                    detail = f"：{snapshot.error}" if snapshot.error else ""
                     self._on_patch_workflow_failed(
-                        f"补丁资源下载失败（{snapshot.spec.filename}），请刷新目录后重试"
+                        f"补丁资源下载失败（{snapshot.spec.filename}）{detail}，"
+                        "请刷新目录后重试"
                     )
                     return
             return
@@ -2630,7 +2669,7 @@ class DlcHubApplication:
         pending_ids = self.pending_dlc_batch_task_ids
         selected_entries = [
             entry for entry in self.catalog_entries
-            if f"stellaris-{entry.dlc_id}" in pending_ids
+            if self._dlc_task_id(entry.dlc_id) in pending_ids
         ]
         if not selected_entries:
             self._set_batch_download_state("idle")
@@ -2651,7 +2690,7 @@ class DlcHubApplication:
     def _remove_patch(self) -> None:
         if self.current_installation is None:
             messagebox.showwarning(
-                "尚未检测游戏", "请先选择或识别有效的 Stellaris 目录。", parent=self.window,
+                "尚未检测游戏", "请先选择或识别当前游戏的有效目录。", parent=self.window,
             )
             return
         if not messagebox.askyesno(
@@ -2704,7 +2743,7 @@ class DlcHubApplication:
     def _one_click_repair(self) -> None:
         if self.current_installation is None:
             messagebox.showwarning(
-                "尚未检测游戏", "请先选择或识别有效的 Stellaris 目录。", parent=self.window,
+                "尚未检测游戏", "请先选择或识别当前游戏的有效目录。", parent=self.window,
             )
             return
         if self.patch_bundle is None:
@@ -2737,12 +2776,14 @@ class DlcHubApplication:
         def worker() -> None:
             errors: list[str] = []
             try:
-                installed = discover_installed_dlc(game_root)
+                installed = self.cartridge.discover_installed_dlc(game_root)
                 for dlc_id in installed:
                     try:
-                        remove_installed_dlc(game_root, dlc_id)
+                        self.cartridge.remove_installed_dlc(game_root, dlc_id)
                         if self.install_repository is not None:
-                            receipt = self.install_repository.find_active("stellaris", dlc_id)
+                            receipt = self.install_repository.find_active(
+                                self.cartridge.adapter.descriptor.game_id, dlc_id
+                            )
                             if receipt is not None:
                                 self.install_repository.mark_uninstalled(
                                     receipt.transaction_id, restore_previous=False
@@ -2786,7 +2827,7 @@ class DlcHubApplication:
             targets = tuple(
                 sorted(
                     set(self.patch_task_roles)
-                    | {f"stellaris-{entry.dlc_id}" for entry in self.catalog_entries}
+                    | {self._dlc_task_id(entry.dlc_id) for entry in self.catalog_entries}
                 )
             )
             try:
@@ -2798,7 +2839,7 @@ class DlcHubApplication:
         # Queue every DLC as the pending batch so the patch flow will hand off
         # into a full-catalog batch after the patch is applied.
         self.pending_dlc_batch_task_ids = tuple(
-            f"stellaris-{entry.dlc_id}" for entry in self.catalog_entries
+            self._dlc_task_id(entry.dlc_id) for entry in self.catalog_entries
         )
         self._start_patch_downloads()
 
@@ -2808,7 +2849,7 @@ class DlcHubApplication:
         pending_ids = self.pending_dlc_batch_task_ids
         selected_entries = [
             entry for entry in self.catalog_entries
-            if f"stellaris-{entry.dlc_id}" in pending_ids
+            if self._dlc_task_id(entry.dlc_id) in pending_ids
         ]
         self.pending_dlc_batch_task_ids = ()
         if not selected_entries:
@@ -2878,7 +2919,7 @@ class DlcHubApplication:
         eta_text = f" · 约 {eta:.0f} 秒" if eta is not None and eta > 0 else ""
         task_id = snapshot.spec.task_id
         entry = next(
-            (item for item in self.catalog_entries if f"stellaris-{item.dlc_id}" == task_id),
+            (item for item in self.catalog_entries if self._dlc_task_id(item.dlc_id) == task_id),
             None,
         )
         simple_status = self.simple_status_labels.get(task_id)
@@ -2928,13 +2969,14 @@ class DlcHubApplication:
             self._show_install_state(entry)
 
     def _scan_games(self) -> None:
+        game_name = self.cartridge.adapter.descriptor.display_name
         if self.discovery is None:
-            self.game_status.configure(text="Stellaris · 初始化失败")
+            self.game_status.configure(text=f"{game_name} · 初始化失败")
             self.game_path.configure(text="游戏发现服务不可用，请查看日志")
             return
         self._set_game_buttons("disabled")
-        self.game_status.configure(text="Stellaris · 正在扫描 Steam 游戏库……")
-        self.top_health.configure(text="Stellaris · 正在扫描路径")
+        self.game_status.configure(text=f"{game_name} · 正在扫描游戏库……")
+        self.top_health.configure(text=f"{game_name} · 正在扫描路径")
 
         def worker() -> None:
             try:
@@ -2950,20 +2992,23 @@ class DlcHubApplication:
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_game_scanned(self, report) -> None:
+        game_name = self.cartridge.adapter.descriptor.display_name
         self._set_game_buttons("normal")
         installations = [
             installation
             for installation in report.available
-            if installation.game_id == "stellaris"
+            if installation.game_id == self.cartridge.adapter.descriptor.game_id
         ]
         if not installations:
             self.current_installation = None
-            self.game_status.configure(text="Stellaris · 未检测到有效安装")
+            self.game_status.configure(text=f"{game_name} · 未检测到有效安装")
             suffix = f"（扫描产生 {len(report.issues)} 条诊断信息）" if report.issues else ""
-            self.game_path.configure(text=f"可使用“选择目录”手动指定 Stellaris 根目录{suffix}")
+            self.game_path.configure(
+                text=f"可使用“选择目录”手动指定 {game_name} 根目录{suffix}"
+            )
             self.open_game_button.configure(state="disabled")
             self.launch_game_button.configure(state="disabled")
-            self.top_health.configure(text="Stellaris · 未检测到有效路径")
+            self.top_health.configure(text=f"{game_name} · 未检测到有效路径")
             return
 
         installation = next(
@@ -2976,19 +3021,21 @@ class DlcHubApplication:
         if self.discovery is None:
             return
         selected = filedialog.askdirectory(
-            title="选择 Stellaris 游戏根目录",
+            title=f"选择 {self.cartridge.adapter.descriptor.display_name} 游戏根目录",
             parent=self.window,
             mustexist=True,
         )
         if not selected:
             return
         self._set_game_buttons("disabled")
-        self.game_status.configure(text="Stellaris · 正在验证所选目录……")
+        self.game_status.configure(
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 正在验证所选目录……"
+        )
 
         def worker() -> None:
             try:
                 installation = self.discovery.add_manual(
-                    "stellaris.steam",
+                    self.cartridge.adapter.descriptor.adapter_id,
                     Path(selected),
                     select=True,
                 )
@@ -3013,11 +3060,15 @@ class DlcHubApplication:
         self._set_game_buttons("normal")
         version = installation.metadata.get("rawVersion")
         version_text = f" · {version}" if isinstance(version, str) else ""
-        self.game_status.configure(text=f"Stellaris · Steam{version_text}")
+        self.game_status.configure(
+            text=f"{self.cartridge.selection_name}{version_text}"
+        )
         self.game_path.configure(text=str(installation.root))
         self.open_game_button.configure(state="normal")
         self.launch_game_button.configure(state="normal")
-        self.top_health.configure(text=f"Stellaris · 路径正常{version_text}")
+        self.top_health.configure(
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 路径正常{version_text}"
+        )
         self.selected_dlc_ids = {
             dlc_id for dlc_id in self.selected_dlc_ids
             if not any(
@@ -3030,9 +3081,13 @@ class DlcHubApplication:
 
     def _show_game_error(self, message: str, *, popup: bool = True) -> None:
         self._set_game_buttons("normal")
-        self.game_status.configure(text="Stellaris · 路径验证失败")
+        self.game_status.configure(
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 路径验证失败"
+        )
         self.game_path.configure(text=message)
-        self.top_health.configure(text="Stellaris · 路径异常")
+        self.top_health.configure(
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 路径异常"
+        )
         if popup:
             messagebox.showerror("游戏路径无效", message, parent=self.window)
 

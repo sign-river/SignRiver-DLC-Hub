@@ -8,8 +8,8 @@ from tkinter import filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
-from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkError, GitLinkRepository, find_release_id
-from .models import GameProfile
+from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkError, GitLinkRepository
+from .models import GameProfile, PublishAsset
 from .remote import RemoteAsset, RemoteRelease, RemoteResourceManager
 from .settings import PublisherSettings
 from .workspace import PublisherWorkspace, WorkspaceError
@@ -48,7 +48,7 @@ class PublisherApplication(ctk.CTk):
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(header, text="SignRiver 发布管理器", font=("Microsoft YaHei UI", 28, "bold"), text_color="white").grid(row=0, column=0, padx=(28, 20), pady=(22, 4), sticky="w")
-        ctk.CTkLabel(header, text="多游戏 DLC / 补丁构建与 GitLink 发布端", font=("Microsoft YaHei UI", 14), text_color="#EAF4FF").grid(row=1, column=0, padx=30, pady=(0, 20), sticky="w")
+        ctk.CTkLabel(header, text="服务端制卡机 · 每张游戏卡带独立构建与发布", font=("Microsoft YaHei UI", 14), text_color="#EAF4FF").grid(row=1, column=0, padx=30, pady=(0, 20), sticky="w")
         self.game_menu = ctk.CTkOptionMenu(header, command=self._select_game, width=220, fg_color=LIGHT_BLUE, button_color=BLUE)
         self.game_menu.grid(row=0, column=2, rowspan=2, padx=28)
 
@@ -57,7 +57,7 @@ class PublisherApplication(ctk.CTk):
         self.sources_tab = self.tabs.add("资源管理")
         self.build_tab = self.tabs.add("构建与发布")
         self.remote_tab = self.tabs.add("远程资源")
-        self.games_tab = self.tabs.add("游戏配置")
+        self.games_tab = self.tabs.add("卡带配置")
         self._build_sources_tab()
         self._build_publish_tab()
         self._build_remote_tab()
@@ -125,7 +125,8 @@ class PublisherApplication(ctk.CTk):
         self.repo_entry.grid(row=0, column=3, padx=(0, 10), sticky="ew")
         buttons = ctk.CTkFrame(remote, fg_color="transparent")
         buttons.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
-        ctk.CTkButton(buttons, text="检查登录与仓库", width=160, fg_color=LIGHT_BLUE, command=self.check_gitlink).pack(side="left", padx=4)
+        self.check_gitlink_button = ctk.CTkButton(buttons, text="检查登录与仓库", width=160, fg_color=LIGHT_BLUE, command=self.check_gitlink)
+        self.check_gitlink_button.pack(side="left", padx=4)
         ctk.CTkButton(buttons, text="创建新仓库", width=140, fg_color=LIGHT_BLUE, command=self.create_repository).pack(side="left", padx=4)
         self.publish_button = ctk.CTkButton(buttons, text="发布到 Release", width=160, fg_color=BLUE, command=self.publish_release)
         self.publish_button.pack(side="left", padx=4)
@@ -164,11 +165,19 @@ class PublisherApplication(ctk.CTk):
         self.remote_asset_list.grid(row=1, column=0, padx=14, pady=(4, 14), sticky="nsew")
 
     def _build_games_tab(self) -> None:
-        card = self._card(self.games_tab, 0, "多游戏配置")
+        card = self._card(self.games_tab, 0, "游戏卡带配置")
         form = ctk.CTkFrame(card, fg_color="transparent")
         form.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
         form.grid_columnconfigure(1, weight=1)
-        labels = (("游戏 ID", "game_id"), ("显示名称", "display_name"), ("Steam App ID", "steam_app_id"), ("Release 标签", "release_tag"), ("AppInfo 文件", "appinfo_name"))
+        labels = (
+            ("游戏 ID", "game_id"),
+            ("显示名称", "display_name"),
+            ("Steam App ID", "steam_app_id"),
+            ("Release 标签", "release_tag"),
+            ("AppInfo 文件", "appinfo_name"),
+            ("补丁 DLL", "patch_unlocker_name"),
+            ("原版备份 DLL", "patch_original_backup_name"),
+        )
         self.profile_entries: dict[str, ctk.CTkEntry] = {}
         for row, (label, key) in enumerate(labels):
             ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(row=row, column=0, pady=6, sticky="w")
@@ -177,8 +186,8 @@ class PublisherApplication(ctk.CTk):
             if key == "appinfo_name":
                 entry.configure(state="disabled")
             self.profile_entries[key] = entry
-        ctk.CTkButton(form, text="保存当前游戏", fg_color=BLUE, command=self.save_profile).grid(row=5, column=1, pady=10, sticky="e")
-        ctk.CTkButton(form, text="新增游戏", fg_color=LIGHT_BLUE, command=self.add_game).grid(row=5, column=0, pady=10, sticky="w")
+        ctk.CTkButton(form, text="保存当前卡带", fg_color=BLUE, command=self.save_profile).grid(row=len(labels), column=1, pady=10, sticky="e")
+        ctk.CTkButton(form, text="新增游戏卡带", fg_color=LIGHT_BLUE, command=self.add_game).grid(row=len(labels), column=0, pady=10, sticky="w")
 
     def refresh(self) -> None:
         games = self.workspace.list_games()
@@ -276,16 +285,16 @@ class PublisherApplication(ctk.CTk):
             self.workspace.save_game(profile)
             self.profile = profile
             self.refresh()
-            messagebox.showinfo("保存成功", "游戏配置已保存")
+            messagebox.showinfo("保存成功", "游戏卡带配置已保存")
         except (WorkspaceError, OSError) as error:
             messagebox.showerror("保存失败", str(error))
 
     def add_game(self) -> None:
-        game_id = simpledialog.askstring("新增游戏", "输入游戏 ID（如 crusader_kings_3）：", parent=self)
+        game_id = simpledialog.askstring("新增游戏卡带", "输入游戏 ID（如 crusader_kings_3）：", parent=self)
         if not game_id:
             return
-        display = simpledialog.askstring("新增游戏", "输入显示名称：", parent=self) or game_id
-        steam_app_id = simpledialog.askstring("新增游戏", "输入 Steam App ID：", parent=self) or ""
+        display = simpledialog.askstring("新增游戏卡带", "输入显示名称：", parent=self) or game_id
+        steam_app_id = simpledialog.askstring("新增游戏卡带", "输入 Steam App ID：", parent=self) or ""
         normalized_id = game_id.strip().lower()
         profile = GameProfile.create(normalized_id, display.strip(), steam_app_id.strip())
         try:
@@ -455,16 +464,41 @@ class PublisherApplication(ctk.CTk):
 
     def check_gitlink(self) -> None:
         try:
-            user = self.gitlink.current_user()
-            self._log(f"GitLink 登录有效：{self._display_api_result(user)}")
-            repo = self._repository()
-            try:
-                self.gitlink.repository_info(repo)
-                self._log(f"仓库已存在：https://www.gitlink.org.cn/{repo.owner}/{repo.name}")
-            except GitLinkError as error:
-                self._log(f"仓库尚不可用：{error}")
+            manager, profile = self._remote_manager()
         except GitLinkError as error:
-            messagebox.showerror("GitLink 检查失败", f"{error}\n\n请先安装并登录官方 CLI：\nnpm install -g @gitlink-ai/cli\ngitlink-cli auth login")
+            messagebox.showerror("GitLink 检查失败", str(error))
+            return
+        self.check_gitlink_button.configure(state="disabled", text="正在检查…")
+        repo = manager.repository
+
+        def work() -> None:
+            try:
+                release = manager.get_release(profile.release_tag)
+                self.after(0, lambda: self._gitlink_check_done(repo, profile, release))
+            except (GitLinkError, OSError) as error:
+                message = str(error)
+                self.after(0, lambda value=message: self._gitlink_check_failed(value))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _gitlink_check_done(self, repo: GitLinkRepository, profile: GameProfile, release: RemoteRelease | None) -> None:
+        self.check_gitlink_button.configure(state="normal", text="检查登录与仓库")
+        repository_url = f"https://www.gitlink.org.cn/{repo.owner}/{repo.name}"
+        if release is None:
+            detail = f"仓库可以访问；当前游戏的 {profile.release_tag} Release 尚未创建。首次上传时会自动创建。"
+        else:
+            detail = f"仓库可以访问；{release.tag} Release 当前有 {len(release.assets)} 个附件。"
+        self._log(f"GitLink API 检查成功：{repository_url}；{detail}")
+        messagebox.showinfo("GitLink 检查完成", detail)
+
+    def _gitlink_check_failed(self, message: str) -> None:
+        self.check_gitlink_button.configure(state="normal", text="检查登录与仓库")
+        self._log(f"GitLink API 检查失败：{message}")
+        if "404" in message or "不存在" in message or "已被删除" in message:
+            guidance = "当前配置的仓库不存在。请先在 GitLink 网页创建仓库，或者安装 gitlink-cli 后使用“创建新仓库”。"
+        else:
+            guidance = "请检查私有令牌、仓库所有者、仓库名称和网络连接。该检查不需要安装 gitlink-cli。"
+        messagebox.showerror("GitLink 检查失败", f"{message}\n\n{guidance}")
 
     def create_repository(self) -> None:
         try:
@@ -482,49 +516,58 @@ class PublisherApplication(ctk.CTk):
 
     def publish_release(self) -> None:
         try:
-            files = self.workspace.publish_files(self.profile)
+            assets = self.workspace.publish_assets(self.profile)
             repo = self._repository()
+            previous_state = self.workspace.load_publish_state(self.profile, repo.owner, repo.name)
         except WorkspaceError as error:
             messagebox.showerror("无法发布", str(error))
             return
         except GitLinkError as error:
             messagebox.showerror("无法发布", str(error))
             return
-        if not messagebox.askyesno("确认发布", f"将 {len(files)} 个文件发布到\n{repo.owner}/{repo.name} · {self.profile.release_tag}\n\n同标签 Release 已存在时会替换其附件列表，是否继续？"):
+        if not messagebox.askyesno("确认增量发布", f"同步 {len(assets)} 个文件到\n{repo.owner}/{repo.name} · {self.profile.release_tag}\n\n未变化文件将复用远程附件；AppInfo 每次强制更新。是否继续？"):
             return
         token = self.token_entry.get().strip() or None
         self.publish_button.configure(state="disabled", text="正在发布…")
-        self._log(f"开始发布 {self.profile.display_name}：共 {len(files)} 个文件。")
+        self._log(f"开始增量发布 {self.profile.display_name}：共 {len(assets)} 个文件。")
         profile = self.profile
-        threading.Thread(target=self._publish_worker, args=(repo, profile, files, token), daemon=True).start()
+        threading.Thread(target=self._publish_worker, args=(repo, profile, assets, previous_state, token), daemon=True).start()
 
-    def _publish_worker(self, repo: GitLinkRepository, profile: GameProfile, files: tuple[Path, ...], token: str | None) -> None:
+    def _publish_worker(self, repo: GitLinkRepository, profile: GameProfile, assets: tuple[PublishAsset, ...], previous_state: dict[str, object], token: str | None) -> None:
         try:
             client = GitLinkAttachmentClient(token)
-            attachment_ids: list[str] = []
-            for index, path in enumerate(files, start=1):
-                self.after(0, lambda i=index, total=len(files), name=path.name: self._log(f"[{i}/{total}] 上传 {name}"))
-                attachment_ids.append(client.upload(path))
-            releases = client.list_releases(repo)
-            release_id = find_release_id(releases, profile.release_tag)
-            body = f"SignRiver Publisher 自动生成 · {len(files)} 个资源文件"
-            if release_id:
-                client.update_release(repo, release_id=release_id, tag=profile.release_tag, name=profile.display_name, body=body, attachment_ids=attachment_ids)
-                action = "更新"
-            else:
-                client.create_release(repo, tag=profile.release_tag, name=profile.display_name, body=body, attachment_ids=attachment_ids)
-                action = "创建"
-            self.after(0, lambda: self._publish_done(repo, action, len(files)))
+            manager = RemoteResourceManager(client, repo)
+
+            def progress(index: int, total: int, name: str, stage: str) -> None:
+                self.after(0, lambda i=index, count=total, value=name, action=stage: self._log(f"[{i}/{count}] {action} {value}"))
+
+            result = manager.sync_release(
+                profile,
+                assets,
+                previous_state,
+                force_upload=frozenset({profile.appinfo_name}),
+                progress=progress,
+            )
+            warnings = result.warnings
+            try:
+                self.workspace.save_publish_state(profile, result.state)
+            except OSError as error:
+                warnings = (*warnings, f"Release 已更新，但本地发布状态保存失败；下次可能重新上传：{error}")
+            self.after(0, lambda value=result, notes=warnings: self._publish_done(repo, profile, value.action, value.uploaded, value.reused, value.removed, notes))
         except (GitLinkError, OSError) as error:
             message = str(error)
             self.after(0, lambda value=message: self._publish_failed(value))
 
-    def _publish_done(self, repo: GitLinkRepository, action: str, count: int) -> None:
+    def _publish_done(self, repo: GitLinkRepository, profile: GameProfile, action: str, uploaded: int, reused: int, removed: int, warnings: tuple[str, ...]) -> None:
         self.publish_button.configure(state="normal", text="发布到 Release")
         if not self.settings.token:
             self.token_entry.delete(0, "end")
-        self._log(f"Release {action}完成：{count} 个文件。")
-        messagebox.showinfo("发布完成", f"资源已发布到 {repo.owner}/{repo.name} 的 {self.profile.release_tag} Release。")
+        summary = f"Release {action}完成：上传 {uploaded}，复用 {reused}，清理旧附件 {removed}。"
+        self._log(summary)
+        if warnings:
+            messagebox.showwarning("发布完成但有警告", f"{summary}\n\n" + "\n".join(warnings))
+        else:
+            messagebox.showinfo("发布完成", f"资源已发布到 {repo.owner}/{repo.name} 的 {profile.release_tag} Release。\n\n{summary}")
 
     def _publish_failed(self, message: str) -> None:
         self.publish_button.configure(state="normal", text="发布到 Release")

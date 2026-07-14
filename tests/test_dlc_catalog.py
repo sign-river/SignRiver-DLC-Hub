@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE
+from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE, StellarisGameCartridge
 from signriver_app.application import StellarisCatalogService
 from signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig, PackageInspectionError, inspect_stellaris_package
 
@@ -117,3 +117,19 @@ def test_inspect_stellaris_package_rejects_traversal(tmp_path: Path) -> None:
 def test_gitlink_config_rejects_non_https() -> None:
     with pytest.raises(ValueError, match="HTTPS"):
         GitLinkSourceConfig("signriver", "file-warehouse", "http://example.test")
+
+
+def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> None:
+    cartridge = StellarisGameCartridge()
+
+    assert cartridge.repository.owner == "signriver"
+    assert cartridge.repository.repository == "signriver-dlc-assets"
+    assert cartridge.release_tag == "stellaris"
+    assert cartridge.adapter.descriptor.game_id == "stellaris"
+    assert set(cartridge.patch_task_roles.values()) == {
+        "unlocker_dll", "original_backup_dll", "appinfo_json",
+    }
+    assert all(
+        task_id.startswith("stellaris.steam-patch-")
+        for task_id in cartridge.patch_task_roles
+    )

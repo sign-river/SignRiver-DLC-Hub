@@ -5,23 +5,31 @@ from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
-class GameProfile:
+class PublisherCartridge:
+    """One server-side game cartridge and its complete release contract."""
+
     game_id: str
     display_name: str
     release_tag: str
     appinfo_name: str
     steam_app_id: str = ""
+    patch_unlocker_name: str = "steam_api64.dll"
+    patch_original_backup_name: str = "steam_api64_o.dll"
 
     @classmethod
-    def create(cls, game_id: str, display_name: str, steam_app_id: str = "") -> "GameProfile":
-        """Create a game profile using the shared AppInfo naming convention."""
+    def create(cls, game_id: str, display_name: str, steam_app_id: str = "") -> "PublisherCartridge":
+        """Create a cartridge using the shared release naming convention."""
         return cls(game_id, display_name, game_id, f"{game_id}_appinfo.json", steam_app_id)
+
+    @property
+    def patch_asset_names(self) -> tuple[str, str]:
+        return self.patch_unlocker_name, self.patch_original_backup_name
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, object]) -> "GameProfile":
+    def from_dict(cls, value: dict[str, object]) -> "PublisherCartridge":
         game_id = str(value["game_id"])
         legacy_steam_ids = {"stellaris": "281990"}
         return cls(
@@ -30,7 +38,16 @@ class GameProfile:
             release_tag=str(value["release_tag"]),
             appinfo_name=str(value.get("appinfo_name") or f"{game_id}_appinfo.json"),
             steam_app_id=str(value.get("steam_app_id") or legacy_steam_ids.get(game_id, "")),
+            patch_unlocker_name=str(value.get("patch_unlocker_name") or "steam_api64.dll"),
+            patch_original_backup_name=str(
+                value.get("patch_original_backup_name") or "steam_api64_o.dll"
+            ),
         )
+
+
+# Backwards-compatible import name for older modules. New server code and
+# documentation use PublisherCartridge to match the client cartridge model.
+GameProfile = PublisherCartridge
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,3 +69,11 @@ class ResourceRecord:
             "size_bytes": self.size_bytes,
             "sha256": self.sha256,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class PublishAsset:
+    path: Path
+    name: str
+    size_bytes: int
+    sha256: str

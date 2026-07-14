@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 class GitLinkError(RuntimeError):
@@ -179,6 +179,33 @@ class GitLinkAttachmentClient:
             raise GitLinkError("附件 ID 格式不正确")
         self._json_request("DELETE", f"/api/attachments/{attachment_id}.json", allow_empty=True)
 
+    def attachment_matches(self, attachment_id: str, expected_name: str) -> bool:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", attachment_id):
+            raise GitLinkError("附件 ID 格式不正确")
+        if not self.token:
+            raise GitLinkError("请输入 GitLink 私有令牌，或设置 GITLINK_TOKEN")
+        connection = http.client.HTTPSConnection(self.host, self.port, timeout=30)
+        try:
+            connection.request(
+                "HEAD",
+                f"/api/attachments/{attachment_id}.json",
+                headers={"Authorization": f"Bearer {self.token}", "User-Agent": "SignRiver-Publisher/0.1"},
+            )
+            response = connection.getresponse()
+            if response.status == 404:
+                return False
+            if response.status < 200 or response.status >= 300:
+                raise GitLinkError(f"检查附件失败（HTTP {response.status}）：{expected_name}")
+            disposition = response.getheader("Content-Disposition", "")
+            encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition, re.I)
+            plain = re.search(r'filename="?([^";]+)', disposition, re.I)
+            remote_name = unquote(encoded.group(1)) if encoded else (plain.group(1).strip() if plain else "")
+            return bool(remote_name) and remote_name.casefold() == expected_name.casefold()
+        except OSError as error:
+            raise GitLinkError(f"检查附件失败：{expected_name}（{error}）") from error
+        finally:
+            connection.close()
+
     def _json_request(self, method: str, target: str, payload: dict[str, object] | None = None, *, allow_empty: bool = False) -> dict[str, object]:
         if not self.token:
             raise GitLinkError("请输入 GitLink 私有令牌，或设置 GITLINK_TOKEN")
@@ -208,6 +235,14 @@ class GitLinkAttachmentClient:
                 raise GitLinkError("GitLink 返回了无法识别的结果") from error
             if not isinstance(value, dict):
                 raise GitLinkError("GitLink 返回格式不正确")
+            api_status = value.get("status")
+            try:
+                api_status_code = int(api_status) if api_status is not None else 0
+            except (TypeError, ValueError):
+                api_status_code = 0
+            if api_status_code >= 400:
+                api_message = str(value.get("message") or value.get("error") or "请求失败").strip()
+                raise GitLinkError(f"GitLink API 返回错误（{api_status_code}）：{api_message}")
             return value
         except OSError as error:
             raise GitLinkError(f"GitLink 连接失败：{error}") from error
@@ -224,7 +259,7 @@ def find_release_id(payload: dict[str, object], tag: str) -> str | None:
         candidates = payload["releases"]
     for item in candidates:
         if isinstance(item, dict) and str(item.get("tag_name", "")) == tag:
-            release_id = item.get("id") or item.get("version_id") or item.get("version_gid")
+            release_id = item.get("version_id") or item.get("id") or item.get("version_gid")
             if release_id is not None:
                 return str(release_id)
     return None

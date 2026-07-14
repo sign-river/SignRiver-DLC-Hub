@@ -73,8 +73,11 @@ class DiagnosticExporter:
         return output
 
     def sanitize(self, text: str) -> str:
-        result = text.replace(str(self.user_home), "<USER_HOME>")
-        result = result.replace(str(self.app_root), "<APP_ROOT>")
+        # Replace the more specific application path first. It commonly lives
+        # below the user profile; reversing the order makes <APP_ROOT>
+        # impossible to recognize once the parent has already been redacted.
+        result = text.replace(str(self.app_root), "<APP_ROOT>")
+        result = result.replace(str(self.user_home), "<USER_HOME>")
         result = re.sub(
             r"(?i)\b(authorization|token|password|cookie)\s*[:=]\s*[^\s,;]+",
             lambda match: match.group(1) + "=<REDACTED>",

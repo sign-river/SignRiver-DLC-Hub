@@ -19,9 +19,14 @@ class AuditedInstallation:
 
 
 class DlcInstallService:
-    def __init__(self, engine, repository) -> None:
+    def __init__(
+        self, engine, repository, *, game_id: str = "stellaris",
+        package_inspector=None,
+    ) -> None:
         self.engine = engine
         self.repository = repository
+        self.game_id = game_id
+        self.package_inspector = package_inspector
 
     def install(
         self,
@@ -30,7 +35,9 @@ class DlcInstallService:
         *,
         expected_sha256: str,
     ) -> InstallReceipt:
-        previous = self.repository.find_active("stellaris", self._package_dlc_id(package_path))
+        previous = self.repository.find_active(
+            self.game_id, self._package_dlc_id(package_path)
+        )
         plan = self.engine.plan(
             package_path, game_root, expected_sha256=expected_sha256
         )
@@ -100,5 +107,9 @@ class DlcInstallService:
     def _package_dlc_id(self, package_path: Path) -> str:
         # Planning performs the authoritative package validation. This lookup
         # only finds a possible predecessor for the same descriptor ID.
-        from ..infrastructure.catalog import inspect_stellaris_package
-        return inspect_stellaris_package(Path(package_path)).dlc_id
+        if self.package_inspector is None:
+            from ..infrastructure.catalog import inspect_stellaris_package
+            inspector = inspect_stellaris_package
+        else:
+            inspector = self.package_inspector
+        return inspector(Path(package_path)).dlc_id

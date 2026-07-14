@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from typing import Callable
 from urllib.parse import urlencode, urlparse
@@ -19,11 +20,17 @@ class SteamStoreClient:
         *,
         timeout: float = 20,
         max_response_bytes: int = 4 * 1024 * 1024,
+        retries: int = 2,
+        retry_delay: float = 0.5,
         fetch: Callable[[str, float, int], bytes] | None = None,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.timeout = timeout
         self.max_response_bytes = max_response_bytes
+        self.retries = max(0, retries)
+        self.retry_delay = max(0.0, retry_delay)
         self._fetch = fetch or self._fetch_json
+        self._sleep = sleep or time.sleep
 
     def fetch_appinfo(self, app_id: str) -> SteamAppInfo:
         if not app_id.isdigit():
@@ -74,10 +81,17 @@ class SteamStoreClient:
 
     def _request(self, base_url: str, query: dict[str, str]) -> dict[str, object]:
         url = f"{base_url}?{urlencode(query)}"
-        try:
-            value = json.loads(self._fetch(url, self.timeout, self.max_response_bytes))
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as error:
-            raise SteamApiError(f"Steam API 请求失败：{error}") from error
+        last_error: Exception | None = None
+        for attempt in range(self.retries + 1):
+            try:
+                value = json.loads(self._fetch(url, self.timeout, self.max_response_bytes))
+                break
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as error:
+                last_error = error
+                if attempt < self.retries:
+                    self._sleep(self.retry_delay * (2 ** attempt))
+        else:
+            raise SteamApiError(f"Steam API 请求失败（已尝试 {self.retries + 1} 次）：{last_error}") from last_error
         if not isinstance(value, dict):
             raise SteamApiError("Steam API 返回格式不正确")
         return value
