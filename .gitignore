@@ -17,6 +17,8 @@ data/*
 app/.staging/
 *.log
 *.zip
+publisher-workspace/
+config/publisher.local.json
 .idea/
 .vscode/
 Thumbs.db

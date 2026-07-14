@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 signriver-dlc-hub = "signriver_launcher.main:main"
+signriver-publisher = "signriver_publisher.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
