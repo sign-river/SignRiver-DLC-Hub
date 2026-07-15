@@ -23,6 +23,7 @@ from .patches import (
     PatchTemplate,
 )
 from .settings import UserSettings
+from .paths import game_relative_path, normalize_game_relative_directory, resolve_game_directory
 
 __all__ = [
     "AdapterCapability",
@@ -53,4 +54,7 @@ __all__ = [
     "UserSettings",
     "InstallPlan",
     "InstallReceipt",
+    "game_relative_path",
+    "normalize_game_relative_directory",
+    "resolve_game_directory",
 ]

@@ -18,6 +18,8 @@ from ...domain import (
     GameState,
     InstallationCandidate,
     ValidationResult,
+    normalize_game_relative_directory,
+    resolve_game_directory,
 )
 
 
@@ -26,9 +28,15 @@ MAX_LAUNCHER_SETTINGS_BYTES = 1024 * 1024
 _DLC_DIRECTORY = re.compile(r"^(dlc\d{3})_[a-z0-9_]+$", re.I)
 
 
-def discover_installed_dlc(game_root: Path) -> dict[str, Path]:
+def discover_installed_dlc(game_root: Path, dlc_relative_dir: str = "dlc") -> dict[str, Path]:
     """Return DLC IDs whose package directory exists in a Stellaris install."""
-    dlc_root = Path(game_root) / "dlc"
+    try:
+        dlc_root = resolve_game_directory(
+            game_root, dlc_relative_dir,
+            field_name="DLC install directory", strict_root=False,
+        )
+    except (OSError, ValueError):
+        return {}
     try:
         children = tuple(dlc_root.iterdir())
     except OSError:
@@ -41,17 +49,17 @@ def discover_installed_dlc(game_root: Path) -> dict[str, Path]:
     return installed
 
 
-def remove_installed_dlc(game_root: Path, dlc_id: str) -> Path:
+def remove_installed_dlc(
+    game_root: Path, dlc_id: str, dlc_relative_dir: str = "dlc"
+) -> Path:
     """Remove one recognized DLC directory without escaping the game DLC root."""
     if not re.fullmatch(r"dlc\d{3}", dlc_id, re.I):
         raise ValueError("invalid Stellaris DLC ID")
     root = Path(game_root).resolve(strict=True)
-    dlc_root = (root / "dlc").resolve(strict=True)
-    try:
-        dlc_root.relative_to(root)
-    except ValueError as error:
-        raise ValueError("Stellaris DLC directory escapes the game root") from error
-    target = discover_installed_dlc(root).get(dlc_id.casefold())
+    dlc_root = resolve_game_directory(
+        root, dlc_relative_dir, field_name="DLC install directory"
+    ).resolve(strict=True)
+    target = discover_installed_dlc(root, dlc_relative_dir).get(dlc_id.casefold())
     if target is None:
         raise FileNotFoundError(f"installed DLC directory not found: {dlc_id}")
     resolved = target.resolve(strict=True)
@@ -83,11 +91,19 @@ class StellarisSteamAdapter:
         self,
         locator: SteamInstallationLocator | None = None,
         process_checker: Callable[[Path], bool] | None = None,
+        dlc_relative_dir: str = "dlc",
+        executable_name: str = "stellaris.exe",
     ) -> None:
         self._locator = SteamInstallationLocator() if locator is None else locator
         self._process_checker = (
             _is_process_running if process_checker is None else process_checker
         )
+        self._dlc_relative_dir = normalize_game_relative_directory(
+            dlc_relative_dir, field_name="DLC install directory"
+        )
+        if not executable_name or Path(executable_name).name != executable_name:
+            raise ValueError("game executable must be a plain filename")
+        self._executable_name = executable_name
 
     @property
     def descriptor(self) -> AdapterDescriptor:
@@ -112,7 +128,7 @@ class StellarisSteamAdapter:
             candidates.append(
                 InstallationCandidate(
                     root=installation.root,
-                    executable=installation.root / "stellaris.exe",
+                    executable=installation.root / self._executable_name,
                     source="steam",
                     platform="windows",
                     store="steam",
@@ -133,14 +149,26 @@ class StellarisSteamAdapter:
         if not normalized_root.is_dir():
             errors.append("游戏目录不存在")
 
-        executable = normalized_root / "stellaris.exe"
+        executable = normalized_root / self._executable_name
         launcher_settings_path = normalized_root / "launcher-settings.json"
         steam_appid_path = normalized_root / "steam_appid.txt"
         if not executable.is_file():
             errors.append("未找到 stellaris.exe")
-        for directory_name in ("common", "dlc"):
+        for directory_name in ("common",):
             if not (normalized_root / directory_name).is_dir():
                 errors.append(f"未找到必要目录：{directory_name}")
+
+        try:
+            dlc_root = resolve_game_directory(
+                normalized_root,
+                self._dlc_relative_dir,
+                field_name="DLC install directory",
+                strict_root=False,
+            )
+            if not dlc_root.is_dir():
+                errors.append(f"未找到必要目录：{self._dlc_relative_dir}")
+        except ValueError as error:
+            errors.append(str(error))
 
         settings: Mapping[str, object] | None = None
         if not launcher_settings_path.is_file():

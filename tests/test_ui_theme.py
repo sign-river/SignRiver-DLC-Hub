@@ -75,6 +75,34 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
     assert "def _simple_entry_status" in source
 
 
+def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "catalog_command_bar = ctk.CTkFrame(" in source
+    assert 'uniform="catalog-management"' in source
+    assert "primary_action_panel = ctk.CTkFrame(" in source
+    assert 'width=176,' in source
+    assert 'height=50,' in source
+    assert 'font=ctk.CTkFont(size=18, weight="bold")' in source
+    assert 'widget is getattr(self, "download_selected_button", None)' in source
+    assert 'self.download_selected_button.pack(padx=4, pady=4)' in source
+    assert 'self.download_selected_button.pack(fill="both", expand=True' not in source
+    assert '"primary_surface": "#EAF3FB"' in source
+    assert 'getattr(self, "catalog_refresh_button", None)' in source
+    assert 'getattr(self, "selection_toggle_button", None)' in source
+    assert 'getattr(self, "repair_button", None)' in source
+
+
+def test_log_commands_use_an_aligned_two_by_two_grid() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "log_command_area = ctk.CTkFrame(" in source
+    assert "log_action_grid = ctk.CTkFrame(" in source
+    assert 'uniform="log-actions"' in source
+    assert source.count("log_action_grid, text=") == 4
+    assert 'log_tools.grid_columnconfigure(1, weight=1)' in source
+
+
 def test_catalog_view_toggle_resets_scroll_after_rebuilding_rows() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
@@ -113,7 +141,8 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "self.download_queue.clear_all()" in source
     assert 'self._set_batch_download_state("idle")' in source
     assert "_apply_batch_download_button" not in source
-    assert 'text="测试下载速度"' in source
+    assert 'text="网络测速"' in source
+    assert 'text="开始测速"' in source
     assert "measure_download_speed(url)" in source
     assert "releases/download/test/test.bin" in source
     assert 'text="一键移除补丁"' in source
@@ -121,6 +150,34 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "def _uninstall_all_dlc" in source
     assert "remove_installed_dlc(game_root, dlc_id)" in source
     assert "uninstall.configure(state=\"normal\")" in source
+
+
+def test_settings_separates_speed_cache_and_update_without_duplicate_about_page() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'text="网络测速"' in source
+    assert 'text="缓存管理"' in source
+    assert 'text="程序与更新"' in source
+    assert '"设置": (self.speed_test_card, self.cache_card, self.update_card)' in source
+    assert '"关于"' not in source
+    assert "bandwidth_entry" not in source
+    assert "限速 KiB/s" not in source
+    assert "DownloadPolicy" not in source
+
+
+def test_multi_game_async_results_are_scoped_and_file_changes_require_game_stopped() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "self.game_selection_generation = 0" in source
+    assert "self.game_selection_generation += 1" in source
+    assert "generation != self.game_selection_generation" in source
+    assert "cartridge_id != self.cartridge.cartridge_id" in source
+    assert "def _require_game_stopped" in source
+    assert 'self._require_game_stopped("一键解锁")' in source
+    assert 'self._require_game_stopped("卸载全部 DLC")' in source
+    assert 'self._require_game_stopped("移除补丁")' in source
+    assert 'self._require_game_stopped("一键修复")' in source
+    assert "game_state.running" in source
 
 
 def test_batch_download_has_one_pause_control_and_thread_safe_ui_events() -> None:
@@ -150,7 +207,6 @@ def test_downloads_are_fixed_to_single_threaded_sequential_mode() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'max_concurrent=1' in source
-    assert 'text="单线程顺序下载（固定）"' in source
     assert 'download_concurrency=1' in source
     assert "self.concurrency_menu" not in source
     assert '"；任务将按列表顺序逐个下载"' in source
@@ -161,6 +217,7 @@ def test_ready_cache_is_restored_installed_items_are_grey_and_batch_can_cancel()
 
     assert "def _reconcile_catalog_cache" in source
     assert "self.download_queue.reconcile_cached(tuple(specs))" in source
+    assert "specs.extend(self._patch_download_specs())" not in source
     assert "def _installed_dlc_path" in source
 
 
@@ -180,7 +237,7 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     assert 'self._set_batch_download_state("patch_applying")' in source
     # Patch tasks flow through the same DownloadQueue as DLC packages, using
     # dedicated task IDs so the UI can route their completion callbacks.
-    assert "self.patch_task_roles = dict(self.cartridge.patch_task_roles)" in source
+    assert "dict(self.cartridge.patch_task_roles(snapshot.patch_bundle))" in source
     assert "for task_id, role in self.patch_task_roles.items()" in source
     # Once the patch is applied the workflow hands off to the DLC batch code
     # that was already tested in earlier releases.

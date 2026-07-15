@@ -23,6 +23,21 @@ TEXT = "#212121"
 MUTED = "#757575"
 RED = "#E53935"
 
+PROFILE_OPTION_LABELS = {
+    "dlc_archive_root_mode": {
+        "source": "保留管理目录名",
+        "strip_id_prefix": "去掉管理编号，恢复游戏原目录名",
+    },
+    "dlc_import_naming_mode": {
+        "manual_prefixed": "沿用自带编号或手动编号",
+        "auto_prefix": "自动分配管理编号",
+    },
+    "dlc_import_layout_mode": {
+        "single_directory": "每次导入一个 DLC 目录",
+        "children_if_root": "选择 DLC 根目录时批量拆分",
+    },
+}
+
 
 class PublisherApplication(ctk.CTk):
     def __init__(self, workspace: PublisherWorkspace, *, settings: PublisherSettings | None = None) -> None:
@@ -81,21 +96,47 @@ class PublisherApplication(ctk.CTk):
         for card in (self.dlc_card, self.patch_card):
             card.grid_columnconfigure(0, weight=1)
             card.grid_rowconfigure(2, weight=1)
-        self._resource_header(self.dlc_card, "DLC 文件夹", self.import_dlc, self.open_dlc_folder)
-        self._resource_header(self.patch_card, "补丁资源", self.import_patch, self.open_patch_folder)
+        self.dlc_import_button, self.dlc_clear_button = self._resource_header(
+            self.dlc_card,
+            "DLC 文件夹",
+            self.import_dlc,
+            self.open_dlc_folder,
+            lambda: self.clear_local_resources("dlc"),
+        )
+        self.patch_import_button, self.patch_clear_button = self._resource_header(
+            self.patch_card,
+            "补丁资源",
+            self.import_patch,
+            self.open_patch_folder,
+            lambda: self.clear_local_resources("patches"),
+        )
         self.dlc_list = ctk.CTkScrollableFrame(self.dlc_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
         self.dlc_list.grid(row=2, column=0, padx=16, pady=(6, 16), sticky="nsew")
         self.patch_list = ctk.CTkScrollableFrame(self.patch_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
         self.patch_list.grid(row=2, column=0, padx=16, pady=(6, 16), sticky="nsew")
 
-    def _resource_header(self, card, title, import_command, open_command) -> None:
+    def _resource_header(self, card, title, import_command, open_command, clear_command):
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.grid(row=0, column=0, padx=16, pady=(14, 2), sticky="ew")
         bar.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(bar, text=title, font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE).grid(row=0, column=0, padx=4, sticky="w")
-        ctk.CTkButton(bar, text="导入", width=72, fg_color=BLUE, command=import_command).grid(row=0, column=1, padx=4)
-        ctk.CTkButton(bar, text="打开目录", width=88, fg_color=LIGHT_BLUE, command=open_command).grid(row=0, column=2, padx=4)
+        import_button = ctk.CTkButton(bar, text="导入", width=72, fg_color=BLUE, command=import_command)
+        import_button.grid(row=0, column=1, padx=4)
+        clear_button = ctk.CTkButton(
+            bar,
+            text="清空全部",
+            width=88,
+            fg_color="transparent",
+            border_width=1,
+            border_color=RED,
+            text_color=RED,
+            hover_color="#FFEBEE",
+            command=clear_command,
+        )
+        clear_button.grid(row=0, column=2, padx=4)
+        ctk.CTkButton(bar, text="打开目录", width=88, fg_color=LIGHT_BLUE, command=open_command).grid(row=0, column=3, padx=4)
         ctk.CTkLabel(card, text="可直接把资源放入对应目录，再点击刷新", text_color=MUTED).grid(row=1, column=0, padx=20, pady=(0, 4), sticky="w")
+        return import_button, clear_button
 
     def _build_publish_tab(self) -> None:
         self.build_tab.grid_rowconfigure(1, weight=1)
@@ -177,11 +218,25 @@ class PublisherApplication(ctk.CTk):
             ("AppInfo 文件", "appinfo_name"),
             ("补丁 DLL", "patch_unlocker_name"),
             ("原版备份 DLL", "patch_original_backup_name"),
+            ("DLC 安装目录", "dlc_relative_dir"),
+            ("补丁安装目录", "patch_relative_dir"),
+            ("压缩包目录结构", "dlc_archive_root_mode"),
+            ("导入编号方式", "dlc_import_naming_mode"),
+            ("批量导入方式", "dlc_import_layout_mode"),
         )
-        self.profile_entries: dict[str, ctk.CTkEntry] = {}
+        self.profile_entries: dict[str, object] = {}
         for row, (label, key) in enumerate(labels):
             ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(row=row, column=0, pady=6, sticky="w")
-            entry = ctk.CTkEntry(form, border_color="#BDBDBD")
+            if key in PROFILE_OPTION_LABELS:
+                values = list(PROFILE_OPTION_LABELS[key].values())
+                entry = ctk.CTkOptionMenu(
+                    form,
+                    values=values,
+                    fg_color=LIGHT_BLUE,
+                    button_color=BLUE,
+                )
+            else:
+                entry = ctk.CTkEntry(form, border_color="#BDBDBD")
             entry.grid(row=row, column=1, pady=6, sticky="ew")
             if key == "appinfo_name":
                 entry.configure(state="disabled")
@@ -199,6 +254,10 @@ class PublisherApplication(ctk.CTk):
         self._fill_resources(self.dlc_list, dlcs, "dlc")
         self._fill_resources(self.patch_list, patches, "patches")
         for key, entry in self.profile_entries.items():
+            if key in PROFILE_OPTION_LABELS:
+                value = getattr(self.profile, key)
+                entry.set(PROFILE_OPTION_LABELS[key].get(value, value))
+                continue
             if key == "appinfo_name":
                 entry.configure(state="normal")
             entry.delete(0, "end")
@@ -260,8 +319,88 @@ class PublisherApplication(ctk.CTk):
 
     def import_dlc(self) -> None:
         path = filedialog.askdirectory(title="选择 DLC 文件夹")
-        if path:
-            self._run_action(lambda: self.workspace.import_dlc(self.profile, Path(path)), "DLC 已导入")
+        if not path:
+            return
+        source = Path(path)
+        profile = self.profile
+        collection = self.workspace.is_dlc_collection(profile, source)
+        interrupted = (
+            self.workspace.interrupted_collection_import(profile, source)
+            if collection else ()
+        )
+        reset_interrupted = False
+        if interrupted:
+            confirmed = messagebox.askyesno(
+                "重置上次失败的导入",
+                f"检测到上次导入中断后留下的 {len(interrupted)} 个错误编号目录。\n\n"
+                "是否清理这些工作区副本和残留临时文件，并从 1 重新编号？\n"
+                "不会删除游戏的原始 DLC 目录。",
+            )
+            if not confirmed:
+                return
+            reset_interrupted = True
+        wrapped = self.workspace.wrapped_collection_import(profile, source) if collection else None
+        if wrapped is not None:
+            confirmed = messagebox.askyesno(
+                "修正旧版误导入",
+                f"检测到之前把整个 DLC 根目录导入成了 {wrapped.name}。\n\n"
+                "是否直接把现有副本中的一级子目录拆分并分别编号？\n"
+                "这是同一磁盘内的快速移动，不会重新复制，也不会删除原始 DLC 目录。",
+            )
+            if not confirmed:
+                return
+        self.dlc_import_button.configure(state="disabled", text="准备中…")
+        self.dlc_clear_button.configure(state="disabled")
+        self.game_menu.configure(state="disabled")
+
+        def progress(index: int, total: int, name: str) -> None:
+            self.after(
+                0,
+                lambda: self.dlc_import_button.configure(
+                    text=f"{index}/{total} {name[:10]}"
+                ),
+            )
+
+        def work() -> None:
+            try:
+                if reset_interrupted:
+                    self.after(
+                        0,
+                        lambda: self.dlc_import_button.configure(text="清理上次失败记录…"),
+                    )
+                    self.workspace.reset_interrupted_collection_import(profile, source)
+                if wrapped is not None:
+                    result = self.workspace.split_wrapped_collection_import(
+                        profile, source, progress=progress
+                    )
+                elif collection:
+                    result = self.workspace.import_dlc_collection(
+                        profile, source, progress=progress
+                    )
+                else:
+                    result = (self.workspace.import_dlc(profile, source),)
+                self.after(0, lambda: self._import_dlc_done(profile, result))
+            except (WorkspaceError, OSError) as error:
+                message = str(error)
+                self.after(0, lambda: self._import_dlc_failed(message))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _import_dlc_done(self, profile: GameProfile, imported: tuple[Path, ...]) -> None:
+        self.dlc_import_button.configure(state="normal", text="导入")
+        self.dlc_clear_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        if self.profile.game_id == profile.game_id:
+            self.refresh()
+        messagebox.showinfo("导入完成", f"已导入 {len(imported)} 个 DLC 文件夹")
+
+    def _import_dlc_failed(self, message: str) -> None:
+        self.dlc_import_button.configure(state="normal", text="导入")
+        self.dlc_clear_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        if not self.winfo_exists():
+            return
+        messagebox.showerror("导入失败", message)
 
     def import_patch(self) -> None:
         path = filedialog.askopenfilename(title="选择补丁文件")
@@ -275,9 +414,72 @@ class PublisherApplication(ctk.CTk):
             return
         self._run_action(lambda: self.workspace.remove_source(self.profile, kind, name), "资源已删除")
 
+    def clear_local_resources(self, kind: str) -> None:
+        dlcs, patches = self.workspace.scan_sources(self.profile)
+        resources = dlcs if kind == "dlc" else patches
+        if not resources:
+            messagebox.showinfo("无需清理", "当前区域没有本地资源")
+            return
+        label = "DLC 文件夹" if kind == "dlc" else "补丁资源"
+        if not messagebox.askyesno(
+            f"清空全部{label}",
+            f"将从当前“{self.profile.display_name}”卡带的本地工作区删除 "
+            f"{len(resources)} 项{label}。\n\n"
+            "不会删除游戏原文件，也不会删除 GitLink Release。此操作无法撤销，是否继续？",
+        ):
+            return
+        import_button = self.dlc_import_button if kind == "dlc" else self.patch_import_button
+        clear_button = self.dlc_clear_button if kind == "dlc" else self.patch_clear_button
+        import_button.configure(state="disabled")
+        clear_button.configure(state="disabled", text="正在清空…")
+        self.game_menu.configure(state="disabled")
+        profile = self.profile
+
+        def work() -> None:
+            try:
+                count = self.workspace.clear_sources(profile, kind)
+                self.after(
+                    0,
+                    lambda: self._clear_local_resources_done(
+                        profile, label, count, import_button, clear_button
+                    ),
+                )
+            except (WorkspaceError, OSError) as error:
+                message = str(error)
+                self.after(
+                    0,
+                    lambda: self._clear_local_resources_failed(
+                        message, import_button, clear_button
+                    ),
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clear_local_resources_done(
+        self, profile: GameProfile, label: str, count: int, import_button, clear_button
+    ) -> None:
+        import_button.configure(state="normal")
+        clear_button.configure(state="normal", text="清空全部")
+        self.game_menu.configure(state="normal")
+        if self.profile.game_id == profile.game_id:
+            self.refresh()
+        messagebox.showinfo("清理完成", f"已删除 {count} 项本地{label}")
+
+    def _clear_local_resources_failed(self, message: str, import_button, clear_button) -> None:
+        import_button.configure(state="normal")
+        clear_button.configure(state="normal", text="清空全部")
+        self.game_menu.configure(state="normal")
+        messagebox.showerror("清理失败", message)
+
     def save_profile(self) -> None:
         try:
             values = {key: entry.get().strip() for key, entry in self.profile_entries.items()}
+            for key, labels in PROFILE_OPTION_LABELS.items():
+                displayed = values[key]
+                values[key] = next(
+                    (stored for stored, label in labels.items() if label == displayed),
+                    displayed,
+                )
             values["appinfo_name"] = f"{values['game_id']}_appinfo.json"
             profile = GameProfile(**values)
             if profile.game_id != self.profile.game_id:

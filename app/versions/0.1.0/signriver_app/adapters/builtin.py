@@ -5,10 +5,16 @@ from __future__ import annotations
 from .cartridge import GameCartridge
 from .protocol import GameAdapter
 from .stellaris import StellarisGameCartridge
+from .civilization_6 import Civilization6GameCartridge
+from .hearts_of_iron_4 import HeartsOfIron4GameCartridge
 
 
 def create_builtin_cartridges() -> tuple[GameCartridge, ...]:
-    return (StellarisGameCartridge(),)
+    return (
+        StellarisGameCartridge(),
+        Civilization6GameCartridge(),
+        HeartsOfIron4GameCartridge(),
+    )
 
 
 def create_builtin_adapters() -> tuple[GameAdapter, ...]:

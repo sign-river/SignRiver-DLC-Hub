@@ -2,4 +2,6 @@
 
 from .engine import InstallError, StellarisInstallEngine
 
-__all__ = ["InstallError", "StellarisInstallEngine"]
+DirectoryInstallEngine = StellarisInstallEngine
+
+__all__ = ["DirectoryInstallEngine", "InstallError", "StellarisInstallEngine"]

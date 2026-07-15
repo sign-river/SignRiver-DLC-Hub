@@ -183,6 +183,51 @@ def test_apply_promotes_vanilla_dll_to_backup(tmp_path: Path) -> None:
     # rather than our packaged copy; the important thing is the safety property.
 
 
+def test_patch_operations_use_cartridge_owned_nested_directory(tmp_path: Path) -> None:
+    profile = PatchProfile(
+        unlocker_dll_name="custom_api.dll",
+        original_backup_dll_name="custom_api_o.dll",
+        appinfo_asset_name="other_appinfo.json",
+        template=PatchTemplate(ini_target_name="custom.ini"),
+        install_relative_dir="bin/win64",
+    )
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    engine = PatchEngine(profile, data_root)
+    game = tmp_path / "game"
+    patch_dir = game / "bin" / "win64"
+    patch_dir.mkdir(parents=True)
+    (patch_dir / "custom_api.dll").write_bytes(VANILLA_GAME_DLL)
+    unlocker, backup, appinfo = write_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_backup_dll_source=backup,
+        appinfo_json_source=appinfo,
+        game_id="other",
+    )
+
+    assert (patch_dir / "custom_api.dll").read_bytes() == UNLOCKER_BODY
+    assert (patch_dir / "custom_api_o.dll").read_bytes() == VANILLA_GAME_DLL
+    assert (patch_dir / "custom.ini").is_file()
+    assert all(path.startswith("bin/win64/") for path in result.audit_after.matching)
+    touched = engine.remove(game)
+    assert "bin/win64/custom_api_o.dll" in touched
+    assert (patch_dir / "custom_api.dll").read_bytes() == VANILLA_GAME_DLL
+
+
+def test_patch_profile_rejects_unsafe_install_directory() -> None:
+    with pytest.raises(ValueError, match="game root"):
+        PatchProfile(
+            unlocker_dll_name="a.dll",
+            original_backup_dll_name="b.dll",
+            appinfo_asset_name="game_appinfo.json",
+            template=PatchTemplate(ini_target_name="patch.ini"),
+            install_relative_dir="../outside",
+        )
+
+
 def test_apply_is_idempotent_when_files_already_match(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"

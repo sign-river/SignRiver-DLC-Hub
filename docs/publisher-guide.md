@@ -87,7 +87,34 @@ stellaris_appinfo.json
 
 - **一键解锁**：先做补丁审计，若不健康就把三件补丁下载到内容寻址缓存并顺序应用（下载补丁 → 应用补丁 → 依次下载安装勾选的 DLC）；补丁已健康则直接跳到 DLC 下载/安装阶段。按钮文本会随阶段变成“正在下载补丁… / 正在应用补丁…”，并阻塞其他破坏性操作。
 - **一键修复**：二次确认后卸载全部已安装 DLC、清空下载记录与内容缓存、`patch_engine.reset(game_root)` 抹掉补丁三件套，然后重新走一次一键解锁流程；提示用户会下载大量数据。
+- **缓存复用**：卸载游戏不会删除客户端缓存，重新安装游戏后，同一 DLC 可直接从内容寻址缓存恢复并安装。补丁 DLL 和 AppInfo 使用 Release 附件 ID 作为缓存版本；服务端重新发布附件后客户端会下载新版本，不会把旧的同名补丁当作当前版本。
 - **一键移除补丁**：只做卸载：删除补丁 DLL 与 `cream_api.ini`，把 `steam_api64_o.dll` 恢复为 `steam_api64.dll`。任一步骤失败都回滚到操作前状态。
+
+## 卡带中的安装位置
+
+每个游戏卡带独立声明客户端安装位置，路径均相对于该游戏的根目录：
+
+- `dlc_relative_dir`：DLC 目录，例如 Stellaris 为 `dlc`，其他游戏可以是 `content/addons`。
+- `patch_relative_dir`：补丁三件套所在目录，例如根目录用 `.`，也可以是 `bin/win64`。
+
+客户端的安装、已安装扫描、卸载和修复会统一读取这两个字段。服务端的“游戏卡带配置”页面也保存相同字段，便于新增游戏时完整记录发布协议。两者都拒绝绝对路径和包含 `..` 的越界路径。
+
+当前预置三张 Steam 卡带：
+
+| 游戏 | Steam App ID | Release 标签 | DLC 安装目录 | 补丁安装目录 | AppInfo |
+| --- | ---: | --- | --- | --- | --- |
+| Stellaris | `281990` | `stellaris` | `dlc` | `.` | `stellaris_appinfo.json` |
+| Civilization VI | `289070` | `civilization_6` | `DLC` | `Base/Binaries/Win64Steam` | `civilization_6_appinfo.json` |
+| Hearts of Iron IV | `394360` | `hearts_of_iron_4` | `dlc` | `.` | `hearts_of_iron_4_appinfo.json` |
+
+首次启动新版服务端管理器时，会为缺失的内置卡带自动创建本地工作区，不覆盖已有游戏配置。为新游戏准备资源时：
+
+1. 在游戏卡带对应的 `dlc` 工作区中放入 DLC 文件夹；服务端会将每个文件夹单独压缩。`manual_prefixed` 卡带要求使用 `dlcNNN_英文名称`，`auto_prefix` 卡带可直接通过“导入 DLC”选择原始目录并由服务端分配稳定编号。
+2. 在对应 `patches` 工作区放入该游戏自己的 `steam_api64.dll` 和 `steam_api64_o.dll`。
+3. 点击构建，让服务端从 Steam 获取并生成该卡带对应的 `xxx_appinfo.json`。
+4. 在 GitLink 仓库创建与表格一致的 Release 标签，再执行发布。
+
+文明 6 与钢铁雄心 4 使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。文明 6 卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始 `Expansion1`，也可选择游戏的整个 `DLC` 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_Expansion1` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为 `Expansion1`。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
 
 ## GitLink 仓库
 

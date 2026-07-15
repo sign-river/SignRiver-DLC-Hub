@@ -38,6 +38,19 @@ def test_discover_installed_dlc_reads_only_valid_package_directories(tmp_path: P
     assert set(installed) == {"dlc001", "dlc042"}
 
 
+def test_dlc_discovery_and_removal_use_cartridge_directory(tmp_path: Path) -> None:
+    from signriver_app.adapters.stellaris import remove_installed_dlc
+
+    target = tmp_path / "content" / "addons" / "dlc001_symbols"
+    target.mkdir(parents=True)
+    installed = discover_installed_dlc(tmp_path, "content/addons")
+    assert installed == {"dlc001": target}
+
+    removed = remove_installed_dlc(tmp_path, "dlc001", "content/addons")
+    assert removed == target.resolve()
+    assert not target.exists()
+
+
 def write_steam_fixture(
     base: Path,
     *,
@@ -215,11 +228,14 @@ def test_stellaris_adapter_rejects_wrong_or_incomplete_directory(
     assert any("App ID" in error for error in validation.errors)
 
 
-def test_builtin_adapter_set_contains_stellaris() -> None:
+def test_builtin_adapter_set_contains_all_prepared_game_cartridges() -> None:
     adapters = create_builtin_adapters()
 
-    assert len(adapters) == 1
-    assert adapters[0].descriptor.adapter_id == "stellaris.steam"
+    assert {adapter.descriptor.adapter_id for adapter in adapters} == {
+        "stellaris.steam",
+        "civilization_6.steam",
+        "hearts_of_iron_4.steam",
+    }
 
 
 def test_stellaris_inspection_rejects_foreign_installation(tmp_path: Path) -> None:

@@ -5,11 +5,21 @@ import json
 import re
 import shutil
 import tempfile
+import time
+import uuid
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .cream import SteamAppInfo
 from .cartridges import create_builtin_cartridges
+from .dlc_naming import (
+    AUTO_PREFIX,
+    CHILDREN_IF_ROOT,
+    VALID_DLC_IMPORT_LAYOUT_MODES,
+    VALID_DLC_IMPORT_NAMING_MODES,
+    auto_managed_folder,
+    parse_managed_folder,
+)
 from .models import GameProfile, PublishAsset, ResourceRecord
 from .steam import SteamApiError, SteamStoreClient
 
@@ -31,11 +41,13 @@ class PublisherWorkspace:
     def initialize(self) -> GameProfile:
         self.games_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        if not self.list_games():
-            profile = create_builtin_cartridges()[0]
-            self.save_game(profile)
-            return profile
-        return self.list_games()[0]
+        current = self.list_games()
+        existing = {profile.game_id for profile in current}
+        builtins = create_builtin_cartridges()
+        for profile in builtins:
+            if profile.game_id not in existing:
+                self.save_game(profile)
+        return current[0] if current else builtins[0]
 
     def list_games(self) -> tuple[GameProfile, ...]:
         profiles: list[GameProfile] = []
@@ -73,12 +85,251 @@ class PublisherWorkspace:
         source = source.resolve()
         if not source.is_dir():
             raise WorkspaceError("请选择一个 DLC 文件夹")
-        self._parse_dlc_folder(source.name)
-        destination = self.game_dir(profile.game_id) / "dlc" / source.name
+        managed_name = source.name
+        parsed = parse_managed_folder(source.name)
+        if profile.dlc_import_naming_mode == AUTO_PREFIX and parsed is None:
+            try:
+                managed_name = auto_managed_folder(
+                    source.name, self._next_dlc_import_number(profile)
+                )
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+        self._parse_dlc_folder(managed_name)
+        destination = self.game_dir(profile.game_id) / "dlc" / managed_name
         if destination.exists():
-            raise WorkspaceError(f"DLC 已存在：{source.name}")
-        shutil.copytree(source, destination)
+            raise WorkspaceError(f"DLC 已存在：{managed_name}")
+        staging_root = self._import_staging_root(profile)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        staging = staging_root / uuid.uuid4().hex[:8]
+        try:
+            self._copy_directory(source, staging)
+            staging.replace(destination)
+        except (OSError, shutil.Error) as error:
+            raise self._copy_workspace_error(source.name, error) from error
+        finally:
+            if staging.exists():
+                self._remove_tree(staging)
+        self._advance_dlc_import_number(profile, managed_name)
         return destination
+
+    def is_dlc_collection(self, profile: GameProfile, source: Path) -> bool:
+        source = source.resolve()
+        configured_root = PurePosixPath(
+            profile.dlc_relative_dir.replace("\\", "/")
+        ).name
+        return (
+            profile.dlc_import_layout_mode == CHILDREN_IF_ROOT
+            and source.is_dir()
+            and source.name.casefold() == configured_root.casefold()
+            and any(path.is_dir() and not path.is_symlink() for path in source.iterdir())
+        )
+
+    def import_dlc_collection(
+        self, profile: GameProfile, source: Path, *, progress=None
+    ) -> tuple[Path, ...]:
+        source = source.resolve()
+        if not self.is_dlc_collection(profile, source):
+            raise WorkspaceError("所选目录不是当前卡带配置的 DLC 根目录")
+        children = tuple(
+            sorted(
+                (
+                    path for path in source.iterdir()
+                    if path.is_dir() and not path.is_symlink()
+                ),
+                key=lambda path: path.name.casefold(),
+            )
+        )
+        dlc_root = self.game_dir(profile.game_id) / "dlc"
+        existing_install_names = {
+            parsed[1].casefold()
+            for path in dlc_root.iterdir()
+            if path.is_dir()
+            for parsed in [parse_managed_folder(path.name)]
+            if parsed is not None
+        }
+        first_number = self._next_dlc_import_number(profile)
+        planned: list[tuple[Path, Path]] = []
+        for offset, child in enumerate(children):
+            if child.name.casefold() in existing_install_names:
+                raise WorkspaceError(f"DLC 已存在：{child.name}")
+            try:
+                managed_name = auto_managed_folder(child.name, first_number + offset)
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            destination = dlc_root / managed_name
+            if destination.exists():
+                raise WorkspaceError(f"DLC 已存在：{managed_name}")
+            planned.append((child, destination))
+
+        staging_root = self._import_staging_root(profile)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        batch = staging_root / uuid.uuid4().hex[:8]
+        batch.mkdir()
+        committed: list[tuple[Path, Path]] = []
+        current_name = source.name
+        try:
+            for index, (child, destination) in enumerate(planned, start=1):
+                current_name = child.name
+                if progress is not None:
+                    progress(index, len(children), child.name)
+                self._copy_directory(child, batch / destination.name)
+            for _, destination in planned:
+                staged = batch / destination.name
+                staged.replace(destination)
+                committed.append((destination, staged))
+        except (OSError, shutil.Error) as error:
+            for destination, staged in reversed(committed):
+                if destination.exists():
+                    destination.replace(staged)
+            raise self._copy_workspace_error(current_name, error) from error
+        finally:
+            if batch.exists():
+                self._remove_tree(batch, ignore_errors=True)
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": first_number + len(planned)},
+        )
+        return tuple(destination for _, destination in planned)
+
+    def interrupted_collection_import(
+        self, profile: GameProfile, source: Path
+    ) -> tuple[Path, ...]:
+        if not self.is_dlc_collection(profile, source):
+            return ()
+        staging_roots = self._import_staging_roots(profile)
+        if not any(root.is_dir() and any(root.iterdir()) for root in staging_roots):
+            return ()
+        source_names = {
+            path.name.casefold() for path in source.iterdir()
+            if path.is_dir() and not path.is_symlink()
+        }
+        candidates: list[tuple[int, Path]] = []
+        for path in (self.game_dir(profile.game_id) / "dlc").iterdir():
+            parsed = parse_managed_folder(path.name) if path.is_dir() else None
+            if parsed is not None and parsed[1].casefold() in source_names:
+                candidates.append((parsed[2], path))
+        if not candidates or min(number for number, _ in candidates) <= 1:
+            return ()
+        return tuple(path for _, path in sorted(candidates))
+
+    def reset_interrupted_collection_import(
+        self, profile: GameProfile, source: Path
+    ) -> int:
+        candidates = self.interrupted_collection_import(profile, source)
+        if not candidates:
+            raise WorkspaceError("没有找到可安全重置的中断导入记录")
+        for path in candidates:
+            self._remove_tree(path)
+        for staging_root in self._import_staging_roots(profile):
+            if staging_root.exists():
+                self._remove_tree(staging_root)
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": 1},
+        )
+        return len(candidates)
+
+    def wrapped_collection_import(
+        self, profile: GameProfile, source: Path
+    ) -> Path | None:
+        if not self.is_dlc_collection(profile, source):
+            return None
+        expected_children = {
+            path.name.casefold() for path in source.iterdir()
+            if path.is_dir() and not path.is_symlink()
+        }
+        for candidate in (self.game_dir(profile.game_id) / "dlc").iterdir():
+            parsed = parse_managed_folder(candidate.name) if candidate.is_dir() else None
+            if parsed is None or parsed[1].casefold() != source.name.casefold():
+                continue
+            actual_children = {
+                path.name.casefold() for path in candidate.iterdir()
+                if path.is_dir() and not path.is_symlink()
+            }
+            if expected_children and expected_children == actual_children:
+                return candidate
+        return None
+
+    def discard_wrapped_collection_import(
+        self, profile: GameProfile, source: Path
+    ) -> None:
+        candidate = self.wrapped_collection_import(profile, source)
+        if candidate is None:
+            raise WorkspaceError("没有找到可安全清理的整目录误导入记录")
+        shutil.rmtree(candidate)
+        remaining_numbers = [
+            parsed[2]
+            for path in (self.game_dir(profile.game_id) / "dlc").iterdir()
+            if path.is_dir()
+            for parsed in [parse_managed_folder(path.name)]
+            if parsed is not None
+        ]
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": max(remaining_numbers, default=0) + 1},
+        )
+
+    def split_wrapped_collection_import(
+        self, profile: GameProfile, source: Path, *, progress=None
+    ) -> tuple[Path, ...]:
+        candidate = self.wrapped_collection_import(profile, source)
+        if candidate is None:
+            raise WorkspaceError("没有找到可安全拆分的整目录误导入记录")
+        direct_files = tuple(path for path in candidate.iterdir() if not path.is_dir())
+        if direct_files:
+            raise WorkspaceError("整目录中包含直属文件，无法自动拆分，请先人工确认")
+        children = tuple(
+            sorted(
+                (path for path in candidate.iterdir() if path.is_dir()),
+                key=lambda path: path.name.casefold(),
+            )
+        )
+        dlc_root = self.game_dir(profile.game_id) / "dlc"
+        remaining_numbers = [
+            parsed[2]
+            for path in dlc_root.iterdir()
+            if path.is_dir() and path != candidate
+            for parsed in [parse_managed_folder(path.name)]
+            if parsed is not None
+        ]
+        first_number = max(remaining_numbers, default=0) + 1
+        planned: list[tuple[Path, Path]] = []
+        for offset, child in enumerate(children):
+            try:
+                managed_name = auto_managed_folder(child.name, first_number + offset)
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            destination = dlc_root / managed_name
+            if destination.exists() and destination != candidate:
+                raise WorkspaceError(f"DLC 已存在：{managed_name}")
+            planned.append((child, destination))
+
+        staging_root = self._import_staging_root(profile)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        staged_wrapper = staging_root / f"w-{uuid.uuid4().hex[:8]}"
+        candidate.replace(staged_wrapper)
+        moved: list[tuple[Path, Path]] = []
+        try:
+            for index, (old_child, destination) in enumerate(planned, start=1):
+                staged_child = staged_wrapper / old_child.name
+                if progress is not None:
+                    progress(index, len(planned), old_child.name)
+                staged_child.replace(destination)
+                moved.append((destination, staged_child))
+            staged_wrapper.rmdir()
+        except Exception:
+            for destination, staged_child in reversed(moved):
+                if destination.exists():
+                    destination.replace(staged_child)
+            if staged_wrapper.exists() and not candidate.exists():
+                staged_wrapper.replace(candidate)
+            raise
+        next_number = first_number + len(planned)
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": next_number},
+        )
+        return tuple(destination for _, destination in planned)
 
     def import_patch(self, profile: GameProfile, source: Path) -> Path:
         source = source.resolve()
@@ -101,9 +352,30 @@ class PublisherWorkspace:
         if target.parent != root or not target.exists():
             raise WorkspaceError("资源不存在或路径不安全")
         if target.is_dir():
-            shutil.rmtree(target)
+            self._remove_tree(target)
         else:
             target.unlink()
+
+    def clear_sources(self, profile: GameProfile, kind: str) -> int:
+        if kind not in {"dlc", "patches"}:
+            raise WorkspaceError("未知资源类型")
+        root = (self.game_dir(profile.game_id) / kind).resolve()
+        resources = tuple(root.iterdir())
+        for target in resources:
+            resolved = target.resolve()
+            if resolved.parent != root:
+                raise WorkspaceError(f"资源路径不安全：{target.name}")
+            if target.is_dir():
+                self._remove_tree(target)
+            else:
+                target.unlink()
+        if kind == "dlc":
+            for staging in self._import_staging_roots(profile):
+                if staging.exists():
+                    self._remove_tree(staging)
+            for state_name in (".dlc-import-state.json", ".build-state.json"):
+                (self.game_dir(profile.game_id) / state_name).unlink(missing_ok=True)
+        return len(resources)
 
     def build(self, profile: GameProfile) -> tuple[ResourceRecord, ...]:
         self._validate_profile(profile)
@@ -120,17 +392,24 @@ class PublisherWorkspace:
             dlc_id, display_name = self._parse_dlc_folder(source.name)
             asset_name = f"{source.name}.zip"
             output = target / asset_name
-            source_signature = self._source_signature(source)
+            archive_root = self._dlc_archive_root(profile, source)
+            source_signature = hashlib.sha256(
+                (archive_root + "\0" + self._source_signature(source)).encode("utf-8")
+            ).hexdigest()
             cached = previous_dlcs.get(source.name) if isinstance(previous_dlcs, dict) else None
             reusable = self._cached_output_matches(cached, source_signature, asset_name, output)
             if reusable:
                 digest = str(cached["sha256"])
-            elif cached is None and self._existing_zip_matches_source(source, output):
+            elif cached is None and self._existing_zip_matches_source(
+                source, output, archive_root=archive_root
+            ):
                 # Adopt ZIPs produced by older publisher versions into the new
                 # incremental state without recompressing every DLC once.
                 digest = self._file_sha256(output)
             else:
-                self._zip_directory(source, output, include_root=True)
+                self._zip_directory(
+                    source, output, include_root=True, archive_root=archive_root
+                )
                 digest = self._file_sha256(output)
             output_stat = output.stat()
             next_dlcs[source.name] = {
@@ -261,6 +540,124 @@ class PublisherWorkspace:
         for name in patch_names:
             if not name or Path(name).name != name or name in {".", ".."}:
                 raise WorkspaceError("补丁 DLL 必须使用普通文件名")
+        PublisherWorkspace._validate_relative_directory(
+            profile.dlc_relative_dir, "DLC 安装目录"
+        )
+        PublisherWorkspace._validate_relative_directory(
+            profile.patch_relative_dir, "补丁安装目录"
+        )
+        if profile.dlc_archive_root_mode not in {"source", "strip_id_prefix"}:
+            raise WorkspaceError("DLC 压缩根目录模式只能是 source 或 strip_id_prefix")
+        if profile.dlc_import_naming_mode not in VALID_DLC_IMPORT_NAMING_MODES:
+            raise WorkspaceError(
+                "DLC 导入命名模式只能是 manual_prefixed 或 auto_prefix"
+            )
+        if profile.dlc_import_layout_mode not in VALID_DLC_IMPORT_LAYOUT_MODES:
+            raise WorkspaceError(
+                "DLC 导入布局模式只能是 single_directory 或 children_if_root"
+            )
+
+    def _next_dlc_import_number(self, profile: GameProfile) -> int:
+        state_path = self.game_dir(profile.game_id) / ".dlc-import-state.json"
+        stored = 1
+        try:
+            value = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                stored = max(1, int(value.get("next_number", 1)))
+        except (OSError, ValueError, TypeError):
+            pass
+        existing = 0
+        dlc_dir = self.game_dir(profile.game_id) / "dlc"
+        for path in dlc_dir.iterdir():
+            parsed = parse_managed_folder(path.name) if path.is_dir() else None
+            if parsed is not None:
+                existing = max(existing, parsed[2])
+        return max(stored, existing + 1)
+
+    def _advance_dlc_import_number(self, profile: GameProfile, managed_name: str) -> None:
+        parsed = parse_managed_folder(managed_name)
+        if parsed is None:
+            return
+        path = self.game_dir(profile.game_id) / ".dlc-import-state.json"
+        next_number = max(self._next_dlc_import_number(profile), parsed[2] + 1)
+        self._atomic_json(path, {"version": 1, "next_number": next_number})
+
+    def _import_staging_root(self, profile: GameProfile) -> Path:
+        return self.root / ".staging" / profile.game_id
+
+    def _import_staging_roots(self, profile: GameProfile) -> tuple[Path, ...]:
+        # The second path is retained only to detect and clean residues created
+        # by publisher builds before the short Windows-safe staging layout.
+        return (
+            self._import_staging_root(profile),
+            self.game_dir(profile.game_id) / ".import-staging",
+        )
+
+    @staticmethod
+    def _copy_file_with_retry(source: str, destination: str) -> str:
+        last_error: OSError | None = None
+        for delay in (0.0, 0.2, 0.6, 1.2):
+            if delay:
+                time.sleep(delay)
+            try:
+                return shutil.copy2(source, destination)
+            except OSError as error:
+                last_error = error
+        assert last_error is not None
+        raise last_error
+
+    @classmethod
+    def _copy_directory(cls, source: Path, destination: Path) -> None:
+        shutil.copytree(source, destination, copy_function=cls._copy_file_with_retry)
+
+    @staticmethod
+    def _copy_workspace_error(name: str, error: BaseException) -> WorkspaceError:
+        if isinstance(error, shutil.Error) and error.args and error.args[0]:
+            first = error.args[0][0]
+            detail = str(first[2] if isinstance(first, tuple) and len(first) >= 3 else first)
+        else:
+            detail = str(error)
+        return WorkspaceError(f"复制 DLC“{name}”失败：{detail}")
+
+    @staticmethod
+    def _remove_tree(path: Path, *, ignore_errors: bool = False) -> None:
+        last_error: OSError | None = None
+        for delay in (0.0, 0.2, 0.6, 1.2):
+            if delay:
+                time.sleep(delay)
+            try:
+                shutil.rmtree(path)
+                return
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                last_error = error
+                continue
+        if last_error is not None and not ignore_errors:
+            raise last_error
+
+    @staticmethod
+    def _dlc_archive_root(profile: GameProfile, source: Path) -> str:
+        if profile.dlc_archive_root_mode == "source":
+            return source.name
+        match = _DLC_DIR.fullmatch(source.name)
+        if match is None:
+            raise WorkspaceError("无法从 DLC 文件夹名称提取真实安装目录")
+        return match.group(2)
+
+    @staticmethod
+    def _validate_relative_directory(value: str, label: str) -> None:
+        raw = str(value).strip().replace("\\", "/")
+        if raw in {"", "."}:
+            return
+        path = PurePosixPath(raw)
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or "\x00" in raw
+            or any(":" in part or part in {"", "."} for part in path.parts)
+        ):
+            raise WorkspaceError(f"{label}必须是游戏根目录内的安全相对路径")
 
     @staticmethod
     def _parse_dlc_folder(name: str) -> tuple[str, str]:
@@ -271,7 +668,10 @@ class PublisherWorkspace:
         return match.group(1).lower(), display
 
     @staticmethod
-    def _zip_directory(source: Path, destination: Path, *, include_root: bool) -> None:
+    def _zip_directory(
+        source: Path, destination: Path, *, include_root: bool,
+        archive_root: str | None = None,
+    ) -> None:
         files = sorted(path for path in source.rglob("*") if path.is_file())
         if not files:
             raise WorkspaceError(f"文件夹为空：{source.name}")
@@ -284,7 +684,8 @@ class PublisherWorkspace:
             with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
                 for path in files:
                     relative = path.relative_to(source)
-                    arcname = Path(source.name) / relative if include_root else relative
+                    root_name = archive_root or source.name
+                    arcname = Path(root_name) / relative if include_root else relative
                     info = zipfile.ZipInfo.from_file(path, arcname.as_posix())
                     info.date_time = (2020, 1, 1, 0, 0, 0)
                     info.external_attr = 0o100644 << 16
@@ -371,7 +772,9 @@ class PublisherWorkspace:
             return False
 
     @staticmethod
-    def _existing_zip_matches_source(source: Path, output: Path) -> bool:
+    def _existing_zip_matches_source(
+        source: Path, output: Path, *, archive_root: str | None = None
+    ) -> bool:
         if not output.is_file():
             return False
         files = tuple(sorted((path for path in source.rglob("*") if path.is_file()), key=lambda item: item.relative_to(source).as_posix()))
@@ -381,7 +784,7 @@ class PublisherWorkspace:
             if output.stat().st_mtime_ns < max(path.stat().st_mtime_ns for path in files):
                 return False
             expected = {
-                (Path(source.name) / path.relative_to(source)).as_posix(): path.stat().st_size
+                (Path(archive_root or source.name) / path.relative_to(source)).as_posix(): path.stat().st_size
                 for path in files
             }
             with zipfile.ZipFile(output) as archive:

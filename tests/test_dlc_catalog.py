@@ -9,6 +9,7 @@ import pytest
 
 from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE, StellarisGameCartridge
 from signriver_app.application import StellarisCatalogService
+from signriver_app.domain import PatchBundle, ReleaseAsset
 from signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig, PackageInspectionError, inspect_stellaris_package
 
 
@@ -121,15 +122,37 @@ def test_gitlink_config_rejects_non_https() -> None:
 
 def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> None:
     cartridge = StellarisGameCartridge()
+    bundle = PatchBundle(
+        profile=STELLARIS_PATCH_PROFILE,
+        unlocker_dll=ReleaseAsset("101", "steam_api64.dll", "https://example.test/steam_api64.dll"),
+        original_backup_dll=ReleaseAsset("102", "steam_api64_o.dll", "https://example.test/steam_api64_o.dll"),
+        appinfo_json=ReleaseAsset("103", "stellaris_appinfo.json", "https://example.test/stellaris_appinfo.json"),
+        release_tag="stellaris",
+    )
+    roles = cartridge.patch_task_roles(bundle)
 
     assert cartridge.repository.owner == "signriver"
     assert cartridge.repository.repository == "signriver-dlc-assets"
     assert cartridge.release_tag == "stellaris"
+    assert cartridge.dlc_relative_dir == "dlc"
+    assert cartridge.patch_profile.install_relative_dir == "."
     assert cartridge.adapter.descriptor.game_id == "stellaris"
-    assert set(cartridge.patch_task_roles.values()) == {
+    assert set(roles.values()) == {
         "unlocker_dll", "original_backup_dll", "appinfo_json",
     }
     assert all(
         task_id.startswith("stellaris.steam-patch-")
-        for task_id in cartridge.patch_task_roles
+        for task_id in roles
     )
+    assert any(task_id.endswith("-101") for task_id in roles)
+
+    updated_bundle = PatchBundle(
+        profile=bundle.profile,
+        unlocker_dll=ReleaseAsset("201", bundle.unlocker_dll.name, bundle.unlocker_dll.download_url),
+        original_backup_dll=bundle.original_backup_dll,
+        appinfo_json=bundle.appinfo_json,
+        release_tag=bundle.release_tag,
+    )
+    updated_roles = cartridge.patch_task_roles(updated_bundle)
+    assert set(roles) != set(updated_roles)
+    assert len(set(roles) & set(updated_roles)) == 2

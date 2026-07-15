@@ -13,10 +13,13 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from ...domain import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
+from ...domain import (
+    InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile,
+    game_relative_path, normalize_game_relative_directory, resolve_game_directory,
+)
 from ..catalog import inspect_stellaris_package
 
-_DLC_DIRECTORY = re.compile(r"^dlc\d{3}_[a-z0-9_]+$", re.I)
+_DLC_DIRECTORY = re.compile(r"^dlc\d{3,}_[a-z0-9_]+$", re.I)
 
 
 class InstallError(RuntimeError):
@@ -29,9 +32,29 @@ class StellarisInstallEngine:
         data_root: Path,
         *,
         replace: Callable[[Path, Path], None] = os.replace,
+        dlc_relative_dir: str = "dlc",
+        executable_name: str = "stellaris.exe",
+        game_id: str = "stellaris",
+        package_inspector=inspect_stellaris_package,
     ) -> None:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
+        self.dlc_relative_dir = normalize_game_relative_directory(
+            dlc_relative_dir, field_name="DLC install directory"
+        )
+        self._dlc_relative_path = game_relative_path(
+            self.dlc_relative_dir, field_name="DLC install directory"
+        )
+        self.executable_name = normalize_game_relative_directory(
+            executable_name, field_name="game executable path"
+        )
+        if self.executable_name == ".":
+            raise ValueError("game executable path must name a file")
+        self._executable_relative_path = game_relative_path(
+            self.executable_name, field_name="game executable path"
+        )
+        self.game_id = game_id
+        self.package_inspector = package_inspector
 
     def plan(
         self,
@@ -48,26 +71,32 @@ class StellarisInstallEngine:
         actual = self._sha256(package_path)
         if actual.casefold() != expected_sha256.casefold():
             raise InstallError("package SHA-256 changed before installation")
-        metadata = inspect_stellaris_package(package_path)
-        if not (game_root / "stellaris.exe").is_file() or not (game_root / "dlc").is_dir():
+        metadata = self.package_inspector(package_path)
+        dlc_root = self._dlc_root(game_root)
+        if not (game_root / self._executable_relative_path).is_file() or not dlc_root.is_dir():
             raise InstallError("target is not a validated Stellaris installation")
         top_level = self._package_root(package_path)
-        if not _DLC_DIRECTORY.fullmatch(top_level):
-            raise InstallError("package DLC directory name is invalid")
-        if not top_level.casefold().startswith(metadata.dlc_id.casefold() + "_"):
-            raise InstallError("package directory and descriptor DLC ID do not match")
+        install_directory = getattr(metadata, "install_directory", None)
+        if install_directory is not None:
+            if top_level.casefold() != str(install_directory).casefold():
+                raise InstallError("package install directory does not match its metadata")
+        else:
+            if not _DLC_DIRECTORY.fullmatch(top_level):
+                raise InstallError("package DLC directory name is invalid")
+            if not top_level.casefold().startswith(metadata.dlc_id.casefold() + "_"):
+                raise InstallError("package directory and descriptor DLC ID do not match")
         transaction_id = transaction_id or uuid.uuid4().hex
         if not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id):
             raise ValueError("invalid transaction ID")
         transaction_root = self.data_root / "transactions" / transaction_id
         return InstallPlan(
             transaction_id=transaction_id,
-            game_id="stellaris",
+            game_id=self.game_id,
             dlc_id=metadata.dlc_id,
             package_path=package_path,
             package_sha256=actual,
             game_root=game_root,
-            relative_target=Path("dlc") / top_level,
+            relative_target=self._dlc_relative_path / top_level,
             staging_root=transaction_root / "staging",
             backup_root=self.data_root / "backups" / transaction_id,
             journal_path=transaction_root / "journal.json",
@@ -358,10 +387,20 @@ class StellarisInstallEngine:
 
     def _trusted_receipt_target(self, receipt, allowed_game_root) -> Path:
         game_root = Path(allowed_game_root).resolve(strict=True)
-        target = self._contained(game_root / "dlc", receipt.target_path)
-        if target.parent != (game_root / "dlc").resolve():
-            raise InstallError("receipt target is not a direct Stellaris DLC directory")
+        dlc_root = self._dlc_root(game_root)
+        target = self._contained(dlc_root, receipt.target_path)
+        if target.parent != dlc_root:
+            raise InstallError("receipt target is not a direct configured DLC directory")
         return target
+
+    def _dlc_root(self, game_root: Path) -> Path:
+        try:
+            return resolve_game_directory(
+                game_root, self.dlc_relative_dir,
+                field_name="DLC install directory",
+            )
+        except ValueError as error:
+            raise InstallError(str(error)) from error
 
     @staticmethod
     def _contained(root: Path, candidate: Path) -> Path:

@@ -26,7 +26,7 @@ from ..domain import (
     ReleaseAsset,
 )
 
-_STELLARIS_ASSET = re.compile(r"^(dlc\d{3})_([a-z0-9_]+)\.zip$", re.I)
+_STELLARIS_ASSET = re.compile(r"^(dlc\d{3,})_([a-z0-9_]+)\.zip$", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +45,8 @@ class CatalogSnapshot:
     missing_patch_assets: tuple[str, ...] = ()
 
 
-class StellarisCatalogService:
-    """Resolve DLC and patch assets published under a single Stellaris release."""
+class ReleaseCatalogService:
+    """Resolve DLC and patch assets published under one game cartridge release."""
 
     def __init__(
         self,
@@ -125,4 +125,7 @@ class StellarisCatalogService:
         return bundle, ()
 
 
-__all__ = ["CatalogSnapshot", "StellarisCatalogService"]
+StellarisCatalogService = ReleaseCatalogService
+
+
+__all__ = ["CatalogSnapshot", "ReleaseCatalogService", "StellarisCatalogService"]

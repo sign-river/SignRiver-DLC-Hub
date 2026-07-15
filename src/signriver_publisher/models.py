@@ -15,6 +15,11 @@ class PublisherCartridge:
     steam_app_id: str = ""
     patch_unlocker_name: str = "steam_api64.dll"
     patch_original_backup_name: str = "steam_api64_o.dll"
+    dlc_relative_dir: str = "dlc"
+    patch_relative_dir: str = "."
+    dlc_archive_root_mode: str = "source"
+    dlc_import_naming_mode: str = "manual_prefixed"
+    dlc_import_layout_mode: str = "single_directory"
 
     @classmethod
     def create(cls, game_id: str, display_name: str, steam_app_id: str = "") -> "PublisherCartridge":
@@ -32,6 +37,8 @@ class PublisherCartridge:
     def from_dict(cls, value: dict[str, object]) -> "PublisherCartridge":
         game_id = str(value["game_id"])
         legacy_steam_ids = {"stellaris": "281990"}
+        builtin_naming_modes = {"civilization_6": "auto_prefix"}
+        builtin_layout_modes = {"civilization_6": "children_if_root"}
         return cls(
             game_id=game_id,
             display_name=str(value["display_name"]),
@@ -41,6 +48,17 @@ class PublisherCartridge:
             patch_unlocker_name=str(value.get("patch_unlocker_name") or "steam_api64.dll"),
             patch_original_backup_name=str(
                 value.get("patch_original_backup_name") or "steam_api64_o.dll"
+            ),
+            dlc_relative_dir=str(value.get("dlc_relative_dir") or "dlc"),
+            patch_relative_dir=str(value.get("patch_relative_dir") or "."),
+            dlc_archive_root_mode=str(value.get("dlc_archive_root_mode") or "source"),
+            dlc_import_naming_mode=str(
+                value.get("dlc_import_naming_mode")
+                or builtin_naming_modes.get(game_id, "manual_prefixed")
+            ),
+            dlc_import_layout_mode=str(
+                value.get("dlc_import_layout_mode")
+                or builtin_layout_modes.get(game_id, "single_directory")
             ),
         )
 

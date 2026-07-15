@@ -27,7 +27,7 @@ from .signriver_app.domain import (
     UserSettings,
 )
 from .signriver_app.infrastructure.cache import CacheMaintenance
-from .signriver_app.infrastructure.downloads import DownloadManager, DownloadPolicy
+from .signriver_app.infrastructure.downloads import DownloadManager
 from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
 from .signriver_app.infrastructure.patching import PatchEngine, PatchError
 from .signriver_app.infrastructure.speed_test import measure_download_speed
@@ -44,6 +44,9 @@ UI = {
     "brand": "#3A7EBF",
     "primary": "#1976D2",
     "primary_hover": "#1565C0",
+    "primary_surface": "#EAF3FB",
+    "primary_surface_hover": "#DCECF9",
+    "primary_border": "#B8D7F2",
     "secondary": "#42A5F5",
     "secondary_hover": "#1E88E5",
     "page": "#F5F7FA",
@@ -126,9 +129,10 @@ class DlcHubApplication:
         self.pending_dlc_batch_task_ids: tuple[str, ...] = ()
         self.repair_workflow_active = False
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
-        # DownloadQueue task IDs for the three patch assets.  Filenames match
-        # what the publisher uploads to GitLink.
-        self.patch_task_roles = dict(self.cartridge.patch_task_roles)
+        # Filled after the current Release bundle is known.  Patch task IDs
+        # include each GitLink attachment ID so stale generations cannot be
+        # mistaken for the latest patch after an update.
+        self.patch_task_roles: dict[str, str] = {}
         self.user_settings = UserSettings()
         self.settings_repository = None
         self.download_manager = DownloadManager(self.context.paths.cache)
@@ -173,6 +177,7 @@ class DlcHubApplication:
         self.catalog_online = False
         self.notice_serial = 0
         self.current_installation = None
+        self.game_selection_generation = 0
         self.installed_dlc_paths = {}
         try:
             registry = AdapterRegistry(item.adapter for item in cartridges)
@@ -181,20 +186,15 @@ class DlcHubApplication:
             stored_settings = self.settings_repository.load()
             self.user_settings = UserSettings(
                 download_concurrency=1,
-                bandwidth_limit_kib=stored_settings.bandwidth_limit_kib,
+                bandwidth_limit_kib=None,
                 onboarding_completed=stored_settings.onboarding_completed,
             )
-            if stored_settings.download_concurrency != 1:
+            if (
+                stored_settings.download_concurrency != 1
+                or stored_settings.bandwidth_limit_kib is not None
+            ):
                 self.settings_repository.save(self.user_settings)
-            self.download_manager = DownloadManager(
-                self.context.paths.cache,
-                policy=DownloadPolicy(
-                    max_bytes_per_second=(
-                        self.user_settings.bandwidth_limit_kib * 1024
-                        if self.user_settings.bandwidth_limit_kib else None
-                    )
-                ),
-            )
+            self.download_manager = DownloadManager(self.context.paths.cache)
             repository = GameInstallationRepository(database)
             self.download_repository = DownloadTaskRepository(database)
             self.install_repository = InstallReceiptRepository(database)
@@ -244,7 +244,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(anchor="w", padx=23, pady=(0, 24))
         self.navigation_buttons = {}
-        for page_name in ("DLC 库", "下载任务", "日志", "设置", "关于"):
+        for page_name in ("DLC 库", "下载任务", "日志", "设置"):
             button = ctk.CTkButton(
                 sidebar, text=page_name, anchor="w", width=130, height=38,
                 fg_color="transparent", text_color=UI["text_secondary"],
@@ -335,7 +335,8 @@ class DlcHubApplication:
         self.game_selector.set(self.selected_game_name)
         self.game_selector.pack(side="left", padx=(10, 0))
         self.platform_status = ctk.CTkLabel(
-            selector_row, text="Steam · App 281990",
+            selector_row,
+            text=f"{self.cartridge.platform_name} · App {self.cartridge.store_app_id}",
             text_color=UI["muted"],
         )
         self.platform_status.pack(side="right")
@@ -426,12 +427,33 @@ class DlcHubApplication:
             text_color=UI["muted"],
         )
         self.catalog_preview.pack(fill="x", padx=24, pady=(2, 16))
-        catalog_tools = ctk.CTkFrame(catalog_card, fg_color="transparent")
-        catalog_tools.pack(fill="x", padx=24, pady=(0, 8))
+        catalog_command_bar = ctk.CTkFrame(
+            catalog_card,
+            fg_color=UI["panel"],
+            border_width=1,
+            border_color=UI["border"],
+            corner_radius=10,
+        )
+        catalog_command_bar.pack(fill="x", padx=24, pady=(0, 10))
+        catalog_command_bar.grid_columnconfigure(0, weight=1)
+
+        catalog_secondary_actions = ctk.CTkFrame(
+            catalog_command_bar, fg_color="transparent"
+        )
+        catalog_secondary_actions.grid(
+            row=0, column=0, sticky="nsew", padx=(12, 10), pady=10
+        )
+        catalog_secondary_actions.grid_columnconfigure(0, weight=1)
+
+        catalog_tools = ctk.CTkFrame(
+            catalog_secondary_actions, fg_color="transparent"
+        )
+        catalog_tools.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        catalog_tools.grid_columnconfigure(0, weight=1)
         self.catalog_search = ctk.CTkEntry(
             catalog_tools, placeholder_text="搜索 DLC 编号或名称", width=240
         )
-        self.catalog_search.pack(side="left")
+        self.catalog_search.grid(row=0, column=0, sticky="ew")
         self.catalog_search.bind("<KeyRelease>", lambda _event: self._render_catalog_rows())
         self.catalog_filter = _combo_box(
             catalog_tools,
@@ -440,37 +462,70 @@ class DlcHubApplication:
             width=110,
         )
         self.catalog_filter.set("全部状态")
-        self.catalog_filter.pack(side="left", padx=(8, 0))
-        self.download_selected_button = ctk.CTkButton(
-            catalog_tools, text="一键解锁", command=self._one_click_unlock, width=124
-        )
-        self.download_selected_button.pack(side="right")
-        self.cancel_all_downloads_button = ctk.CTkButton(
-            catalog_tools, text="取消全部下载",
-            command=self._cancel_all_downloads, width=104,
-        )
-        self.cancel_all_downloads_button.pack(side="right", padx=(0, 8))
+        self.catalog_filter.grid(row=0, column=1, padx=(8, 0))
         self.selection_toggle_button = ctk.CTkButton(
             catalog_tools, text="全选", command=self._toggle_visible_selection,
-            width=86,
+            width=96,
         )
-        self.selection_toggle_button.pack(side="right", padx=(0, 8))
-        catalog_management_tools = ctk.CTkFrame(catalog_card, fg_color="transparent")
-        catalog_management_tools.pack(fill="x", padx=24, pady=(0, 8))
-        self.repair_button = ctk.CTkButton(
-            catalog_management_tools, text="一键修复",
-            command=self._one_click_repair, width=112,
+        self.selection_toggle_button.grid(row=0, column=2, padx=(8, 0))
+
+        catalog_management_tools = ctk.CTkFrame(
+            catalog_secondary_actions, fg_color="transparent"
         )
-        self.repair_button.pack(side="right")
+        catalog_management_tools.grid(row=1, column=0, sticky="ew")
+        for column in range(4):
+            catalog_management_tools.grid_columnconfigure(
+                column, weight=1, uniform="catalog-management"
+            )
+        self.cancel_all_downloads_button = ctk.CTkButton(
+            catalog_management_tools, text="取消全部下载",
+            command=self._cancel_all_downloads, width=104,
+        )
+        self.cancel_all_downloads_button.grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        self.uninstall_all_button = ctk.CTkButton(
+            catalog_management_tools, text="卸载全部 DLC",
+            command=self._uninstall_all_dlc, width=112,
+        )
+        self.uninstall_all_button.grid(
+            row=0, column=1, sticky="ew", padx=4
+        )
         self.remove_patch_button = ctk.CTkButton(
             catalog_management_tools, text="一键移除补丁",
             command=self._remove_patch, width=112,
         )
-        self.remove_patch_button.pack(side="right", padx=(0, 8))
-        ctk.CTkButton(
-            catalog_management_tools, text="卸载全部 DLC",
-            command=self._uninstall_all_dlc, width=112,
-        ).pack(side="right", padx=(0, 8))
+        self.remove_patch_button.grid(
+            row=0, column=2, sticky="ew", padx=4
+        )
+        self.repair_button = ctk.CTkButton(
+            catalog_management_tools, text="一键修复",
+            command=self._one_click_repair, width=112,
+        )
+        self.repair_button.grid(
+            row=0, column=3, sticky="ew", padx=(4, 0)
+        )
+
+        primary_action_panel = ctk.CTkFrame(
+            catalog_command_bar,
+            fg_color=UI["primary_surface"],
+            border_width=1,
+            border_color=UI["primary_border"],
+            corner_radius=10,
+        )
+        primary_action_panel.grid(
+            row=0, column=1, padx=(0, 10), pady=10
+        )
+        self.download_selected_button = ctk.CTkButton(
+            primary_action_panel,
+            text="一键解锁",
+            command=self._one_click_unlock,
+            width=176,
+            height=50,
+            corner_radius=12,
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        self.download_selected_button.pack(padx=4, pady=4)
         self.dlc_list_frame = ctk.CTkScrollableFrame(
             catalog_card, height=250, fg_color=UI["panel"], corner_radius=10,
             border_width=1, border_color=UI["border"],
@@ -481,85 +536,82 @@ class DlcHubApplication:
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
 
-        card = _card(self.page_host)
-        self.about_card = card
-        card.pack(fill="x")
+        speed_test_card = _card(self.page_host)
+        self.speed_test_card = speed_test_card
+        speed_header = ctk.CTkFrame(speed_test_card, fg_color="transparent")
+        speed_header.pack(fill="x", padx=24, pady=(18, 8))
         ctk.CTkLabel(
-            card,
-            text="模块化更新框架已就绪",
-            text_color=UI["primary"],
+            speed_header, text="网络测速", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(22, 6))
+        ).pack(side="left")
+        self.speed_test_button = ctk.CTkButton(
+            speed_header, text="开始测速",
+            command=self._run_speed_test, width=110,
+        )
+        self.speed_test_button.pack(side="right")
         ctk.CTkLabel(
-            card,
+            speed_test_card,
+            text="从 GitLink 下载测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24)
+        self.speed_test_status = ctk.CTkLabel(
+            speed_test_card, text="尚未测速", text_color=UI["muted"], anchor="w"
+        )
+        self.speed_test_status.pack(fill="x", padx=24, pady=(8, 18))
+
+        cache_card = _card(self.page_host)
+        self.cache_card = cache_card
+        cache_header = ctk.CTkFrame(cache_card, fg_color="transparent")
+        cache_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            cache_header, text="缓存管理", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            cache_header, text="打开缓存目录",
+            command=lambda: self._open_path(self.context.paths.cache), width=110,
+        ).pack(side="right")
+        ctk.CTkButton(
+            cache_header, text="分析并清理",
+            command=self._cleanup_cache, width=110,
+        ).pack(side="right", padx=(0, 8))
+        ctk.CTkLabel(
+            cache_card,
+            text="已完成的资源会保留以便以后重复安装；清理时只删除无引用、隔离或残留文件。",
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24)
+        self.cache_status = ctk.CTkLabel(
+            cache_card, text="缓存用量将在后台统计", text_color=UI["muted"], anchor="w"
+        )
+        self.cache_status.pack(fill="x", padx=24, pady=(8, 18))
+
+        update_card = _card(self.page_host)
+        self.update_card = update_card
+        update_header = ctk.CTkFrame(update_card, fg_color="transparent")
+        update_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            update_header, text="程序与更新", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        self.update_button = ctk.CTkButton(
+            update_header, text="检查更新", command=self._check_update, width=110,
+        )
+        self.update_button.pack(side="right")
+        ctk.CTkLabel(
+            update_card,
             text=(
                 f"应用模块 v{self.context.app_version}  ·  "
                 f"启动器 v{self.context.launcher_version}  ·  API {self.context.api_version}"
             ),
-        ).pack(anchor="w", padx=24)
-
-        self.progress = ctk.CTkProgressBar(card, mode="determinate")
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24)
+        self.progress = ctk.CTkProgressBar(update_card, mode="determinate")
         self.progress.set(0)
-        self.progress.pack(fill="x", padx=24, pady=(22, 6))
-        self.status = ctk.CTkLabel(card, text="尚未检查更新", anchor="w")
-        self.status.pack(fill="x", padx=24)
-
-        self.update_button = ctk.CTkButton(
-            card,
-            text="检查更新",
-            command=self._check_update,
-            width=140,
+        self.progress.pack(fill="x", padx=24, pady=(12, 6))
+        self.status = ctk.CTkLabel(
+            update_card, text="尚未检查更新", text_color=UI["muted"], anchor="w"
         )
-        self.update_button.pack(anchor="e", padx=24, pady=22)
-
-        settings_card = _card(self.page_host)
-        self.settings_card = settings_card
-        settings_card.pack(fill="x", pady=(18, 0))
-        ctk.CTkLabel(
-            settings_card, text="下载设置", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(18, 8))
-        settings_row = ctk.CTkFrame(settings_card, fg_color="transparent")
-        settings_row.pack(fill="x", padx=24)
-        ctk.CTkLabel(settings_row, text="下载模式").pack(side="left")
-        ctk.CTkLabel(
-            settings_row,
-            text="单线程顺序下载（固定）",
-            text_color=UI["text_secondary"],
-        ).pack(side="left", padx=(8, 24))
-        ctk.CTkLabel(settings_row, text="限速 KiB/s（留空不限速）").pack(side="left")
-        self.bandwidth_entry = ctk.CTkEntry(settings_row, width=110)
-        if self.user_settings.bandwidth_limit_kib:
-            self.bandwidth_entry.insert(0, str(self.user_settings.bandwidth_limit_kib))
-        self.bandwidth_entry.pack(side="left", padx=(8, 0))
-        ctk.CTkButton(
-            settings_row, text="保存设置", command=self._save_settings, width=90
-        ).pack(side="right")
-
-        utility_row = ctk.CTkFrame(settings_card, fg_color="transparent")
-        utility_row.pack(fill="x", padx=24, pady=(12, 8))
-        ctk.CTkButton(
-            utility_row, text="打开缓存目录",
-            command=lambda: self._open_path(self.context.paths.cache), width=110,
-        ).pack(side="left")
-        ctk.CTkButton(
-            utility_row, text="分析并清理缓存",
-            command=self._cleanup_cache, width=120,
-        ).pack(side="left", padx=(8, 0))
-        self.speed_test_button = ctk.CTkButton(
-            utility_row, text="测试下载速度",
-            command=self._run_speed_test, width=110,
-        )
-        self.speed_test_button.pack(side="left", padx=(8, 0))
-        self.settings_status = ctk.CTkLabel(
-            utility_row, text="设置修改后重启程序生效", anchor="e"
-        )
-        self.settings_status.pack(side="right")
-        ctk.CTkLabel(
-            settings_card,
-            text="设置会在下次启动时应用，不会中断当前下载。",
-            text_color=UI["muted"],
-        ).pack(anchor="w", padx=24, pady=(0, 18))
+        self.status.pack(fill="x", padx=24, pady=(0, 18))
 
         self.task_card = _card(self.page_host)
         task_header = ctk.CTkFrame(self.task_card, fg_color="transparent")
@@ -586,38 +638,59 @@ class DlcHubApplication:
         self.task_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
         self.log_card = _card(self.page_host)
-        log_header = ctk.CTkFrame(self.log_card, fg_color="transparent")
-        log_header.pack(fill="x", padx=24, pady=(18, 8))
+        log_command_area = ctk.CTkFrame(self.log_card, fg_color="transparent")
+        log_command_area.pack(fill="x", padx=24, pady=(18, 8))
+        log_command_area.grid_columnconfigure(0, weight=1)
+
+        log_primary_area = ctk.CTkFrame(
+            log_command_area, fg_color="transparent"
+        )
+        log_primary_area.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+        log_primary_area.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            log_header, text="运行日志", text_color=UI["primary"],
+            log_primary_area, text="运行日志", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold")
-        ).pack(side="left")
-        ctk.CTkButton(
-            log_header, text="打开日志目录",
-            command=lambda: self._open_path(self.context.paths.data / "logs"), width=110,
-        ).pack(side="right")
-        ctk.CTkButton(
-            log_header, text="刷新", command=self._refresh_log_preview, width=80
-        ).pack(side="right", padx=(0, 8))
-        log_tools = ctk.CTkFrame(self.log_card, fg_color="transparent")
-        log_tools.pack(fill="x", padx=24, pady=(0, 8))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        log_tools = ctk.CTkFrame(log_primary_area, fg_color="transparent")
+        log_tools.grid(row=1, column=0, sticky="ew")
+        log_tools.grid_columnconfigure(1, weight=1)
         self.log_level_filter = _combo_box(
             log_tools, values=["全部", "INFO", "WARNING", "ERROR"], width=100,
             command=lambda _value: self._refresh_log_preview(),
         )
         self.log_level_filter.set("全部")
-        self.log_level_filter.pack(side="left")
+        self.log_level_filter.grid(row=0, column=0)
         self.log_search = ctk.CTkEntry(
             log_tools, placeholder_text="筛选日志关键词", width=220
         )
-        self.log_search.pack(side="left", padx=(8, 0))
+        self.log_search.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         self.log_search.bind("<KeyRelease>", lambda _event: self._refresh_log_preview())
+
+        log_action_grid = ctk.CTkFrame(
+            log_command_area, fg_color="transparent"
+        )
+        log_action_grid.grid(row=0, column=1, sticky="ne")
+        for column in range(2):
+            log_action_grid.grid_columnconfigure(
+                column, weight=1, uniform="log-actions"
+            )
         ctk.CTkButton(
-            log_tools, text="复制当前日志", command=self._copy_log, width=105
-        ).pack(side="right")
+            log_action_grid, text="刷新",
+            command=self._refresh_log_preview, width=128,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 4))
         ctk.CTkButton(
-            log_tools, text="导出诊断包", command=self._export_diagnostics, width=100
-        ).pack(side="right", padx=(0, 8))
+            log_action_grid, text="打开日志目录",
+            command=lambda: self._open_path(self.context.paths.data / "logs"), width=128,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 4))
+        ctk.CTkButton(
+            log_action_grid, text="导出诊断包",
+            command=self._export_diagnostics, width=128,
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0))
+        ctk.CTkButton(
+            log_action_grid, text="复制当前日志",
+            command=self._copy_log, width=128,
+        ).grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(4, 0))
         self.log_preview = ctk.CTkTextbox(
             self.log_card, height=520, wrap="word", fg_color=UI["panel"],
             border_width=1, border_color=UI["border"], text_color=UI["text_secondary"],
@@ -627,18 +700,11 @@ class DlcHubApplication:
         self.log_preview.configure(state="disabled")
         self.window.after(50, self._refresh_log_preview)
 
-        self.footer_label = ctk.CTkLabel(
-            self.page_host,
-            text=f"{self.cartridge.selection_name} 已接入 · 模块化多游戏架构",
-            text_color=UI["muted"],
-        )
-        self.footer_label.pack(anchor="w", pady=(24, 0))
         self.page_sections = {
             "DLC 库": (self.game_card, self.catalog_card),
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
-            "设置": (self.settings_card,),
-            "关于": (self.about_card, self.footer_label),
+            "设置": (self.speed_test_card, self.cache_card, self.update_card),
         }
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
@@ -675,6 +741,34 @@ class DlcHubApplication:
     def _style_widget(self, widget, navigation) -> None:
         if isinstance(widget, ctk.CTkButton) and widget not in navigation:
             text = str(widget.cget("text"))
+            if widget is getattr(self, "download_selected_button", None):
+                widget.configure(
+                    fg_color=UI["primary"],
+                    hover_color=UI["primary_hover"],
+                    text_color=UI["on_blue"],
+                    border_width=0,
+                    corner_radius=12,
+                    height=50,
+                    font=ctk.CTkFont(size=18, weight="bold"),
+                )
+                return
+            soft_primary_buttons = (
+                getattr(self, "advanced_view_button", None),
+                getattr(self, "catalog_refresh_button", None),
+                getattr(self, "selection_toggle_button", None),
+                getattr(self, "repair_button", None),
+            )
+            if any(widget is candidate for candidate in soft_primary_buttons):
+                widget.configure(
+                    fg_color=UI["primary_surface"],
+                    hover_color=UI["primary_surface_hover"],
+                    text_color=UI["primary"],
+                    border_width=1,
+                    border_color=UI["primary_border"],
+                    corner_radius=8,
+                    height=34,
+                )
+                return
             if (
                 text in {"取消", "卸载", "一键移除补丁"}
                 or text.startswith("清除")
@@ -741,13 +835,14 @@ class DlcHubApplication:
         except KeyError:
             return
         if cartridge is not self.cartridge:
+            self.game_selection_generation += 1
             self.cartridge = cartridge
             self.patch_profile = cartridge.patch_profile
             self.catalog = cartridge.create_catalog()
             self.patch_engine = PatchEngine(
                 cartridge.patch_profile, self.context.paths.data,
             )
-            self.patch_task_roles = dict(cartridge.patch_task_roles)
+            self.patch_task_roles = {}
             if self.install_repository is not None:
                 self.install_service = DlcInstallService(
                     cartridge.create_install_engine(self.context.paths.data),
@@ -807,8 +902,6 @@ class DlcHubApplication:
                 section.pack(fill="both", expand=True)
             elif page_name in {"下载任务", "日志"}:
                 section.pack(fill="both", expand=True)
-            elif page_name == "关于" and section is self.footer_label:
-                section.pack(anchor="w", pady=(18, 0))
             else:
                 bottom = 18 if index < len(sections) - 1 else 0
                 section.pack(fill="x", pady=(0, bottom))
@@ -991,7 +1084,7 @@ class DlcHubApplication:
                 protected_paths=protected, active_task_ids=active_ids
             )
             if not plan.paths:
-                self.settings_status.configure(
+                self.cache_status.configure(
                     text=f"缓存 {usage / 1048576:.1f} MiB，无可安全清理内容"
                 )
                 return
@@ -1004,7 +1097,7 @@ class DlcHubApplication:
             ):
                 return
             self.cache_maintenance.execute(plan)
-            self.settings_status.configure(
+            self.cache_status.configure(
                 text=f"已清理 {plan.file_count} 个文件，释放 {plan.bytes_to_remove / 1048576:.1f} MiB"
             )
         except Exception as error:
@@ -1016,7 +1109,7 @@ class DlcHubApplication:
             return
         self.speed_test_running = True
         self.speed_test_button.configure(state="disabled", text="正在测速……")
-        self.settings_status.configure(text="正在从 GitLink 下载测速文件……")
+        self.speed_test_status.configure(text="正在从 GitLink 下载测速文件……")
         url = "https://gitlink.org.cn/signriver/file-warehouse/releases/download/test/test.bin"
 
         def worker() -> None:
@@ -1032,8 +1125,8 @@ class DlcHubApplication:
 
     def _finish_speed_test(self, result) -> None:
         self.speed_test_running = False
-        self.speed_test_button.configure(state="normal", text="测试下载速度")
-        self.settings_status.configure(
+        self.speed_test_button.configure(state="normal", text="重新测速")
+        self.speed_test_status.configure(
             text=(
                 f"测速结果：{result.mebibytes_per_second:.2f} MiB/s · "
                 f"{result.megabits_per_second:.1f} Mbps · "
@@ -1043,26 +1136,9 @@ class DlcHubApplication:
 
     def _finish_speed_test_error(self, message: str) -> None:
         self.speed_test_running = False
-        self.speed_test_button.configure(state="normal", text="测试下载速度")
-        self.settings_status.configure(text="测速失败")
+        self.speed_test_button.configure(state="normal", text="重新测速")
+        self.speed_test_status.configure(text="测速失败")
         messagebox.showerror("测速失败", message, parent=self.window)
-
-    def _save_settings(self) -> None:
-        try:
-            limit_text = self.bandwidth_entry.get().strip()
-            settings = UserSettings(
-                download_concurrency=1,
-                bandwidth_limit_kib=int(limit_text) if limit_text else None,
-                onboarding_completed=self.user_settings.onboarding_completed,
-            )
-            if self.settings_repository is None:
-                raise RuntimeError("设置存储不可用")
-            self.settings_repository.save(settings)
-            self.user_settings = settings
-            self.settings_status.configure(text="已保存，重启后生效")
-        except Exception as error:
-            self.context.logger.exception("Unable to save user settings")
-            messagebox.showerror("设置无效", str(error), parent=self.window)
 
     def _show_onboarding(self) -> None:
         if self.user_settings.onboarding_completed:
@@ -1079,7 +1155,7 @@ class DlcHubApplication:
         )
         self.user_settings = UserSettings(
             1,
-            self.user_settings.bandwidth_limit_kib,
+            None,
             True,
         )
         if self.settings_repository is not None:
@@ -1154,6 +1230,12 @@ class DlcHubApplication:
             f"任务：{len(active)} · {speed / 1024:.1f} KiB/s\n"
             f"缓存：{cache_text}"
         ))
+        if hasattr(self, "cache_status"):
+            current_cache_status = self.cache_status.cget("text")
+            if current_cache_status == "缓存用量将在后台统计" or str(
+                current_cache_status
+            ).startswith("当前缓存："):
+                self.cache_status.configure(text=f"当前缓存：{cache_text}")
         self.window.after(2000, self._update_global_status)
 
     def _open_path(self, path: Path) -> None:
@@ -1216,6 +1298,9 @@ class DlcHubApplication:
             messagebox.showerror("诊断导出失败", str(error), parent=self.window)
 
     def _refresh_catalog(self) -> None:
+        generation = self.game_selection_generation
+        cartridge_id = self.cartridge.cartridge_id
+        catalog = self.catalog
         self.catalog_refresh_button.configure(state="disabled")
         self.catalog_status.configure(
             text=f"正在读取 GitLink · {self.cartridge.release_tag} Release……"
@@ -1223,21 +1308,41 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
-                snapshot = self.catalog.refresh_snapshot()
-                self._post_ui(lambda snapshot=snapshot: self._show_catalog(snapshot))
+                snapshot = catalog.refresh_snapshot()
+                self._post_ui(
+                    lambda snapshot=snapshot: self._show_catalog(
+                        snapshot, generation=generation, cartridge_id=cartridge_id
+                    )
+                )
             except Exception as error:
                 self.context.logger.exception("DLC catalog refresh failed")
                 message = str(error)
-                self._post_ui(lambda message=message: self._show_catalog_error(message))
+                self._post_ui(
+                    lambda message=message: self._show_catalog_error(
+                        message, generation=generation, cartridge_id=cartridge_id
+                    )
+                )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _show_catalog(self, snapshot: CatalogSnapshot) -> None:
+    def _show_catalog(
+        self, snapshot: CatalogSnapshot, *, generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         self.catalog_online = True
         self._refresh_installed_dlc_paths()
         entries = snapshot.entries
         self.catalog_entries = entries
         self.patch_bundle = snapshot.patch_bundle
+        self.patch_task_roles = (
+            dict(self.cartridge.patch_task_roles(snapshot.patch_bundle))
+            if snapshot.patch_bundle is not None
+            else {}
+        )
         self.catalog_missing_patch_assets = snapshot.missing_patch_assets
         if entries and not self.catalog_selection_initialized:
             self.selected_dlc_ids = {
@@ -1271,8 +1376,10 @@ class DlcHubApplication:
     def _reconcile_catalog_cache(self) -> None:
         if self.download_queue is None or not self.catalog_entries:
             return
+        # Filename-based package discovery is intentionally limited to DLC.
+        # Patch files and AppInfo are versioned by Release attachment ID and
+        # are reused only through their exact persisted task record.
         specs = list(self._download_spec_for_entry(entry) for entry in self.catalog_entries)
-        specs.extend(self._patch_download_specs())
 
         def worker() -> None:
             try:
@@ -1291,7 +1398,14 @@ class DlcHubApplication:
         self._render_catalog_rows()
         self._schedule_ready_installs()
 
-    def _show_catalog_error(self, message: str) -> None:
+    def _show_catalog_error(
+        self, message: str, *, generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         self.catalog_online = False
         self.catalog_refresh_button.configure(state="normal")
         self.catalog_status.configure(text="DLC 目录读取失败")
@@ -1639,6 +1753,8 @@ class DlcHubApplication:
                 "请先选择或识别当前游戏的有效目录，再进行一键解锁。",
                 parent=self.window,
             )
+            return
+        if not self._require_game_stopped("一键解锁"):
             return
         if self.patch_bundle is None:
             missing = ", ".join(self.catalog_missing_patch_assets) or "全部补丁资源"
@@ -2135,7 +2251,9 @@ class DlcHubApplication:
 
     def _refresh_installed_dlc_paths(self) -> None:
         self.installed_dlc_paths = (
-            self.cartridge.discover_installed_dlc(self.current_installation.root)
+            self.cartridge.discover_installed_dlc(
+                self.current_installation.root, self.catalog_entries
+            )
             if self.current_installation is not None else {}
         )
 
@@ -2171,6 +2289,18 @@ class DlcHubApplication:
             or self.current_installation is None
             or self.download_queue is None
         ):
+            return
+        try:
+            game_state = self.cartridge.adapter.inspect(self.current_installation)
+        except Exception:
+            self.context.logger.exception(
+                "Unable to verify game state before automatic installation"
+            )
+            return
+        if game_state.running:
+            self.catalog_preview.configure(
+                text="游戏正在运行：已下载内容会保留，关闭游戏后再继续安装"
+            )
             return
         snapshots = {
             item.spec.task_id: item for item in self.download_queue.snapshots()
@@ -2296,6 +2426,8 @@ class DlcHubApplication:
     def _manage_entry(self, entry) -> None:
         if self.install_service is None or self.current_installation is None:
             return
+        if not self._require_game_stopped("检查、修复或安装 DLC"):
+            return
         receipt = self._active_receipt(entry.dlc_id)
         if receipt is not None:
             game_root = self.current_installation.root
@@ -2358,6 +2490,8 @@ class DlcHubApplication:
     def _uninstall_entry(self, entry) -> None:
         if self.current_installation is None:
             return
+        if not self._require_game_stopped("卸载 DLC"):
+            return
         self._refresh_installed_dlc_paths()
         if self._installed_dlc_path(entry.dlc_id) is None:
             self._show_install_state(entry)
@@ -2379,6 +2513,8 @@ class DlcHubApplication:
                 f"请先选择有效的{self.cartridge.adapter.descriptor.display_name}目录。",
                 parent=self.window,
             )
+            return
+        if not self._require_game_stopped("卸载全部 DLC"):
             return
         self._refresh_installed_dlc_paths()
         installed = dict(self.installed_dlc_paths)
@@ -2693,12 +2829,17 @@ class DlcHubApplication:
                 "尚未检测游戏", "请先选择或识别当前游戏的有效目录。", parent=self.window,
             )
             return
+        if not self._require_game_stopped("移除补丁"):
+            return
+        patch_paths = self.patch_profile.patch_file_paths
+        restore_target = self.patch_profile.relative_file_path(
+            self.patch_profile.unlocker_dll_name
+        )
         if not messagebox.askyesno(
             "确认移除补丁",
-            "将删除以下文件并把原版备份还原为 steam_api64.dll：\n"
-            f"· {self.patch_profile.unlocker_dll_name}\n"
-            f"· {self.patch_profile.original_backup_dll_name}\n"
-            f"· {self.patch_profile.template.ini_target_name}\n"
+            f"将清理以下补丁文件，并把原版备份还原为 {restore_target}：\n"
+            + "\n".join(f"· {path}" for path in patch_paths)
+            + "\n"
             "请先关闭游戏。是否继续？",
             parent=self.window,
         ):
@@ -2746,6 +2887,8 @@ class DlcHubApplication:
                 "尚未检测游戏", "请先选择或识别当前游戏的有效目录。", parent=self.window,
             )
             return
+        if not self._require_game_stopped("一键修复"):
+            return
         if self.patch_bundle is None:
             self._show_catalog_error(
                 "补丁资源缺失，暂时无法执行一键修复；请稍后刷新目录"
@@ -2755,11 +2898,12 @@ class DlcHubApplication:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
         # A repair may re-download every DLC and the patch, so warn loudly.
+        patch_paths = "、".join(self.patch_profile.patch_file_paths)
         if not messagebox.askyesno(
             "确认一键修复",
             "一键修复会执行以下操作：\n\n"
             "1. 卸载游戏目录中所有已安装的 DLC；\n"
-            "2. 删除现有 steam_api64.dll、steam_api64_o.dll 和 cream_api.ini；\n"
+            f"2. 删除现有补丁文件（{patch_paths}）；\n"
             "3. 重新下载所有 DLC 和三个补丁文件；\n"
             "4. 应用补丁并重新安装全部 DLC。\n\n"
             "整个过程会下载大量数据、耗时较长，请先关闭游戏并保证网络稳定。是否继续？",
@@ -2776,7 +2920,9 @@ class DlcHubApplication:
         def worker() -> None:
             errors: list[str] = []
             try:
-                installed = self.cartridge.discover_installed_dlc(game_root)
+                installed = self.cartridge.discover_installed_dlc(
+                    game_root, self.catalog_entries
+                )
                 for dlc_id in installed:
                     try:
                         self.cartridge.remove_installed_dlc(game_root, dlc_id)
@@ -2969,6 +3115,8 @@ class DlcHubApplication:
             self._show_install_state(entry)
 
     def _scan_games(self) -> None:
+        generation = self.game_selection_generation
+        cartridge_id = self.cartridge.cartridge_id
         game_name = self.cartridge.adapter.descriptor.display_name
         if self.discovery is None:
             self.game_status.configure(text=f"{game_name} · 初始化失败")
@@ -2981,17 +3129,31 @@ class DlcHubApplication:
         def worker() -> None:
             try:
                 report = self.discovery.scan()
-                self._post_ui(lambda report=report: self._on_game_scanned(report))
+                self._post_ui(
+                    lambda report=report: self._on_game_scanned(
+                        report, generation=generation, cartridge_id=cartridge_id
+                    )
+                )
             except Exception as error:
                 self.context.logger.exception("Game discovery failed")
                 message = str(error)
                 self._post_ui(
-                    lambda message=message: self._show_game_error(message, popup=False),
+                    lambda message=message: self._show_game_error(
+                        message, popup=False, generation=generation,
+                        cartridge_id=cartridge_id,
+                    ),
                 )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_game_scanned(self, report) -> None:
+    def _on_game_scanned(
+        self, report, *, generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         game_name = self.cartridge.adapter.descriptor.display_name
         self._set_game_buttons("normal")
         installations = [
@@ -3027,6 +3189,9 @@ class DlcHubApplication:
         )
         if not selected:
             return
+        generation = self.game_selection_generation
+        cartridge_id = self.cartridge.cartridge_id
+        adapter_id = self.cartridge.adapter.descriptor.adapter_id
         self._set_game_buttons("disabled")
         self.game_status.configure(
             text=f"{self.cartridge.adapter.descriptor.display_name} · 正在验证所选目录……"
@@ -3035,25 +3200,36 @@ class DlcHubApplication:
         def worker() -> None:
             try:
                 installation = self.discovery.add_manual(
-                    self.cartridge.adapter.descriptor.adapter_id,
+                    adapter_id,
                     Path(selected),
                     select=True,
                 )
                 self._post_ui(
                     lambda installation=installation: self._show_installation(
-                        installation
+                        installation, generation=generation,
+                        cartridge_id=cartridge_id,
                     ),
                 )
             except Exception as error:
                 self.context.logger.exception("Manual game path validation failed")
                 message = str(error)
                 self._post_ui(
-                    lambda message=message: self._show_game_error(message),
+                    lambda message=message: self._show_game_error(
+                        message, generation=generation,
+                        cartridge_id=cartridge_id,
+                    ),
                 )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _show_installation(self, installation) -> None:
+    def _show_installation(
+        self, installation, *, generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         self.current_installation = installation
         self._refresh_installed_dlc_paths()
         self.auto_install_attempted.clear()
@@ -3079,7 +3255,14 @@ class DlcHubApplication:
         self._render_catalog_rows()
         self._schedule_ready_installs()
 
-    def _show_game_error(self, message: str, *, popup: bool = True) -> None:
+    def _show_game_error(
+        self, message: str, *, popup: bool = True,
+        generation: int | None = None, cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         self._set_game_buttons("normal")
         self.game_status.configure(
             text=f"{self.cartridge.adapter.descriptor.display_name} · 路径验证失败"
@@ -3102,8 +3285,34 @@ class DlcHubApplication:
         except Exception as error:
             self._show_game_error(str(error))
 
+    def _require_game_stopped(self, action: str) -> bool:
+        """Fail closed before changing files that may be locked by the game."""
+        installation = self.current_installation
+        if installation is None:
+            return False
+        try:
+            state = self.cartridge.adapter.inspect(installation)
+        except Exception as error:
+            self.context.logger.exception("Unable to verify game process state")
+            messagebox.showwarning(
+                "无法确认游戏状态",
+                f"执行“{action}”前无法确认游戏是否正在运行：\n{error}\n\n"
+                "请关闭游戏后重新扫描，再重试。",
+                parent=self.window,
+            )
+            return False
+        if not state.running:
+            return True
+        messagebox.showwarning(
+            "游戏正在运行",
+            f"检测到 {self.cartridge.adapter.descriptor.display_name} 正在运行。\n"
+            f"为避免文件占用或安装损坏，请关闭游戏后再执行“{action}”。",
+            parent=self.window,
+        )
+        return False
+
     def _launch_game(self) -> None:
-        webbrowser.open("steam://rungameid/281990")
+        webbrowser.open(f"steam://rungameid/{self.cartridge.store_app_id}")
 
     def _check_update(self) -> None:
         if not self.context.updates.enabled:

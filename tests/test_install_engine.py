@@ -52,6 +52,32 @@ def test_install_new_dlc_commits_journal_and_receipt(tmp_path: Path) -> None:
     assert journal["target"] == "dlc/dlc001_symbols_of_domination"
 
 
+def test_install_uses_cartridge_owned_nested_dlc_directory(tmp_path: Path) -> None:
+    game = tmp_path / "OtherGame"
+    game.mkdir()
+    (game / "other.exe").write_bytes(b"exe")
+    (game / "content" / "addons").mkdir(parents=True)
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        dlc_relative_dir="content/addons",
+        executable_name="other.exe",
+    )
+
+    plan = engine.plan(package, game, expected_sha256=digest, transaction_id="nested")
+    receipt = engine.install(plan)
+
+    assert receipt.target_path.parent == (game / "content" / "addons").resolve()
+    assert plan.relative_target.as_posix() == "content/addons/dlc001_symbols_of_domination"
+    assert engine.verify(receipt, game)
+
+
+def test_install_rejects_unsafe_cartridge_dlc_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="game root"):
+        StellarisInstallEngine(tmp_path / "data", dlc_relative_dir="../outside")
+
+
 def test_install_replaces_existing_dlc_and_keeps_backup(tmp_path: Path) -> None:
     game = make_game(tmp_path / "Stellaris")
     existing = game / "dlc" / "dlc001_symbols_of_domination"

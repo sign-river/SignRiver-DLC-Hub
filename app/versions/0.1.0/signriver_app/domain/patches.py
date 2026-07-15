@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .catalog import ReleaseAsset
+from .paths import normalize_game_relative_directory
 
 
 class PatchAssetRole(StrEnum):
@@ -55,6 +56,7 @@ class PatchProfile:
     original_backup_dll_name: str
     appinfo_asset_name: str
     template: PatchTemplate
+    install_relative_dir: str = "."
 
     def __post_init__(self) -> None:
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
@@ -71,15 +73,31 @@ class PatchProfile:
             raise ValueError("appinfo asset name must reference a .json file")
         if self.appinfo_asset_name.casefold() == self.template.ini_target_name.casefold():
             raise ValueError("appinfo asset name must differ from ini target name")
+        object.__setattr__(
+            self,
+            "install_relative_dir",
+            normalize_game_relative_directory(
+                self.install_relative_dir,
+                field_name="patch install directory",
+            ),
+        )
 
     @property
     def patch_file_names(self) -> tuple[str, ...]:
-        """Files that live under the game root after a successful apply."""
+        """Plain filenames installed together in the configured patch directory."""
         return (
             self.unlocker_dll_name,
             self.original_backup_dll_name,
             self.template.ini_target_name,
         )
+
+    def relative_file_path(self, filename: str) -> str:
+        prefix = "" if self.install_relative_dir == "." else f"{self.install_relative_dir}/"
+        return f"{prefix}{filename}"
+
+    @property
+    def patch_file_paths(self) -> tuple[str, ...]:
+        return tuple(self.relative_file_path(name) for name in self.patch_file_names)
 
 
 @dataclass(frozen=True, slots=True)
