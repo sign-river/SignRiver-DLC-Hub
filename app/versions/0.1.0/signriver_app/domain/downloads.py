@@ -28,6 +28,11 @@ class DownloadSpec:
     expected_size: int | None = None
     expected_sha256: str | None = None
     supports_range: bool = False
+    part_urls: tuple[str, ...] = ()
+
+    @property
+    def urls(self) -> tuple[str, ...]:
+        return self.part_urls or (self.url,)
 
 
 @dataclass(frozen=True, slots=True)

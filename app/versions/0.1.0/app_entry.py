@@ -2154,13 +2154,15 @@ class DlcHubApplication:
         return None
 
     def _download_spec_for_entry(self, entry) -> DownloadSpec:
+        assets = entry.download_assets
         return DownloadSpec(
             task_id=self._dlc_task_id(entry.dlc_id),
-            url=entry.asset.download_url,
+            url=assets[0].download_url,
             filename=entry.asset.name,
             expected_size=None,
             expected_sha256=None,
             supports_range=False,
+            part_urls=tuple(asset.download_url for asset in assets) if len(assets) > 1 else (),
         )
 
     def _download_finished(self, future) -> None:
@@ -2770,6 +2772,23 @@ class DlcHubApplication:
                 return None
         return paths
 
+    def _missing_ready_patch_asset(self):
+        """Return a READY snapshot whose cached file vanished externally."""
+        for snapshot in self._patch_snapshots_by_task().values():
+            if snapshot.state is not DownloadState.READY:
+                continue
+            if snapshot.result_path is None or not snapshot.result_path.is_file():
+                return snapshot
+        return None
+
+    @staticmethod
+    def _patch_security_software_message(filename: str) -> str:
+        return (
+            f"补丁文件 {filename} 在下载完成后消失或无法访问。\n\n"
+            "文件可能被 Windows 安全中心或其他杀毒软件隔离。请先检查保护历史记录，"
+            "确认文件来源后将本程序缓存目录和游戏目录加入允许范围，再刷新目录重试。"
+        )
+
     def _patch_is_healthy(self) -> bool:
         """True when the current game directory already matches our patch bundle."""
         if self.patch_bundle is None or self.current_installation is None:
@@ -2815,7 +2834,13 @@ class DlcHubApplication:
             task_ids.append(spec.task_id)
             snapshot = snapshots.get(spec.task_id)
             if snapshot is not None and snapshot.state is DownloadState.READY:
-                continue
+                if snapshot.result_path is not None and snapshot.result_path.is_file():
+                    continue
+                # A persisted READY record can outlive a file quarantined by
+                # security software.  Forget it once so enqueue performs a
+                # real re-download instead of waiting forever on stale state.
+                self.download_queue.forget((spec.task_id,))
+                snapshot = None
             try:
                 if snapshot is not None and snapshot.state in active_states:
                     continue
@@ -2842,6 +2867,14 @@ class DlcHubApplication:
             return
         ready = self._patch_ready_paths()
         if ready is None:
+            missing_ready = self._missing_ready_patch_asset()
+            if missing_ready is not None:
+                self._on_patch_workflow_failed(
+                    self._patch_security_software_message(
+                        missing_ready.spec.filename
+                    )
+                )
+                return
             snapshots = self._patch_snapshots_by_task()
             failed_states = {
                 DownloadState.FAILED, DownloadState.CANCELLED, DownloadState.CORRUPT,
@@ -2885,6 +2918,13 @@ class DlcHubApplication:
                 self._post_ui(
                     lambda message=message: self._on_patch_workflow_failed(message)
                 )
+            except (FileNotFoundError, PermissionError) as error:
+                self.context.logger.exception("Patch asset became unavailable")
+                filename = getattr(error, "filename", None) or "补丁资源"
+                message = self._patch_security_software_message(Path(filename).name)
+                self._post_ui(
+                    lambda message=message: self._on_patch_workflow_failed(message)
+                )
             except Exception as error:
                 self.context.logger.exception("Patch apply crashed")
                 message = str(error) or "补丁应用失败"
@@ -2895,6 +2935,40 @@ class DlcHubApplication:
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_patch_applied(self, result) -> None:
+        # Re-check on the UI hand-off boundary as antivirus quarantine is often
+        # asynchronous and may happen just after PatchEngine.apply returns.
+        if self.current_installation is None:
+            self._on_patch_workflow_failed("补丁应用后游戏目录不可用")
+            return
+        try:
+            audit = self.patch_engine.audit(
+                self.current_installation.root,
+                expected_unlocker_size=result.receipt.unlocker_dll_size,
+                expected_backup_size=result.receipt.original_backup_dll_size,
+            )
+            unlocker_label = self.patch_profile.relative_file_path(
+                self.patch_profile.unlocker_dll_name
+            )
+            incomplete = bool(audit.missing) or unlocker_label in audit.modified
+        except (OSError, PatchError):
+            self.context.logger.exception("Post-apply patch audit failed")
+            incomplete = True
+        if incomplete:
+            # Best-effort restoration prevents a quarantined loader DLL from
+            # leaving the game in a half-patched state.  Failure is still
+            # reported even if restoration itself cannot complete.
+            try:
+                self.patch_engine.restore_original(self.current_installation.root)
+            except Exception:
+                self.context.logger.exception(
+                    "Unable to restore original files after patch quarantine"
+                )
+            self._on_patch_workflow_failed(
+                self._patch_security_software_message(
+                    self.patch_profile.unlocker_dll_name
+                )
+            )
+            return
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
         detail_parts = []

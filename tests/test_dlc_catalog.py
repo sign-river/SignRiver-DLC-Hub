@@ -53,6 +53,42 @@ def test_stellaris_catalog_ignores_non_dlc_assets() -> None:
     assert [(item.dlc_id, item.display_name) for item in entries] == [("dlc001", "Symbols Of Domination")]
 
 
+def test_catalog_groups_complete_release_parts_as_one_dlc() -> None:
+    multipart = json.dumps({"releases": [{"id": "1", "tag_name": "ste", "attachments": [
+        {"id": 11, "title": "dlc007_large_pack.zip.part001-of-003", "url": "/p1"},
+        {"id": 12, "title": "dlc007_large_pack.zip.part002-of-003", "url": "/p2"},
+        {"id": 13, "title": "dlc007_large_pack.zip.part003-of-003", "url": "/p3"},
+    ]}]}).encode()
+    source = GitLinkReleaseSource(
+        GitLinkSourceConfig("signriver", "assets"),
+        fetch=lambda *_args: multipart,
+    )
+
+    entries = StellarisCatalogService(source).refresh()
+
+    assert len(entries) == 1
+    assert entries[0].dlc_id == "dlc007"
+    assert entries[0].asset.name == "dlc007_large_pack.zip"
+    assert [part.name for part in entries[0].download_assets] == [
+        "dlc007_large_pack.zip.part001-of-003",
+        "dlc007_large_pack.zip.part002-of-003",
+        "dlc007_large_pack.zip.part003-of-003",
+    ]
+
+
+def test_catalog_hides_incomplete_release_part_group() -> None:
+    multipart = json.dumps({"releases": [{"id": "1", "tag_name": "ste", "attachments": [
+        {"id": 11, "title": "dlc007_large_pack.zip.part001-of-003", "url": "/p1"},
+        {"id": 13, "title": "dlc007_large_pack.zip.part003-of-003", "url": "/p3"},
+    ]}]}).encode()
+    source = GitLinkReleaseSource(
+        GitLinkSourceConfig("signriver", "assets"),
+        fetch=lambda *_args: multipart,
+    )
+
+    assert StellarisCatalogService(source).refresh() == ()
+
+
 def test_catalog_snapshot_returns_dlc_and_patch_bundle_together() -> None:
     service = StellarisCatalogService(
         make_full_source(), patch_profile=STELLARIS_PATCH_PROFILE,

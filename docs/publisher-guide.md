@@ -46,6 +46,7 @@ publisher-workspace/
 - 每个 DLC 必须是 `dlc编号_英文名称` 格式的独立文件夹。
 - 点击“生成全部发布文件”后，每个 DLC 文件夹会生成一个同名 ZIP。
 - DLC ZIP 采用增量构建：新增或源文件发生变化时才重新压缩，未变化的 ZIP 直接复用。旧版本已经生成且与源目录匹配的 ZIP 会在首次新版构建时自动纳入缓存。
+- GitLink 单附件限制为 300 MB；发布器会把超过 280 MiB 的 DLC ZIP 自动拆成 `原文件.zip.part001-of-XXX` 分卷，随后删除本地超限完整 ZIP，只保留可增量复用的分卷。Release 只上传分卷。客户端会检查卷号是否连续，按顺序下载并还原成原始 ZIP 后再校验和安装；缺少任意一卷时不会向用户展示该 DLC。
 - `patches` 下只需放入该游戏适用的 `steam_api64.dll` 和原版备份 `steam_api64_o.dll`。
 - 发布器根据游戏配置中的 Steam App ID 主动查询 Steam，构建并上传 `<game_id>_appinfo.json`；无需人工准备该文件。
 - AppInfo 文件名由游戏 ID 自动确定且不会跨游戏混用：`stellaris` 生成 `stellaris_appinfo.json`，例如 `europa_universalis_4` 会生成 `europa_universalis_4_appinfo.json`。

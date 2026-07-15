@@ -34,6 +34,22 @@ def test_download_verifies_and_moves_to_content_addressed_cache(tmp_path: Path) 
     assert DownloadState.VERIFYING in states
 
 
+def test_multipart_download_joins_release_parts_into_original_package(tmp_path: Path) -> None:
+    chunks = {
+        "https://www.gitlink.org.cn/part1": DATA[:5000],
+        "https://www.gitlink.org.cn/part2": DATA[5000:12000],
+        "https://www.gitlink.org.cn/part3": DATA[12000:],
+    }
+    urls = tuple(chunks)
+    manager = DownloadManager(tmp_path, opener=lambda url, _timeout: io.BytesIO(chunks[url]))
+
+    result = manager.run(spec(url=urls[0], part_urls=urls))
+
+    assert result.state is DownloadState.READY
+    assert result.result_path is not None
+    assert result.result_path.read_bytes() == DATA
+
+
 def test_download_reports_speed_and_eta(tmp_path: Path) -> None:
     ticks = iter((0.0, 2.0))
     events = []

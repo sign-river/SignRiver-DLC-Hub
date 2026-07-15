@@ -32,3 +32,8 @@ class DlcCatalogEntry:
     release_tag: str
     category: str | None = None
     steam_id: str | None = None
+    parts: tuple[ReleaseAsset, ...] = ()
+
+    @property
+    def download_assets(self) -> tuple[ReleaseAsset, ...]:
+        return self.parts or (self.asset,)

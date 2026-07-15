@@ -260,6 +260,17 @@ def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
     assert "expected_size=asset.size_bytes" not in method
 
 
+def test_patch_workflow_detects_security_software_quarantine() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "def _missing_ready_patch_asset" in source
+    assert "def _patch_security_software_message" in source
+    assert "Windows 安全中心或其他杀毒软件隔离" in source
+    assert "self.download_queue.forget((spec.task_id,))" in source
+    assert "Post-apply patch audit failed" in source
+    assert "self.patch_engine.restore_original" in source
+
+
 def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 

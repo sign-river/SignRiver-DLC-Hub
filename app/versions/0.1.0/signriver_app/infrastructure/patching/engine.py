@@ -398,6 +398,35 @@ class PatchEngine:
                 backup_created=backup_created or backup_replaced,
                 replaced_files=tuple(replaced_paths),
             )
+
+            # Security software can remove or quarantine a DLL immediately
+            # after the atomic rename succeeds.  Treat the write as committed
+            # only after all required files can still be observed on disk.
+            # The backup DLL is intentionally checked for presence only: when
+            # a vanilla game DLL is promoted to the backup slot its size may
+            # legitimately differ from the packaged fallback DLL.
+            if not unlocker_path.is_file():
+                raise PatchError(
+                    f"补丁写入后 {unlocker_name} 消失；文件可能被安全软件隔离"
+                )
+            if unlocker_path.stat().st_size != our_unlocker_size:
+                raise PatchError(
+                    f"补丁写入后 {unlocker_name} 大小异常；文件可能被安全软件修改或拦截"
+                )
+            if not backup_path.is_file():
+                raise PatchError(
+                    f"补丁写入后 {backup_name} 消失；文件可能被安全软件隔离"
+                )
+            if not ini_path.is_file() or ini_path.read_bytes() != ini_payload:
+                raise PatchError(
+                    f"补丁写入后 {ini_name} 缺失或内容不完整；文件可能被安全软件拦截"
+                )
+
+            audit_after = self.audit(
+                game_root,
+                expected_unlocker_size=our_unlocker_size,
+                expected_backup_size=our_backup_size,
+            )
         except Exception:
             self._rollback(actions)
             self._cleanup_transaction(transaction_root)
@@ -405,11 +434,6 @@ class PatchEngine:
         else:
             self._cleanup_transaction(transaction_root)
 
-        audit_after = self.audit(
-            game_root,
-            expected_unlocker_size=our_unlocker_size,
-            expected_backup_size=our_backup_size,
-        )
         return PatchApplyResult(
             receipt=receipt,
             audit_before=audit_before,

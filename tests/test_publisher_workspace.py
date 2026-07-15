@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import random
 import shutil
+import threading
+import time
 from types import SimpleNamespace
 import zipfile
 from pathlib import Path
@@ -9,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from signriver_publisher import GameProfile, PublisherCartridge, PublishAsset, PublisherSettings, PublisherWorkspace, SteamApiError, SteamAppInfo, SteamDlc, SteamStoreClient, WorkspaceError, create_builtin_cartridges, discover_settings_path, generate_cream_api_ini, load_steam_appinfo
-from signriver_publisher.gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository, find_release_id
+from signriver_publisher.gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository, UploadControl, UploadPaused, find_release_id
 from signriver_publisher.gitlink import GitLinkError
 from signriver_publisher.remote import RemoteAsset, RemoteResourceManager, parse_release
 
@@ -31,6 +34,51 @@ def test_initializes_stellaris_workspace(tmp_path: Path) -> None:
     assert profile == GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990")
     assert (workspace.game_dir("stellaris") / "dlc").is_dir()
     assert (workspace.game_dir("stellaris") / "patches").is_dir()
+
+
+def test_large_release_archive_is_split_without_changing_bytes(tmp_path: Path) -> None:
+    archive = tmp_path / "dlc001_large.zip"
+    payload = bytes(range(256)) * 50
+    archive.write_bytes(payload)
+
+    parts = PublisherWorkspace._ensure_release_parts(archive, 4096)
+
+    assert [part.name for part in parts] == [
+        "dlc001_large.zip.part001-of-004",
+        "dlc001_large.zip.part002-of-004",
+        "dlc001_large.zip.part003-of-004",
+        "dlc001_large.zip.part004-of-004",
+    ]
+    assert b"".join(part.read_bytes() for part in parts) == payload
+    assert all(part.stat().st_size <= 4096 for part in parts)
+
+
+def test_build_removes_large_full_zip_and_reuses_only_parts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("signriver_publisher.workspace.RELEASE_PART_SIZE", 4096)
+    workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=sample_appinfo)
+    profile = workspace.initialize()
+    dlc = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_large"
+    dlc.mkdir()
+    (dlc / "payload.bin").write_bytes(random.Random(7).randbytes(20000))
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"new")
+    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+
+    workspace.build(profile)
+    output = workspace.output_dir / profile.game_id
+    parts = tuple(sorted(output.glob("dlc001_large.zip.part*-of-*")))
+
+    assert len(parts) > 1
+    assert not (output / "dlc001_large.zip").exists()
+    assert all(path.name != "dlc001_large.zip" for path in workspace.publish_files(profile))
+
+    monkeypatch.setattr(
+        workspace,
+        "_zip_directory",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("parts should be reused")),
+    )
+    workspace.build(profile)
+    assert tuple(sorted(output.glob("dlc001_large.zip.part*-of-*"))) == parts
 
 
 def test_other_game_uses_its_own_appinfo_name_and_output_directory(tmp_path: Path) -> None:
@@ -205,6 +253,51 @@ def test_build_reuses_unchanged_dlc_zip_and_rebuilds_changed_source(tmp_path: Pa
     content.write_text("changed and longer", encoding="utf-8")
     workspace.build(profile)
     assert calls == ["dlc001_example"]
+
+
+def test_build_compresses_multiple_changed_dlc_in_parallel_with_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = workspace.initialize()
+    dlc_root = workspace.game_dir(profile.game_id) / "dlc"
+    for index in range(1, 5):
+        source = dlc_root / f"dlc{index:03d}_example{index}"
+        source.mkdir()
+        (source / "content.bin").write_bytes(bytes([index]) * 64 * 1024)
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / "steam_api64.dll").write_bytes(b"new")
+    (patches / "steam_api64_o.dll").write_bytes(b"old")
+
+    original_zip = workspace._zip_directory
+    lock = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def tracked_zip(*args, **kwargs) -> None:
+        nonlocal active, maximum_active
+        with lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        try:
+            time.sleep(0.05)
+            original_zip(*args, **kwargs)
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(workspace, "_zip_directory", tracked_zip)
+    monkeypatch.setattr(workspace, "compression_worker_count", lambda: 4)
+    events: list[tuple[str, int, int, str, str]] = []
+
+    workspace.build(profile, progress=lambda *event: events.append(event))
+
+    assert maximum_active >= 2
+    assert any(event[0] == "并行压缩准备" and "4 个并行任务" in event[4] for event in events)
+    assert sum(event[0] == "开始压缩" for event in events) == 4
+    assert sum(event[0] == "压缩完成" for event in events) == 4
 
 
 def test_build_adopts_existing_zip_from_older_publisher_without_recompressing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -600,6 +693,36 @@ def test_attachment_upload_streams_file_and_returns_id(tmp_path: Path, monkeypat
     assert b"package-data" in Connection.instance.sent
 
 
+def test_attachment_upload_can_pause_between_chunks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "large.zip"
+    source.write_bytes(b"x" * (2 * 1024 * 1024))
+    control = UploadControl()
+
+    class Connection:
+        instance: "Connection"
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            Connection.instance = self
+            self.closed = False
+
+        def putrequest(self, *_args) -> None: pass
+        def putheader(self, *_args) -> None: pass
+        def endheaders(self) -> None: pass
+        def send(self, _value: bytes) -> None: pass
+        def close(self) -> None: self.closed = True
+
+    monkeypatch.setattr("signriver_publisher.gitlink.http.client.HTTPSConnection", Connection)
+
+    with pytest.raises(UploadPaused):
+        GitLinkAttachmentClient("secret-token").upload(
+            source,
+            progress=lambda *_args: control.request_pause(),
+            control=control,
+        )
+
+    assert Connection.instance.closed is True
+
+
 def test_cli_uses_temporary_token_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -748,6 +871,86 @@ def test_parse_remote_release_assets() -> None:
     assert [(item.asset_id, item.name, item.display_size) for item in release.assets] == [("1", "a.zip", "1 MB")]
 
 
+def test_manual_remote_dlc_can_be_adopted_and_reused_without_upload(
+    tmp_path: Path,
+) -> None:
+    dlc = tmp_path / "dlc012_expansion1.zip"
+    dlc.write_bytes(b"x" * 1024 * 1024)
+    asset = PublishAsset(dlc, dlc.name, dlc.stat().st_size, "a" * 64)
+
+    class Client:
+        updated_ids: list[str] = []
+
+        def list_releases(self, _repo):
+            return {
+                "releases": [{
+                    "id": 9,
+                    "tag_name": "civilization_6",
+                    "name": "Civilization VI",
+                    "attachments": [{
+                        "id": 42,
+                        "title": dlc.name,
+                        "filesize": "1 MB",
+                    }],
+                }]
+            }
+
+        def upload(self, _path):
+            raise AssertionError("adopted DLC must not be uploaded again")
+
+        def update_release(self, _repo, **kwargs):
+            self.updated_ids = kwargs["attachment_ids"]
+
+        def delete_attachment(self, _value):
+            raise AssertionError("adoption must not delete remote files")
+
+    client = Client()
+    manager = RemoteResourceManager(client, GitLinkRepository())
+    profile = GameProfile.create("civilization_6", "Civilization VI", "289070")
+
+    adoption = manager.adopt_matching_release_assets(profile, (asset,), {})
+    sync = manager.sync_release(profile, (asset,), adoption.state)
+
+    assert adoption.adopted == (dlc.name,)
+    assert adoption.skipped == ()
+    assert sync.uploaded == 0
+    assert sync.reused == 1
+    assert client.updated_ids == ["42"]
+
+
+def test_manual_remote_adoption_skips_mismatched_size(tmp_path: Path) -> None:
+    dlc = tmp_path / "dlc012_expansion1.zip"
+    dlc.write_bytes(b"x" * 1024 * 1024)
+    asset = PublishAsset(dlc, dlc.name, dlc.stat().st_size, "a" * 64)
+
+    class Client:
+        def list_releases(self, _repo):
+            return {
+                "releases": [{
+                    "id": 9,
+                    "tag_name": "civilization_6",
+                    "attachments": [{
+                        "id": 42,
+                        "title": dlc.name,
+                        "filesize": "2 MB",
+                    }],
+                }]
+            }
+
+    result = RemoteResourceManager(
+        Client(), GitLinkRepository()
+    ).adopt_matching_release_assets(
+        GameProfile.create("civilization_6", "Civilization VI", "289070"),
+        (asset,),
+        {},
+    )
+
+    assert result.adopted == ()
+    assert result.skipped == (
+        f"{dlc.name}：远程大小 2 MB 与本地不符",
+    )
+
+
 def test_remote_upload_replaces_same_name_and_keeps_other_assets(tmp_path: Path) -> None:
     source = tmp_path / "same.zip"
     source.write_bytes(b"new")
@@ -773,19 +976,60 @@ def test_remote_upload_replaces_same_name_and_keeps_other_assets(tmp_path: Path)
 def test_remote_delete_can_remove_last_release_asset() -> None:
     class Client:
         deleted: list[str] = []
-        updated_ids: list[str] | None = None
+        exists = True
 
         def list_releases(self, _repo):
-            return {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "attachments": [{"id": "only", "title": "only.zip"}]}]}
-        def update_release(self, _repo, **kwargs): self.updated_ids = kwargs["attachment_ids"]
-        def delete_attachment(self, value): self.deleted.append(value)
+            attachments = [{"id": "only", "title": "only.zip"}] if self.exists else []
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "attachments": attachments}]}
+        def delete_attachment(self, value):
+            self.deleted.append(value)
+            self.exists = False
 
     client = Client()
-    result = RemoteResourceManager(client, GitLinkRepository()).delete_asset(GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990"), "only")
+    result = RemoteResourceManager(client, GitLinkRepository()).delete_asset(
+        GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990"),
+        "only",
+        "upload-uuid",
+    )
 
     assert result.action == "删除"
-    assert client.updated_ids == []
-    assert client.deleted == ["only"]
+    assert client.deleted == ["upload-uuid"]
+
+
+def test_remote_delete_rejects_false_success_when_asset_remains() -> None:
+    class Client:
+        def list_releases(self, _repo):
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "attachments": [{"id": "7", "title": "same.zip"}]}]}
+        def delete_attachment(self, _value): pass
+
+    with pytest.raises(GitLinkError, match="附件仍然存在"):
+        RemoteResourceManager(Client(), GitLinkRepository()).delete_asset(
+            GameProfile.create("stellaris", "Stellaris", "281990"),
+            "7",
+            "upload-uuid",
+        )
+
+
+def test_remote_delete_all_reports_deleted_and_unmanaged_assets() -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.deleted = False
+        def list_releases(self, _repo):
+            attachments = [{"id": "2", "title": "manual.zip"}]
+            if not self.deleted:
+                attachments.insert(0, {"id": "1", "title": "managed.zip"})
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "attachments": attachments}]}
+        def delete_attachment(self, value):
+            assert value == "managed-uuid"
+            self.deleted = True
+
+    result = RemoteResourceManager(Client(), GitLinkRepository()).delete_all_assets(
+        GameProfile.create("stellaris", "Stellaris", "281990"),
+        {"managed.zip": "managed-uuid", "manual.zip": ""},
+    )
+
+    assert [asset.name for asset in result.deleted] == ["managed.zip"]
+    assert result.failures == ("manual.zip：缺少可删除的上传 UUID",)
 
 
 def test_remote_upload_cleans_new_attachment_if_release_update_fails(tmp_path: Path) -> None:
@@ -878,6 +1122,53 @@ def test_release_sync_rolls_back_new_uploads_when_update_fails(tmp_path: Path) -
         )
 
     assert client.deleted == ["new"]
+
+
+def test_release_sync_checkpoints_each_confirmed_file_before_later_failure(tmp_path: Path) -> None:
+    first_path = tmp_path / "dlc001_first.zip"
+    second_path = tmp_path / "dlc002_second.zip"
+    first_path.write_bytes(b"first")
+    second_path.write_bytes(b"second")
+    assets = (
+        PublishAsset(first_path, first_path.name, first_path.stat().st_size, "a" * 64),
+        PublishAsset(second_path, second_path.name, second_path.stat().st_size, "b" * 64),
+    )
+
+    class Client:
+        def __init__(self) -> None:
+            self.updated_ids: list[list[str]] = []
+
+        def list_releases(self, _repo):
+            return {"releases": [{"id": 9, "tag_name": "stellaris", "name": "Stellaris", "attachments": []}]}
+
+        def upload(self, path, *, progress=None, control=None):
+            if path.name == second_path.name:
+                raise GitLinkError("second upload failed")
+            if progress:
+                progress(path.stat().st_size, path.stat().st_size)
+            return "first-upload-id"
+
+        def update_release(self, _repo, **kwargs):
+            self.updated_ids.append(list(kwargs["attachment_ids"]))
+
+        def delete_attachment(self, _value):
+            raise AssertionError("confirmed first attachment must not be rolled back")
+
+    checkpoints: list[dict[str, object]] = []
+    client = Client()
+    with pytest.raises(GitLinkError, match="second upload failed"):
+        RemoteResourceManager(client, GitLinkRepository()).sync_release(
+            GameProfile.create("stellaris", "Stellaris", "281990"),
+            assets,
+            {},
+            upload_progress=lambda *_args: None,
+            upload_control=UploadControl(),
+            checkpoint=checkpoints.append,
+        )
+
+    assert client.updated_ids == [["first-upload-id"]]
+    assert checkpoints[-1]["assets"][first_path.name]["attachment_id"] == "first-upload-id"
+    assert second_path.name not in checkpoints[-1]["assets"]
 
 
 def test_release_sync_recovers_existing_orphan_attachments_from_local_state(tmp_path: Path) -> None:

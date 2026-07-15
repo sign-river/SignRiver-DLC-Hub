@@ -26,7 +26,11 @@ from ..domain import (
     ReleaseAsset,
 )
 
-_STELLARIS_ASSET = re.compile(r"^(dlc\d{3,})_([a-z0-9_]+)\.zip$", re.I)
+_DLC_ASSET = re.compile(
+    r"^(?P<id>dlc\d{3,})_(?P<slug>[a-z0-9_-]+)\.zip"
+    r"(?:\.part(?P<part>\d{3})-of-(?P<total>\d{3}))?$",
+    re.I,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +82,56 @@ class ReleaseCatalogService:
     def _extract_entries(
         self, release: NormalizedRelease
     ) -> tuple[DlcCatalogEntry, ...]:
-        entries: list[DlcCatalogEntry] = []
+        direct: dict[tuple[str, str], ReleaseAsset] = {}
+        groups: dict[tuple[str, str], dict[int, ReleaseAsset]] = {}
+        totals: dict[tuple[str, str], int] = {}
         for asset in release.assets:
-            match = _STELLARIS_ASSET.fullmatch(asset.name)
+            match = _DLC_ASSET.fullmatch(asset.name)
             if not match:
                 continue
-            slug = match.group(2).lower()
+            key = (match.group("id").lower(), match.group("slug").lower())
+            if match.group("part") is None:
+                direct[key] = asset
+                continue
+            part = int(match.group("part"))
+            total = int(match.group("total"))
+            if part < 1 or total < 1 or part > total:
+                continue
+            groups.setdefault(key, {})[part] = asset
+            totals[key] = total
+        entries: list[DlcCatalogEntry] = []
+        for key in sorted(set(direct) | set(groups)):
+            dlc_id, slug = key
+            parts_by_index = groups.get(key, {})
+            total = totals.get(key, 0)
+            if parts_by_index:
+                if len(parts_by_index) != total or set(parts_by_index) != set(range(1, total + 1)):
+                    if key not in direct:
+                        continue
+                    asset = direct[key]
+                    parts = ()
+                else:
+                    parts = tuple(parts_by_index[index] for index in range(1, total + 1))
+                    asset = ReleaseAsset(
+                        asset_id="+".join(part.asset_id for part in parts),
+                        name=f"{dlc_id}_{slug}.zip",
+                        download_url=parts[0].download_url,
+                        display_size=None,
+                        size_bytes=(
+                            sum(part.size_bytes for part in parts)
+                            if all(part.size_bytes is not None for part in parts)
+                            else None
+                        ),
+                    )
+            elif key in direct:
+                asset = direct[key]
+                parts = ()
+            else:
+                continue
             entries.append(DlcCatalogEntry(
-                dlc_id=match.group(1).lower(), slug=slug,
+                dlc_id=dlc_id, slug=slug,
                 display_name=slug.replace("_", " ").title(), asset=asset,
-                release_tag=release.tag,
+                release_tag=release.tag, parts=parts,
             ))
         return tuple(sorted(entries, key=lambda item: item.dlc_id))
 

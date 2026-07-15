@@ -113,34 +113,38 @@ class DownloadManager:
             paused = False
             started_at = self._clock()
             try:
-                with closing(self._opener(spec.url, self.policy.timeout)) as response, part.open("wb") as output:
-                    while True:
-                        if control.cancel_requested:
-                            cancelled = True
+                with part.open("wb") as output:
+                    for part_url in spec.urls:
+                        with closing(self._opener(part_url, self.policy.timeout)) as response:
+                            while True:
+                                if control.cancel_requested:
+                                    cancelled = True
+                                    break
+                                if control.pause_requested:
+                                    paused = True
+                                    break
+                                block = response.read(self.policy.chunk_size)
+                                if not block:
+                                    break
+                                output.write(block)
+                                digest.update(block)
+                                downloaded += len(block)
+                                elapsed = max(self._clock() - started_at, 0.000001)
+                                speed = downloaded / elapsed
+                                total = spec.expected_size
+                                eta = ((total - downloaded) / speed) if total and speed > 0 else None
+                                snapshot = self._emit(snapshot.evolve(
+                                    bytes_downloaded=downloaded,
+                                    speed_bytes_per_second=speed,
+                                    eta_seconds=max(eta, 0) if eta is not None else None,
+                                ), notify)
+                                if self.policy.max_bytes_per_second:
+                                    expected_elapsed = downloaded / self.policy.max_bytes_per_second
+                                    remaining_delay = expected_elapsed - (self._clock() - started_at)
+                                    if remaining_delay > 0:
+                                        self._sleep(remaining_delay)
+                        if cancelled or paused:
                             break
-                        if control.pause_requested:
-                            paused = True
-                            break
-                        block = response.read(self.policy.chunk_size)
-                        if not block:
-                            break
-                        output.write(block)
-                        digest.update(block)
-                        downloaded += len(block)
-                        elapsed = max(self._clock() - started_at, 0.000001)
-                        speed = downloaded / elapsed
-                        total = spec.expected_size
-                        eta = ((total - downloaded) / speed) if total and speed > 0 else None
-                        snapshot = self._emit(snapshot.evolve(
-                            bytes_downloaded=downloaded,
-                            speed_bytes_per_second=speed,
-                            eta_seconds=max(eta, 0) if eta is not None else None,
-                        ), notify)
-                        if self.policy.max_bytes_per_second:
-                            expected_elapsed = downloaded / self.policy.max_bytes_per_second
-                            remaining_delay = expected_elapsed - (self._clock() - started_at)
-                            if remaining_delay > 0:
-                                self._sleep(remaining_delay)
                     if not cancelled and not paused:
                         output.flush()
                         os.fsync(output.fileno())
@@ -213,9 +217,10 @@ class DownloadManager:
 
     @staticmethod
     def _validate_spec(spec: DownloadSpec) -> None:
-        parsed = urlparse(spec.url)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("download URL must be credential-free HTTPS")
+        for url in spec.urls:
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("download URL must be credential-free HTTPS")
         if not _SAFE_FILENAME.fullmatch(spec.filename) or spec.filename in {".", ".."}:
             raise ValueError("unsafe download filename")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", spec.task_id):

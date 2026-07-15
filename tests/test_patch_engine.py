@@ -183,6 +183,36 @@ def test_apply_promotes_vanilla_dll_to_backup(tmp_path: Path) -> None:
     # rather than our packaged copy; the important thing is the safety property.
 
 
+def test_apply_rolls_back_when_written_dll_is_quarantined(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    original_path = game_root / "steam_api64.dll"
+    original_path.write_bytes(VANILLA_GAME_DLL)
+    unlocker, backup, appinfo = write_patch_sources(tmp_path)
+    write_file_atomic = engine._write_file_atomic
+
+    def write_then_quarantine(data, destination, actions):
+        write_file_atomic(data, destination, actions)
+        if destination.name == "steam_api64.dll":
+            destination.unlink()
+
+    engine._write_file_atomic = write_then_quarantine
+
+    with pytest.raises(PatchError, match="安全软件隔离"):
+        engine.apply(
+            game_root,
+            unlocker_dll_source=unlocker,
+            original_backup_dll_source=backup,
+            appinfo_json_source=appinfo,
+            game_id="stellaris",
+        )
+
+    assert original_path.read_bytes() == VANILLA_GAME_DLL
+    assert not (game_root / "steam_api64_o.dll").exists()
+    assert not (game_root / "cream_api.ini").exists()
+
+
 def test_patch_operations_use_cartridge_owned_nested_directory(tmp_path: Path) -> None:
     profile = PatchProfile(
         unlocker_dll_name="custom_api.dll",

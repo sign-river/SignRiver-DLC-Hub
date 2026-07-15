@@ -5,7 +5,14 @@ from .models import GameProfile, PublisherCartridge, PublishAsset, ResourceRecor
 from .cream import AppInfoError, SteamAppInfo, SteamDlc, generate_cream_api_ini, load_steam_appinfo
 from .settings import PublisherSettings, PublisherSettingsError, discover_settings_path
 from .steam import SteamApiError, SteamStoreClient
-from .remote import ReleaseSyncResult, RemoteAsset, RemoteMutationResult, RemoteRelease, RemoteResourceManager
+from .remote import (
+    ReleaseSyncResult,
+    RemoteAdoptionResult,
+    RemoteAsset,
+    RemoteMutationResult,
+    RemoteRelease,
+    RemoteResourceManager,
+)
 from .workspace import PublisherWorkspace, WorkspaceError
 
 __all__ = [
@@ -19,6 +26,7 @@ __all__ = [
     "PublishAsset",
     "ResourceRecord",
     "RemoteAsset",
+    "RemoteAdoptionResult",
     "RemoteMutationResult",
     "RemoteRelease",
     "RemoteResourceManager",

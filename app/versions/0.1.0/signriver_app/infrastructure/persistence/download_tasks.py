@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 from ...domain import DownloadSnapshot, DownloadSpec, DownloadState
@@ -17,7 +18,7 @@ class DownloadTaskRepository:
 
     def save(self, snapshot: DownloadSnapshot) -> None:
         values = (
-            snapshot.spec.task_id, snapshot.spec.url, snapshot.spec.filename,
+            snapshot.spec.task_id, self._stored_url(snapshot.spec), snapshot.spec.filename,
             snapshot.spec.expected_size, snapshot.spec.expected_sha256,
             int(snapshot.spec.supports_range), snapshot.state.value,
             snapshot.bytes_downloaded, snapshot.total_bytes, snapshot.attempt,
@@ -103,11 +104,23 @@ class DownloadTaskRepository:
 
     @staticmethod
     def _from_row(row) -> DownloadSnapshot:
+        raw_url = str(row["url"])
+        part_urls: tuple[str, ...] = ()
+        url = raw_url
+        if raw_url.startswith("multipart:"):
+            try:
+                value = json.loads(raw_url.removeprefix("multipart:"))
+                if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+                    part_urls = tuple(value)
+                    url = part_urls[0]
+            except json.JSONDecodeError:
+                pass
         spec = DownloadSpec(
-            task_id=row["task_id"], url=row["url"], filename=row["filename"],
+            task_id=row["task_id"], url=url, filename=row["filename"],
             expected_size=row["expected_size"],
             expected_sha256=row["expected_sha256"],
             supports_range=bool(row["supports_range"]),
+            part_urls=part_urls,
         )
         return DownloadSnapshot(
             spec=spec, state=DownloadState(row["state"]),
@@ -116,3 +129,9 @@ class DownloadTaskRepository:
             result_path=Path(row["result_path"]) if row["result_path"] else None,
             sha256=row["actual_sha256"], error=row["error"],
         )
+
+    @staticmethod
+    def _stored_url(spec: DownloadSpec) -> str:
+        if not spec.part_urls:
+            return spec.url
+        return "multipart:" + json.dumps(spec.part_urls, ensure_ascii=True, separators=(",", ":"))

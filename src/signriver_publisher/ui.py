@@ -3,14 +3,23 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
+from queue import Empty, SimpleQueue
 from tkinter import filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
-from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkError, GitLinkRepository
+from .gitlink import (
+    GitLinkAttachmentClient,
+    GitLinkCli,
+    GitLinkError,
+    GitLinkRepository,
+    UploadControl,
+    UploadPaused,
+)
 from .models import GameProfile, PublishAsset
-from .remote import RemoteAsset, RemoteRelease, RemoteResourceManager
+from .remote import RemoteAsset, RemoteBulkDeleteResult, RemoteRelease, RemoteResourceManager
 from .settings import PublisherSettings
 from .workspace import PublisherWorkspace, WorkspaceError
 
@@ -40,14 +49,31 @@ PROFILE_OPTION_LABELS = {
 
 
 class PublisherApplication(ctk.CTk):
-    def __init__(self, workspace: PublisherWorkspace, *, settings: PublisherSettings | None = None) -> None:
+    def __init__(
+        self,
+        workspace: PublisherWorkspace,
+        *,
+        settings: PublisherSettings | None = None,
+    ) -> None:
         super().__init__()
         self.workspace = workspace
         self.settings = settings or PublisherSettings()
         self.profile = workspace.initialize()
         self.gitlink = GitLinkCli()
-        self.repository = GitLinkRepository(self.settings.owner, self.settings.repository)
+        self.repository = GitLinkRepository(
+            self.settings.owner, self.settings.repository
+        )
         self._remote_operation_active = False
+        self._build_operation_active = False
+        self._build_progress_events = SimpleQueue()
+        self._upload_control: UploadControl | None = None
+        self._publish_resume_context: (
+            tuple[GitLinkRepository, GameProfile, tuple[PublishAsset, ...], str | None]
+            | None
+        ) = None
+        self._upload_sample: tuple[str, int, float] | None = None
+        self._upload_speed = 0.0
+        self._current_remote_release: RemoteRelease | None = None
         self.title("SignRiver 发布管理器")
         self.geometry("1240x800")
         self.minsize(980, 660)
@@ -62,12 +88,33 @@ class PublisherApplication(ctk.CTk):
         header = ctk.CTkFrame(self, fg_color=BRAND, corner_radius=0, height=116)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(header, text="SignRiver 发布管理器", font=("Microsoft YaHei UI", 28, "bold"), text_color="white").grid(row=0, column=0, padx=(28, 20), pady=(22, 4), sticky="w")
-        ctk.CTkLabel(header, text="服务端制卡机 · 每张游戏卡带独立构建与发布", font=("Microsoft YaHei UI", 14), text_color="#EAF4FF").grid(row=1, column=0, padx=30, pady=(0, 20), sticky="w")
-        self.game_menu = ctk.CTkOptionMenu(header, command=self._select_game, width=220, fg_color=LIGHT_BLUE, button_color=BLUE)
+        ctk.CTkLabel(
+            header,
+            text="SignRiver 发布管理器",
+            font=("Microsoft YaHei UI", 28, "bold"),
+            text_color="white",
+        ).grid(row=0, column=0, padx=(28, 20), pady=(22, 4), sticky="w")
+        ctk.CTkLabel(
+            header,
+            text="服务端制卡机 · 每张游戏卡带独立构建与发布",
+            font=("Microsoft YaHei UI", 14),
+            text_color="#EAF4FF",
+        ).grid(row=1, column=0, padx=30, pady=(0, 20), sticky="w")
+        self.game_menu = ctk.CTkOptionMenu(
+            header,
+            command=self._select_game,
+            width=220,
+            fg_color=LIGHT_BLUE,
+            button_color=BLUE,
+        )
         self.game_menu.grid(row=0, column=2, rowspan=2, padx=28)
 
-        self.tabs = ctk.CTkTabview(self, fg_color=PAGE, segmented_button_selected_color=BLUE, segmented_button_selected_hover_color=BRAND)
+        self.tabs = ctk.CTkTabview(
+            self,
+            fg_color=PAGE,
+            segmented_button_selected_color=BLUE,
+            segmented_button_selected_hover_color=BRAND,
+        )
         self.tabs.grid(row=1, column=0, padx=22, pady=18, sticky="nsew")
         self.sources_tab = self.tabs.add("资源管理")
         self.build_tab = self.tabs.add("构建与发布")
@@ -80,18 +127,38 @@ class PublisherApplication(ctk.CTk):
 
     def _card(self, parent, row: int, title: str) -> ctk.CTkFrame:
         parent.grid_columnconfigure(0, weight=1)
-        frame = ctk.CTkFrame(parent, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        frame = ctk.CTkFrame(
+            parent,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         frame.grid(row=row, column=0, padx=8, pady=8, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(frame, text=title, font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE).grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+        ctk.CTkLabel(
+            frame, text=title, font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE
+        ).grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
         return frame
 
     def _build_sources_tab(self) -> None:
         self.sources_tab.grid_rowconfigure(0, weight=1)
         self.sources_tab.grid_columnconfigure((0, 1), weight=1)
-        self.dlc_card = ctk.CTkFrame(self.sources_tab, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        self.dlc_card = ctk.CTkFrame(
+            self.sources_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         self.dlc_card.grid(row=0, column=0, padx=(8, 5), pady=8, sticky="nsew")
-        self.patch_card = ctk.CTkFrame(self.sources_tab, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        self.patch_card = ctk.CTkFrame(
+            self.sources_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         self.patch_card.grid(row=0, column=1, padx=(5, 8), pady=8, sticky="nsew")
         for card in (self.dlc_card, self.patch_card):
             card.grid_columnconfigure(0, weight=1)
@@ -110,17 +177,27 @@ class PublisherApplication(ctk.CTk):
             self.open_patch_folder,
             lambda: self.clear_local_resources("patches"),
         )
-        self.dlc_list = ctk.CTkScrollableFrame(self.dlc_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
+        self.dlc_list = ctk.CTkScrollableFrame(
+            self.dlc_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+        )
         self.dlc_list.grid(row=2, column=0, padx=16, pady=(6, 16), sticky="nsew")
-        self.patch_list = ctk.CTkScrollableFrame(self.patch_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
+        self.patch_list = ctk.CTkScrollableFrame(
+            self.patch_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+        )
         self.patch_list.grid(row=2, column=0, padx=16, pady=(6, 16), sticky="nsew")
 
-    def _resource_header(self, card, title, import_command, open_command, clear_command):
+    def _resource_header(
+        self, card, title, import_command, open_command, clear_command
+    ):
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.grid(row=0, column=0, padx=16, pady=(14, 2), sticky="ew")
         bar.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(bar, text=title, font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE).grid(row=0, column=0, padx=4, sticky="w")
-        import_button = ctk.CTkButton(bar, text="导入", width=72, fg_color=BLUE, command=import_command)
+        ctk.CTkLabel(
+            bar, text=title, font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE
+        ).grid(row=0, column=0, padx=4, sticky="w")
+        import_button = ctk.CTkButton(
+            bar, text="导入", width=72, fg_color=BLUE, command=import_command
+        )
         import_button.grid(row=0, column=1, padx=4)
         clear_button = ctk.CTkButton(
             bar,
@@ -134,8 +211,12 @@ class PublisherApplication(ctk.CTk):
             command=clear_command,
         )
         clear_button.grid(row=0, column=2, padx=4)
-        ctk.CTkButton(bar, text="打开目录", width=88, fg_color=LIGHT_BLUE, command=open_command).grid(row=0, column=3, padx=4)
-        ctk.CTkLabel(card, text="可直接把资源放入对应目录，再点击刷新", text_color=MUTED).grid(row=1, column=0, padx=20, pady=(0, 4), sticky="w")
+        ctk.CTkButton(
+            bar, text="打开目录", width=88, fg_color=LIGHT_BLUE, command=open_command
+        ).grid(row=0, column=3, padx=4)
+        ctk.CTkLabel(
+            card, text="可直接把资源放入对应目录，再点击刷新", text_color=MUTED
+        ).grid(row=1, column=0, padx=20, pady=(0, 4), sticky="w")
         return import_button, clear_button
 
     def _build_publish_tab(self) -> None:
@@ -143,16 +224,34 @@ class PublisherApplication(ctk.CTk):
         build_card = self._card(self.build_tab, 0, "本地构建")
         actions = ctk.CTkFrame(build_card, fg_color="transparent")
         actions.grid(row=1, column=0, padx=18, pady=(2, 16), sticky="ew")
-        self.build_button = ctk.CTkButton(actions, text="生成全部发布文件", width=180, fg_color=BLUE, command=self.build_all)
+        self.build_button = ctk.CTkButton(
+            actions,
+            text="生成全部发布文件",
+            width=180,
+            fg_color=BLUE,
+            command=self.build_all,
+        )
         self.build_button.pack(side="left", padx=4)
-        self.steam_button = ctk.CTkButton(actions, text="刷新 Steam 数据", width=150, fg_color=LIGHT_BLUE, command=self.refresh_steam_data)
+        self.steam_button = ctk.CTkButton(
+            actions,
+            text="刷新 Steam 数据",
+            width=150,
+            fg_color=LIGHT_BLUE,
+            command=self.refresh_steam_data,
+        )
         self.steam_button.pack(side="left", padx=4)
-        ctk.CTkButton(actions, text="打开输出目录", width=150, fg_color=LIGHT_BLUE, command=self.open_output_folder).pack(side="left", padx=4)
+        ctk.CTkButton(
+            actions,
+            text="打开输出目录",
+            width=150,
+            fg_color=LIGHT_BLUE,
+            command=self.open_output_folder,
+        ).pack(side="left", padx=4)
         self.build_summary = ctk.CTkLabel(actions, text="尚未构建", text_color=MUTED)
         self.build_summary.pack(side="left", padx=18)
 
         remote = self._card(self.build_tab, 1, "GitLink 新仓库")
-        remote.grid_rowconfigure(3, weight=1)
+        remote.grid_rowconfigure(4, weight=1)
         settings = ctk.CTkFrame(remote, fg_color="transparent")
         settings.grid(row=1, column=0, padx=20, sticky="ew")
         settings.grid_columnconfigure((1, 3), weight=1)
@@ -166,44 +265,166 @@ class PublisherApplication(ctk.CTk):
         self.repo_entry.grid(row=0, column=3, padx=(0, 10), sticky="ew")
         buttons = ctk.CTkFrame(remote, fg_color="transparent")
         buttons.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
-        self.check_gitlink_button = ctk.CTkButton(buttons, text="检查登录与仓库", width=160, fg_color=LIGHT_BLUE, command=self.check_gitlink)
+        self.check_gitlink_button = ctk.CTkButton(
+            buttons,
+            text="检查登录与仓库",
+            width=160,
+            fg_color=LIGHT_BLUE,
+            command=self.check_gitlink,
+        )
         self.check_gitlink_button.pack(side="left", padx=4)
-        ctk.CTkButton(buttons, text="创建新仓库", width=140, fg_color=LIGHT_BLUE, command=self.create_repository).pack(side="left", padx=4)
-        self.publish_button = ctk.CTkButton(buttons, text="发布到 Release", width=160, fg_color=BLUE, command=self.publish_release)
+        ctk.CTkButton(
+            buttons,
+            text="创建新仓库",
+            width=140,
+            fg_color=LIGHT_BLUE,
+            command=self.create_repository,
+        ).pack(side="left", padx=4)
+        self.adopt_remote_button = ctk.CTkButton(
+            buttons,
+            text="采用远程附件",
+            width=145,
+            fg_color=LIGHT_BLUE,
+            command=self.adopt_remote_assets,
+        )
+        self.adopt_remote_button.pack(side="left", padx=4)
+        self.publish_button = ctk.CTkButton(
+            buttons,
+            text="发布到 Release",
+            width=160,
+            fg_color=BLUE,
+            command=self.publish_release,
+        )
         self.publish_button.pack(side="left", padx=4)
-        self.token_entry = ctk.CTkEntry(buttons, width=230, show="●", placeholder_text="GitLink 私有令牌", border_color="#BDBDBD")
+        self.token_entry = ctk.CTkEntry(
+            buttons,
+            width=230,
+            show="●",
+            placeholder_text="GitLink 私有令牌",
+            border_color="#BDBDBD",
+        )
         self.token_entry.pack(side="right", padx=4)
         if self.settings.token:
             self.token_entry.insert(0, self.settings.token)
-        self.log = ctk.CTkTextbox(remote, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0", text_color=TEXT)
-        self.log.grid(row=3, column=0, padx=20, pady=(0, 18), sticky="nsew")
+        transfer = ctk.CTkFrame(remote, fg_color="transparent")
+        transfer.grid(row=3, column=0, padx=22, pady=(0, 10), sticky="ew")
+        transfer.grid_columnconfigure(1, weight=1)
+        self.upload_status = ctk.CTkLabel(
+            transfer, text="等待发布", width=250, anchor="w", text_color=MUTED
+        )
+        self.upload_status.grid(row=0, column=0, padx=(0, 12), sticky="w")
+        self.upload_progress = ctk.CTkProgressBar(
+            transfer, height=14, progress_color=BLUE
+        )
+        self.upload_progress.grid(row=0, column=1, padx=8, sticky="ew")
+        self.upload_progress.set(0)
+        self.publish_pause_button = ctk.CTkButton(
+            transfer,
+            text="暂停发布",
+            width=110,
+            fg_color=LIGHT_BLUE,
+            state="disabled",
+            command=self.toggle_publish_pause,
+        )
+        self.publish_pause_button.grid(row=0, column=2, padx=(12, 0))
+        self.log = ctk.CTkTextbox(
+            remote,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+            text_color=TEXT,
+        )
+        self.log.grid(row=4, column=0, padx=20, pady=(0, 18), sticky="nsew")
         self._log("令牌从本地私密配置或输入框读取，不会输出到日志。")
 
     def _build_remote_tab(self) -> None:
         self.remote_tab.grid_rowconfigure(1, weight=1)
         self.remote_tab.grid_columnconfigure((0, 1), weight=1)
-        toolbar = ctk.CTkFrame(self.remote_tab, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        toolbar = ctk.CTkFrame(
+            self.remote_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         toolbar.grid(row=0, column=0, columnspan=2, padx=8, pady=(8, 4), sticky="ew")
         toolbar.grid_columnconfigure(0, weight=1)
-        self.remote_status = ctk.CTkLabel(toolbar, text="选择当前游戏后刷新远程 Release", text_color=MUTED, anchor="w")
+        self.remote_status = ctk.CTkLabel(
+            toolbar, text="选择当前游戏后刷新远程 Release", text_color=MUTED, anchor="w"
+        )
         self.remote_status.grid(row=0, column=0, padx=18, pady=14, sticky="ew")
-        self.remote_refresh_button = ctk.CTkButton(toolbar, text="刷新远程", width=110, fg_color=LIGHT_BLUE, command=self.refresh_remote_resources)
+        self.remote_refresh_button = ctk.CTkButton(
+            toolbar,
+            text="刷新远程",
+            width=110,
+            fg_color=LIGHT_BLUE,
+            command=self.refresh_remote_resources,
+        )
         self.remote_refresh_button.grid(row=0, column=1, padx=4, pady=10)
-        ctk.CTkButton(toolbar, text="选择文件上传", width=130, fg_color=BLUE, command=self.choose_remote_upload).grid(row=0, column=2, padx=(4, 14), pady=10)
+        self.remote_delete_all_button = ctk.CTkButton(
+            toolbar,
+            text="全部删除",
+            width=110,
+            fg_color="transparent",
+            border_width=1,
+            border_color=RED,
+            text_color=RED,
+            hover_color="#FFEBEE",
+            state="disabled",
+            command=self.delete_all_remote_resources,
+        )
+        self.remote_delete_all_button.grid(row=0, column=2, padx=4, pady=10)
+        ctk.CTkButton(
+            toolbar,
+            text="选择文件上传",
+            width=130,
+            fg_color=BLUE,
+            command=self.choose_remote_upload,
+        ).grid(row=0, column=3, padx=(4, 14), pady=10)
 
-        local_card = ctk.CTkFrame(self.remote_tab, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        local_card = ctk.CTkFrame(
+            self.remote_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         local_card.grid(row=1, column=0, padx=(8, 5), pady=(4, 8), sticky="nsew")
-        remote_card = ctk.CTkFrame(self.remote_tab, fg_color=CARD, border_width=1, border_color="#D8DEE6", corner_radius=14)
+        remote_card = ctk.CTkFrame(
+            self.remote_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
         remote_card.grid(row=1, column=1, padx=(5, 8), pady=(4, 8), sticky="nsew")
         for card in (local_card, remote_card):
             card.grid_columnconfigure(0, weight=1)
             card.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(local_card, text="本地发布文件", font=("Microsoft YaHei UI", 19, "bold"), text_color=BLUE).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
-        ctk.CTkLabel(remote_card, text="GitLink Release 附件", font=("Microsoft YaHei UI", 19, "bold"), text_color=BLUE).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
-        self.local_output_list = ctk.CTkScrollableFrame(local_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
-        self.local_output_list.grid(row=1, column=0, padx=14, pady=(4, 14), sticky="nsew")
-        self.remote_asset_list = ctk.CTkScrollableFrame(remote_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0")
-        self.remote_asset_list.grid(row=1, column=0, padx=14, pady=(4, 14), sticky="nsew")
+        ctk.CTkLabel(
+            local_card,
+            text="本地发布文件",
+            font=("Microsoft YaHei UI", 19, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
+        ctk.CTkLabel(
+            remote_card,
+            text="GitLink Release 附件",
+            font=("Microsoft YaHei UI", 19, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
+        self.local_output_list = ctk.CTkScrollableFrame(
+            local_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+        )
+        self.local_output_list.grid(
+            row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
+        )
+        self.remote_asset_list = ctk.CTkScrollableFrame(
+            remote_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+        )
+        self.remote_asset_list.grid(
+            row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
+        )
 
     def _build_games_tab(self) -> None:
         card = self._card(self.games_tab, 0, "游戏卡带配置")
@@ -226,7 +447,9 @@ class PublisherApplication(ctk.CTk):
         )
         self.profile_entries: dict[str, object] = {}
         for row, (label, key) in enumerate(labels):
-            ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(row=row, column=0, pady=6, sticky="w")
+            ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(
+                row=row, column=0, pady=6, sticky="w"
+            )
             if key in PROFILE_OPTION_LABELS:
                 values = list(PROFILE_OPTION_LABELS[key].values())
                 entry = ctk.CTkOptionMenu(
@@ -241,8 +464,12 @@ class PublisherApplication(ctk.CTk):
             if key == "appinfo_name":
                 entry.configure(state="disabled")
             self.profile_entries[key] = entry
-        ctk.CTkButton(form, text="保存当前卡带", fg_color=BLUE, command=self.save_profile).grid(row=len(labels), column=1, pady=10, sticky="e")
-        ctk.CTkButton(form, text="新增游戏卡带", fg_color=LIGHT_BLUE, command=self.add_game).grid(row=len(labels), column=0, pady=10, sticky="w")
+        ctk.CTkButton(
+            form, text="保存当前卡带", fg_color=BLUE, command=self.save_profile
+        ).grid(row=len(labels), column=1, pady=10, sticky="e")
+        ctk.CTkButton(
+            form, text="新增游戏卡带", fg_color=LIGHT_BLUE, command=self.add_game
+        ).grid(row=len(labels), column=0, pady=10, sticky="w")
 
     def refresh(self) -> None:
         games = self.workspace.list_games()
@@ -275,47 +502,111 @@ class PublisherApplication(ctk.CTk):
             ctk.CTkLabel(parent, text="暂无资源", text_color=MUTED).pack(pady=24)
             return
         for path in resources:
-            row = ctk.CTkFrame(parent, fg_color=CARD, border_width=1, border_color="#E0E0E0", corner_radius=8)
+            row = ctk.CTkFrame(
+                parent,
+                fg_color=CARD,
+                border_width=1,
+                border_color="#E0E0E0",
+                corner_radius=8,
+            )
             row.pack(fill="x", padx=4, pady=4)
-            ctk.CTkLabel(row, text=path.name, anchor="w", text_color=TEXT).pack(side="left", fill="x", expand=True, padx=12, pady=10)
-            ctk.CTkButton(row, text="删除", width=64, fg_color="transparent", border_width=1, border_color=RED, text_color=RED, hover_color="#FFEBEE", command=lambda k=kind, n=path.name: self.remove_resource(k, n)).pack(side="right", padx=8, pady=6)
+            ctk.CTkLabel(row, text=path.name, anchor="w", text_color=TEXT).pack(
+                side="left", fill="x", expand=True, padx=12, pady=10
+            )
+            ctk.CTkButton(
+                row,
+                text="删除",
+                width=64,
+                fg_color="transparent",
+                border_width=1,
+                border_color=RED,
+                text_color=RED,
+                hover_color="#FFEBEE",
+                command=lambda k=kind, n=path.name: self.remove_resource(k, n),
+            ).pack(side="right", padx=8, pady=6)
 
     def _select_game(self, label: str) -> None:
         game_id = label.rsplit("(", 1)[-1].rstrip(")")
-        self.profile = next(item for item in self.workspace.list_games() if item.game_id == game_id)
+        self.profile = next(
+            item for item in self.workspace.list_games() if item.game_id == game_id
+        )
         self.refresh()
 
     def _fill_local_outputs(self) -> None:
         for child in self.local_output_list.winfo_children():
             child.destroy()
         target = self.workspace.output_dir / self.profile.game_id
-        files = tuple(sorted(path for path in target.iterdir() if path.is_file())) if target.is_dir() else ()
+        files = (
+            tuple(sorted(path for path in target.iterdir() if path.is_file()))
+            if target.is_dir()
+            else ()
+        )
         if not files:
-            ctk.CTkLabel(self.local_output_list, text="尚未生成本地发布文件", text_color=MUTED).pack(pady=24)
+            ctk.CTkLabel(
+                self.local_output_list, text="尚未生成本地发布文件", text_color=MUTED
+            ).pack(pady=24)
             return
         for path in files:
-            row = ctk.CTkFrame(self.local_output_list, fg_color=CARD, border_width=1, border_color="#E0E0E0", corner_radius=8)
+            row = ctk.CTkFrame(
+                self.local_output_list,
+                fg_color=CARD,
+                border_width=1,
+                border_color="#E0E0E0",
+                corner_radius=8,
+            )
             row.pack(fill="x", padx=4, pady=4)
-            ctk.CTkLabel(row, text=path.name, anchor="w", text_color=TEXT).pack(side="left", fill="x", expand=True, padx=10, pady=9)
-            ctk.CTkButton(row, text="上传", width=64, fg_color=BLUE, command=lambda value=path: self.upload_remote_file(value)).pack(side="right", padx=7, pady=6)
+            ctk.CTkLabel(row, text=path.name, anchor="w", text_color=TEXT).pack(
+                side="left", fill="x", expand=True, padx=10, pady=9
+            )
+            ctk.CTkButton(
+                row,
+                text="上传",
+                width=64,
+                fg_color=BLUE,
+                command=lambda value=path: self.upload_remote_file(value),
+            ).pack(side="right", padx=7, pady=6)
 
     def _show_remote_message(self, message: str) -> None:
         for child in self.remote_asset_list.winfo_children():
             child.destroy()
-        ctk.CTkLabel(self.remote_asset_list, text=message, text_color=MUTED).pack(pady=24)
+        ctk.CTkLabel(self.remote_asset_list, text=message, text_color=MUTED).pack(
+            pady=24
+        )
 
     def _fill_remote_assets(self, assets: tuple[RemoteAsset, ...]) -> None:
         for child in self.remote_asset_list.winfo_children():
             child.destroy()
         if not assets:
-            ctk.CTkLabel(self.remote_asset_list, text="当前 Release 暂无附件", text_color=MUTED).pack(pady=24)
+            ctk.CTkLabel(
+                self.remote_asset_list, text="当前 Release 暂无附件", text_color=MUTED
+            ).pack(pady=24)
             return
         for asset in sorted(assets, key=lambda item: item.name.casefold()):
-            row = ctk.CTkFrame(self.remote_asset_list, fg_color=CARD, border_width=1, border_color="#E0E0E0", corner_radius=8)
+            row = ctk.CTkFrame(
+                self.remote_asset_list,
+                fg_color=CARD,
+                border_width=1,
+                border_color="#E0E0E0",
+                corner_radius=8,
+            )
             row.pack(fill="x", padx=4, pady=4)
-            text = asset.name + (f"  ·  {asset.display_size}" if asset.display_size else "")
-            ctk.CTkLabel(row, text=text, anchor="w", text_color=TEXT).pack(side="left", fill="x", expand=True, padx=10, pady=9)
-            ctk.CTkButton(row, text="删除", width=64, fg_color="transparent", border_width=1, border_color=RED, text_color=RED, hover_color="#FFEBEE", command=lambda value=asset: self.delete_remote_resource(value)).pack(side="right", padx=7, pady=6)
+            text = asset.name + (
+                f"  ·  {asset.display_size}" if asset.display_size else ""
+            )
+            ctk.CTkLabel(row, text=text, anchor="w", text_color=TEXT).pack(
+                side="left", fill="x", expand=True, padx=10, pady=9
+            )
+            ctk.CTkButton(
+                row,
+                text="删除",
+                width=64,
+                fg_color="transparent",
+                border_width=1,
+                border_color=RED,
+                text_color=RED,
+                hover_color="#FFEBEE",
+                command=lambda value=asset: self.delete_remote_resource(value),
+            ).pack(side="right", padx=7, pady=6)
 
     def import_dlc(self) -> None:
         path = filedialog.askdirectory(title="选择 DLC 文件夹")
@@ -326,7 +617,8 @@ class PublisherApplication(ctk.CTk):
         collection = self.workspace.is_dlc_collection(profile, source)
         interrupted = (
             self.workspace.interrupted_collection_import(profile, source)
-            if collection else ()
+            if collection
+            else ()
         )
         reset_interrupted = False
         if interrupted:
@@ -339,7 +631,11 @@ class PublisherApplication(ctk.CTk):
             if not confirmed:
                 return
             reset_interrupted = True
-        wrapped = self.workspace.wrapped_collection_import(profile, source) if collection else None
+        wrapped = (
+            self.workspace.wrapped_collection_import(profile, source)
+            if collection
+            else None
+        )
         if wrapped is not None:
             confirmed = messagebox.askyesno(
                 "修正旧版误导入",
@@ -366,7 +662,9 @@ class PublisherApplication(ctk.CTk):
                 if reset_interrupted:
                     self.after(
                         0,
-                        lambda: self.dlc_import_button.configure(text="清理上次失败记录…"),
+                        lambda: self.dlc_import_button.configure(
+                            text="清理上次失败记录…"
+                        ),
                     )
                     self.workspace.reset_interrupted_collection_import(profile, source)
                 if wrapped is not None:
@@ -386,7 +684,9 @@ class PublisherApplication(ctk.CTk):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _import_dlc_done(self, profile: GameProfile, imported: tuple[Path, ...]) -> None:
+    def _import_dlc_done(
+        self, profile: GameProfile, imported: tuple[Path, ...]
+    ) -> None:
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -407,12 +707,20 @@ class PublisherApplication(ctk.CTk):
         if not path:
             path = filedialog.askdirectory(title="或选择补丁文件夹")
         if path:
-            self._run_action(lambda: self.workspace.import_patch(self.profile, Path(path)), "补丁已导入")
+            self._run_action(
+                lambda: self.workspace.import_patch(self.profile, Path(path)),
+                "补丁已导入",
+            )
 
     def remove_resource(self, kind: str, name: str) -> None:
-        if not messagebox.askyesno("确认删除", f"从发布工作区删除 {name}？\n此操作不会删除 GitLink 上已经发布的附件。"):
+        if not messagebox.askyesno(
+            "确认删除",
+            f"从发布工作区删除 {name}？\n此操作不会删除 GitLink 上已经发布的附件。",
+        ):
             return
-        self._run_action(lambda: self.workspace.remove_source(self.profile, kind, name), "资源已删除")
+        self._run_action(
+            lambda: self.workspace.remove_source(self.profile, kind, name), "资源已删除"
+        )
 
     def clear_local_resources(self, kind: str) -> None:
         dlcs, patches = self.workspace.scan_sources(self.profile)
@@ -428,8 +736,12 @@ class PublisherApplication(ctk.CTk):
             "不会删除游戏原文件，也不会删除 GitLink Release。此操作无法撤销，是否继续？",
         ):
             return
-        import_button = self.dlc_import_button if kind == "dlc" else self.patch_import_button
-        clear_button = self.dlc_clear_button if kind == "dlc" else self.patch_clear_button
+        import_button = (
+            self.dlc_import_button if kind == "dlc" else self.patch_import_button
+        )
+        clear_button = (
+            self.dlc_clear_button if kind == "dlc" else self.patch_clear_button
+        )
         import_button.configure(state="disabled")
         clear_button.configure(state="disabled", text="正在清空…")
         self.game_menu.configure(state="disabled")
@@ -465,7 +777,9 @@ class PublisherApplication(ctk.CTk):
             self.refresh()
         messagebox.showinfo("清理完成", f"已删除 {count} 项本地{label}")
 
-    def _clear_local_resources_failed(self, message: str, import_button, clear_button) -> None:
+    def _clear_local_resources_failed(
+        self, message: str, import_button, clear_button
+    ) -> None:
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
         self.game_menu.configure(state="normal")
@@ -473,7 +787,9 @@ class PublisherApplication(ctk.CTk):
 
     def save_profile(self) -> None:
         try:
-            values = {key: entry.get().strip() for key, entry in self.profile_entries.items()}
+            values = {
+                key: entry.get().strip() for key, entry in self.profile_entries.items()
+            }
             for key, labels in PROFILE_OPTION_LABELS.items():
                 displayed = values[key]
                 values[key] = next(
@@ -492,15 +808,27 @@ class PublisherApplication(ctk.CTk):
             messagebox.showerror("保存失败", str(error))
 
     def add_game(self) -> None:
-        game_id = simpledialog.askstring("新增游戏卡带", "输入游戏 ID（如 crusader_kings_3）：", parent=self)
+        game_id = simpledialog.askstring(
+            "新增游戏卡带", "输入游戏 ID（如 crusader_kings_3）：", parent=self
+        )
         if not game_id:
             return
-        display = simpledialog.askstring("新增游戏卡带", "输入显示名称：", parent=self) or game_id
-        steam_app_id = simpledialog.askstring("新增游戏卡带", "输入 Steam App ID：", parent=self) or ""
+        display = (
+            simpledialog.askstring("新增游戏卡带", "输入显示名称：", parent=self)
+            or game_id
+        )
+        steam_app_id = (
+            simpledialog.askstring("新增游戏卡带", "输入 Steam App ID：", parent=self)
+            or ""
+        )
         normalized_id = game_id.strip().lower()
-        profile = GameProfile.create(normalized_id, display.strip(), steam_app_id.strip())
+        profile = GameProfile.create(
+            normalized_id, display.strip(), steam_app_id.strip()
+        )
         try:
-            if any(item.game_id == profile.game_id for item in self.workspace.list_games()):
+            if any(
+                item.game_id == profile.game_id for item in self.workspace.list_games()
+            ):
                 raise WorkspaceError("该游戏已经存在")
             self.workspace.save_game(profile)
             self.profile = profile
@@ -510,37 +838,100 @@ class PublisherApplication(ctk.CTk):
 
     def build_all(self) -> None:
         self.build_button.configure(state="disabled", text="正在构建…")
+        self.steam_button.configure(state="disabled")
+        self.publish_button.configure(state="disabled")
+        self.adopt_remote_button.configure(state="disabled")
+        self.game_menu.configure(state="disabled")
+        self._build_operation_active = True
+        profile = self.profile
+        workers = self.workspace.compression_worker_count()
+        self._log(
+            f"开始构建 {profile.display_name}：ZIP 压缩等级保持不变，"
+            f"最多并行处理 {workers} 个 DLC。"
+        )
+
+        def progress(
+            stage: str, index: int, total: int, name: str, detail: str
+        ) -> None:
+            self._build_progress_events.put((stage, index, total, name, detail))
+
+        self.after(50, self._poll_build_progress)
+
         def work() -> None:
             try:
-                records = self.workspace.build(self.profile)
-                files = self.workspace.publish_files(self.profile)
+                records = self.workspace.build(profile, progress=progress)
+                files = self.workspace.publish_files(profile)
                 size = sum(path.stat().st_size for path in files)
-                self.after(0, lambda: self._build_done(len(records), len(files), size))
-            except (WorkspaceError, OSError) as error:
+                self.after(
+                    0,
+                    lambda: self._build_done(
+                        profile.game_id, len(records), len(files), size
+                    ),
+                )
+            except Exception as error:
                 message = str(error)
                 self.after(0, lambda value=message: self._build_failed(value))
+
         threading.Thread(target=work, daemon=True).start()
 
-    def _build_done(self, resources: int, files: int, size: int) -> None:
+    def _poll_build_progress(self) -> None:
+        while True:
+            try:
+                event = self._build_progress_events.get_nowait()
+            except Empty:
+                break
+            self._build_progress(*event)
+        if self._build_operation_active:
+            self.after(80, self._poll_build_progress)
+
+    def _build_progress(
+        self, stage: str, index: int, total: int, name: str, detail: str
+    ) -> None:
+        self.build_button.configure(text=f"正在构建 · {stage}")
+        position = f"[{index}/{total}] " if index > 0 and total > 0 else ""
+        subject = f" {name}" if name else ""
+        suffix = f" · {detail}" if detail else ""
+        self._log(f"{position}{stage}{subject}{suffix}")
+
+    def _build_done(self, game_id: str, resources: int, files: int, size: int) -> None:
+        self._build_operation_active = False
+        self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
-        self.build_summary.configure(text=f"{resources} 个资源 · {files} 个文件 · {size / 1024 / 1024:.1f} MiB")
-        self._log(f"本地构建完成：{self.profile.game_id}，共 {files} 个发布文件。")
+        self.steam_button.configure(state="normal")
+        self.publish_button.configure(state="normal")
+        self.adopt_remote_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        self.build_summary.configure(
+            text=f"{resources} 个资源 · {files} 个文件 · {size / 1024 / 1024:.1f} MiB"
+        )
+        self._log(f"本地构建完成：{game_id}，共 {files} 个发布文件。")
         self._fill_local_outputs()
 
     def _build_failed(self, message: str) -> None:
+        self._build_operation_active = False
+        self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
+        self.steam_button.configure(state="normal")
+        self.publish_button.configure(state="normal")
+        self.adopt_remote_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        self._log(f"本地构建失败：{message}")
         messagebox.showerror("构建失败", message)
 
     def refresh_steam_data(self) -> None:
         self.steam_button.configure(state="disabled", text="正在查询…")
         profile = self.profile
+
         def work() -> None:
             try:
                 appinfo = self.workspace.refresh_appinfo(profile)
-                self.after(0, lambda: self._steam_refresh_done(appinfo.name, len(appinfo.dlcs)))
+                self.after(
+                    0, lambda: self._steam_refresh_done(appinfo.name, len(appinfo.dlcs))
+                )
             except (WorkspaceError, OSError) as error:
                 message = str(error)
                 self.after(0, lambda value=message: self._steam_refresh_failed(value))
+
         threading.Thread(target=work, daemon=True).start()
 
     def _steam_refresh_done(self, name: str, count: int) -> None:
@@ -560,6 +951,7 @@ class PublisherApplication(ctk.CTk):
         except GitLinkError as error:
             self._remote_failed(str(error))
             return
+
         def work() -> None:
             try:
                 release = manager.get_release(profile.release_tag)
@@ -567,16 +959,23 @@ class PublisherApplication(ctk.CTk):
             except (GitLinkError, OSError) as error:
                 message = str(error)
                 self.after(0, lambda value=message: self._remote_failed(value))
+
         threading.Thread(target=work, daemon=True).start()
 
     def choose_remote_upload(self) -> None:
         initial = self.workspace.output_dir / self.profile.game_id
-        path = filedialog.askopenfilename(title="选择要上传到当前 Release 的文件", initialdir=initial if initial.is_dir() else None)
+        path = filedialog.askopenfilename(
+            title="选择要上传到当前 Release 的文件",
+            initialdir=initial if initial.is_dir() else None,
+        )
         if path:
             self.upload_remote_file(Path(path))
 
     def upload_remote_file(self, path: Path) -> None:
-        if not messagebox.askyesno("确认上传", f"上传 {path.name} 到 {self.profile.display_name} 的 {self.profile.release_tag} Release？\n\n存在同名附件时将安全替换。"):
+        if not messagebox.askyesno(
+            "确认上传",
+            f"上传 {path.name} 到 {self.profile.display_name} 的 {self.profile.release_tag} Release？\n\n存在同名附件时将安全替换。",
+        ):
             return
         if not self._begin_remote_operation(f"正在上传 {path.name}…"):
             return
@@ -585,40 +984,124 @@ class PublisherApplication(ctk.CTk):
         except GitLinkError as error:
             self._remote_failed(str(error))
             return
+
         def work() -> None:
             try:
                 result = manager.upload_file(profile, path)
                 release = manager.get_release(profile.release_tag)
-                self.after(0, lambda: self._remote_mutation_done(profile, result.action, result.asset.name, result.warnings, release))
+                self.after(
+                    0,
+                    lambda: self._remote_mutation_done(
+                        profile,
+                        result.action,
+                        result.asset.name,
+                        result.warnings,
+                        release,
+                    ),
+                )
             except (GitLinkError, OSError) as error:
                 message = str(error)
                 self.after(0, lambda value=message: self._remote_failed(value))
+
         threading.Thread(target=work, daemon=True).start()
 
     def delete_remote_resource(self, asset: RemoteAsset) -> None:
-        if not messagebox.askyesno("确认删除远程资源", f"从 {self.profile.release_tag} Release 永久删除：\n{asset.name}\n\n此操作无法撤销，是否继续？"):
+        if not messagebox.askyesno(
+            "确认删除远程资源",
+            f"从 {self.profile.release_tag} Release 永久删除：\n{asset.name}\n\n此操作无法撤销，是否继续？",
+        ):
             return
         if not self._begin_remote_operation(f"正在删除 {asset.name}…"):
             return
         try:
             manager, profile = self._remote_manager()
+            repo = manager.repository
+            state = self.workspace.load_publish_state(profile, repo.owner, repo.name)
+            upload_id = self._publish_upload_id(state, asset.name)
         except GitLinkError as error:
             self._remote_failed(str(error))
             return
+
         def work() -> None:
             try:
-                result = manager.delete_asset(profile, asset.asset_id)
+                result = manager.delete_asset(profile, asset.asset_id, upload_id)
+                self._remove_publish_state_assets(profile, state, (asset.name,))
                 release = manager.get_release(profile.release_tag)
-                self.after(0, lambda: self._remote_mutation_done(profile, result.action, result.asset.name, result.warnings, release))
+                self.after(
+                    0,
+                    lambda: self._remote_mutation_done(
+                        profile,
+                        result.action,
+                        result.asset.name,
+                        result.warnings,
+                        release,
+                    ),
+                )
             except (GitLinkError, OSError) as error:
                 message = str(error)
                 self.after(0, lambda value=message: self._remote_failed(value))
+
         threading.Thread(target=work, daemon=True).start()
+
+    def delete_all_remote_resources(self) -> None:
+        release = self._current_remote_release
+        if release is None or not release.assets:
+            messagebox.showinfo("没有远程附件", "当前 Release 没有可删除的附件")
+            return
+        if not messagebox.askyesno(
+            "确认删除全部远程附件",
+            f"将从 {self.profile.release_tag} Release 永久删除全部 {len(release.assets)} 个附件。\n\n"
+            "此操作无法撤销，是否继续？",
+        ):
+            return
+        if not self._begin_remote_operation("正在删除全部远程附件…"):
+            return
+        try:
+            manager, profile = self._remote_manager()
+            repo = manager.repository
+            state = self.workspace.load_publish_state(profile, repo.owner, repo.name)
+            upload_ids = {
+                asset.name.casefold(): self._publish_upload_id(state, asset.name)
+                for asset in release.assets
+            }
+        except GitLinkError as error:
+            self._remote_failed(str(error))
+            return
+
+        def work() -> None:
+            try:
+                result = manager.delete_all_assets(profile, upload_ids)
+                self._remove_publish_state_assets(
+                    profile, state, tuple(asset.name for asset in result.deleted)
+                )
+                self.after(0, lambda value=result: self._remote_bulk_delete_done(profile, value))
+            except (GitLinkError, OSError) as error:
+                self.after(0, lambda value=str(error): self._remote_failed(value))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def _publish_upload_id(state: dict[str, object], name: str) -> str:
+        assets = state.get("assets")
+        value = assets.get(name) if isinstance(assets, dict) else None
+        return str(value.get("attachment_id", "")) if isinstance(value, dict) else ""
+
+    def _remove_publish_state_assets(
+        self, profile: GameProfile, state: dict[str, object], names: tuple[str, ...]
+    ) -> None:
+        assets = state.get("assets")
+        if not isinstance(assets, dict):
+            return
+        for name in names:
+            assets.pop(name, None)
+        self.workspace.save_publish_state(profile, state)
 
     def _remote_manager(self) -> tuple[RemoteResourceManager, GameProfile]:
         repository = self._repository()
         token = self.token_entry.get().strip() or None
-        return RemoteResourceManager(GitLinkAttachmentClient(token), repository), self.profile
+        return RemoteResourceManager(
+            GitLinkAttachmentClient(token), repository
+        ), self.profile
 
     def _begin_remote_operation(self, message: str) -> bool:
         if self._remote_operation_active:
@@ -626,40 +1109,99 @@ class PublisherApplication(ctk.CTk):
             return False
         self._remote_operation_active = True
         self.remote_refresh_button.configure(state="disabled")
+        self.remote_delete_all_button.configure(state="disabled")
         self.remote_status.configure(text=message)
         return True
 
-    def _remote_loaded(self, profile: GameProfile, release: RemoteRelease | None) -> None:
+    def _remote_loaded(
+        self, profile: GameProfile, release: RemoteRelease | None
+    ) -> None:
         self._remote_operation_active = False
         self.remote_refresh_button.configure(state="normal")
         if profile.game_id != self.profile.game_id:
             return
         if release is None:
-            self.remote_status.configure(text=f"{profile.release_tag} · Release 尚未创建")
+            self._current_remote_release = None
+            self.remote_delete_all_button.configure(state="disabled")
+            self.remote_status.configure(
+                text=f"{profile.release_tag} · Release 尚未创建"
+            )
             self._fill_remote_assets(())
             return
-        self.remote_status.configure(text=f"{release.tag} · {len(release.assets)} 个远程附件")
+        self._current_remote_release = release
+        self.remote_delete_all_button.configure(
+            state="normal" if release.assets else "disabled"
+        )
+        self.remote_status.configure(
+            text=f"{release.tag} · {len(release.assets)} 个远程附件"
+        )
         self._fill_remote_assets(release.assets)
 
-    def _remote_mutation_done(self, profile: GameProfile, action: str, name: str, warnings: tuple[str, ...], release: RemoteRelease | None) -> None:
+    def _remote_mutation_done(
+        self,
+        profile: GameProfile,
+        action: str,
+        name: str,
+        warnings: tuple[str, ...],
+        release: RemoteRelease | None,
+    ) -> None:
         self._remote_operation_active = False
         self.remote_refresh_button.configure(state="normal")
         self._log(f"远程资源{action}完成：{name}")
         if profile.game_id == self.profile.game_id:
             if release is None:
-                self.remote_status.configure(text=f"{profile.release_tag} · Release 尚未创建")
+                self._current_remote_release = None
+                self.remote_delete_all_button.configure(state="disabled")
+                self.remote_status.configure(
+                    text=f"{profile.release_tag} · Release 尚未创建"
+                )
                 self._fill_remote_assets(())
             else:
-                self.remote_status.configure(text=f"{release.tag} · {len(release.assets)} 个远程附件")
+                self._current_remote_release = release
+                self.remote_delete_all_button.configure(
+                    state="normal" if release.assets else "disabled"
+                )
+                self.remote_status.configure(
+                    text=f"{release.tag} · {len(release.assets)} 个远程附件"
+                )
                 self._fill_remote_assets(release.assets)
         if warnings:
             messagebox.showwarning("操作完成但有警告", "\n".join(warnings))
         else:
             messagebox.showinfo("远程操作完成", f"已{action}：{name}")
 
+    def _remote_bulk_delete_done(
+        self, profile: GameProfile, result: RemoteBulkDeleteResult
+    ) -> None:
+        self._remote_operation_active = False
+        self.remote_refresh_button.configure(state="normal")
+        release = result.release
+        if profile.game_id == self.profile.game_id:
+            self._current_remote_release = release
+            assets = release.assets if release else ()
+            self.remote_delete_all_button.configure(
+                state="normal" if assets else "disabled"
+            )
+            self.remote_status.configure(
+                text=f"{profile.release_tag} · {len(assets)} 个远程附件"
+            )
+            self._fill_remote_assets(assets)
+        summary = f"远程附件删除完成：成功 {len(result.deleted)} 个，失败 {len(result.failures)} 个。"
+        self._log(summary)
+        if result.failures:
+            messagebox.showwarning(
+                "部分附件删除失败", summary + "\n\n" + "\n".join(result.failures)
+            )
+        else:
+            messagebox.showinfo("全部删除完成", summary)
+
     def _remote_failed(self, message: str) -> None:
         self._remote_operation_active = False
         self.remote_refresh_button.configure(state="normal")
+        release = self._current_remote_release
+        self.remote_delete_all_button.configure(
+            state="normal" if release and release.assets else "disabled"
+        )
         self.remote_status.configure(text="远程操作失败")
         self._log(f"远程操作失败：{message}")
         messagebox.showerror("远程操作失败", message)
@@ -683,7 +1225,12 @@ class PublisherApplication(ctk.CTk):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _gitlink_check_done(self, repo: GitLinkRepository, profile: GameProfile, release: RemoteRelease | None) -> None:
+    def _gitlink_check_done(
+        self,
+        repo: GitLinkRepository,
+        profile: GameProfile,
+        release: RemoteRelease | None,
+    ) -> None:
         self.check_gitlink_button.configure(state="normal", text="检查登录与仓库")
         repository_url = f"https://www.gitlink.org.cn/{repo.owner}/{repo.name}"
         if release is None:
@@ -708,40 +1255,175 @@ class PublisherApplication(ctk.CTk):
         except GitLinkError as error:
             messagebox.showerror("创建失败", str(error))
             return
-        if not messagebox.askyesno("创建新仓库", f"确认创建公开资源仓库 {repo.owner}/{repo.name}？"):
+        if not messagebox.askyesno(
+            "创建新仓库", f"确认创建公开资源仓库 {repo.owner}/{repo.name}？"
+        ):
             return
         try:
-            self.gitlink.create_repository(repo, "SignRiver DLC Hub public release assets")
-            self._log(f"新仓库创建完成：https://www.gitlink.org.cn/{repo.owner}/{repo.name}")
+            self.gitlink.create_repository(
+                repo, "SignRiver DLC Hub public release assets"
+            )
+            self._log(
+                f"新仓库创建完成：https://www.gitlink.org.cn/{repo.owner}/{repo.name}"
+            )
         except GitLinkError as error:
             messagebox.showerror("创建失败", str(error))
+
+    def adopt_remote_assets(self) -> None:
+        try:
+            assets = self.workspace.publish_assets(self.profile)
+            repo = self._repository()
+            previous_state = self.workspace.load_publish_state(
+                self.profile, repo.owner, repo.name
+            )
+            manager, profile = self._remote_manager()
+        except (WorkspaceError, GitLinkError) as error:
+            messagebox.showerror("无法采用远程附件", str(error))
+            return
+        if not messagebox.askyesno(
+            "确认采用远程 DLC",
+            "此操作不会上传、替换或删除任何远程文件。\n\n"
+            "程序会把 Release 中名称和显示大小均与本地一致的 DLC ZIP "
+            "写入本地发布记录，之后一键发布会直接复用。\n\n"
+            "GitLink 未提供远程 SHA-256，无法核对文件内容。"
+            "请只采用你刚刚手动上传并确认完整的附件。是否继续？",
+        ):
+            return
+        if not self._begin_remote_operation("正在核对远程 DLC 附件…"):
+            return
+        self.adopt_remote_button.configure(state="disabled", text="正在核对…")
+        self.publish_button.configure(state="disabled")
+        self.game_menu.configure(state="disabled")
+        self._log(f"开始采用远程附件：{repo.owner}/{repo.name} · {profile.release_tag}")
+
+        def work() -> None:
+            try:
+                result = manager.adopt_matching_release_assets(
+                    profile, assets, previous_state
+                )
+                self.workspace.save_publish_state(profile, result.state)
+                self.after(0, lambda: self._adoption_done(profile, result))
+            except (GitLinkError, OSError) as error:
+                message = str(error)
+                self.after(0, lambda value=message: self._adoption_failed(value))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _adoption_done(self, profile: GameProfile, result) -> None:
+        self._remote_operation_active = False
+        self.remote_refresh_button.configure(state="normal")
+        self.adopt_remote_button.configure(state="normal", text="采用远程附件")
+        self.publish_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        summary = (
+            f"远程附件采用完成：新增采用 {len(result.adopted)} 个，"
+            f"已在管理 {len(result.already_managed)} 个，跳过 {len(result.skipped)} 个。"
+        )
+        self.remote_status.configure(text=summary)
+        self._log(summary)
+        for name in result.adopted:
+            self._log(f"采用：{name}")
+        if result.skipped:
+            detail = "\n".join(result.skipped[:12])
+            if len(result.skipped) > 12:
+                detail += f"\n……另有 {len(result.skipped) - 12} 项"
+            messagebox.showwarning("采用完成，但有跳过项目", f"{summary}\n\n{detail}")
+        else:
+            messagebox.showinfo("采用远程附件完成", summary)
+
+    def _adoption_failed(self, message: str) -> None:
+        self._remote_operation_active = False
+        self.remote_refresh_button.configure(state="normal")
+        self.adopt_remote_button.configure(state="normal", text="采用远程附件")
+        self.publish_button.configure(state="normal")
+        self.game_menu.configure(state="normal")
+        self.remote_status.configure(text="采用远程附件失败")
+        self._log(f"采用远程附件失败：{message}")
+        messagebox.showerror("采用远程附件失败", message)
 
     def publish_release(self) -> None:
         try:
             assets = self.workspace.publish_assets(self.profile)
             repo = self._repository()
-            previous_state = self.workspace.load_publish_state(self.profile, repo.owner, repo.name)
+            previous_state = self.workspace.load_publish_state(
+                self.profile, repo.owner, repo.name
+            )
         except WorkspaceError as error:
             messagebox.showerror("无法发布", str(error))
             return
         except GitLinkError as error:
             messagebox.showerror("无法发布", str(error))
             return
-        if not messagebox.askyesno("确认增量发布", f"同步 {len(assets)} 个文件到\n{repo.owner}/{repo.name} · {self.profile.release_tag}\n\n未变化文件将复用远程附件；AppInfo 每次强制更新。是否继续？"):
+        if not messagebox.askyesno(
+            "确认增量发布",
+            f"同步 {len(assets)} 个文件到\n{repo.owner}/{repo.name} · {self.profile.release_tag}\n\n未变化文件将复用远程附件；AppInfo 每次强制更新。是否继续？",
+        ):
             return
         token = self.token_entry.get().strip() or None
-        self.publish_button.configure(state="disabled", text="正在发布…")
-        self._log(f"开始增量发布 {self.profile.display_name}：共 {len(assets)} 个文件。")
-        profile = self.profile
-        threading.Thread(target=self._publish_worker, args=(repo, profile, assets, previous_state, token), daemon=True).start()
+        self._publish_resume_context = (repo, self.profile, assets, token)
+        self._start_publish(repo, self.profile, assets, previous_state, token)
 
-    def _publish_worker(self, repo: GitLinkRepository, profile: GameProfile, assets: tuple[PublishAsset, ...], previous_state: dict[str, object], token: str | None) -> None:
+    def _start_publish(
+        self,
+        repo: GitLinkRepository,
+        profile: GameProfile,
+        assets: tuple[PublishAsset, ...],
+        previous_state: dict[str, object],
+        token: str | None,
+    ) -> None:
+        self._upload_control = UploadControl()
+        self._upload_sample = None
+        self._upload_speed = 0.0
+        self.publish_button.configure(state="disabled", text="正在发布…")
+        self.adopt_remote_button.configure(state="disabled")
+        self.publish_pause_button.configure(state="normal", text="暂停发布")
+        self.upload_status.configure(text="正在准备上传…")
+        self.upload_progress.set(0)
+        self._log(
+            f"开始单文件确认发布 {profile.display_name}：共 {len(assets)} 个文件。"
+        )
+        threading.Thread(
+            target=self._publish_worker,
+            args=(repo, profile, assets, previous_state, token),
+            daemon=True,
+        ).start()
+
+    def _publish_worker(
+        self,
+        repo: GitLinkRepository,
+        profile: GameProfile,
+        assets: tuple[PublishAsset, ...],
+        previous_state: dict[str, object],
+        token: str | None,
+    ) -> None:
         try:
             client = GitLinkAttachmentClient(token)
             manager = RemoteResourceManager(client, repo)
 
             def progress(index: int, total: int, name: str, stage: str) -> None:
-                self.after(0, lambda i=index, count=total, value=name, action=stage: self._log(f"[{i}/{count}] {action} {value}"))
+                self.after(
+                    0,
+                    lambda i=index, count=total, value=name, action=stage: self._log(
+                        f"[{i}/{count}] {action} {value}"
+                    ),
+                )
+
+            def upload_progress(
+                index: int, total: int, name: str, sent: int, size: int
+            ) -> None:
+                self.after(
+                    0,
+                    lambda i=index,
+                    count=total,
+                    value=name,
+                    done=sent,
+                    maximum=size: self._show_upload_progress(
+                        i, count, value, done, maximum
+                    ),
+                )
+
+            def checkpoint(state: dict[str, object]) -> None:
+                self.workspace.save_publish_state(profile, state)
 
             result = manager.sync_release(
                 profile,
@@ -749,32 +1431,147 @@ class PublisherApplication(ctk.CTk):
                 previous_state,
                 force_upload=frozenset({profile.appinfo_name}),
                 progress=progress,
+                upload_progress=upload_progress,
+                upload_control=self._upload_control,
+                checkpoint=checkpoint,
             )
             warnings = result.warnings
             try:
                 self.workspace.save_publish_state(profile, result.state)
             except OSError as error:
-                warnings = (*warnings, f"Release 已更新，但本地发布状态保存失败；下次可能重新上传：{error}")
-            self.after(0, lambda value=result, notes=warnings: self._publish_done(repo, profile, value.action, value.uploaded, value.reused, value.removed, notes))
+                warnings = (
+                    *warnings,
+                    f"Release 已更新，但本地发布状态保存失败；下次可能重新上传：{error}",
+                )
+            self.after(
+                0,
+                lambda value=result, notes=warnings: self._publish_done(
+                    repo,
+                    profile,
+                    value.action,
+                    value.uploaded,
+                    value.reused,
+                    value.removed,
+                    notes,
+                ),
+            )
+        except UploadPaused as error:
+            self.after(0, lambda value=str(error): self._publish_paused(value))
         except (GitLinkError, OSError) as error:
             message = str(error)
             self.after(0, lambda value=message: self._publish_failed(value))
 
-    def _publish_done(self, repo: GitLinkRepository, profile: GameProfile, action: str, uploaded: int, reused: int, removed: int, warnings: tuple[str, ...]) -> None:
+    def _publish_done(
+        self,
+        repo: GitLinkRepository,
+        profile: GameProfile,
+        action: str,
+        uploaded: int,
+        reused: int,
+        removed: int,
+        warnings: tuple[str, ...],
+    ) -> None:
         self.publish_button.configure(state="normal", text="发布到 Release")
+        self.adopt_remote_button.configure(state="normal")
+        self.publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.upload_progress.set(1)
+        self.upload_status.configure(text="发布完成")
+        self._publish_resume_context = None
+        self._upload_control = None
         if not self.settings.token:
             self.token_entry.delete(0, "end")
         summary = f"Release {action}完成：上传 {uploaded}，复用 {reused}，清理旧附件 {removed}。"
         self._log(summary)
         if warnings:
-            messagebox.showwarning("发布完成但有警告", f"{summary}\n\n" + "\n".join(warnings))
+            messagebox.showwarning(
+                "发布完成但有警告", f"{summary}\n\n" + "\n".join(warnings)
+            )
         else:
-            messagebox.showinfo("发布完成", f"资源已发布到 {repo.owner}/{repo.name} 的 {profile.release_tag} Release。\n\n{summary}")
+            messagebox.showinfo(
+                "发布完成",
+                f"资源已发布到 {repo.owner}/{repo.name} 的 {profile.release_tag} Release。\n\n{summary}",
+            )
 
     def _publish_failed(self, message: str) -> None:
         self.publish_button.configure(state="normal", text="发布到 Release")
-        self._log(f"发布失败：{message}")
-        messagebox.showerror("发布失败", message)
+        self.adopt_remote_button.configure(state="normal")
+        self.publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.upload_status.configure(text="发布中断；已确认文件已保留")
+        self._upload_control = None
+        self._log(
+            f"发布中断：{message}。已确认的文件不会重新上传，可再次点击发布继续。"
+        )
+        messagebox.showerror(
+            "发布中断",
+            f"{message}\n\n此前已确认到 Release 的文件已保留，再次发布会从未完成文件继续。",
+        )
+
+    def toggle_publish_pause(self) -> None:
+        control = self._upload_control
+        if control is not None:
+            control.request_pause()
+            self.publish_pause_button.configure(state="disabled", text="正在暂停…")
+            self.upload_status.configure(text="正在中止当前文件上传…")
+            return
+        context = self._publish_resume_context
+        if context is None:
+            return
+        repo, profile, assets, token = context
+        try:
+            previous_state = self.workspace.load_publish_state(
+                profile, repo.owner, repo.name
+            )
+        except OSError as error:
+            messagebox.showerror("无法继续发布", str(error))
+            return
+        self._log("继续发布：当前未完成文件将从头上传，已确认文件直接复用。")
+        self._start_publish(repo, profile, assets, previous_state, token)
+
+    def _publish_paused(self, message: str) -> None:
+        self._upload_control = None
+        self.publish_button.configure(state="disabled", text="发布已暂停")
+        self.adopt_remote_button.configure(state="disabled")
+        self.publish_pause_button.configure(state="normal", text="继续发布")
+        self.upload_status.configure(text="已暂停；继续时当前文件从头上传")
+        self._log(f"{message}。已确认文件已保存；继续时当前文件会从头上传。")
+
+    def _show_upload_progress(
+        self, index: int, total: int, name: str, sent: int, size: int
+    ) -> None:
+        now = time.monotonic()
+        if self._upload_sample is None or self._upload_sample[0] != name:
+            self._upload_sample = (name, sent, now)
+            self._upload_speed = 0.0
+        else:
+            _, previous_sent, previous_time = self._upload_sample
+            elapsed = now - previous_time
+            if elapsed > 0:
+                current_speed = max(0.0, sent - previous_sent) / elapsed
+                self._upload_speed = (
+                    current_speed
+                    if self._upload_speed <= 0
+                    else self._upload_speed * 0.65 + current_speed * 0.35
+                )
+            self._upload_sample = (name, sent, now)
+        ratio = min(1.0, sent / size) if size else 0.0
+        self.upload_progress.set(ratio)
+        self.upload_status.configure(
+            text=(
+                f"[{index}/{total}] {name} · {ratio * 100:.1f}% · "
+                f"{self._format_transfer_size(sent)}/{self._format_transfer_size(size)} · "
+                f"{self._format_transfer_size(self._upload_speed)}/s"
+            )
+        )
+
+    @staticmethod
+    def _format_transfer_size(value: float) -> str:
+        if value >= 1024**3:
+            return f"{value / 1024**3:.2f} GiB"
+        if value >= 1024**2:
+            return f"{value / 1024**2:.1f} MiB"
+        if value >= 1024:
+            return f"{value / 1024:.1f} KiB"
+        return f"{value:.0f} B"
 
     def _repository(self) -> GitLinkRepository:
         owner = self.owner_entry.get().strip()

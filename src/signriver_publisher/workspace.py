@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
 import time
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
 
 from .cream import SteamAppInfo
@@ -21,6 +23,9 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .models import GameProfile, PublishAsset, ResourceRecord
+
+RELEASE_PART_SIZE = 280 * 1024 * 1024
+_RELEASE_PART = re.compile(r"^(?P<base>dlc\d{3,}_[a-z0-9_-]+\.zip)\.part\d{3}-of-\d{3}$", re.I)
 from .steam import SteamApiError, SteamStoreClient
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -377,7 +382,13 @@ class PublisherWorkspace:
                 (self.game_dir(profile.game_id) / state_name).unlink(missing_ok=True)
         return len(resources)
 
-    def build(self, profile: GameProfile) -> tuple[ResourceRecord, ...]:
+    @staticmethod
+    def compression_worker_count() -> int:
+        """Use roughly one worker per physical core, capped to protect disks."""
+        logical_cpus = os.cpu_count() or 2
+        return max(1, min(8, logical_cpus // 2 or 1))
+
+    def build(self, profile: GameProfile, *, progress=None) -> tuple[ResourceRecord, ...]:
         self._validate_profile(profile)
         dlcs, patches = self.scan_sources(profile)
         target = self.output_dir / profile.game_id
@@ -388,7 +399,16 @@ class PublisherWorkspace:
         previous_dlcs = build_state.get("dlcs") if isinstance(build_state.get("dlcs"), dict) else {}
         next_dlcs: dict[str, object] = {}
 
-        for source in dlcs:
+        total_dlcs = len(dlcs)
+        plans: list[dict[str, object]] = []
+        compression_jobs: list[dict[str, object]] = []
+
+        def report(stage: str, index: int, name: str, detail: str = "") -> None:
+            if progress is not None:
+                progress(stage, index, total_dlcs, name, detail)
+
+        for index, source in enumerate(dlcs, start=1):
+            report("正在检查", index, source.name)
             dlc_id, display_name = self._parse_dlc_folder(source.name)
             asset_name = f"{source.name}.zip"
             output = target / asset_name
@@ -397,30 +417,148 @@ class PublisherWorkspace:
                 (archive_root + "\0" + self._source_signature(source)).encode("utf-8")
             ).hexdigest()
             cached = previous_dlcs.get(source.name) if isinstance(previous_dlcs, dict) else None
+            cached_parts = self._cached_release_parts(
+                cached, source_signature, asset_name, target
+            )
             reusable = self._cached_output_matches(cached, source_signature, asset_name, output)
-            if reusable:
-                digest = str(cached["sha256"])
+            plan: dict[str, object] = {
+                "index": index,
+                "source": source,
+                "dlc_id": dlc_id,
+                "display_name": display_name,
+                "asset_name": asset_name,
+                "output": output,
+                "archive_root": archive_root,
+                "source_signature": source_signature,
+                "cached": cached,
+            }
+            if cached_parts:
+                plan["digest"] = str(cached["sha256"])
+                plan["parts"] = cached_parts
+                plan["full_size"] = int(cached["size_bytes"])
+                report(
+                    "复用已有分卷", index, source.name,
+                    f"{len(cached_parts)} 卷 · 无需保留完整 ZIP",
+                )
+            elif reusable:
+                plan["digest"] = str(cached["sha256"])
+                report(
+                    "复用已有压缩包", index, source.name,
+                    f"{output.stat().st_size / 1024 / 1024:.1f} MiB",
+                )
             elif cached is None and self._existing_zip_matches_source(
                 source, output, archive_root=archive_root
             ):
                 # Adopt ZIPs produced by older publisher versions into the new
                 # incremental state without recompressing every DLC once.
-                digest = self._file_sha256(output)
-            else:
-                self._zip_directory(
-                    source, output, include_root=True, archive_root=archive_root
+                plan["digest"] = self._file_sha256(output)
+                report(
+                    "接管已有压缩包", index, source.name,
+                    f"{output.stat().st_size / 1024 / 1024:.1f} MiB",
                 )
-                digest = self._file_sha256(output)
-            output_stat = output.stat()
-            next_dlcs[source.name] = {
-                "source_signature": source_signature,
-                "asset_name": asset_name,
-                "size_bytes": output_stat.st_size,
-                "output_mtime_ns": output_stat.st_mtime_ns,
-                "sha256": digest,
+            else:
+                compression_jobs.append(plan)
+            plans.append(plan)
+
+        def compress(plan: dict[str, object]) -> str:
+            source = Path(plan["source"])
+            output = Path(plan["output"])
+            index = int(plan["index"])
+            archive_root = str(plan["archive_root"])
+            report("开始压缩", index, source.name)
+            started = time.monotonic()
+            self._zip_directory(
+                source, output, include_root=True, archive_root=archive_root
+            )
+            digest = self._file_sha256(output)
+            elapsed = time.monotonic() - started
+            report(
+                "压缩完成", index, source.name,
+                f"{output.stat().st_size / 1024 / 1024:.1f} MiB · {elapsed:.1f} 秒",
+            )
+            return digest
+
+        if compression_jobs:
+            worker_count = min(self.compression_worker_count(), len(compression_jobs))
+            if progress is not None:
+                progress(
+                    "并行压缩准备", 0, total_dlcs, "",
+                    f"{len(compression_jobs)} 个待处理资源 · {worker_count} 个并行任务",
+                )
+            with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="dlc-zip",
+            ) as executor:
+                futures = {
+                    executor.submit(compress, plan): plan
+                    for plan in compression_jobs
+                }
+                try:
+                    for future in as_completed(futures):
+                        futures[future]["digest"] = future.result()
+                except Exception:
+                    for future in futures:
+                        future.cancel()
+                    raise
+
+        for plan in plans:
+            source = Path(plan["source"])
+            output = Path(plan["output"])
+            asset_name = str(plan["asset_name"])
+            digest = str(plan["digest"])
+            cached = plan.get("cached")
+            cached_part_records = plan.get("parts")
+            if isinstance(cached_part_records, tuple):
+                part_records = cached_part_records
+                full_size = int(plan["full_size"])
+                full_mtime_ns = 0
+            else:
+                output_stat = output.stat()
+                full_size = output_stat.st_size
+                full_mtime_ns = output_stat.st_mtime_ns
+                if output_stat.st_size > RELEASE_PART_SIZE:
+                    report("正在生成分卷", int(plan["index"]), source.name, "每卷最大 280 MiB")
+                part_records = self._ensure_release_parts(output, RELEASE_PART_SIZE)
+            if part_records:
+                report("分卷完成", int(plan["index"]), source.name, f"共 {len(part_records)} 卷")
+            cached_part_metadata = {
+                str(value.get("asset_name")): value
+                for value in (cached.get("parts", []) if isinstance(cached, dict) else [])
+                if isinstance(value, dict)
             }
-            records.append(self._record("dlc", dlc_id, display_name, source, output, digest=digest))
-            expected.add(asset_name)
+            part_metadata = []
+            for part in part_records:
+                stat = part.stat()
+                previous_part = cached_part_metadata.get(part.name)
+                part_metadata.append({
+                    "asset_name": part.name,
+                    "size_bytes": stat.st_size,
+                    "output_mtime_ns": stat.st_mtime_ns,
+                    "sha256": self._cached_publish_digest(
+                        previous_part, stat.st_size, stat.st_mtime_ns
+                    ) or self._file_sha256(part),
+                })
+            next_dlcs[source.name] = {
+                "source_signature": str(plan["source_signature"]),
+                "asset_name": asset_name,
+                "size_bytes": full_size,
+                "output_mtime_ns": full_mtime_ns,
+                "sha256": digest,
+                "parts": part_metadata,
+            }
+            if part_records:
+                records.append(ResourceRecord(
+                    "dlc", str(plan["dlc_id"]), str(plan["display_name"]),
+                    asset_name, source, part_records[0], full_size, digest,
+                ))
+                output.unlink(missing_ok=True)
+            else:
+                records.append(self._record(
+                    "dlc", str(plan["dlc_id"]), str(plan["display_name"]),
+                    source, output, digest=digest,
+                ))
+                expected.add(asset_name)
+            expected.update(part.name for part in part_records)
 
         # Persist completed ZIP work before contacting Steam so a transient API
         # failure does not force every unchanged DLC to be compressed again.
@@ -432,6 +570,8 @@ class PublisherWorkspace:
             if source is None or not source.is_file():
                 raise WorkspaceError(f"补丁目录缺少 {dll_name}")
 
+        if progress is not None:
+            progress("正在刷新", 0, total_dlcs, profile.appinfo_name, "Steam AppInfo")
         appinfo = self.refresh_appinfo(profile)
         appinfo_output = target / profile.appinfo_name
         records.append(self._record("appinfo", appinfo.app_id, appinfo.name, appinfo_output, appinfo_output))
@@ -440,6 +580,8 @@ class PublisherWorkspace:
         for source in patches:
             if source.name.lower() in {profile.appinfo_name.lower(), "cream_api.ini"}:
                 continue
+            if progress is not None:
+                progress("正在整理补丁", 0, total_dlcs, source.name, "")
             if source.is_symlink():
                 raise WorkspaceError(f"不允许符号链接：{source.name}")
             if source.is_dir():
@@ -489,7 +631,16 @@ class PublisherWorkspace:
         for name in profile.patch_asset_names:
             if not (target / name).is_file():
                 raise WorkspaceError(f"发布包缺少 {name}，请先生成全部发布文件")
-        return tuple(sorted(path for path in target.iterdir() if path.is_file()))
+        files = tuple(sorted(path for path in target.iterdir() if path.is_file()))
+        split_bases = {
+            match.group("base").casefold()
+            for path in files
+            if (match := _RELEASE_PART.fullmatch(path.name)) is not None
+        }
+        return tuple(
+            path for path in files
+            if not (path.name.casefold() in split_bases and path.suffix.casefold() == ".zip")
+        )
 
     def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
         files = self.publish_files(profile)
@@ -500,6 +651,11 @@ class PublisherWorkspace:
             for value in raw_dlcs.values():
                 if isinstance(value, dict) and isinstance(value.get("asset_name"), str):
                     cached_by_asset[str(value["asset_name"])] = value
+                    raw_parts = value.get("parts")
+                    if isinstance(raw_parts, list):
+                        for part in raw_parts:
+                            if isinstance(part, dict) and isinstance(part.get("asset_name"), str):
+                                cached_by_asset[str(part["asset_name"])] = part
         assets: list[PublishAsset] = []
         for path in files:
             stat = path.stat()
@@ -697,6 +853,53 @@ class PublisherWorkspace:
             temporary.unlink(missing_ok=True)
 
     @staticmethod
+    def _ensure_release_parts(archive: Path, part_size: int) -> tuple[Path, ...]:
+        """Split a large ZIP without changing its bytes; the client joins it back."""
+        pattern = f"{archive.name}.part*-of-*"
+        existing = tuple(sorted(archive.parent.glob(pattern)))
+        if archive.stat().st_size <= part_size:
+            for part in existing:
+                part.unlink(missing_ok=True)
+            return ()
+        count = (archive.stat().st_size + part_size - 1) // part_size
+        expected = tuple(
+            archive.with_name(f"{archive.name}.part{index:03d}-of-{count:03d}")
+            for index in range(1, count + 1)
+        )
+        if existing == expected and all(
+            part.stat().st_size == (
+                part_size if index < count else archive.stat().st_size - part_size * (count - 1)
+            )
+            and part.stat().st_mtime_ns >= archive.stat().st_mtime_ns
+            for index, part in enumerate(expected, start=1)
+        ):
+            return expected
+        for part in existing:
+            part.unlink(missing_ok=True)
+        created: list[Path] = []
+        try:
+            with archive.open("rb") as source:
+                for index, destination in enumerate(expected, start=1):
+                    temporary = destination.with_suffix(destination.suffix + ".tmp")
+                    with temporary.open("wb") as output:
+                        remaining = part_size
+                        while remaining:
+                            block = source.read(min(1024 * 1024, remaining))
+                            if not block:
+                                break
+                            output.write(block)
+                            remaining -= len(block)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    temporary.replace(destination)
+                    created.append(destination)
+            return tuple(created)
+        except Exception:
+            for part in created:
+                part.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
     def _record(kind: str, resource_id: str, display_name: str, source: Path, output: Path, *, digest: str | None = None) -> ResourceRecord:
         digest = digest or PublisherWorkspace._file_sha256(output)
         return ResourceRecord(kind, resource_id, display_name, output.name, source, output, output.stat().st_size, digest)
@@ -770,6 +973,46 @@ class PublisherWorkspace:
             )
         except (TypeError, ValueError, OSError):
             return False
+
+    @staticmethod
+    def _cached_release_parts(
+        cached: object,
+        source_signature: str,
+        asset_name: str,
+        directory: Path,
+    ) -> tuple[Path, ...]:
+        if not isinstance(cached, dict):
+            return ()
+        if (
+            cached.get("source_signature") != source_signature
+            or cached.get("asset_name") != asset_name
+            or not isinstance(cached.get("sha256"), str)
+            or len(str(cached["sha256"])) != 64
+            or not isinstance(cached.get("parts"), list)
+            or not cached["parts"]
+        ):
+            return ()
+        parts: list[Path] = []
+        try:
+            for value in cached["parts"]:
+                if not isinstance(value, dict):
+                    return ()
+                name = str(value.get("asset_name", ""))
+                if Path(name).name != name or _RELEASE_PART.fullmatch(name) is None:
+                    return ()
+                path = directory / name
+                stat = path.stat()
+                if (
+                    not path.is_file()
+                    or int(value.get("size_bytes", -1)) != stat.st_size
+                    or int(value.get("output_mtime_ns", -1)) != stat.st_mtime_ns
+                    or len(str(value.get("sha256", ""))) != 64
+                ):
+                    return ()
+                parts.append(path)
+        except (OSError, TypeError, ValueError):
+            return ()
+        return tuple(parts)
 
     @staticmethod
     def _existing_zip_matches_source(
