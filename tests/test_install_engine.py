@@ -128,7 +128,7 @@ def test_plan_rejects_changed_hash_and_wrong_game(tmp_path: Path) -> None:
     with pytest.raises(InstallError, match="SHA-256 changed"):
         engine.plan(package, game, expected_sha256="0" * 64)
     (game / "stellaris.exe").unlink()
-    with pytest.raises(InstallError, match="validated Stellaris"):
+    with pytest.raises(InstallError, match="当前卡带已验证的游戏安装目录"):
         engine.plan(package, game, expected_sha256=digest)
 
 

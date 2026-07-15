@@ -17,6 +17,9 @@ from .signriver_app.application import (
     DlcInstallService,
     DownloadQueue,
     GameDiscoveryService,
+    OriginalStateRestoreService,
+    RestoreOriginalError,
+    RestoreScope,
 )
 from .signriver_app.domain import (
     DownloadSpec,
@@ -128,6 +131,9 @@ class DlcHubApplication:
         self.patch_task_ids: tuple[str, ...] = ()
         self.pending_dlc_batch_task_ids: tuple[str, ...] = ()
         self.repair_workflow_active = False
+        self.unlock_workflow_active = False
+        self.unlock_requested_dlc_ids: tuple[str, ...] = ()
+        self.unlock_failed_dlc_ids: set[str] = set()
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
         # Filled after the current Release bundle is known.  Patch task IDs
         # include each GitLink attachment ID so stale generations cannot be
@@ -473,7 +479,7 @@ class DlcHubApplication:
             catalog_secondary_actions, fg_color="transparent"
         )
         catalog_management_tools.grid(row=1, column=0, sticky="ew")
-        for column in range(4):
+        for column in range(5):
             catalog_management_tools.grid_columnconfigure(
                 column, weight=1, uniform="catalog-management"
             )
@@ -498,12 +504,26 @@ class DlcHubApplication:
         self.remove_patch_button.grid(
             row=0, column=2, sticky="ew", padx=4
         )
+        self.restore_original_button = ctk.CTkButton(
+            catalog_management_tools,
+            text="恢复游戏原版",
+            command=self._restore_original_state,
+            width=120,
+            fg_color=UI["primary_surface"],
+            hover_color=UI["primary_surface_hover"],
+            text_color=UI["primary"],
+            border_width=1,
+            border_color=UI["primary_border"],
+        )
+        self.restore_original_button.grid(
+            row=0, column=3, sticky="ew", padx=4
+        )
         self.repair_button = ctk.CTkButton(
             catalog_management_tools, text="一键修复",
             command=self._one_click_repair, width=112,
         )
         self.repair_button.grid(
-            row=0, column=3, sticky="ew", padx=(4, 0)
+            row=0, column=4, sticky="ew", padx=(4, 0)
         )
 
         primary_action_panel = ctk.CTkFrame(
@@ -853,6 +873,9 @@ class DlcHubApplication:
             self.patch_bundle = None
             self.current_installation = None
             self.catalog_entries = ()
+            self.unlock_workflow_active = False
+            self.unlock_requested_dlc_ids = ()
+            self.unlock_failed_dlc_ids.clear()
             self.selected_dlc_ids.clear()
             self.catalog_selection_initialized = False
         self.selected_game_name = display_name
@@ -1149,7 +1172,7 @@ class DlcHubApplication:
             "1. 程序会按当前游戏卡带自动检测，也可以手动选择目录。\n"
             "2. 刷新 DLC 目录并选择需要的内容下载。\n"
             "3. 下载完成后进行完整性检查。\n"
-            "4. 包结构和 DLC 编号校验通过后自动安装到当前游戏目录。\n\n"
+            "4. 资源包命名与目录结构校验通过后，自动安装到当前游戏目录。\n\n"
             "程序会识别游戏目录中已有的 DLC，并以灰色状态显示，避免重复下载。",
             parent=self.window,
         )
@@ -1766,6 +1789,13 @@ class DlcHubApplication:
             entry for entry in self.catalog_entries
             if entry.dlc_id in self.selected_dlc_ids
         ]
+        self.unlock_workflow_active = True
+        self.unlock_requested_dlc_ids = tuple(
+            entry.dlc_id for entry in selected_entries
+        )
+        self.unlock_failed_dlc_ids.clear()
+        for entry in selected_entries:
+            self.auto_install_attempted.discard(self._dlc_task_id(entry.dlc_id))
         # Remember whichever DLC the user asked for; if patch download is
         # already needed the batch launches automatically after patching.
         self.pending_dlc_batch_task_ids = tuple(
@@ -1785,6 +1815,7 @@ class DlcHubApplication:
                 text="补丁已经健康；未勾选 DLC 时无需下载。"
             )
             self._set_batch_download_state("idle")
+            self._maybe_finish_unlock_workflow()
             return
         self._start_dlc_batch(selected_entries)
 
@@ -1822,6 +1853,7 @@ class DlcHubApplication:
                 started += 1
             except Exception:
                 self.context.logger.exception("Unable to enqueue selected DLC")
+                self.unlock_failed_dlc_ids.add(entry.dlc_id)
                 failed += 1
         self.batch_download_task_ids = tuple(dict.fromkeys(batch_task_ids))
         self.pending_dlc_batch_task_ids = ()
@@ -1829,6 +1861,7 @@ class DlcHubApplication:
             self._set_batch_download_state("running")
         else:
             self._set_batch_download_state("idle")
+            self._schedule_ready_installs()
         self.catalog_preview.configure(
             text=(
                 f"补丁已完成 · 开始 {started} 个 DLC 下载任务"
@@ -1837,6 +1870,8 @@ class DlcHubApplication:
                 "；任务将按列表顺序逐个下载"
             )
         )
+        if not self.batch_download_task_ids:
+            self._maybe_finish_unlock_workflow()
 
     def _set_batch_download_state(self, state: str) -> None:
         self.batch_download_state = state
@@ -1850,6 +1885,7 @@ class DlcHubApplication:
             "patch_downloading": ("正在下载补丁…", False),
             "patch_applying": ("正在应用补丁…", False),
             "repairing": ("正在一键修复…", False),
+            "restoring": ("正在恢复原版…", False),
         }[state]
         self.download_selected_button.configure(
             text=text,
@@ -1857,22 +1893,33 @@ class DlcHubApplication:
             fg_color=UI["primary"],
             hover_color=UI["primary_hover"],
         )
-        # During patch download/apply and cancel/repair the DLC-level cancel
+        # During patch download/apply and cancel/repair/restore the DLC-level cancel
         # button must not tear down anything; the patch flow owns those tasks.
         interactive = state not in {
             "cancelling", "patch_downloading", "patch_applying", "repairing",
+            "restoring",
         }
         self.cancel_all_downloads_button.configure(
             state="normal" if interactive else "disabled"
         )
         repair_button = getattr(self, "repair_button", None)
         remove_patch_button = getattr(self, "remove_patch_button", None)
+        restore_original_button = getattr(self, "restore_original_button", None)
+        uninstall_all_button = getattr(self, "uninstall_all_button", None)
         if repair_button is not None:
             repair_button.configure(
                 state="normal" if state == "idle" else "disabled"
             )
         if remove_patch_button is not None:
             remove_patch_button.configure(
+                state="normal" if state == "idle" else "disabled"
+            )
+        if restore_original_button is not None:
+            restore_original_button.configure(
+                state="normal" if state == "idle" else "disabled"
+            )
+        if uninstall_all_button is not None:
+            uninstall_all_button.configure(
                 state="normal" if state == "idle" else "disabled"
             )
 
@@ -1933,6 +1980,9 @@ class DlcHubApplication:
             self._schedule_cancel_poll()
             return
         self.batch_download_task_ids = ()
+        self.unlock_workflow_active = False
+        self.unlock_requested_dlc_ids = ()
+        self.unlock_failed_dlc_ids.clear()
         self.selected_dlc_ids.clear()
         for variable in self.dlc_selection_vars.values():
             variable.set(False)
@@ -2060,11 +2110,24 @@ class DlcHubApplication:
                 item.state in {DownloadState.FAILED, DownloadState.CORRUPT}
                 for item in batch
             )
+            failed_task_ids = {
+                item.spec.task_id for item in batch
+                if item.state in {
+                    DownloadState.FAILED,
+                    DownloadState.CORRUPT,
+                    DownloadState.CANCELLED,
+                }
+            }
+            self.unlock_failed_dlc_ids.update(
+                entry.dlc_id for entry in self.catalog_entries
+                if self._dlc_task_id(entry.dlc_id) in failed_task_ids
+            )
             self._set_batch_download_state("idle")
             self.batch_download_task_ids = ()
             self.catalog_preview.configure(
                 text=f"批量下载结束：完成 {completed} 个，失败 {failed} 个"
             )
+            self._maybe_finish_unlock_workflow()
 
     def _start_entry_download(self, entry, *, show_error: bool = True):
         spec = self._download_spec_for_entry(entry)
@@ -2358,16 +2421,63 @@ class DlcHubApplication:
         self._show_install_state(entry)
         self.catalog_preview.configure(text=f"{entry.display_name} 已自动安装到游戏目录")
         self._notify(f"{entry.display_name}：安装完成")
+        self._maybe_finish_unlock_workflow()
 
     def _on_auto_install_failure(self, entry, message: str) -> None:
+        if self.unlock_workflow_active and entry.dlc_id in self.unlock_requested_dlc_ids:
+            self.unlock_failed_dlc_ids.add(entry.dlc_id)
         self.catalog_preview.configure(
             text=f"{entry.display_name} 下载完成，但自动安装失败：{message}"
         )
         self._notify(f"{entry.display_name}：自动安装失败", error=True)
+        self._maybe_finish_unlock_workflow()
 
     def _on_auto_install_worker_done(self) -> None:
         self.auto_install_worker_running = False
         self._schedule_ready_installs()
+        self._maybe_finish_unlock_workflow()
+
+    def _maybe_finish_unlock_workflow(self) -> None:
+        """Show one success dialog only after patching and requested installs finish."""
+        if (
+            not self.unlock_workflow_active
+            or self.repair_workflow_active
+            or self.patch_workflow_state != "idle"
+            or self.batch_download_state != "idle"
+        ):
+            return
+        if self.current_installation is None:
+            self.unlock_workflow_active = False
+            self.unlock_requested_dlc_ids = ()
+            self.unlock_failed_dlc_ids.clear()
+            return
+        self._refresh_installed_dlc_paths()
+        missing = {
+            dlc_id for dlc_id in self.unlock_requested_dlc_ids
+            if self._installed_dlc_path(dlc_id) is None
+        }
+        if missing:
+            if missing & self.unlock_failed_dlc_ids:
+                self.unlock_workflow_active = False
+                self.unlock_requested_dlc_ids = ()
+                self.unlock_failed_dlc_ids.clear()
+            return
+
+        installed_count = len(self.unlock_requested_dlc_ids)
+        game_name = self.cartridge.adapter.descriptor.display_name
+        self.unlock_workflow_active = False
+        self.unlock_requested_dlc_ids = ()
+        self.unlock_failed_dlc_ids.clear()
+        if installed_count:
+            detail = (
+                f"{game_name} 的补丁已经正确应用，选择的 "
+                f"{installed_count} 个 DLC 均已安装完成。"
+            )
+        else:
+            detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
+        self.catalog_preview.configure(text=f"一键解锁成功：{detail}")
+        self._notify("一键解锁成功")
+        messagebox.showinfo("一键解锁成功", detail, parent=self.window)
 
     def _show_install_state(self, entry) -> None:
         task_id = self._dlc_task_id(entry.dlc_id)
@@ -2527,7 +2637,9 @@ class DlcHubApplication:
         if not messagebox.askyesno(
             "卸载全部 DLC",
             f"检测到 {len(installed)} 个 DLC 目录。\n"
-            "将移除所有符合 dlcNNN_<名称> 规则的 DLC，无论它们由何种方式安装。\n"
+            f"将移除当前{self.cartridge.adapter.descriptor.display_name}卡带能够确认的全部 DLC，"
+            "无论它们由本程序还是其他方式安装。\n"
+            "无法由当前资源目录和卡带规则确认的文件夹不会被盲目删除。\n"
             "此操作不可撤销，请先关闭游戏。是否继续？",
             parent=self.window,
         ):
@@ -2793,7 +2905,9 @@ class DlcHubApplication:
         if result.unlocker_replaced:
             detail_parts.append("已更新补丁 DLL")
         if result.ini_written:
-            detail_parts.append("已生成 cream_api.ini")
+            detail_parts.append(
+                f"已生成 {self.patch_profile.template.ini_target_name}"
+            )
         summary = "补丁已应用；" + ("；".join(detail_parts) or "文件与目标一致，无需变更")
         self.catalog_preview.configure(text=summary)
         self._notify("补丁已应用")
@@ -2809,6 +2923,7 @@ class DlcHubApplication:
         ]
         if not selected_entries:
             self._set_batch_download_state("idle")
+            self._maybe_finish_unlock_workflow()
             return
         self._start_dlc_batch(selected_entries)
 
@@ -2817,11 +2932,220 @@ class DlcHubApplication:
         self.patch_task_ids = ()
         self.pending_dlc_batch_task_ids = ()
         self._set_batch_download_state("idle")
+        self.unlock_workflow_active = False
+        self.unlock_requested_dlc_ids = ()
+        self.unlock_failed_dlc_ids.clear()
         if self.repair_workflow_active:
             self.repair_workflow_active = False
         self.catalog_preview.configure(text=f"一键解锁失败：{message}")
         self._notify(f"一键解锁失败：{message}", error=True)
         messagebox.showerror("一键解锁失败", message, parent=self.window)
+
+    def _restore_original_state(self) -> None:
+        """Restore original patch files and optionally remove installed DLC."""
+        if self.current_installation is None:
+            messagebox.showwarning(
+                "尚未检测游戏",
+                "请先选择或识别当前游戏的有效目录。",
+                parent=self.window,
+            )
+            return
+        if self.batch_download_state != "idle":
+            messagebox.showwarning(
+                "当前操作尚未结束",
+                "请先等待当前操作完成，或取消全部下载后再恢复游戏原版。",
+                parent=self.window,
+            )
+            return
+        if self.auto_install_worker_running:
+            messagebox.showwarning(
+                "正在安装 DLC",
+                "请等待当前 DLC 安装完成后再恢复游戏原版。",
+                parent=self.window,
+            )
+            return
+        if not self._require_game_stopped("恢复游戏原版"):
+            return
+        if self.install_service is None or self.install_repository is None:
+            messagebox.showerror(
+                "恢复功能不可用",
+                "安装记录服务尚未初始化，请重启程序后重试。",
+                parent=self.window,
+            )
+            return
+        unfinished_states = {
+            DownloadState.QUEUED,
+            DownloadState.DOWNLOADING,
+            DownloadState.PAUSING,
+            DownloadState.PAUSED,
+            DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        if self.download_queue is not None and any(
+            item.state in unfinished_states for item in self.download_queue.snapshots()
+        ):
+            messagebox.showwarning(
+                "仍有下载任务",
+                "恢复前请先取消全部下载任务。暂停的任务也需要取消，避免恢复后又自动安装。",
+                parent=self.window,
+            )
+            return
+
+        choice = messagebox.askyesnocancel(
+            "选择恢复方式",
+            "请选择恢复范围：\n\n"
+            "“是”——安全恢复（推荐）\n"
+            "只撤销本程序有安装记录的 DLC，并恢复被覆盖前的同名内容；"
+            "其他来源的 DLC 保持不变。\n\n"
+            "“否”——彻底恢复\n"
+            "移除当前游戏目录中检测到的全部 DLC，包括原先就存在或由其他方式安装的内容。\n\n"
+            "“取消”——不执行任何操作。",
+            parent=self.window,
+        )
+        if choice is None:
+            return
+        scope = RestoreScope.SAFE if choice else RestoreScope.FULL
+        game_root = self.current_installation.root
+        service = OriginalStateRestoreService(
+            self.cartridge,
+            self.patch_engine,
+            self.install_service,
+            self.install_repository,
+        )
+        try:
+            preview = service.preview(game_root, scope, self.catalog_entries)
+        except Exception as error:
+            self.context.logger.exception("Unable to preview original-state restore")
+            messagebox.showerror(
+                "恢复检查失败", str(error) or "无法检查当前游戏文件", parent=self.window,
+            )
+            return
+        if not preview.patch_ready:
+            messagebox.showerror(
+                "无法安全恢复补丁",
+                preview.patch_reason
+                or "未找到可信的原版备份。请先通过游戏平台验证游戏文件完整性。",
+                parent=self.window,
+            )
+            return
+
+        if scope is RestoreScope.SAFE:
+            scope_detail = (
+                f"将撤销本程序记录的 {preview.dlc_count} 个 DLC 安装，"
+                "其他来源的 DLC 不受影响。"
+            )
+        else:
+            scope_detail = (
+                f"将删除检测到的全部 {preview.dlc_count} 个 DLC。"
+                "这些目录无论来源都会被移除，且不会恢复其原内容。"
+            )
+        if not messagebox.askyesno(
+            "确认恢复游戏原版",
+            f"{scope_detail}\n\n"
+            "同时会移除本程序补丁并还原原版 DLL。\n"
+            "下载缓存默认保留，之后重新安装时仍可复用。\n\n"
+            "该操作会修改游戏文件，是否继续？",
+            parent=self.window,
+        ):
+            return
+        clear_cache = messagebox.askyesno(
+            "缓存处理",
+            "是否同时清理当前游戏的下载缓存？\n\n"
+            "选择“否”（推荐）会保留已下载资源，今后重新安装无需再次下载。",
+            parent=self.window,
+        )
+
+        self._set_batch_download_state("restoring")
+        self.catalog_preview.configure(text="正在恢复游戏原版，请勿启动游戏……")
+
+        def worker() -> None:
+            cache_error = ""
+            try:
+                result = service.restore(game_root, scope, self.catalog_entries)
+                if clear_cache and self.download_queue is not None:
+                    targets = tuple(
+                        sorted(
+                            set(self.patch_task_roles)
+                            | {
+                                self._dlc_task_id(entry.dlc_id)
+                                for entry in self.catalog_entries
+                            }
+                        )
+                    )
+                    try:
+                        self.download_queue.forget(
+                            targets, delete_cached_packages=True
+                        )
+                    except Exception as error:
+                        self.context.logger.exception(
+                            "Unable to clear current cartridge cache after restore"
+                        )
+                        cache_error = str(error) or "缓存清理失败"
+                self._post_ui(
+                    lambda result=result, cache_error=cache_error:
+                    self._on_original_state_restored(
+                        result, clear_cache=clear_cache, cache_error=cache_error
+                    )
+                )
+            except RestoreOriginalError as error:
+                self._post_ui(
+                    lambda message=str(error): self._on_original_restore_failed(message)
+                )
+            except Exception as error:
+                self.context.logger.exception("Original-state restore failed")
+                message = str(error) or "恢复游戏原版失败"
+                self._post_ui(
+                    lambda message=message: self._on_original_restore_failed(message)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_original_state_restored(
+        self, result, *, clear_cache: bool, cache_error: str
+    ) -> None:
+        self._set_batch_download_state("idle")
+        self._refresh_installed_dlc_paths()
+        self._render_catalog_rows()
+        mode = "安全恢复" if result.scope is RestoreScope.SAFE else "彻底恢复"
+        failures = list(result.failures)
+        if cache_error:
+            failures.append(f"缓存清理：{cache_error}")
+        cache_detail = (
+            "当前游戏缓存已清理"
+            if clear_cache and not cache_error
+            else "下载缓存已保留" if not clear_cache else "缓存清理未完成"
+        )
+        self.catalog_preview.configure(
+            text=(
+                f"{mode}完成：处理 {len(result.restored_dlc_ids)} 个 DLC，"
+                f"{cache_detail}，失败 {len(failures)} 项"
+            )
+        )
+        detail = (
+            f"恢复方式：{mode}\n"
+            f"已处理 DLC：{len(result.restored_dlc_ids)} 个\n"
+            f"补丁文件处理：{len(result.patch_files)} 项\n"
+            f"缓存：{cache_detail}"
+        )
+        if failures:
+            detail += "\n\n未完成项目：\n" + "\n".join(failures[:8])
+            if len(failures) > 8:
+                detail += f"\n……另有 {len(failures) - 8} 项"
+            self._notify("恢复游戏原版时有部分项目未完成", error=True)
+            messagebox.showwarning(
+                "恢复完成，但有未完成项目", detail, parent=self.window
+            )
+            return
+        self._notify("游戏已恢复原版状态")
+        messagebox.showinfo("恢复游戏原版完成", detail, parent=self.window)
+
+    def _on_original_restore_failed(self, message: str) -> None:
+        self._set_batch_download_state("idle")
+        self.catalog_preview.configure(text=f"恢复游戏原版失败：{message}")
+        self._notify(f"恢复游戏原版失败：{message}", error=True)
+        messagebox.showerror(
+            "恢复游戏原版失败", message, parent=self.window
+        )
 
     def _remove_patch(self) -> None:
         if self.current_installation is None:
@@ -2846,10 +3170,11 @@ class DlcHubApplication:
             return
         game_root = self.current_installation.root
         engine = self.patch_engine
+        self._set_batch_download_state("restoring")
 
         def worker() -> None:
             try:
-                touched = engine.remove(game_root)
+                touched = engine.restore_original(game_root)
                 self._post_ui(
                     lambda touched=touched: self._on_patch_removed(touched)
                 )
@@ -2857,14 +3182,13 @@ class DlcHubApplication:
                 self.context.logger.exception("Patch removal failed")
                 message = str(error) or "补丁移除失败"
                 self._post_ui(
-                    lambda message=message: messagebox.showerror(
-                        "补丁移除失败", message, parent=self.window,
-                    )
+                    lambda message=message: self._on_patch_remove_failed(message)
                 )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_patch_removed(self, touched: tuple[str, ...]) -> None:
+        self._set_batch_download_state("idle")
         if not touched:
             self.catalog_preview.configure(text="游戏目录中未检测到补丁文件")
             messagebox.showinfo(
@@ -2879,6 +3203,14 @@ class DlcHubApplication:
             "补丁移除完成",
             f"已恢复原版并清理以下文件：\n{detail}",
             parent=self.window,
+        )
+
+    def _on_patch_remove_failed(self, message: str) -> None:
+        self._set_batch_download_state("idle")
+        self.catalog_preview.configure(text=f"补丁移除失败：{message}")
+        self._notify(f"补丁移除失败：{message}", error=True)
+        messagebox.showerror(
+            "补丁移除失败", message, parent=self.window,
         )
 
     def _one_click_repair(self) -> None:
@@ -2902,7 +3234,7 @@ class DlcHubApplication:
         if not messagebox.askyesno(
             "确认一键修复",
             "一键修复会执行以下操作：\n\n"
-            "1. 卸载游戏目录中所有已安装的 DLC；\n"
+            "1. 移除当前游戏卡带能够确认的全部 DLC；\n"
             f"2. 删除现有补丁文件（{patch_paths}）；\n"
             "3. 重新下载所有 DLC 和三个补丁文件；\n"
             "4. 应用补丁并重新安装全部 DLC。\n\n"
@@ -2910,6 +3242,9 @@ class DlcHubApplication:
             parent=self.window,
         ):
             return
+        self.unlock_workflow_active = False
+        self.unlock_requested_dlc_ids = ()
+        self.unlock_failed_dlc_ids.clear()
         self.repair_workflow_active = True
         self._set_batch_download_state("repairing")
         self.catalog_preview.configure(text="一键修复：正在清理现有 DLC 和补丁……")

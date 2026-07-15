@@ -65,7 +65,9 @@ def inspect_directory_package(path: Path) -> DirectoryPackageMetadata:
         raise PackageInspectionError("package root is not a safe install directory")
     match = _ASSET_NAME.fullmatch(path.name)
     if match is None:
-        raise PackageInspectionError("package filename must use dlcNNN_name.zip format")
+        raise PackageInspectionError(
+            "资源包文件名必须使用管理编号格式，例如 dlc001_name.zip"
+        )
     return DirectoryPackageMetadata(
         dlc_id=match.group(1).lower(),
         display_name=match.group(2).replace("_", " ").title(),

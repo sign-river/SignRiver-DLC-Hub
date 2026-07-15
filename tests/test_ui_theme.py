@@ -146,10 +146,13 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "measure_download_speed(url)" in source
     assert "releases/download/test/test.bin" in source
     assert 'text="一键移除补丁"' in source
+    assert 'text="恢复游戏原版"' in source
     assert 'text="卸载全部 DLC"' in source
     assert "def _uninstall_all_dlc" in source
     assert "remove_installed_dlc(game_root, dlc_id)" in source
     assert "uninstall.configure(state=\"normal\")" in source
+    assert "符合 dlcNNN_<名称> 规则" not in source
+    assert "当前资源目录和卡带规则确认" in source
 
 
 def test_settings_separates_speed_cache_and_update_without_duplicate_about_page() -> None:
@@ -242,6 +245,9 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     # Once the patch is applied the workflow hands off to the DLC batch code
     # that was already tested in earlier releases.
     assert "self._start_dlc_batch(selected_entries)" in source
+    assert "def _maybe_finish_unlock_workflow" in source
+    assert 'messagebox.showinfo("一键解锁成功"' in source
+    assert "self.unlock_workflow_active" in source
 
 
 def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
@@ -271,7 +277,10 @@ def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
 
     assert 'command=self._remove_patch' in source
     assert "def _remove_patch" in source
-    assert "engine.remove(game_root)" in source
+    assert "engine.restore_original(game_root)" in source
+    assert "OriginalStateRestoreService(" in source
+    assert "RestoreScope.SAFE" in source
+    assert "RestoreScope.FULL" in source
     # The old placeholder message must be gone entirely so users never see the
     # "按钮已预留" copy after an update.
     assert "按钮已预留" not in source

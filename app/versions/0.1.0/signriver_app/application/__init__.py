@@ -15,6 +15,13 @@ from .game_discovery import (
 from .dlc_catalog import CatalogSnapshot, ReleaseCatalogService, StellarisCatalogService
 from .download_queue import DownloadQueue
 from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
+from .original_restore import (
+    OriginalStateRestoreService,
+    RestoreOriginalError,
+    RestorePreview,
+    RestoreResult,
+    RestoreScope,
+)
 
 __all__ = [
     "DiscoveryIssue",
@@ -34,4 +41,9 @@ __all__ = [
     "AuditedInstallation",
     "DlcInstallService",
     "InstallServiceError",
+    "OriginalStateRestoreService",
+    "RestoreOriginalError",
+    "RestorePreview",
+    "RestoreResult",
+    "RestoreScope",
 ]

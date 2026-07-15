@@ -77,6 +77,16 @@ class PatchApplyResult:
     ini_written: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PatchRestoreReadiness:
+    """Whether the current patch layout can be restored without guessing."""
+
+    ready: bool
+    patch_detected: bool
+    backup_available: bool
+    reason: str = ""
+
+
 def _ini_bool(value: bool) -> str:
     return "True" if value else "False"
 
@@ -411,6 +421,50 @@ class PatchEngine:
         )
 
     # ---- remove -------------------------------------------------------------
+
+    def inspect_original_restore(self, game_root: Path) -> PatchRestoreReadiness:
+        """Preflight a safe return to the game's original loader DLL."""
+        game_root = Path(game_root).resolve(strict=True)
+        patch_root = self._patch_root(game_root)
+        unlocker = patch_root / self.profile.unlocker_dll_name
+        backup = patch_root / self.profile.original_backup_dll_name
+        ini = patch_root / self.profile.template.ini_target_name
+        if backup.is_file():
+            try:
+                size = backup.stat().st_size
+            except OSError as error:
+                return PatchRestoreReadiness(
+                    False, True, True, f"无法读取原版 DLL 备份：{error}"
+                )
+            if size <= 0 or size > MAX_PATCH_DLL_BYTES:
+                return PatchRestoreReadiness(
+                    False, True, True, "原版 DLL 备份大小异常，拒绝自动恢复"
+                )
+            return PatchRestoreReadiness(True, True, True)
+        if ini.is_file():
+            return PatchRestoreReadiness(
+                False,
+                True,
+                False,
+                "检测到补丁配置，但原版 DLL 备份缺失；请先通过游戏平台验证游戏文件",
+            )
+        if unlocker.is_file():
+            return PatchRestoreReadiness(True, False, False)
+        return PatchRestoreReadiness(
+            False,
+            False,
+            False,
+            "原版 DLL 与备份均不存在；请先通过游戏平台验证游戏文件",
+        )
+
+    def restore_original(self, game_root: Path) -> tuple[str, ...]:
+        """Undo our patch only when an original loader can be proven present."""
+        readiness = self.inspect_original_restore(game_root)
+        if not readiness.ready:
+            raise PatchError(readiness.reason)
+        if not readiness.patch_detected:
+            return ()
+        return self.remove(game_root)
 
     def remove(self, game_root: Path) -> tuple[str, ...]:
         """Delete patch files and restore the original DLL, if we have a backup.

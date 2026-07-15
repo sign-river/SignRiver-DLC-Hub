@@ -348,6 +348,55 @@ def test_remove_is_noop_when_directory_is_pristine(tmp_path: Path) -> None:
     assert touched == ()
 
 
+def test_restore_original_preserves_pristine_loader_without_backup(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    original = game_root / "steam_api64.dll"
+    original.write_bytes(VANILLA_GAME_DLL)
+
+    readiness = engine.inspect_original_restore(game_root)
+    touched = engine.restore_original(game_root)
+
+    assert readiness.ready is True
+    assert readiness.patch_detected is False
+    assert touched == ()
+    assert original.read_bytes() == VANILLA_GAME_DLL
+
+
+def test_restore_original_refuses_patch_without_original_backup(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
+    (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
+
+    readiness = engine.inspect_original_restore(game_root)
+
+    assert readiness.ready is False
+    assert "备份缺失" in readiness.reason
+    with pytest.raises(PatchError, match="备份缺失"):
+        engine.restore_original(game_root)
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game_root / "cream_api.ini").is_file()
+
+
+def test_restore_original_uses_available_backup(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
+    (game_root / "steam_api64_o.dll").write_bytes(VANILLA_GAME_DLL)
+    (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
+
+    touched = engine.restore_original(game_root)
+
+    assert "steam_api64_o.dll" in touched
+    assert (game_root / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert not (game_root / "steam_api64_o.dll").exists()
+    assert not (game_root / "cream_api.ini").exists()
+
+
 def test_reset_wipes_every_patch_file(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"

@@ -74,7 +74,7 @@ class StellarisInstallEngine:
         metadata = self.package_inspector(package_path)
         dlc_root = self._dlc_root(game_root)
         if not (game_root / self._executable_relative_path).is_file() or not dlc_root.is_dir():
-            raise InstallError("target is not a validated Stellaris installation")
+            raise InstallError("目标目录不是当前卡带已验证的游戏安装目录")
         top_level = self._package_root(package_path)
         install_directory = getattr(metadata, "install_directory", None)
         if install_directory is not None:
