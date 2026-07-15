@@ -271,6 +271,16 @@ def test_patch_workflow_detects_security_software_quarantine() -> None:
     assert "self.patch_engine.restore_original" in source
 
 
+def test_patch_health_uses_recorded_content_hashes() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _patch_is_healthy", 1)[1].split(
+        "def _start_patch_downloads", 1
+    )[0]
+
+    assert "audit_recorded" in method
+    assert "size_bytes" not in method
+
+
 def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 

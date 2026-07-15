@@ -136,6 +136,10 @@ class PatchReceipt:
     ini_bytes: int
     backup_created: bool
     replaced_files: tuple[str, ...] = ()
+    unlocker_sha256: str = ""
+    original_backup_sha256: str = ""
+    ini_sha256: str = ""
+    backup_origin: str = "unknown"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "replaced_files", tuple(self.replaced_files))

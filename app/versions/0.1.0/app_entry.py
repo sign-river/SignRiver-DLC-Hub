@@ -2790,27 +2790,12 @@ class DlcHubApplication:
         )
 
     def _patch_is_healthy(self) -> bool:
-        """True when the current game directory already matches our patch bundle."""
+        """True only when all installed patch files match recorded hashes."""
         if self.patch_bundle is None or self.current_installation is None:
             return False
-        # Prefer local ready cache to determine expected sizes when available;
-        # otherwise trust the release-declared size_bytes.  When both are
-        # missing we cannot make a size comparison and treat the patch as
-        # potentially stale so the flow always downloads and re-applies.
-        ready = self._patch_ready_paths()
-        if ready is not None:
-            unlocker_size = ready["unlocker_dll"].stat().st_size
-            backup_size = ready["original_backup_dll"].stat().st_size
-        else:
-            unlocker_size = self.patch_bundle.unlocker_dll.size_bytes
-            backup_size = self.patch_bundle.original_backup_dll.size_bytes
-        if unlocker_size is None or backup_size is None:
-            return False
         try:
-            audit = self.patch_engine.audit(
-                self.current_installation.root,
-                expected_unlocker_size=unlocker_size,
-                expected_backup_size=backup_size,
+            audit = self.patch_engine.audit_recorded(
+                self.current_installation.root
             )
         except Exception:
             self.context.logger.exception("Patch audit failed")
@@ -2941,15 +2926,10 @@ class DlcHubApplication:
             self._on_patch_workflow_failed("补丁应用后游戏目录不可用")
             return
         try:
-            audit = self.patch_engine.audit(
-                self.current_installation.root,
-                expected_unlocker_size=result.receipt.unlocker_dll_size,
-                expected_backup_size=result.receipt.original_backup_dll_size,
+            audit = self.patch_engine.audit_recorded(
+                self.current_installation.root
             )
-            unlocker_label = self.patch_profile.relative_file_path(
-                self.patch_profile.unlocker_dll_name
-            )
-            incomplete = bool(audit.missing) or unlocker_label in audit.modified
+            incomplete = audit.health is not PatchHealth.HEALTHY
         except (OSError, PatchError):
             self.context.logger.exception("Post-apply patch audit failed")
             incomplete = True
