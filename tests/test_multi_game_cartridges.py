@@ -77,6 +77,20 @@ def test_generic_package_installs_to_each_cartridge_dlc_directory(tmp_path: Path
     assert not receipt.target_path.exists()
 
 
+def test_generic_package_verifies_temporary_download_name_with_asset_name(
+    tmp_path: Path,
+) -> None:
+    temporary = tmp_path / "hearts_of_iron_4-dlc045.part"
+    make_directory_package(temporary, root="ExpansionPass1SupporterPack")
+
+    metadata = inspect_directory_package(
+        temporary, asset_name="dlc045_expansion_pass_1_supporter_pack.zip"
+    )
+
+    assert metadata.dlc_id == "dlc045"
+    assert metadata.install_directory == "ExpansionPass1SupporterPack"
+
+
 def test_publisher_seeds_all_game_cartridges_without_overwriting_existing(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     selected = workspace.initialize()

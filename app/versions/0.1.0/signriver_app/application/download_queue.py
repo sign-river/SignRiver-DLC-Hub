@@ -81,6 +81,8 @@ class DownloadQueue:
             return ()
         recovered = []
         for spec in specs:
+            if self._is_reconcile_ignored(spec.task_id):
+                continue
             with self._lock:
                 current = self._snapshots.get(spec.task_id)
             if (
@@ -119,11 +121,88 @@ class DownloadQueue:
                 break
         return tuple(recovered)
 
+    def reconcile_quarantined(self, specs) -> tuple[DownloadSnapshot, ...]:
+        """Recover files quarantined by an older or overly strict verifier.
+
+        A file is restored only after the current cartridge verifier accepts
+        its full structure.  Genuine bad packages remain isolated.
+        """
+        quarantine = self.manager.cache_root / "quarantine"
+        if not quarantine.is_dir():
+            return ()
+        recovered = []
+        for spec in specs:
+            if self._is_reconcile_ignored(spec.task_id):
+                continue
+            with self._lock:
+                current = self._snapshots.get(spec.task_id)
+            if (
+                current is not None
+                and current.state is DownloadState.READY
+                and current.result_path is not None
+                and current.result_path.is_file()
+            ):
+                continue
+            prefix = f"{spec.task_id}-"
+            candidates = sorted(
+                (
+                    path for path in quarantine.iterdir()
+                    if path.is_file()
+                    and path.name.startswith(prefix)
+                    and path.suffix.casefold() == ".bad"
+                ),
+                key=lambda path: path.stat().st_mtime_ns,
+                reverse=True,
+            )
+            for candidate in candidates:
+                try:
+                    size = candidate.stat().st_size
+                    if spec.expected_size is not None and size != spec.expected_size:
+                        continue
+                    digest = self._file_sha256(candidate)
+                    if (
+                        spec.expected_sha256
+                        and digest.casefold() != spec.expected_sha256.casefold()
+                    ):
+                        continue
+                    verifier = self.verifier_for(spec)
+                    if verifier is not None:
+                        verifier(candidate)
+                    target_dir = self.manager.cache_root / "packages" / digest
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    target = target_dir / spec.filename
+                    if target.is_file():
+                        if self._file_sha256(target) != digest:
+                            continue
+                        candidate.unlink()
+                    else:
+                        candidate.replace(target)
+                    snapshot = DownloadSnapshot(
+                        spec=spec,
+                        state=DownloadState.READY,
+                        bytes_downloaded=size,
+                        total_bytes=spec.expected_size or size,
+                        result_path=target,
+                        sha256=digest,
+                    )
+                    self._record(snapshot)
+                    recovered.append(snapshot)
+                    break
+                except Exception:
+                    LOGGER.exception(
+                        "Quarantined package is still invalid: %s", candidate
+                    )
+        return tuple(recovered)
+
     def enqueue(self, spec: DownloadSpec) -> Future:
         with self._lock:
             current = self._futures.get(spec.task_id)
             if current is not None and not current.done():
                 raise ValueError(f"download task is already active: {spec.task_id}")
+            # An explicit download request supersedes a previous "clear task
+            # history" choice, so this task may be recorded and recovered
+            # normally again.
+            self._clear_reconcile_ignored(spec.task_id)
             control = DownloadControl()
             self._controls[spec.task_id] = control
             queued = DownloadSnapshot(spec=spec)
@@ -222,6 +301,7 @@ class DownloadQueue:
                 task_id for task_id, snapshot in self._snapshots.items()
                 if snapshot.state in terminal
             ]
+            self._mark_reconcile_ignored(removable)
             if self.repository is not None:
                 self.repository.delete_terminal()
             for task_id in removable:
@@ -239,6 +319,7 @@ class DownloadQueue:
             if active:
                 raise ValueError("active download tasks must be cancelled or paused first")
             count = len(self._snapshots)
+            self._mark_reconcile_ignored(self._snapshots)
             if self.repository is not None:
                 self.repository.delete_all()
             self._snapshots.clear()
@@ -338,6 +419,39 @@ class DownloadQueue:
             return self._snapshots[task_id]
         except KeyError as error:
             raise KeyError(f"unknown download task: {task_id}") from error
+
+    def _reconcile_marker_root(self) -> Path | None:
+        cache_root = getattr(self.manager, "cache_root", None)
+        if cache_root is None:
+            return None
+        return Path(cache_root) / "ignored-task-records"
+
+    def _reconcile_marker(self, task_id: str) -> Path | None:
+        root = self._reconcile_marker_root()
+        if root is None:
+            return None
+        name = hashlib.sha256(task_id.encode("utf-8")).hexdigest() + ".ignored"
+        return root / name
+
+    def _mark_reconcile_ignored(self, task_ids) -> None:
+        root = self._reconcile_marker_root()
+        task_ids = tuple(task_ids)
+        if root is None or not task_ids:
+            return
+        root.mkdir(parents=True, exist_ok=True)
+        for task_id in task_ids:
+            marker = self._reconcile_marker(task_id)
+            assert marker is not None
+            marker.write_text(task_id, encoding="utf-8")
+
+    def _is_reconcile_ignored(self, task_id: str) -> bool:
+        marker = self._reconcile_marker(task_id)
+        return marker is not None and marker.is_file()
+
+    def _clear_reconcile_ignored(self, task_id: str) -> None:
+        marker = self._reconcile_marker(task_id)
+        if marker is not None:
+            marker.unlink(missing_ok=True)
 
     @staticmethod
     def _file_sha256(path: Path) -> str:

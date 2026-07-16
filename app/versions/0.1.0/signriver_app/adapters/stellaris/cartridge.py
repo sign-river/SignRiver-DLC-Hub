@@ -81,7 +81,7 @@ class StellarisGameCartridge:
             executable_name=self.executable_name,
         )
 
-    def inspect_package(self, path: Path):
+    def inspect_package(self, path: Path, *, asset_name: str | None = None):
         return inspect_stellaris_package(path)
 
     def discover_installed_dlc(self, game_root: Path, catalog_entries=()) -> dict[str, Path]:

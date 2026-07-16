@@ -25,7 +25,9 @@ class DirectoryPackageMetadata:
     install_directory: str
 
 
-def inspect_directory_package(path: Path) -> DirectoryPackageMetadata:
+def inspect_directory_package(
+    path: Path, *, asset_name: str | None = None
+) -> DirectoryPackageMetadata:
     path = Path(path)
     if not zipfile.is_zipfile(path):
         raise PackageInspectionError("package is not a valid ZIP file")
@@ -63,7 +65,11 @@ def inspect_directory_package(path: Path) -> DirectoryPackageMetadata:
     root = next(iter(roots))
     if _INSTALL_DIRECTORY.fullmatch(root) is None or root in {".", ".."}:
         raise PackageInspectionError("package root is not a safe install directory")
-    match = _ASSET_NAME.fullmatch(path.name)
+    # Download verification runs before the temporary ``.part`` file is moved
+    # into the content-addressed cache.  Use the trusted Release filename when
+    # supplied instead of mistaking the internal temporary name for the asset.
+    package_name = Path(asset_name).name if asset_name is not None else path.name
+    match = _ASSET_NAME.fullmatch(package_name)
     if match is None:
         raise PackageInspectionError(
             "资源包文件名必须使用管理编号格式，例如 dlc001_name.zip"

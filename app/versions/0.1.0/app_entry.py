@@ -170,6 +170,8 @@ class DlcHubApplication:
         self.install_repository = None
         self.install_service = None
         self.task_refresh_pending = False
+        self.task_status_labels = {}
+        self.task_row_states = {}
         self.compact_layout = None
         self.supported_games = {
             item.selection_name: {
@@ -941,6 +943,8 @@ class DlcHubApplication:
 
     def _refresh_task_page(self) -> None:
         self.task_refresh_pending = False
+        self.task_status_labels.clear()
+        self.task_row_states.clear()
         for child in self.task_list_frame.winfo_children():
             child.destroy()
         snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
@@ -949,18 +953,6 @@ class DlcHubApplication:
                 self.task_list_frame, text="暂无下载任务"
             ).pack(pady=40)
             return
-        labels = {
-            DownloadState.QUEUED: "排队中",
-            DownloadState.DOWNLOADING: "下载中",
-            DownloadState.PAUSING: "正在暂停",
-            DownloadState.PAUSED: "已暂停",
-            DownloadState.RETRYING: "等待重试",
-            DownloadState.VERIFYING: "校验中",
-            DownloadState.READY: "已完成",
-            DownloadState.CANCELLED: "已取消",
-            DownloadState.FAILED: "失败",
-            DownloadState.CORRUPT: "坏包",
-        }
         for snapshot in snapshots:
             row = ctk.CTkFrame(
                 self.task_list_frame, fg_color=UI["card"], corner_radius=10,
@@ -1000,29 +992,69 @@ class DlcHubApplication:
             ctk.CTkLabel(
                 info, text=snapshot.spec.filename, anchor="w", height=23,
             ).pack(fill="x")
-            state = labels.get(snapshot.state, str(snapshot.state))
-            speed = (
-                f" · {snapshot.speed_bytes_per_second / 1024:.1f} KiB/s"
-                if snapshot.speed_bytes_per_second else ""
-            )
-            error_states = {
-                DownloadState.RETRYING, DownloadState.FAILED, DownloadState.CORRUPT,
-            }
-            error = (
-                f" · {snapshot.error}"
-                if snapshot.error and snapshot.state in error_states else ""
-            )
-            ctk.CTkLabel(
+            status_label = ctk.CTkLabel(
                 info,
-                text=(
-                    f"{state} · {snapshot.bytes_downloaded / 1024:.1f} KiB"
-                    f"{speed}{error}"
-                ),
+                text=self._task_status_text(snapshot),
                 anchor="w", height=20, text_color=("gray40", "gray70"),
-            ).pack(fill="x")
+            )
+            status_label.pack(fill="x")
+            self.task_status_labels[snapshot.spec.task_id] = status_label
+            self.task_row_states[snapshot.spec.task_id] = snapshot.state
             self._apply_visual_theme_to_children(
                 row, set(self.navigation_buttons.values())
             )
+
+    @staticmethod
+    def _task_status_text(snapshot) -> str:
+        labels = {
+            DownloadState.QUEUED: "排队中",
+            DownloadState.DOWNLOADING: "下载中",
+            DownloadState.PAUSING: "正在暂停",
+            DownloadState.PAUSED: "已暂停",
+            DownloadState.RETRYING: "等待重试",
+            DownloadState.VERIFYING: "校验中",
+            DownloadState.READY: "已完成",
+            DownloadState.CANCELLED: "已取消",
+            DownloadState.FAILED: "失败",
+            DownloadState.CORRUPT: "坏包",
+        }
+        state = labels.get(snapshot.state, str(snapshot.state))
+        speed = (
+            f" · {snapshot.speed_bytes_per_second / 1024:.1f} KiB/s"
+            if snapshot.speed_bytes_per_second else ""
+        )
+        error_states = {
+            DownloadState.RETRYING, DownloadState.FAILED, DownloadState.CORRUPT,
+        }
+        error = (
+            f" · {snapshot.error}"
+            if snapshot.error and snapshot.state in error_states else ""
+        )
+        return f"{state} · {snapshot.bytes_downloaded / 1024:.1f} KiB{speed}{error}"
+
+    def _update_task_page_snapshot(self, snapshot) -> None:
+        """Update progress in place and rebuild only when row controls change."""
+        if getattr(self, "current_page", None) != "下载任务":
+            return
+        task_id = snapshot.spec.task_id
+        label = self.task_status_labels.get(task_id)
+        previous_state = self.task_row_states.get(task_id)
+        control_states = {
+            DownloadState.PAUSED,
+            DownloadState.READY,
+            DownloadState.CANCELLED,
+            DownloadState.FAILED,
+            DownloadState.CORRUPT,
+        }
+        if (
+            label is None
+            or snapshot.state != previous_state
+            and (snapshot.state in control_states or previous_state in control_states)
+        ):
+            self._schedule_task_refresh()
+            return
+        label.configure(text=self._task_status_text(snapshot))
+        self.task_row_states[task_id] = snapshot.state
 
     def _schedule_task_refresh(self) -> None:
         if self.task_refresh_pending:
@@ -1357,9 +1389,13 @@ class DlcHubApplication:
         if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
             return
         self.catalog_online = True
-        self._refresh_installed_dlc_paths()
         entries = snapshot.entries
         self.catalog_entries = entries
+        # Slug-based cartridges such as Civilization VI need the freshly
+        # loaded catalog to map dlc001 IDs to native folders like Expansion1.
+        # Scanning before assigning entries leaves them all looking absent on
+        # the first refresh after switching games.
+        self._refresh_installed_dlc_paths()
         self.patch_bundle = snapshot.patch_bundle
         self.patch_task_roles = (
             dict(self.cartridge.patch_task_roles(snapshot.patch_bundle))
@@ -1406,7 +1442,12 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
-                recovered = self.download_queue.reconcile_cached(tuple(specs))
+                recovered = list(
+                    self.download_queue.reconcile_cached(tuple(specs))
+                )
+                recovered.extend(
+                    self.download_queue.reconcile_quarantined(tuple(specs))
+                )
                 if recovered:
                     self._post_ui(
                         lambda count=len(recovered): self._on_cache_reconciled(count)
@@ -2243,7 +2284,7 @@ class DlcHubApplication:
             if self.patch_workflow_state == "downloading":
                 self._maybe_advance_patch_workflow()
         if getattr(self, "current_page", None) == "下载任务":
-            self._schedule_task_refresh()
+            self._update_task_page_snapshot(snapshot)
 
     def _show_recovered_downloads(self) -> None:
         if self.download_queue is None:
@@ -2277,7 +2318,9 @@ class DlcHubApplication:
         expected_dlc_id = self._dlc_id_from_task(spec.task_id)
 
         def verify(path: Path):
-            metadata = self.cartridge.inspect_package(path)
+            metadata = self.cartridge.inspect_package(
+                path, asset_name=spec.filename
+            )
             if metadata.dlc_id.casefold() != expected_dlc_id.casefold():
                 raise ValueError(
                     f"package DLC ID mismatch: expected {expected_dlc_id}, "

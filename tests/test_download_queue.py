@@ -109,6 +109,90 @@ def test_reconcile_cached_recovers_orphan_package(tmp_path: Path) -> None:
     assert repository.list_all()[0].state is DownloadState.READY
 
 
+def test_clear_all_keeps_cache_without_recreating_cleared_history(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    digest = hashlib.sha256(DATA).hexdigest()
+    package = cache / "packages" / digest / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    queue = DownloadQueue(
+        DownloadManager(cache),
+        repository=repository,
+        verifier_for=lambda _spec: lambda path: path.stat(),
+    )
+    queue._record(DownloadSnapshot(
+        make_spec(), DownloadState.READY, len(DATA), len(DATA), 1,
+        result_path=package, sha256=digest,
+    ))
+
+    assert queue.clear_all() == 1
+    queue.shutdown()
+
+    restarted = DownloadQueue(
+        DownloadManager(cache),
+        repository=repository,
+        verifier_for=lambda _spec: lambda path: path.stat(),
+    )
+    assert restarted.restore() == ()
+    assert restarted.reconcile_cached((make_spec(),)) == ()
+    assert restarted.snapshots() == ()
+    assert package.read_bytes() == DATA
+    restarted.shutdown()
+
+
+def test_explicit_enqueue_allows_a_cleared_task_to_be_recorded_again(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    manager = DownloadManager(cache, opener=lambda *_args: io.BytesIO(DATA))
+    queue = DownloadQueue(manager)
+    queue._record(DownloadSnapshot(make_spec(), DownloadState.READY))
+    queue.clear_all()
+    assert queue._is_reconcile_ignored("queue-1")
+
+    result = queue.enqueue(make_spec()).result(timeout=5)
+
+    assert result.state is DownloadState.READY
+    assert not queue._is_reconcile_ignored("queue-1")
+    queue.shutdown()
+
+
+def test_reconcile_quarantined_recovers_file_accepted_by_current_verifier(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    quarantine = cache / "quarantine"
+    quarantine.mkdir(parents=True)
+    isolated = quarantine / "queue-1-123.bad"
+    isolated.write_bytes(DATA)
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    corrupt = DownloadSnapshot(
+        make_spec(), DownloadState.CORRUPT, len(DATA), len(DATA), 1,
+        error="legacy verifier rejected temporary filename",
+    )
+    repository.save(corrupt)
+    queue = DownloadQueue(
+        DownloadManager(cache),
+        repository=repository,
+        verifier_for=lambda _spec: lambda path: path.stat(),
+    )
+    queue.restore()
+
+    recovered = queue.reconcile_quarantined((make_spec(),))
+    queue.shutdown()
+
+    digest = hashlib.sha256(DATA).hexdigest()
+    expected = cache / "packages" / digest / "dlc.zip"
+    assert recovered[0].state is DownloadState.READY
+    assert recovered[0].result_path == expected
+    assert expected.read_bytes() == DATA
+    assert not isolated.exists()
+    assert repository.list_all()[0].state is DownloadState.READY
+
+
 def test_resume_restarts_paused_non_range_task(tmp_path: Path) -> None:
     manager = DownloadManager(tmp_path, opener=lambda *_args: io.BytesIO(DATA))
     queue = DownloadQueue(manager)

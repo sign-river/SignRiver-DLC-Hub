@@ -206,6 +206,24 @@ def test_download_task_rows_are_compact_and_do_not_create_empty_action_frames() 
     assert 'row.pack_propagate(False)' in source
 
 
+def test_download_task_progress_updates_in_place_until_row_controls_change() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    event_method = source.split("def _apply_download_event", 1)[1].split(
+        "def _show_recovered_downloads", 1
+    )[0]
+    update_method = source.split("def _update_task_page_snapshot", 1)[1].split(
+        "def _schedule_task_refresh", 1
+    )[0]
+
+    assert "self.task_status_labels" in source
+    assert "self.task_row_states" in source
+    assert "self._update_task_page_snapshot(snapshot)" in event_method
+    assert "self._schedule_task_refresh()" not in event_method
+    assert "label.configure(text=self._task_status_text(snapshot))" in update_method
+    assert "DownloadState.READY" in update_method
+    assert "self._schedule_task_refresh()" in update_method
+
+
 def test_downloads_are_fixed_to_single_threaded_sequential_mode() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
@@ -279,6 +297,17 @@ def test_patch_health_uses_recorded_content_hashes() -> None:
 
     assert "audit_recorded" in method
     assert "size_bytes" not in method
+
+
+def test_catalog_assigns_entries_before_scanning_slug_based_installs() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _show_catalog(", 1)[1].split(
+        "def _show_catalog_error", 1
+    )[0]
+
+    assign = method.index("self.catalog_entries = entries")
+    scan = method.index("self._refresh_installed_dlc_paths()")
+    assert assign < scan
 
 
 def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
