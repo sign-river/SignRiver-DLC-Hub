@@ -3,6 +3,9 @@ __pycache__/
 *.pyd
 *.so
 .pytest_cache/
+/.pytest-tmp*/
+/.test-artifacts/*
+!/.test-artifacts/.gitkeep
 .coverage
 htmlcov/
 .venv/

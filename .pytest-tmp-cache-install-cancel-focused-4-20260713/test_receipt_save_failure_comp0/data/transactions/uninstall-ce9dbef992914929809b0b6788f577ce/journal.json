@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "operation": "uninstall",
-  "phase": "committed",
-  "transaction_id": "ce9dbef992914929809b0b6788f577ce",
-  "dlc_id": "dlc001",
-  "target_path": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-cache-install-cancel-focused-4-20260713\\test_receipt_save_failure_comp0\\Stellaris\\dlc\\dlc001_symbols_of_domination",
-  "installed_tree_sha256": "175426b184c1f9fe26f2ff291a0aa765cddf10fdf0e51f80e7f4fdd0ab990ee7"
-}

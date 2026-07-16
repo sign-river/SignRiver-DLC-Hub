@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "operation": "uninstall",
-  "phase": "committed",
-  "transaction_id": "txn-restore",
-  "dlc_id": "dlc001",
-  "target_path": "D:\\project\\SignRiver-DLC-Hub\\.pytest-tmp-compact-layout-20260713\\test_uninstall_restores_pre_in0\\Stellaris\\dlc\\dlc001_symbols_of_domination",
-  "installed_tree_sha256": "7c93a57e5b059459c3eac768c19a4a9b364b6df6d6507e9b4f7fcbc5b8fd7886"
-}
