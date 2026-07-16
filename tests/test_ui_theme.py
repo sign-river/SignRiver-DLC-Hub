@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
+PUBLISHER_UI = Path(__file__).parents[1] / "src" / "signriver_publisher" / "ui.py"
 
 
 def _ui_palette() -> dict[str, str]:
@@ -106,11 +107,58 @@ def test_log_commands_use_an_aligned_two_by_two_grid() -> None:
 def test_catalog_view_toggle_resets_scroll_after_rebuilding_rows() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
+    assert "def _reset_scrollable_frame" in source
     assert "def _reset_catalog_scroll" in source
-    assert 'canvas.configure(scrollregion=canvas.bbox("all"))' in source
+    assert 'bounds = canvas.bbox("all")' in source
+    assert "canvas.configure(scrollregion=bounds)" in source
     assert "canvas.yview_moveto(0.0)" in source
     assert "def _schedule_catalog_scroll_reset" in source
     assert "self._schedule_catalog_scroll_reset()" in source
+
+
+def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    task_method = source.split("def _refresh_task_page", 1)[1].split(
+        "def _task_status_text", 1
+    )[0]
+    catalog_method = source.split("def _render_catalog_rows", 1)[1].split(
+        "def _reset_scrollable_frame", 1
+    )[0]
+
+    assert "self.window.after_idle(after_layout)" in source
+    assert "self.window.after(" in source
+    # Empty and populated task lists both finish by resetting the viewport.
+    assert task_method.count(
+        "self._schedule_scrollable_reset(self.task_list_frame)"
+    ) == 2
+    assert "self._schedule_catalog_scroll_reset()" in catalog_method
+
+
+def test_all_rebuilt_publisher_scroll_lists_reset_after_refresh() -> None:
+    source = PUBLISHER_UI.read_text(encoding="utf-8")
+    resources_method = source.split("def _fill_resources", 1)[1].split(
+        "def _select_game", 1
+    )[0]
+    local_method = source.split("def _fill_local_outputs", 1)[1].split(
+        "def _show_remote_message", 1
+    )[0]
+    remote_message_method = source.split("def _show_remote_message", 1)[1].split(
+        "def _fill_remote_assets", 1
+    )[0]
+    remote_assets_method = source.split("def _fill_remote_assets", 1)[1].split(
+        "def import_dlc", 1
+    )[0]
+
+    assert "def _reset_scrollable_frame" in source
+    assert "self.after_idle(after_layout)" in source
+    assert resources_method.count("self._schedule_scrollable_reset(parent)") == 2
+    assert local_method.count(
+        "self._schedule_scrollable_reset(self.local_output_list)"
+    ) == 2
+    assert "self._schedule_scrollable_reset(self.remote_asset_list)" in remote_message_method
+    assert remote_assets_method.count(
+        "self._schedule_scrollable_reset(self.remote_asset_list)"
+    ) == 2
 
 
 def test_simple_catalog_is_compact_and_has_complete_bulk_selection() -> None:

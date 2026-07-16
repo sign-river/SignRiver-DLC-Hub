@@ -952,6 +952,7 @@ class DlcHubApplication:
             ctk.CTkLabel(
                 self.task_list_frame, text="暂无下载任务"
             ).pack(pady=40)
+            self._schedule_scrollable_reset(self.task_list_frame)
             return
         for snapshot in snapshots:
             row = ctk.CTkFrame(
@@ -1003,6 +1004,7 @@ class DlcHubApplication:
             self._apply_visual_theme_to_children(
                 row, set(self.navigation_buttons.values())
             )
+        self._schedule_scrollable_reset(self.task_list_frame)
 
     @staticmethod
     def _task_status_text(snapshot) -> str:
@@ -1501,25 +1503,43 @@ class DlcHubApplication:
             ).grid(row=0, column=0, columnspan=3, padx=12, pady=24)
         self._update_selection_toggle_button(visible_entries)
 
-    def _reset_catalog_scroll(self) -> None:
-        """Recalculate the catalog canvas and move its viewport to the first row."""
+        self._schedule_catalog_scroll_reset()
+
+    @staticmethod
+    def _reset_scrollable_frame(frame) -> None:
+        """Synchronize a rebuilt CTk scroll canvas and show its first row."""
         try:
-            self.dlc_list_frame.update_idletasks()
-            canvas = self.dlc_list_frame._parent_canvas
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            frame.update_idletasks()
+            canvas = frame._parent_canvas
+            bounds = canvas.bbox("all")
+            if bounds is not None:
+                canvas.configure(scrollregion=bounds)
             canvas.yview_moveto(0.0)
         except (AttributeError, TclError):
-            # The callback may run while the window is closing.
+            # A delayed callback may run while the window is closing.
             return
 
-    def _schedule_catalog_scroll_reset(self) -> None:
+    def _schedule_scrollable_reset(self, frame) -> None:
+        """Wait for geometry propagation before fixing the canvas viewport."""
         def after_layout() -> None:
             try:
-                self.window.after(10, self._reset_catalog_scroll)
+                self.window.after(
+                    20, lambda: self._reset_scrollable_frame(frame)
+                )
             except TclError:
                 return
 
-        self.window.after_idle(after_layout)
+        try:
+            self.window.after_idle(after_layout)
+        except TclError:
+            return
+
+    def _reset_catalog_scroll(self) -> None:
+        """Recalculate the catalog canvas and move its viewport to the first row."""
+        self._reset_scrollable_frame(self.dlc_list_frame)
+
+    def _schedule_catalog_scroll_reset(self) -> None:
+        self._schedule_scrollable_reset(self.dlc_list_frame)
 
     def _toggle_catalog_view(self) -> None:
         # Reset the old, taller view before replacing its rows.  Otherwise the
@@ -1538,7 +1558,6 @@ class DlcHubApplication:
                 text="简洁视图：勾选需要的内容后可一键下载"
             )
         self._render_catalog_rows()
-        self._schedule_catalog_scroll_reset()
 
     def _render_simple_catalog_rows(self, visible_entries, snapshots) -> None:
         columns = self.simple_catalog_columns

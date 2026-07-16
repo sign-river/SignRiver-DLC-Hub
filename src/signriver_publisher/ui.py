@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Empty, SimpleQueue
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import TclError, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
@@ -495,11 +495,38 @@ class PublisherApplication(ctk.CTk):
             self._fill_local_outputs()
             self._show_remote_message("点击“刷新远程”读取当前游戏的 Release")
 
+    @staticmethod
+    def _reset_scrollable_frame(frame) -> None:
+        """Synchronize a rebuilt CTk scroll canvas and show its first row."""
+        try:
+            frame.update_idletasks()
+            canvas = frame._parent_canvas
+            bounds = canvas.bbox("all")
+            if bounds is not None:
+                canvas.configure(scrollregion=bounds)
+            canvas.yview_moveto(0.0)
+        except (AttributeError, TclError):
+            return
+
+    def _schedule_scrollable_reset(self, frame) -> None:
+        """Reset only after Tk has propagated the replacement row sizes."""
+        def after_layout() -> None:
+            try:
+                self.after(20, lambda: self._reset_scrollable_frame(frame))
+            except TclError:
+                return
+
+        try:
+            self.after_idle(after_layout)
+        except TclError:
+            return
+
     def _fill_resources(self, parent, resources: tuple[Path, ...], kind: str) -> None:
         for child in parent.winfo_children():
             child.destroy()
         if not resources:
             ctk.CTkLabel(parent, text="暂无资源", text_color=MUTED).pack(pady=24)
+            self._schedule_scrollable_reset(parent)
             return
         for path in resources:
             row = ctk.CTkFrame(
@@ -524,6 +551,7 @@ class PublisherApplication(ctk.CTk):
                 hover_color="#FFEBEE",
                 command=lambda k=kind, n=path.name: self.remove_resource(k, n),
             ).pack(side="right", padx=8, pady=6)
+        self._schedule_scrollable_reset(parent)
 
     def _select_game(self, label: str) -> None:
         game_id = label.rsplit("(", 1)[-1].rstrip(")")
@@ -545,6 +573,7 @@ class PublisherApplication(ctk.CTk):
             ctk.CTkLabel(
                 self.local_output_list, text="尚未生成本地发布文件", text_color=MUTED
             ).pack(pady=24)
+            self._schedule_scrollable_reset(self.local_output_list)
             return
         for path in files:
             row = ctk.CTkFrame(
@@ -565,6 +594,7 @@ class PublisherApplication(ctk.CTk):
                 fg_color=BLUE,
                 command=lambda value=path: self.upload_remote_file(value),
             ).pack(side="right", padx=7, pady=6)
+        self._schedule_scrollable_reset(self.local_output_list)
 
     def _show_remote_message(self, message: str) -> None:
         for child in self.remote_asset_list.winfo_children():
@@ -572,6 +602,7 @@ class PublisherApplication(ctk.CTk):
         ctk.CTkLabel(self.remote_asset_list, text=message, text_color=MUTED).pack(
             pady=24
         )
+        self._schedule_scrollable_reset(self.remote_asset_list)
 
     def _fill_remote_assets(self, assets: tuple[RemoteAsset, ...]) -> None:
         for child in self.remote_asset_list.winfo_children():
@@ -580,6 +611,7 @@ class PublisherApplication(ctk.CTk):
             ctk.CTkLabel(
                 self.remote_asset_list, text="当前 Release 暂无附件", text_color=MUTED
             ).pack(pady=24)
+            self._schedule_scrollable_reset(self.remote_asset_list)
             return
         for asset in sorted(assets, key=lambda item: item.name.casefold()):
             row = ctk.CTkFrame(
@@ -607,6 +639,7 @@ class PublisherApplication(ctk.CTk):
                 hover_color="#FFEBEE",
                 command=lambda value=asset: self.delete_remote_resource(value),
             ).pack(side="right", padx=7, pady=6)
+        self._schedule_scrollable_reset(self.remote_asset_list)
 
     def import_dlc(self) -> None:
         path = filedialog.askdirectory(title="选择 DLC 文件夹")
