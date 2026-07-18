@@ -1,5 +1,16 @@
 """SignRiver resource publisher."""
 
+from .acceptance import (
+    AcceptanceCase,
+    AcceptanceError,
+    AcceptanceFingerprint,
+    AcceptanceManager,
+    AcceptancePaths,
+    AcceptanceResult,
+    AcceptanceSession,
+    PreparationPreview,
+    PreparationVariant,
+)
 from .cartridges import create_builtin_cartridges
 from .models import GameProfile, PublisherCartridge, PublishAsset, ResourceRecord
 from .cream import AppInfoError, SteamAppInfo, SteamDlc, generate_cream_api_ini, load_steam_appinfo
@@ -16,6 +27,15 @@ from .remote import (
 from .workspace import PublisherWorkspace, WorkspaceError
 
 __all__ = [
+    "AcceptanceCase",
+    "AcceptanceError",
+    "AcceptanceFingerprint",
+    "AcceptanceManager",
+    "AcceptancePaths",
+    "AcceptanceResult",
+    "AcceptanceSession",
+    "PreparationPreview",
+    "PreparationVariant",
     "AppInfoError",
     "GameProfile",
     "PublisherCartridge",

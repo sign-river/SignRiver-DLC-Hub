@@ -20,7 +20,6 @@ from .original_restore import (
     RestoreOriginalError,
     RestorePreview,
     RestoreResult,
-    RestoreScope,
 )
 
 __all__ = [
@@ -45,5 +44,4 @@ __all__ = [
     "RestoreOriginalError",
     "RestorePreview",
     "RestoreResult",
-    "RestoreScope",
 ]

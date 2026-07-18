@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from signriver_app.application import OriginalStateRestoreService, RestoreScope
+from signriver_app.application import OriginalStateRestoreService
 
 
 class FakeRepository:
@@ -11,18 +11,10 @@ class FakeRepository:
         self.receipts = {
             "dlc001": SimpleNamespace(dlc_id="dlc001", transaction_id="tx-1"),
         }
-        self.marked = []
 
     def active(self, game_id):
         assert game_id == "game"
         return tuple(self.receipts.values())
-
-    def find_active(self, game_id, dlc_id):
-        assert game_id == "game"
-        return self.receipts.get(dlc_id)
-
-    def mark_uninstalled(self, transaction_id, *, restore_previous=False):
-        self.marked.append((transaction_id, restore_previous))
 
 
 class FakeInstallService:
@@ -50,13 +42,12 @@ class FakePatchEngine:
 class FakeCartridge:
     def __init__(self) -> None:
         self.adapter = SimpleNamespace(descriptor=SimpleNamespace(game_id="game"))
-        self.removed = []
 
     def discover_installed_dlc(self, game_root, catalog_entries=()):
-        return {"dlc001": Path(game_root) / "dlc001", "dlc002": Path(game_root) / "dlc002"}
+        raise AssertionError("safe restore must not scan all game DLC directories")
 
     def remove_installed_dlc(self, game_root, dlc_id):
-        self.removed.append(dlc_id)
+        raise AssertionError("safe restore must not remove untracked game DLC")
 
 
 def make_service(*, patch_ready=True):
@@ -76,24 +67,21 @@ def make_service(*, patch_ready=True):
 def test_safe_restore_only_uninstalls_receipted_dlc() -> None:
     service, cartridge, patch, installs, repository = make_service()
 
-    result = service.restore(Path("C:/game"), RestoreScope.SAFE)
+    result = service.restore(Path("C:/game"))
 
     assert [item[1] for item in installs.uninstalled] == ["dlc001"]
-    assert cartridge.removed == []
     assert patch.restored is True
     assert result.restored_dlc_ids == ("dlc001",)
     assert result.failures == ()
 
 
-def test_full_restore_removes_every_detected_dlc() -> None:
-    service, cartridge, patch, installs, repository = make_service()
+def test_restore_preview_uses_receipts_without_scanning_game_dlc() -> None:
+    service, _cartridge, _patch, _installs, _repository = make_service()
 
-    result = service.restore(Path("C:/game"), RestoreScope.FULL)
+    preview = service.preview(Path("C:/game"))
 
-    assert installs.uninstalled == []
-    assert cartridge.removed == ["dlc001", "dlc002"]
-    assert repository.marked == [("tx-1", False)]
-    assert result.restored_dlc_ids == ("dlc001", "dlc002")
+    assert preview.tracked_dlc_ids == ("dlc001",)
+    assert preview.dlc_count == 1
 
 
 def test_restore_refuses_to_start_when_patch_backup_is_not_provable() -> None:
@@ -102,7 +90,7 @@ def test_restore_refuses_to_start_when_patch_backup_is_not_provable() -> None:
     service, cartridge, patch, installs, repository = make_service(patch_ready=False)
 
     try:
-        service.restore(Path("C:/game"), RestoreScope.SAFE)
+        service.restore(Path("C:/game"))
     except RestoreOriginalError as error:
         assert "备份缺失" in str(error)
     else:

@@ -69,7 +69,7 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'self.catalog_view_mode = "simple"' in source
-    assert 'text="高级管理"' in source
+    assert 'text="切换高级视图"' in source
     assert 'text="一键解锁"' in source
     assert "def _render_simple_catalog_rows" in source
     assert "def _render_advanced_catalog_rows" in source
@@ -127,10 +127,8 @@ def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> N
 
     assert "self.window.after_idle(after_layout)" in source
     assert "self.window.after(" in source
-    # Empty and populated task lists both finish by resetting the viewport.
-    assert task_method.count(
-        "self._schedule_scrollable_reset(self.task_list_frame)"
-    ) == 2
+    # Empty and populated task lists both position the viewport after layout.
+    assert task_method.count("self._schedule_task_scroll(") == 2
     assert "self._schedule_catalog_scroll_reset()" in catalog_method
 
 
@@ -272,6 +270,36 @@ def test_download_task_progress_updates_in_place_until_row_controls_change() -> 
     assert "self._schedule_task_refresh()" in update_method
 
 
+def test_download_task_page_reuses_cancel_all_and_tracks_active_row() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    refresh_method = source.split("def _refresh_task_page", 1)[1].split(
+        "def _task_status_text", 1
+    )[0]
+
+    assert 'text="取消全部下载"' in source
+    assert source.count("command=self._cancel_all_downloads") == 2
+    assert "def _active_download_task_id" in refresh_method
+    assert "DownloadState.DOWNLOADING" in refresh_method
+    assert "DownloadState.QUEUED" not in source.split(
+        "def _active_download_task_id", 1
+    )[1].split("def _reset_task_scroll", 1)[0]
+    assert "self.task_rows[snapshot.spec.task_id] = row" in refresh_method
+    assert "self._schedule_task_scroll(active_task_id)" in refresh_method
+    assert "canvas.yview_moveto(0.0)" in refresh_method
+
+
+def test_original_restore_keeps_cache_without_secondary_prompt() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    restore_method = source.split("def _restore_original_state", 1)[1].split(
+        "def _on_original_restore_failed", 1
+    )[0]
+
+    assert '"缓存处理"' not in restore_method
+    assert "delete_cached_packages=True" not in restore_method
+    assert "clear_cache" not in restore_method
+    assert 'cache_detail = "下载缓存已保留"' in restore_method
+
+
 def test_downloads_are_fixed_to_single_threaded_sequential_mode() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
@@ -377,8 +405,9 @@ def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
     assert "def _remove_patch" in source
     assert "engine.restore_original(game_root)" in source
     assert "OriginalStateRestoreService(" in source
-    assert "RestoreScope.SAFE" in source
-    assert "RestoreScope.FULL" in source
+    assert "RestoreScope" not in source
+    assert "彻底恢复" not in source
+    assert "游戏原有 DLC 和其他来源的内容不会被删除" in source
     # The old placeholder message must be gone entirely so users never see the
     # "按钮已预留" copy after an update.
     assert "按钮已预留" not in source

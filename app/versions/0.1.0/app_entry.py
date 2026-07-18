@@ -19,7 +19,6 @@ from .signriver_app.application import (
     GameDiscoveryService,
     OriginalStateRestoreService,
     RestoreOriginalError,
-    RestoreScope,
 )
 from .signriver_app.domain import (
     DownloadSpec,
@@ -172,6 +171,7 @@ class DlcHubApplication:
         self.task_refresh_pending = False
         self.task_status_labels = {}
         self.task_row_states = {}
+        self.task_rows = {}
         self.compact_layout = None
         self.supported_games = {
             item.selection_name: {
@@ -417,7 +417,7 @@ class DlcHubApplication:
         self.catalog_refresh_button.pack(side="right")
         self.advanced_view_button = ctk.CTkButton(
             catalog_header,
-            text="高级管理",
+            text="切换高级视图",
             command=self._toggle_catalog_view,
             width=100,
         )
@@ -645,6 +645,13 @@ class DlcHubApplication:
         ctk.CTkButton(
             task_header, text="刷新", command=self._refresh_task_page, width=80
         ).pack(side="right")
+        self.task_cancel_all_downloads_button = ctk.CTkButton(
+            task_header,
+            text="取消全部下载",
+            command=self._cancel_all_downloads,
+            width=100,
+        )
+        self.task_cancel_all_downloads_button.pack(side="right", padx=(0, 8))
         ctk.CTkButton(
             task_header, text="清除失败/取消记录",
             command=self._clear_terminal_tasks, width=110,
@@ -945,14 +952,16 @@ class DlcHubApplication:
         self.task_refresh_pending = False
         self.task_status_labels.clear()
         self.task_row_states.clear()
+        self.task_rows.clear()
         for child in self.task_list_frame.winfo_children():
             child.destroy()
         snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
+        active_task_id = self._active_download_task_id(snapshots)
         if not snapshots:
             ctk.CTkLabel(
                 self.task_list_frame, text="暂无下载任务"
             ).pack(pady=40)
-            self._schedule_scrollable_reset(self.task_list_frame)
+            self._schedule_task_scroll(None)
             return
         for snapshot in snapshots:
             row = ctk.CTkFrame(
@@ -1001,10 +1010,60 @@ class DlcHubApplication:
             status_label.pack(fill="x")
             self.task_status_labels[snapshot.spec.task_id] = status_label
             self.task_row_states[snapshot.spec.task_id] = snapshot.state
+            self.task_rows[snapshot.spec.task_id] = row
             self._apply_visual_theme_to_children(
                 row, set(self.navigation_buttons.values())
             )
-        self._schedule_scrollable_reset(self.task_list_frame)
+        self._schedule_task_scroll(active_task_id)
+
+    @staticmethod
+    def _active_download_task_id(snapshots) -> str | None:
+        """Return the task currently doing work, excluding merely queued tasks."""
+        active_states = {
+            DownloadState.DOWNLOADING,
+            DownloadState.PAUSING,
+            DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        return next(
+            (
+                snapshot.spec.task_id
+                for snapshot in snapshots
+                if snapshot.state in active_states
+            ),
+            None,
+        )
+
+    def _reset_task_scroll(self, task_id: str | None) -> None:
+        """Show the active download row, or the top when no task is active."""
+        try:
+            self.task_list_frame.update_idletasks()
+            canvas = self.task_list_frame._parent_canvas
+            bounds = canvas.bbox("all")
+            if bounds is not None:
+                canvas.configure(scrollregion=bounds)
+            row = self.task_rows.get(task_id) if task_id is not None else None
+            if row is None or bounds is None:
+                canvas.yview_moveto(0.0)
+                return
+            content_height = max(1, bounds[3] - bounds[1])
+            target_y = max(0, row.winfo_y() - bounds[1])
+            canvas.yview_moveto(min(1.0, target_y / content_height))
+        except (AttributeError, TclError):
+            return
+
+    def _schedule_task_scroll(self, task_id: str | None) -> None:
+        """Wait for rebuilt task rows to settle before positioning the viewport."""
+        def after_layout() -> None:
+            try:
+                self.window.after(20, lambda: self._reset_task_scroll(task_id))
+            except TclError:
+                return
+
+        try:
+            self.window.after_idle(after_layout)
+        except TclError:
+            return
 
     @staticmethod
     def _task_status_text(snapshot) -> str:
@@ -1553,7 +1612,7 @@ class DlcHubApplication:
             )
         else:
             self.catalog_view_mode = "simple"
-            self.advanced_view_button.configure(text="高级管理")
+            self.advanced_view_button.configure(text="切换高级视图")
             self.catalog_preview.configure(
                 text="简洁视图：勾选需要的内容后可一键下载"
             )
@@ -3058,7 +3117,7 @@ class DlcHubApplication:
         messagebox.showerror("一键解锁失败", message, parent=self.window)
 
     def _restore_original_state(self) -> None:
-        """Restore original patch files and optionally remove installed DLC."""
+        """Restore original patch files and roll back receipt-backed DLC."""
         if self.current_installation is None:
             messagebox.showwarning(
                 "尚未检测游戏",
@@ -3107,20 +3166,6 @@ class DlcHubApplication:
             )
             return
 
-        choice = messagebox.askyesnocancel(
-            "选择恢复方式",
-            "请选择恢复范围：\n\n"
-            "“是”——安全恢复（推荐）\n"
-            "只撤销本程序有安装记录的 DLC，并恢复被覆盖前的同名内容；"
-            "其他来源的 DLC 保持不变。\n\n"
-            "“否”——彻底恢复\n"
-            "移除当前游戏目录中检测到的全部 DLC，包括原先就存在或由其他方式安装的内容。\n\n"
-            "“取消”——不执行任何操作。",
-            parent=self.window,
-        )
-        if choice is None:
-            return
-        scope = RestoreScope.SAFE if choice else RestoreScope.FULL
         game_root = self.current_installation.root
         service = OriginalStateRestoreService(
             self.cartridge,
@@ -3129,7 +3174,7 @@ class DlcHubApplication:
             self.install_repository,
         )
         try:
-            preview = service.preview(game_root, scope, self.catalog_entries)
+            preview = service.preview(game_root)
         except Exception as error:
             self.context.logger.exception("Unable to preview original-state restore")
             messagebox.showerror(
@@ -3145,63 +3190,24 @@ class DlcHubApplication:
             )
             return
 
-        if scope is RestoreScope.SAFE:
-            scope_detail = (
-                f"将撤销本程序记录的 {preview.dlc_count} 个 DLC 安装，"
-                "其他来源的 DLC 不受影响。"
-            )
-        else:
-            scope_detail = (
-                f"将删除检测到的全部 {preview.dlc_count} 个 DLC。"
-                "这些目录无论来源都会被移除，且不会恢复其原内容。"
-            )
         if not messagebox.askyesno(
-            "确认恢复游戏原版",
-            f"{scope_detail}\n\n"
-            "同时会移除本程序补丁并还原原版 DLL。\n"
-            "下载缓存默认保留，之后重新安装时仍可复用。\n\n"
-            "该操作会修改游戏文件，是否继续？",
+            "恢复游戏原版",
+            "恢复会执行以下操作：\n\n"
+            f"· 撤销本程序记录的 {preview.dlc_count} 个 DLC 安装；\n"
+            "· 恢复安装前被替换的同名 DLC 内容；\n"
+            "· 移除本程序补丁并还原可信的原版 DLL。\n\n"
+            "游戏原有 DLC 和其他来源的内容不会被删除。是否继续？",
             parent=self.window,
         ):
             return
-        clear_cache = messagebox.askyesno(
-            "缓存处理",
-            "是否同时清理当前游戏的下载缓存？\n\n"
-            "选择“否”（推荐）会保留已下载资源，今后重新安装无需再次下载。",
-            parent=self.window,
-        )
-
         self._set_batch_download_state("restoring")
         self.catalog_preview.configure(text="正在恢复游戏原版，请勿启动游戏……")
 
         def worker() -> None:
-            cache_error = ""
             try:
-                result = service.restore(game_root, scope, self.catalog_entries)
-                if clear_cache and self.download_queue is not None:
-                    targets = tuple(
-                        sorted(
-                            set(self.patch_task_roles)
-                            | {
-                                self._dlc_task_id(entry.dlc_id)
-                                for entry in self.catalog_entries
-                            }
-                        )
-                    )
-                    try:
-                        self.download_queue.forget(
-                            targets, delete_cached_packages=True
-                        )
-                    except Exception as error:
-                        self.context.logger.exception(
-                            "Unable to clear current cartridge cache after restore"
-                        )
-                        cache_error = str(error) or "缓存清理失败"
+                result = service.restore(game_root)
                 self._post_ui(
-                    lambda result=result, cache_error=cache_error:
-                    self._on_original_state_restored(
-                        result, clear_cache=clear_cache, cache_error=cache_error
-                    )
+                    lambda result=result: self._on_original_state_restored(result)
                 )
             except RestoreOriginalError as error:
                 self._post_ui(
@@ -3216,21 +3222,13 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_original_state_restored(
-        self, result, *, clear_cache: bool, cache_error: str
-    ) -> None:
+    def _on_original_state_restored(self, result) -> None:
         self._set_batch_download_state("idle")
         self._refresh_installed_dlc_paths()
         self._render_catalog_rows()
-        mode = "安全恢复" if result.scope is RestoreScope.SAFE else "彻底恢复"
+        mode = "安全恢复"
         failures = list(result.failures)
-        if cache_error:
-            failures.append(f"缓存清理：{cache_error}")
-        cache_detail = (
-            "当前游戏缓存已清理"
-            if clear_cache and not cache_error
-            else "下载缓存已保留" if not clear_cache else "缓存清理未完成"
-        )
+        cache_detail = "下载缓存已保留"
         self.catalog_preview.configure(
             text=(
                 f"{mode}完成：处理 {len(result.restored_dlc_ids)} 个 DLC，"

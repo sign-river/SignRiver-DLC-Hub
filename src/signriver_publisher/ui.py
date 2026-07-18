@@ -10,6 +10,18 @@ from tkinter import TclError, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
+from .acceptance import (
+    FAILED,
+    PASSED,
+    SKIPPED,
+    AcceptanceCase,
+    AcceptanceError,
+    AcceptanceFingerprint,
+    AcceptanceManager,
+    AcceptancePaths,
+    AcceptanceSession,
+    PreparationPreview,
+)
 from .gitlink import (
     GitLinkAttachmentClient,
     GitLinkCli,
@@ -59,6 +71,14 @@ class PublisherApplication(ctk.CTk):
         self.workspace = workspace
         self.settings = settings or PublisherSettings()
         self.profile = workspace.initialize()
+        self.acceptance = AcceptanceManager(workspace)
+        self._acceptance_generation = 0
+        self._acceptance_fingerprint: AcceptanceFingerprint | None = None
+        self._acceptance_session: AcceptanceSession | None = None
+        self._acceptance_paths = AcceptancePaths(None, None)
+        self._acceptance_cases: tuple[AcceptanceCase, ...] = ()
+        self._acceptance_case_id = ""
+        self._acceptance_variant_by_label: dict[str, str] = {}
         self.gitlink = GitLinkCli()
         self.repository = GitLinkRepository(
             self.settings.owner, self.settings.repository
@@ -80,6 +100,7 @@ class PublisherApplication(ctk.CTk):
         self.configure(fg_color=PAGE)
         ctk.set_appearance_mode("light")
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._close_publisher)
         self.refresh()
 
     def _build_ui(self) -> None:
@@ -119,10 +140,12 @@ class PublisherApplication(ctk.CTk):
         self.sources_tab = self.tabs.add("资源管理")
         self.build_tab = self.tabs.add("构建与发布")
         self.remote_tab = self.tabs.add("远程资源")
+        self.acceptance_tab = self.tabs.add("发布验收")
         self.games_tab = self.tabs.add("卡带配置")
         self._build_sources_tab()
         self._build_publish_tab()
         self._build_remote_tab()
+        self._build_acceptance_tab()
         self._build_games_tab()
 
     def _card(self, parent, row: int, title: str) -> ctk.CTkFrame:
@@ -426,6 +449,292 @@ class PublisherApplication(ctk.CTk):
             row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
         )
 
+    def _build_acceptance_tab(self) -> None:
+        self.acceptance_tab.grid_columnconfigure(0, weight=1)
+        self.acceptance_tab.grid_rowconfigure(1, weight=1)
+
+        summary = ctk.CTkFrame(
+            self.acceptance_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        summary.grid(row=0, column=0, padx=8, pady=(8, 4), sticky="ew")
+        summary.grid_columnconfigure(0, weight=1)
+        title_bar = ctk.CTkFrame(summary, fg_color="transparent")
+        title_bar.grid(row=0, column=0, padx=18, pady=(14, 6), sticky="ew")
+        title_bar.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            title_bar,
+            text="发布验收",
+            font=("Microsoft YaHei UI", 20, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, sticky="w")
+        self.acceptance_summary = ctk.CTkLabel(
+            title_bar, text="正在读取当前构建…", text_color=MUTED, anchor="e"
+        )
+        self.acceptance_summary.grid(row=0, column=1, padx=12, sticky="e")
+        self.acceptance_refresh_button = ctk.CTkButton(
+            title_bar,
+            text="刷新指纹",
+            width=110,
+            fg_color=LIGHT_BLUE,
+            command=self.refresh_acceptance,
+        )
+        self.acceptance_refresh_button.grid(row=0, column=2, padx=4)
+        self.acceptance_new_button = ctk.CTkButton(
+            title_bar,
+            text="开始新一轮",
+            width=110,
+            fg_color=BLUE,
+            command=self.new_acceptance_session,
+        )
+        self.acceptance_new_button.grid(row=0, column=3, padx=(4, 0))
+
+        path_area = ctk.CTkFrame(summary, fg_color="transparent")
+        self.acceptance_path_area = path_area
+        path_area.grid(row=1, column=0, padx=18, pady=(2, 6), sticky="ew")
+        path_area.grid_columnconfigure(1, weight=1)
+        path_area.grid_columnconfigure(
+            (2, 3, 4, 5), weight=0, minsize=112, uniform="acceptance_paths"
+        )
+        ctk.CTkLabel(path_area, text="待测客户端", width=80, anchor="w").grid(
+            row=0, column=0, padx=(0, 8), pady=4, sticky="w"
+        )
+        self.acceptance_client_label = ctk.CTkLabel(
+            path_area, text="尚未选择", text_color=MUTED, anchor="w"
+        )
+        self.acceptance_client_label.grid(row=0, column=1, pady=4, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="选择 EXE",
+            fg_color=LIGHT_BLUE,
+            command=self.choose_acceptance_client,
+        ).grid(row=0, column=2, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="启动客户端",
+            fg_color=BLUE,
+            command=self.launch_acceptance_client,
+        ).grid(row=0, column=3, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="收集日志",
+            fg_color=LIGHT_BLUE,
+            command=self.collect_acceptance_log,
+        ).grid(row=0, column=4, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="打开证据",
+            fg_color=LIGHT_BLUE,
+            command=self.open_acceptance_evidence,
+        ).grid(row=0, column=5, padx=4, pady=3, sticky="ew")
+
+        ctk.CTkLabel(path_area, text="实际游戏目录", width=80, anchor="w").grid(
+            row=1, column=0, padx=(0, 8), pady=4, sticky="w"
+        )
+        self.acceptance_game_label = ctk.CTkLabel(
+            path_area, text="尚未选择", text_color=MUTED, anchor="w"
+        )
+        self.acceptance_game_label.grid(row=1, column=1, pady=4, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="选择目录",
+            fg_color=LIGHT_BLUE,
+            command=self.choose_acceptance_game,
+        ).grid(row=1, column=2, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="游戏根目录",
+            fg_color=LIGHT_BLUE,
+            command=self.open_acceptance_game,
+        ).grid(row=1, column=3, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="打开 DLC",
+            fg_color=LIGHT_BLUE,
+            command=self.open_acceptance_dlc,
+        ).grid(row=1, column=4, padx=4, pady=3, sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="打开补丁",
+            fg_color=LIGHT_BLUE,
+            command=self.open_acceptance_patch,
+        ).grid(row=1, column=5, padx=4, pady=3, sticky="ew")
+
+        environment = ctk.CTkFrame(summary, fg_color="#F7FAFD", corner_radius=10)
+        environment.grid(row=2, column=0, padx=18, pady=(2, 14), sticky="ew")
+        environment.grid_columnconfigure(
+            (0, 1, 2, 3, 4), weight=1, uniform="acceptance_environment"
+        )
+        self.acceptance_environment_status = ctk.CTkLabel(
+            environment,
+            text="补丁测试环境：尚未记录基线",
+            text_color=MUTED,
+            anchor="w",
+        )
+        self.acceptance_environment_status.grid(
+            row=0, column=0, columnspan=2, padx=10, pady=(8, 4), sticky="ew"
+        )
+        self.acceptance_variant_menu = ctk.CTkOptionMenu(
+            environment,
+            values=["当前项目没有自动准备方案"],
+            fg_color=LIGHT_BLUE,
+            button_color=BLUE,
+            state="disabled",
+        )
+        self.acceptance_variant_menu.grid(
+            row=0, column=2, columnspan=3, padx=6, pady=(8, 4), sticky="ew"
+        )
+        self.acceptance_inspect_button = ctk.CTkButton(
+            environment,
+            text="检查并记录",
+            fg_color=LIGHT_BLUE,
+            command=self.inspect_acceptance_environment,
+        )
+        self.acceptance_inspect_button.grid(
+            row=1, column=0, padx=4, pady=(4, 8), sticky="ew"
+        )
+        self.acceptance_baseline_button = ctk.CTkButton(
+            environment,
+            text="记录补丁基线",
+            fg_color=LIGHT_BLUE,
+            command=self.capture_acceptance_baseline,
+        )
+        self.acceptance_baseline_button.grid(
+            row=1, column=1, padx=4, pady=(4, 8), sticky="ew"
+        )
+        self.acceptance_preview_button = ctk.CTkButton(
+            environment,
+            text="预览环境准备",
+            fg_color=LIGHT_BLUE,
+            state="disabled",
+            command=self.preview_acceptance_preparation,
+        )
+        self.acceptance_preview_button.grid(
+            row=1, column=2, padx=4, pady=(4, 8), sticky="ew"
+        )
+        self.acceptance_apply_button = ctk.CTkButton(
+            environment,
+            text="执行环境准备",
+            fg_color=BLUE,
+            state="disabled",
+            command=self.apply_acceptance_preparation,
+        )
+        self.acceptance_apply_button.grid(
+            row=1, column=3, padx=4, pady=(4, 8), sticky="ew"
+        )
+        self.acceptance_restore_button = ctk.CTkButton(
+            environment,
+            text="恢复测试环境",
+            fg_color="transparent",
+            border_width=1,
+            border_color=RED,
+            text_color=RED,
+            hover_color="#FFEBEE",
+            state="disabled",
+            command=self.restore_acceptance_environment,
+        )
+        self.acceptance_restore_button.grid(
+            row=1, column=4, padx=4, pady=(4, 8), sticky="ew"
+        )
+
+        body = ctk.CTkFrame(
+            self.acceptance_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        body.grid(row=1, column=0, padx=8, pady=(4, 8), sticky="nsew")
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+        self.acceptance_case_list = ctk.CTkScrollableFrame(
+            body,
+            width=330,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+        )
+        self.acceptance_case_list.grid(
+            row=0, column=0, padx=(14, 7), pady=14, sticky="nsew"
+        )
+        detail = ctk.CTkFrame(body, fg_color="transparent")
+        detail.grid(row=0, column=1, padx=(7, 14), pady=14, sticky="nsew")
+        detail.grid_columnconfigure(0, weight=1)
+        detail.grid_rowconfigure(2, weight=1)
+        self.acceptance_case_title = ctk.CTkLabel(
+            detail,
+            text="选择一个验收项目",
+            font=("Microsoft YaHei UI", 19, "bold"),
+            text_color=BLUE,
+            anchor="w",
+        )
+        self.acceptance_case_title.grid(row=0, column=0, sticky="ew")
+        self.acceptance_case_meta = ctk.CTkLabel(
+            detail, text="", text_color=MUTED, anchor="w"
+        )
+        self.acceptance_case_meta.grid(row=1, column=0, pady=(2, 6), sticky="ew")
+        self.acceptance_instructions = ctk.CTkTextbox(
+            detail,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+            text_color=TEXT,
+            wrap="word",
+        )
+        self.acceptance_instructions.grid(row=2, column=0, sticky="nsew")
+        self.acceptance_instructions.configure(state="disabled")
+        ctk.CTkLabel(detail, text="结果备注（可选）", text_color=MUTED).grid(
+            row=3, column=0, pady=(8, 2), sticky="w"
+        )
+        self.acceptance_note = ctk.CTkTextbox(
+            detail,
+            height=62,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#BDBDBD",
+            text_color=TEXT,
+            wrap="word",
+        )
+        self.acceptance_note.grid(row=4, column=0, sticky="ew")
+        result_bar = ctk.CTkFrame(detail, fg_color="transparent")
+        result_bar.grid(row=5, column=0, pady=(8, 0), sticky="ew")
+        result_bar.grid_columnconfigure(
+            (0, 1, 2, 3), weight=1, uniform="acceptance_results"
+        )
+        ctk.CTkButton(
+            result_bar,
+            text="标记通过",
+            fg_color="#2E7D32",
+            hover_color="#1B5E20",
+            command=lambda: self.mark_acceptance_result(PASSED),
+        ).grid(row=0, column=0, padx=4, sticky="ew")
+        ctk.CTkButton(
+            result_bar,
+            text="标记失败",
+            fg_color=RED,
+            hover_color="#C62828",
+            command=lambda: self.mark_acceptance_result(FAILED),
+        ).grid(row=0, column=1, padx=4, sticky="ew")
+        ctk.CTkButton(
+            result_bar,
+            text="暂时跳过",
+            fg_color=MUTED,
+            command=lambda: self.mark_acceptance_result(SKIPPED),
+        ).grid(row=0, column=2, padx=4, sticky="ew")
+        ctk.CTkButton(
+            result_bar,
+            text="清除结果",
+            fg_color="transparent",
+            border_width=1,
+            border_color="#BDBDBD",
+            text_color=MUTED,
+            hover_color="#EEEEEE",
+            command=self.clear_acceptance_result,
+        ).grid(row=0, column=3, padx=4, sticky="ew")
+
     def _build_games_tab(self) -> None:
         card = self._card(self.games_tab, 0, "游戏卡带配置")
         form = ctk.CTkFrame(card, fg_color="transparent")
@@ -494,6 +803,568 @@ class PublisherApplication(ctk.CTk):
         if hasattr(self, "local_output_list"):
             self._fill_local_outputs()
             self._show_remote_message("点击“刷新远程”读取当前游戏的 Release")
+        if hasattr(self, "acceptance_case_list"):
+            try:
+                self.after_idle(self.refresh_acceptance)
+            except TclError:
+                pass
+
+    def refresh_acceptance(self) -> None:
+        self._acceptance_generation += 1
+        generation = self._acceptance_generation
+        profile = self.profile
+        paths = self.acceptance.configured_paths(profile)
+        cases = self.acceptance.cases_for(profile)
+        self._acceptance_paths = paths
+        self._acceptance_cases = cases
+        self.acceptance_refresh_button.configure(state="disabled", text="正在读取…")
+        self.acceptance_summary.configure(text="正在计算客户端与资源指纹…")
+        self.acceptance_client_label.configure(
+            text=self._acceptance_display_path(paths.client_path),
+            text_color=TEXT if paths.client_path and paths.client_path.is_file() else MUTED,
+        )
+        self.acceptance_game_label.configure(
+            text=self._acceptance_display_path(paths.game_path),
+            text_color=TEXT if paths.game_path and paths.game_path.is_dir() else MUTED,
+        )
+
+        def work() -> None:
+            try:
+                fingerprint = self.acceptance.fingerprint(profile, paths.client_path)
+                session = self.acceptance.ensure_session(profile, fingerprint)
+                self.after(
+                    0,
+                    lambda: self._acceptance_loaded(
+                        generation, profile.game_id, paths, cases, fingerprint, session
+                    ),
+                )
+            except (AcceptanceError, OSError, ValueError) as error:
+                self.after(
+                    0,
+                    lambda value=str(error): self._acceptance_load_failed(
+                        generation, profile.game_id, value
+                    ),
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _acceptance_loaded(
+        self,
+        generation: int,
+        game_id: str,
+        paths: AcceptancePaths,
+        cases: tuple[AcceptanceCase, ...],
+        fingerprint: AcceptanceFingerprint,
+        session: AcceptanceSession,
+    ) -> None:
+        if generation != self._acceptance_generation or game_id != self.profile.game_id:
+            return
+        self.acceptance_refresh_button.configure(state="normal", text="刷新指纹")
+        self._acceptance_paths = paths
+        self._acceptance_cases = cases
+        self._acceptance_fingerprint = fingerprint
+        self._acceptance_session = session
+        self._fill_acceptance_cases()
+        self._render_acceptance_case()
+
+    def _acceptance_load_failed(
+        self, generation: int, game_id: str, message: str
+    ) -> None:
+        if generation != self._acceptance_generation or game_id != self.profile.game_id:
+            return
+        self.acceptance_refresh_button.configure(state="normal", text="刷新指纹")
+        self._acceptance_fingerprint = None
+        self._acceptance_session = None
+        self.acceptance_summary.configure(text=f"验收信息读取失败：{message}", text_color=RED)
+
+    def _fill_acceptance_cases(self) -> None:
+        for child in self.acceptance_case_list.winfo_children():
+            child.destroy()
+        session = self._acceptance_session
+        fingerprint = self._acceptance_fingerprint
+        stale = bool(
+            session and fingerprint and session.fingerprint.value != fingerprint.value
+        )
+        valid_ids = {case.case_id for case in self._acceptance_cases}
+        if self._acceptance_case_id not in valid_ids:
+            self._acceptance_case_id = (
+                self._acceptance_cases[0].case_id if self._acceptance_cases else ""
+            )
+        current_category = ""
+        for case in self._acceptance_cases:
+            if case.category != current_category:
+                current_category = case.category
+                ctk.CTkLabel(
+                    self.acceptance_case_list,
+                    text=current_category,
+                    font=("Microsoft YaHei UI", 14, "bold"),
+                    text_color=BLUE,
+                    anchor="w",
+                ).pack(fill="x", padx=7, pady=(10, 3))
+            result = session.results.get(case.case_id) if session else None
+            status = result.status if result else "pending"
+            status_text, status_color = self._acceptance_status_style(status, stale)
+            selected = case.case_id == self._acceptance_case_id
+            row = ctk.CTkButton(
+                self.acceptance_case_list,
+                text=f"{case.title}    {status_text}",
+                height=38,
+                anchor="w",
+                fg_color="#E3F2FD" if selected else CARD,
+                hover_color="#E3F2FD",
+                border_width=1,
+                border_color=BLUE if selected else "#E0E0E0",
+                text_color=status_color if status != "pending" or stale else TEXT,
+                command=lambda value=case.case_id: self.select_acceptance_case(value),
+            )
+            row.pack(fill="x", padx=4, pady=3)
+        self._schedule_scrollable_reset(self.acceptance_case_list)
+        counts = {PASSED: 0, FAILED: 0, SKIPPED: 0}
+        if session:
+            for case in self._acceptance_cases:
+                result = session.results.get(case.case_id)
+                if result and result.status in counts:
+                    counts[result.status] += 1
+        total = len(self._acceptance_cases)
+        completed = sum(counts.values())
+        if fingerprint is None or session is None:
+            summary = "尚未建立验收轮次"
+        elif stale:
+            summary = (
+                f"结果已过期 · 当前 {fingerprint.short} · "
+                f"原轮次 {session.fingerprint.short} · 请开始新一轮"
+            )
+        else:
+            summary = (
+                f"构建 {fingerprint.short} · {completed}/{total} · "
+                f"通过 {counts[PASSED]} · 失败 {counts[FAILED]} · 跳过 {counts[SKIPPED]}"
+            )
+        self.acceptance_summary.configure(
+            text=summary, text_color=RED if stale or counts[FAILED] else MUTED
+        )
+
+    @staticmethod
+    def _acceptance_status_style(status: str, stale: bool) -> tuple[str, str]:
+        if stale and status != "pending":
+            return "已过期", MUTED
+        return {
+            PASSED: ("已通过", "#2E7D32"),
+            FAILED: ("失败", RED),
+            SKIPPED: ("已跳过", MUTED),
+        }.get(status, ("未测试", TEXT))
+
+    def select_acceptance_case(self, case_id: str) -> None:
+        self._acceptance_case_id = case_id
+        self._fill_acceptance_cases()
+        self._render_acceptance_case()
+
+    def _render_acceptance_case(self) -> None:
+        case = next(
+            (
+                item
+                for item in self._acceptance_cases
+                if item.case_id == self._acceptance_case_id
+            ),
+            None,
+        )
+        if case is None:
+            return
+        session = self._acceptance_session
+        result = session.results.get(case.case_id) if session else None
+        self.acceptance_case_title.configure(text=case.title)
+        self.acceptance_case_meta.configure(
+            text=f"{case.category} · {case.case_id} · {case.download_level}"
+        )
+        self.acceptance_instructions.configure(state="normal")
+        self.acceptance_instructions.delete("1.0", "end")
+        self.acceptance_instructions.insert("1.0", case.instructions())
+        self.acceptance_instructions.configure(state="disabled")
+        self.acceptance_note.delete("1.0", "end")
+        if result and result.note:
+            self.acceptance_note.insert("1.0", result.note)
+        self._update_acceptance_environment_controls()
+
+    def _update_acceptance_environment_controls(self) -> None:
+        session = self._acceptance_session
+        active = self.acceptance.active_preparation(self.profile)
+        variants = self.acceptance.preparation_variants(self._acceptance_case_id)
+        self._acceptance_variant_by_label = {
+            variant.label: variant.variant_id for variant in variants
+        }
+        if variants:
+            labels = list(self._acceptance_variant_by_label)
+            selected = self.acceptance_variant_menu.get()
+            self.acceptance_variant_menu.configure(values=labels)
+            self.acceptance_variant_menu.set(
+                selected if selected in self._acceptance_variant_by_label else labels[0]
+            )
+        else:
+            self.acceptance_variant_menu.configure(
+                values=["当前项目没有自动准备方案"]
+            )
+            self.acceptance_variant_menu.set("当前项目没有自动准备方案")
+        if active is not None:
+            label = str(active.get("variant_label", "未知方案"))
+            self.acceptance_environment_status.configure(
+                text=f"存在未恢复的测试环境：{label}", text_color=RED
+            )
+            self.acceptance_variant_menu.configure(state="disabled")
+            self.acceptance_baseline_button.configure(state="disabled")
+            self.acceptance_preview_button.configure(state="disabled")
+            self.acceptance_apply_button.configure(state="disabled")
+            self.acceptance_restore_button.configure(state="normal")
+            return
+        baseline = (
+            self.acceptance.current_baseline(self.profile, session)
+            if session is not None
+            else None
+        )
+        if baseline is None:
+            self.acceptance_environment_status.configure(
+                text="补丁测试环境：尚未记录当前轮次基线", text_color=MUTED
+            )
+        else:
+            self.acceptance_environment_status.configure(
+                text=f"补丁基线已记录：{baseline.get('created_at', '')}",
+                text_color="#2E7D32",
+            )
+        ready = bool(
+            variants
+            and baseline is not None
+            and self._acceptance_fingerprint is not None
+            and session is not None
+        )
+        self.acceptance_variant_menu.configure(
+            state="normal" if variants else "disabled"
+        )
+        self.acceptance_baseline_button.configure(
+            state="normal" if session and self._acceptance_fingerprint else "disabled"
+        )
+        self.acceptance_preview_button.configure(state="normal" if ready else "disabled")
+        self.acceptance_apply_button.configure(state="normal" if ready else "disabled")
+        self.acceptance_restore_button.configure(state="disabled")
+
+    def _selected_preparation_variant(self) -> str:
+        return self._acceptance_variant_by_label.get(
+            self.acceptance_variant_menu.get(), ""
+        )
+
+    def capture_acceptance_baseline(self) -> None:
+        fingerprint = self._acceptance_fingerprint
+        session = self._acceptance_session
+        if fingerprint is None or session is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        existing = self.acceptance.current_baseline(self.profile, session)
+        overwrite = False
+        if existing is not None:
+            overwrite = messagebox.askyesno(
+                "重新记录补丁基线",
+                "当前轮次已经记录过补丁基线。\n\n"
+                "只有确认游戏已经恢复到正确状态时才能覆盖，是否继续？",
+            )
+            if not overwrite:
+                return
+        elif not messagebox.askyesno(
+            "记录补丁基线",
+            "将只复制补丁目录中的两个 DLL 和 cream_api.ini 到验收备份。\n\n"
+            "不会修改游戏文件，也不会备份或扫描全部 DLC。是否继续？",
+        ):
+            return
+        try:
+            output = self.acceptance.capture_patch_baseline(
+                self.profile,
+                self._acceptance_paths,
+                session,
+                fingerprint,
+                overwrite=overwrite,
+            )
+            self._update_acceptance_environment_controls()
+            messagebox.showinfo("基线已记录", f"补丁测试基线已保存：\n{output}")
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("记录补丁基线失败", str(error))
+
+    def preview_acceptance_preparation(self) -> None:
+        try:
+            preview = self._acceptance_preparation_preview()
+            messagebox.showinfo(
+                "环境准备预览",
+                f"方案：{preview.variant.label}\n\n"
+                f"{preview.variant.description}\n\n"
+                + "\n".join(f"· {action}" for action in preview.actions)
+                + "\n\n此时尚未修改游戏文件。",
+            )
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("无法预览环境准备", str(error))
+
+    def apply_acceptance_preparation(self) -> None:
+        try:
+            preview = self._acceptance_preparation_preview()
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("无法准备测试环境", str(error))
+            return
+        if not messagebox.askyesno(
+            "执行环境准备",
+            f"方案：{preview.variant.label}\n\n"
+            + "\n".join(f"· {action}" for action in preview.actions)
+            + "\n\n执行前请关闭游戏和客户端。程序会保留基线用于恢复，是否继续？",
+        ):
+            return
+        try:
+            assert self._acceptance_session is not None
+            assert self._acceptance_fingerprint is not None
+            self.acceptance.apply_preparation(
+                self.profile,
+                self._acceptance_paths,
+                self._acceptance_session,
+                self._acceptance_fingerprint,
+                self._acceptance_case_id,
+                preview.variant.variant_id,
+            )
+            self._update_acceptance_environment_controls()
+            messagebox.showwarning(
+                "测试环境已准备",
+                "测试环境已经生效。现在可以启动客户端执行对应测试。\n\n"
+                "测试完成后务必点击“恢复测试环境”。",
+            )
+        except (AcceptanceError, OSError) as error:
+            self._update_acceptance_environment_controls()
+            messagebox.showerror("准备测试环境失败", str(error))
+
+    def _acceptance_preparation_preview(self) -> PreparationPreview:
+        fingerprint = self._acceptance_fingerprint
+        session = self._acceptance_session
+        variant_id = self._selected_preparation_variant()
+        if fingerprint is None or session is None:
+            raise AcceptanceError("请先等待或刷新当前构建指纹")
+        if not variant_id:
+            raise AcceptanceError("当前验收项目没有可自动准备的安全环境方案")
+        return self.acceptance.preview_preparation(
+            self.profile,
+            self._acceptance_paths,
+            session,
+            fingerprint,
+            self._acceptance_case_id,
+            variant_id,
+        )
+
+    def restore_acceptance_environment(self) -> None:
+        active = self.acceptance.active_preparation(self.profile)
+        if active is None:
+            messagebox.showinfo("无需恢复", "当前游戏没有未恢复的测试环境")
+            return
+        if not messagebox.askyesno(
+            "恢复测试环境",
+            f"将按照测试前基线恢复补丁文件。\n\n"
+            f"当前方案：{active.get('variant_label', '未知方案')}\n"
+            "恢复前请关闭游戏和客户端，是否继续？",
+        ):
+            return
+        try:
+            count = self.acceptance.restore_prepared_environment(self.profile)
+            self._update_acceptance_environment_controls()
+            messagebox.showinfo("测试环境已恢复", f"已按基线恢复 {count} 个补丁目标。")
+        except (AcceptanceError, OSError) as error:
+            self._update_acceptance_environment_controls()
+            messagebox.showerror(
+                "恢复测试环境失败",
+                f"{error}\n\n测试环境仍标记为未恢复，请不要启动游戏。",
+            )
+
+    def new_acceptance_session(self) -> None:
+        if self.acceptance.active_preparation(self.profile) is not None:
+            messagebox.showwarning(
+                "请先恢复测试环境", "当前游戏仍有未恢复的测试环境，不能开始新一轮。"
+            )
+            return
+        fingerprint = self._acceptance_fingerprint
+        if fingerprint is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        session = self._acceptance_session
+        if session and session.results and not messagebox.askyesno(
+            "开始新一轮验收",
+            "当前轮次已有测试记录。旧记录会归档保留，新一轮将从未测试开始，是否继续？",
+        ):
+            return
+        try:
+            self._acceptance_session = self.acceptance.new_session(
+                self.profile, fingerprint
+            )
+            self._fill_acceptance_cases()
+            self._render_acceptance_case()
+        except OSError as error:
+            messagebox.showerror("无法开始验收", str(error))
+
+    def mark_acceptance_result(self, status: str) -> None:
+        fingerprint = self._acceptance_fingerprint
+        if not self._acceptance_case_id or fingerprint is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        note = self.acceptance_note.get("1.0", "end").strip()
+        try:
+            self._acceptance_session = self.acceptance.record_result(
+                self.profile,
+                self._acceptance_case_id,
+                status,
+                fingerprint,
+                note=note,
+            )
+            self._fill_acceptance_cases()
+            self._render_acceptance_case()
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("记录验收结果失败", str(error))
+
+    def clear_acceptance_result(self) -> None:
+        if not self._acceptance_case_id:
+            return
+        try:
+            self._acceptance_session = self.acceptance.clear_result(
+                self.profile, self._acceptance_case_id
+            )
+            self._fill_acceptance_cases()
+            self._render_acceptance_case()
+        except OSError as error:
+            messagebox.showerror("清除验收结果失败", str(error))
+
+    def choose_acceptance_client(self) -> None:
+        current = self._acceptance_paths.client_path
+        path = filedialog.askopenfilename(
+            title="选择要人工验收的客户端 EXE",
+            initialdir=current.parent if current and current.parent.is_dir() else None,
+            filetypes=(("Windows 程序", "*.exe"), ("所有文件", "*.*")),
+        )
+        if not path:
+            return
+        selected = Path(path)
+        try:
+            self._acceptance_paths = self.acceptance.save_paths(
+                self.profile, client_path=selected, keep_client=False
+            )
+            self.refresh_acceptance()
+        except OSError as error:
+            messagebox.showerror("保存客户端路径失败", str(error))
+
+    def choose_acceptance_game(self) -> None:
+        if self.acceptance.active_preparation(self.profile) is not None:
+            messagebox.showwarning(
+                "请先恢复测试环境", "当前游戏仍有未恢复的测试环境，不能更换游戏目录。"
+            )
+            return
+        current = self._acceptance_paths.game_path
+        path = filedialog.askdirectory(
+            title=f"选择 {self.profile.display_name} 的实际游戏目录",
+            initialdir=current if current and current.is_dir() else None,
+        )
+        if not path:
+            return
+        try:
+            self._acceptance_paths = self.acceptance.save_paths(
+                self.profile, game_path=Path(path), keep_game=False
+            )
+            self.refresh_acceptance()
+        except OSError as error:
+            messagebox.showerror("保存游戏路径失败", str(error))
+
+    def launch_acceptance_client(self) -> None:
+        path = self._acceptance_paths.client_path
+        if path is None or not path.is_file():
+            messagebox.showinfo("未选择客户端", "请先选择要测试的客户端 EXE")
+            return
+        try:
+            root = path.parent.parent if path.parent.name.casefold() == "bin" else path.parent
+            subprocess.Popen([str(path)], cwd=root)
+        except OSError as error:
+            messagebox.showerror("启动客户端失败", str(error))
+
+    def open_acceptance_dlc(self) -> None:
+        game_root = self._acceptance_paths.game_path
+        if game_root is None or not game_root.is_dir():
+            messagebox.showinfo("未选择游戏目录", "请先选择当前游戏的实际安装目录")
+            return
+        path = game_root / self.profile.dlc_relative_dir
+        if not path.is_dir():
+            messagebox.showwarning("DLC 目录不存在", f"当前卡带配置的目录不存在：\n{path}")
+            return
+        self._open(path)
+
+    def open_acceptance_game(self) -> None:
+        game_root = self._acceptance_paths.game_path
+        if game_root is None or not game_root.is_dir():
+            messagebox.showinfo("未选择游戏目录", "请先选择当前游戏的实际安装目录")
+            return
+        self._open(game_root)
+
+    def open_acceptance_patch(self) -> None:
+        game_root = self._acceptance_paths.game_path
+        if game_root is None or not game_root.is_dir():
+            messagebox.showinfo("未选择游戏目录", "请先选择当前游戏的实际安装目录")
+            return
+        path = game_root / self.profile.patch_relative_dir
+        if not path.is_dir():
+            messagebox.showwarning("补丁目录不存在", f"当前卡带配置的目录不存在：\n{path}")
+            return
+        self._open(path)
+
+    def inspect_acceptance_environment(self) -> None:
+        fingerprint = self._acceptance_fingerprint
+        if fingerprint is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        try:
+            session = self._acceptance_session or self.acceptance.ensure_session(
+                self.profile, fingerprint
+            )
+            output, report = self.acceptance.inspect_environment(
+                self.profile, self._acceptance_paths, session
+            )
+            patch_files = report.get("patch_files", {})
+            patch_ready = sum(
+                1
+                for value in patch_files.values()
+                if isinstance(value, dict) and value.get("exists")
+            ) if isinstance(patch_files, dict) else 0
+            messagebox.showinfo(
+                "环境状态已记录",
+                f"DLC 文件夹：{report['dlc_folder_count']} 个\n"
+                f"补丁相关文件：{patch_ready}/3 个存在\n\n"
+                f"只进行了读取，没有修改游戏文件。\n记录：{output}",
+            )
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("检查环境失败", str(error))
+
+    def collect_acceptance_log(self) -> None:
+        fingerprint = self._acceptance_fingerprint
+        if fingerprint is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        try:
+            session = self._acceptance_session or self.acceptance.ensure_session(
+                self.profile, fingerprint
+            )
+            output = self.acceptance.collect_client_log(
+                self.profile, self._acceptance_paths, session
+            )
+            messagebox.showinfo("日志已收集", f"客户端日志已复制到：\n{output}")
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("收集日志失败", str(error))
+
+    def open_acceptance_evidence(self) -> None:
+        session = self._acceptance_session
+        if session is None:
+            messagebox.showinfo("验收尚未就绪", "当前还没有验收轮次")
+            return
+        try:
+            self._open(self.acceptance.evidence_dir(self.profile, session))
+        except OSError as error:
+            messagebox.showerror("打开证据目录失败", str(error))
+
+    @staticmethod
+    def _acceptance_display_path(path: Path | None, limit: int = 92) -> str:
+        if path is None:
+            return "尚未选择"
+        text = str(path)
+        return text if len(text) <= limit else "…" + text[-(limit - 1):]
 
     @staticmethod
     def _reset_scrollable_frame(frame) -> None:
@@ -939,6 +1810,7 @@ class PublisherApplication(ctk.CTk):
         )
         self._log(f"本地构建完成：{game_id}，共 {files} 个发布文件。")
         self._fill_local_outputs()
+        self.refresh_acceptance()
 
     def _build_failed(self, message: str) -> None:
         self._build_operation_active = False
@@ -1655,3 +2527,17 @@ class PublisherApplication(ctk.CTk):
             os.startfile(path)  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["xdg-open", str(path)])
+
+    def _close_publisher(self) -> None:
+        active = self.acceptance.active_preparations()
+        if active:
+            games = ", ".join(
+                str(value.get("game_id", "未知游戏")) for value in active
+            )
+            if not messagebox.askyesno(
+                "存在未恢复的测试环境",
+                f"以下游戏仍保留人工构造的测试环境：\n{games}\n\n"
+                "直接退出不会自动恢复游戏文件。确定仍要退出吗？",
+            ):
+                return
+        self.destroy()
