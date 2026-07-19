@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -16,12 +17,23 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from ...domain import (
-    InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile,
+    DiskSpaceRequirement,
+    InstallAudit,
+    InstallHealth,
+    InstallMaintenanceEntry,
+    InstallMaintenancePreview,
+    InstallMaintenanceResult,
+    InstallPhase,
+    InstallPlan,
+    InstallReceipt,
+    InstallSpaceEstimate,
+    OwnedFile,
     game_relative_path, normalize_game_relative_directory, resolve_game_directory,
 )
 from ..catalog import inspect_stellaris_package
 
 _DLC_DIRECTORY = re.compile(r"^dlc\d{3,}_[a-z0-9_]+$", re.I)
+LOGGER = logging.getLogger(__name__)
 
 
 class InstallError(RuntimeError):
@@ -36,6 +48,14 @@ class InstallConflictError(InstallError):
     """The destination changed while an installation was in progress."""
 
 
+class InstallSpaceError(InstallError):
+    """Installation cannot start without risking an out-of-space rollback."""
+
+
+class InstallRecoveryConflict(InstallError):
+    """An interrupted transaction cannot be changed without risking user data."""
+
+
 class StellarisInstallEngine:
     def __init__(
         self,
@@ -48,6 +68,9 @@ class StellarisInstallEngine:
         package_inspector=inspect_stellaris_package,
         sleep: Callable[[float], None] = time.sleep,
         replace_retry_delays: tuple[float, ...] = (0.15, 0.4, 0.8),
+        disk_usage: Callable[[Path], object] = shutil.disk_usage,
+        space_margin_bytes: int = 64 * 1024 * 1024,
+        volume_key: Callable[[Path], object] | None = None,
     ) -> None:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
@@ -69,6 +92,17 @@ class StellarisInstallEngine:
         self.package_inspector = package_inspector
         self._sleep = sleep
         self._replace_retry_delays = tuple(replace_retry_delays)
+        self._disk_usage = disk_usage
+        if space_margin_bytes < 0:
+            raise ValueError("space margin cannot be negative")
+        self._space_margin_bytes = int(space_margin_bytes)
+        self._volume_key_override = volume_key
+        self._last_recovery_warnings: tuple[str, ...] = ()
+
+    @property
+    def last_recovery_warnings(self) -> tuple[str, ...]:
+        """Diagnostics for journals retained during the latest recovery pass."""
+        return self._last_recovery_warnings
 
     def plan(
         self,
@@ -118,11 +152,17 @@ class StellarisInstallEngine:
             journal_path=transaction_root / "journal.json",
         )
 
-    def install(self, plan: InstallPlan) -> InstallReceipt:
+    def install(
+        self,
+        plan: InstallPlan,
+        *,
+        previous_transaction_id: str | None = None,
+    ) -> InstallReceipt:
         target = self._contained(plan.game_root, plan.target_path)
         staged = plan.staging_root / plan.relative_target.name
         backup = plan.backup_root / plan.relative_target.name
         replaced_existing = self._inspect_target(target)
+        self.ensure_disk_space(plan, replaced_existing=replaced_existing)
         backup_created = False
         destructive_backup_started = False
         committed = False
@@ -155,7 +195,24 @@ class StellarisInstallEngine:
             self._commit_staged(plan, staged, target)
             committed = True
             installed_tree_sha256, owned_files = self._installed_snapshot(target)
-            self._write_journal(plan, InstallPhase.COMMITTED, replaced_existing)
+            receipt = InstallReceipt(
+                transaction_id=plan.transaction_id,
+                game_id=plan.game_id,
+                dlc_id=plan.dlc_id,
+                target_path=target,
+                package_sha256=plan.package_sha256,
+                replaced_existing=replaced_existing,
+                backup_path=backup if replaced_existing else None,
+                installed_tree_sha256=installed_tree_sha256,
+                owned_files=owned_files,
+                previous_transaction_id=previous_transaction_id,
+            )
+            self._write_journal(
+                plan,
+                InstallPhase.COMMITTED,
+                replaced_existing,
+                receipt=receipt,
+            )
         except Exception as error:
             backup_created = backup_created or self._completed_backup_exists(
                 plan, target, backup
@@ -172,17 +229,97 @@ class StellarisInstallEngine:
             if isinstance(error, InstallError):
                 raise
             raise InstallError(f"installation failed and was rolled back: {error}") from error
-        return InstallReceipt(
-            transaction_id=plan.transaction_id,
-            game_id=plan.game_id,
-            dlc_id=plan.dlc_id,
-            target_path=target,
-            package_sha256=plan.package_sha256,
-            replaced_existing=replaced_existing,
-            backup_path=backup if replaced_existing else None,
-            installed_tree_sha256=installed_tree_sha256,
-            owned_files=owned_files,
+        return receipt
+
+    def estimate_disk_space(
+        self,
+        plan: InstallPlan,
+        *,
+        replaced_existing: bool | None = None,
+    ) -> InstallSpaceEstimate:
+        """Return a conservative, per-filesystem install space estimate.
+
+        The estimate reserves room for extraction in the transaction area and
+        for the verified destination-side temporary copy used when a direct
+        rename is rejected.  When data and game directories are on different
+        filesystems, it also reserves a full copy of the displaced target in
+        the backup area.
+        """
+        target = self._contained(plan.game_root, plan.target_path)
+        if replaced_existing is None:
+            replaced_existing = self._inspect_target(target)
+        expanded = self._expanded_package_size(plan.package_path)
+        existing = self._tree_size(target) if replaced_existing else 0
+
+        data_probe = self._existing_ancestor(plan.staging_root)
+        target_probe = self._existing_ancestor(target.parent)
+        data_volume = self._volume_key(data_probe)
+        target_volume = self._volume_key(target_probe)
+        requirements: dict[object, dict[str, object]] = {}
+
+        def reserve(
+            volume: object, probe: Path, amount: int, purpose: str
+        ) -> None:
+            bucket = requirements.setdefault(
+                volume,
+                {"probe": probe, "bytes": 0, "purposes": []},
+            )
+            bucket["bytes"] = int(bucket["bytes"]) + max(0, int(amount))
+            cast_purposes = bucket["purposes"]
+            assert isinstance(cast_purposes, list)
+            cast_purposes.append(purpose)
+
+        reserve(data_volume, data_probe, expanded, "解压暂存")
+        reserve(target_volume, target_probe, expanded, "目标侧安全提交副本")
+        if replaced_existing and data_volume != target_volume:
+            reserve(data_volume, data_probe, existing, "已有 DLC 回滚备份")
+
+        results = []
+        for bucket in requirements.values():
+            probe = Path(bucket["probe"])
+            required = int(bucket["bytes"]) + self._space_margin_bytes
+            try:
+                usage = self._disk_usage(probe)
+                available = int(getattr(usage, "free"))
+            except (OSError, TypeError, ValueError, AttributeError) as error:
+                raise InstallError(
+                    f"无法检查安装磁盘的可用空间：{probe}（{error}）"
+                ) from error
+            results.append(DiskSpaceRequirement(
+                probe_path=probe,
+                required_bytes=required,
+                available_bytes=available,
+                purposes=tuple(str(item) for item in bucket["purposes"]),
+            ))
+        return InstallSpaceEstimate(
+            expanded_package_bytes=expanded,
+            existing_target_bytes=existing,
+            requirements=tuple(results),
         )
+
+    def ensure_disk_space(
+        self,
+        plan: InstallPlan,
+        *,
+        replaced_existing: bool | None = None,
+    ) -> InstallSpaceEstimate:
+        estimate = self.estimate_disk_space(
+            plan, replaced_existing=replaced_existing
+        )
+        insufficient = tuple(
+            item for item in estimate.requirements if not item.sufficient
+        )
+        if insufficient:
+            details = "; ".join(
+                f"{item.probe_path} 需要约 {self._format_bytes(item.required_bytes)}，"
+                f"可用 {self._format_bytes(item.available_bytes)}"
+                for item in insufficient
+            )
+            raise InstallSpaceError(
+                "安装前磁盘空间检查未通过：" + details +
+                "。尚未改动游戏文件，请清理空间后重试。"
+            )
+        return estimate
 
     def verify(self, receipt: InstallReceipt, allowed_game_root: Path) -> bool:
         return self.assess(receipt, allowed_game_root) is InstallHealth.HEALTHY
@@ -306,80 +443,548 @@ class StellarisInstallEngine:
             and payload.get("phase") == "committed"
         )
 
-    def recover_incomplete(self, allowed_game_roots) -> tuple[str, ...]:
-        """Roll back interrupted transactions for explicitly trusted game roots."""
-        allowed = {
+    def pending_committed_receipts(
+        self, allowed_game_roots
+    ) -> tuple[InstallReceipt, ...]:
+        """Rebuild receipts for installs committed before database persistence.
+
+        Only schema-v2 committed journals under an explicitly trusted game root
+        are considered.  The installed tree must still match the durable tree
+        digest written at commit time; otherwise no database state is guessed.
+        """
+        allowed = tuple(
             Path(root).resolve(strict=True) for root in allowed_game_roots
-        }
+        )
         transactions = self.data_root / "transactions"
         if not transactions.is_dir():
             return ()
-        recovered = []
-        for journal_path in transactions.glob("*/journal.json"):
+        receipts = []
+        conflicts = []
+        for journal_path in sorted(
+            transactions.glob("*/journal.json"),
+            key=lambda item: item.parent.name.casefold(),
+        ):
             try:
-                if journal_path.stat().st_size > 256 * 1024:
-                    raise InstallError("install journal is too large")
-                payload = json.loads(journal_path.read_text(encoding="utf-8"))
-                phase = InstallPhase(payload["phase"])
-                if phase in {InstallPhase.COMMITTED, InstallPhase.ROLLED_BACK}:
-                    continue
-                transaction_id = str(payload["transaction_id"])
-                if journal_path.parent.name != transaction_id or not re.fullmatch(
-                    r"[A-Za-z0-9_-]+", transaction_id
-                ):
-                    raise InstallError("install journal transaction ID is invalid")
-                game_root = Path(payload["game_root"]).resolve(strict=True)
-                if game_root not in allowed:
-                    continue
-                relative_target = Path(payload["target"])
-                if relative_target.is_absolute() or ".." in relative_target.parts:
-                    raise InstallError("install journal target is unsafe")
-                plan = InstallPlan(
-                    transaction_id=transaction_id,
-                    game_id=str(payload["game_id"]),
-                    dlc_id=str(payload["dlc_id"]),
-                    package_path=Path(payload["package_path"]),
-                    package_sha256=str(payload["package_sha256"]),
-                    game_root=game_root,
-                    relative_target=relative_target,
-                    staging_root=journal_path.parent / "staging",
-                    backup_root=self.data_root / "backups" / transaction_id,
-                    journal_path=journal_path,
+                receipt = self._pending_receipt_from_journal(
+                    journal_path, allowed
                 )
-                target = self._contained(game_root, plan.target_path)
-                staged = plan.staging_root / relative_target.name
-                backup = plan.backup_root / relative_target.name
-                replaced = bool(payload["replaced_existing"])
-                backup_created = phase in {
-                    InstallPhase.BACKUP_COPIED,
-                    InstallPhase.BACKED_UP,
-                    InstallPhase.COMMITTING,
-                } and backup.is_dir()
-                if phase is InstallPhase.STAGED and replaced:
-                    # A crash can occur after the rename but before the next
-                    # journal write.  In that narrow window the completed
-                    # backup and absent target are the authoritative evidence.
-                    backup_created = backup.is_dir() and not target.exists()
-                self._rollback(
-                    plan,
-                    target,
-                    staged,
-                    backup,
-                    replaced,
-                    backup_created=backup_created,
-                    remove_target=phase in {
-                        InstallPhase.BACKUP_COPIED,
-                        # Schema-v1 journals written by older clients moved
-                        # directly from BACKED_UP to the commit, so a target
-                        # here can be the unjournalled new tree.
-                        InstallPhase.BACKED_UP,
-                        InstallPhase.COMMITTING,
-                    },
+                if receipt is not None:
+                    receipts.append(receipt)
+            except InstallRecoveryConflict as error:
+                conflicts.append(f"{journal_path.parent.name}: {error}")
+            except (OSError, InstallError, ValueError, KeyError, TypeError,
+                    UnicodeError, json.JSONDecodeError):
+                # Invalid/unrelated journals are already reported by the main
+                # recovery pass and remain untouched for diagnostics.
+                continue
+        if conflicts:
+            raise InstallRecoveryConflict(
+                "存在无法安全补记的已完成安装：" + "；".join(conflicts)
+            )
+        return tuple(receipts)
+
+    def mark_receipt_persisted(self, transaction_id: str) -> None:
+        self._update_committed_install_journal(
+            transaction_id, receipt_persisted=True
+        )
+
+    def mark_install_compensated(self, transaction_id: str) -> None:
+        self._update_committed_install_journal(
+            transaction_id,
+            phase=InstallPhase.ROLLED_BACK.value,
+            receipt_persisted=False,
+        )
+
+    def _pending_receipt_from_journal(
+        self, journal_path: Path, allowed_game_roots: tuple[Path, ...]
+    ) -> InstallReceipt | None:
+        transactions = (self.data_root / "transactions").resolve(strict=True)
+        transaction_root = journal_path.parent.resolve(strict=True)
+        if (
+            transaction_root.parent != transactions
+            or self._is_link(transaction_root)
+            or self._is_link(journal_path)
+            or not journal_path.is_file()
+        ):
+            raise InstallError("committed install journal is not trusted")
+        if journal_path.stat().st_size > 256 * 1024:
+            raise InstallError("committed install journal is too large")
+        payload = json.loads(journal_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise InstallError("committed install journal root must be an object")
+        if (
+            payload.get("schema_version") != 2
+            or payload.get("operation") != "install"
+            or payload.get("phase") != InstallPhase.COMMITTED.value
+            or payload.get("receipt_persisted") is True
+        ):
+            return None
+        transaction_id = str(payload["transaction_id"])
+        if (
+            transaction_root.name != transaction_id
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id)
+        ):
+            raise InstallError("committed install transaction ID is invalid")
+        try:
+            game_root = Path(payload["game_root"]).resolve(strict=True)
+        except (OSError, TypeError, ValueError) as error:
+            raise InstallError("committed install game root is unavailable") from error
+        if game_root not in allowed_game_roots:
+            return None
+        if str(payload["game_id"]) != self.game_id:
+            raise InstallRecoveryConflict("已完成安装的游戏编号与当前卡带不匹配")
+        relative_target = Path(payload["target"])
+        if (
+            relative_target.is_absolute()
+            or ".." in relative_target.parts
+            or relative_target.parent != self._dlc_relative_path
+            or not relative_target.name
+        ):
+            raise InstallRecoveryConflict("已完成安装的目标不在卡带 DLC 目录内")
+        target = self._contained(game_root, game_root / relative_target)
+        dlc_root = self._dlc_root(game_root)
+        if target.parent != dlc_root:
+            raise InstallRecoveryConflict("已完成安装的目标越过 DLC 根目录")
+        if not target.is_dir() or self._is_link(target):
+            raise InstallRecoveryConflict("已完成安装的目标已缺失或不是普通目录")
+        replaced = payload["replaced_existing"]
+        if not isinstance(replaced, bool):
+            raise InstallRecoveryConflict("已完成安装的替换状态无效")
+        receipt_payload = payload.get("receipt")
+        if not isinstance(receipt_payload, dict):
+            raise InstallRecoveryConflict("已完成安装缺少可恢复的记录摘要")
+        expected_tree = str(receipt_payload["installed_tree_sha256"])
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", expected_tree):
+            raise InstallRecoveryConflict("已完成安装的目录摘要无效")
+        actual_tree, owned_files = self._installed_snapshot(target)
+        if actual_tree.casefold() != expected_tree.casefold():
+            raise InstallRecoveryConflict(
+                "已完成安装的文件在记录落库前发生变化，未自动补记"
+            )
+        previous = receipt_payload.get("previous_transaction_id")
+        if previous is not None:
+            previous = str(previous)
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", previous):
+                raise InstallRecoveryConflict("前一版本安装记录编号无效")
+        package_sha256 = str(payload["package_sha256"])
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", package_sha256):
+            raise InstallRecoveryConflict("资源包摘要无效")
+        backup = self.data_root / "backups" / transaction_id / target.name
+        backup_present = self._path_present(backup)
+        if backup_present and (
+            self._is_link(backup) or not backup.is_dir()
+        ):
+            raise InstallRecoveryConflict("已完成安装的回滚备份不可信")
+        if replaced and not backup_present:
+            raise InstallRecoveryConflict("已完成安装缺少恢复前一版本所需的备份")
+        return InstallReceipt(
+            transaction_id=transaction_id,
+            game_id=self.game_id,
+            dlc_id=str(payload["dlc_id"]),
+            target_path=target,
+            package_sha256=package_sha256,
+            replaced_existing=replaced,
+            backup_path=backup if replaced else None,
+            installed_tree_sha256=actual_tree,
+            owned_files=owned_files,
+            previous_transaction_id=previous,
+        )
+
+    def _update_committed_install_journal(
+        self,
+        transaction_id: str,
+        *,
+        phase: str | None = None,
+        receipt_persisted: bool,
+    ) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id):
+            raise InstallError("install transaction ID is invalid")
+        journal = self.data_root / "transactions" / transaction_id / "journal.json"
+        payload = self._read_maintenance_journal(journal)
+        if (
+            payload.get("schema_version") != 2
+            or payload.get("operation") != "install"
+            or payload.get("transaction_id") != transaction_id
+            or payload.get("phase") != InstallPhase.COMMITTED.value
+        ):
+            raise InstallError("committed install journal no longer matches")
+        if phase is not None:
+            payload["phase"] = phase
+        payload["receipt_persisted"] = bool(receipt_persisted)
+        self._write_json_atomic(journal, payload)
+
+    def recover_incomplete(self, allowed_game_roots) -> tuple[str, ...]:
+        """Recover interrupted transactions under explicitly trusted roots.
+
+        Journals are isolated from one another: unrelated malformed history is
+        retained and logged, while a conflict that can be tied to one of the
+        trusted game roots fails closed.  Recovery never deletes an existing
+        target directory unless ownership can be proven by the live install
+        operation; ambiguous startup state is preserved for manual review.
+        """
+        allowed = tuple(
+            Path(root).resolve(strict=True) for root in allowed_game_roots
+        )
+        transactions = self.data_root / "transactions"
+        if not transactions.is_dir():
+            self._last_recovery_warnings = ()
+            return ()
+        recovered = []
+        conflicts = []
+        warnings = []
+        for journal_path in sorted(
+            transactions.glob("*/journal.json"),
+            key=lambda item: item.parent.name.casefold(),
+        ):
+            try:
+                transaction_id = self._recover_journal(journal_path, allowed)
+                if transaction_id is not None:
+                    recovered.append(transaction_id)
+            except InstallRecoveryConflict as error:
+                conflicts.append(f"{journal_path.parent.name}: {error}")
+            except (OSError, InstallError, ValueError, KeyError, TypeError,
+                    UnicodeError, json.JSONDecodeError) as error:
+                # A damaged journal that cannot be associated with an allowed
+                # root must not prevent recovery of every other game.  It is
+                # retained so diagnostics and maintenance can report it.
+                LOGGER.warning(
+                    "Ignoring untrusted or invalid install journal %s: %s",
+                    journal_path, error,
                 )
-                recovered.append(transaction_id)
-            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
-                raise InstallError(f"invalid install journal {journal_path}: {error}") from error
+                warnings.append(f"{journal_path.parent.name}: {error}")
+        self._last_recovery_warnings = tuple(warnings)
+        if conflicts:
+            raise InstallRecoveryConflict(
+                "存在无法安全自动恢复的安装事务：" + "；".join(conflicts)
+            )
         return tuple(recovered)
+
+    def _recover_journal(
+        self, journal_path: Path, allowed_game_roots: tuple[Path, ...]
+    ) -> str | None:
+        transactions = (self.data_root / "transactions").resolve(strict=True)
+        transaction_root = journal_path.parent.resolve(strict=True)
+        if transaction_root.parent != transactions:
+            raise InstallError("transaction directory escaped its storage root")
+        if (
+            self._is_link(transaction_root)
+            or self._is_link(journal_path)
+            or not journal_path.is_file()
+        ):
+            raise InstallError("transaction journal cannot be a link or junction")
+        if journal_path.stat().st_size > 256 * 1024:
+            raise InstallError("install journal is too large")
+        payload = json.loads(journal_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise InstallError("install journal root must be an object")
+        schema_version = payload.get("schema_version")
+        if schema_version not in {1, 2}:
+            raise InstallError("unsupported install journal schema")
+        operation = payload.get("operation", "install")
+        if operation == "uninstall":
+            return self._recover_uninstall_journal(
+                journal_path, payload, allowed_game_roots
+            )
+        if operation != "install":
+            raise InstallError("unsupported transaction operation")
+
+        phase = InstallPhase(payload["phase"])
+        if phase in {InstallPhase.COMMITTED, InstallPhase.ROLLED_BACK}:
+            return None
+        transaction_id = str(payload["transaction_id"])
+        if transaction_root.name != transaction_id or not re.fullmatch(
+            r"[A-Za-z0-9_-]+", transaction_id
+        ):
+            raise InstallError("install journal transaction ID is invalid")
+        try:
+            game_root = Path(payload["game_root"]).resolve(strict=True)
+        except (OSError, TypeError, ValueError) as error:
+            raise InstallError("install journal game root is unavailable") from error
+        if game_root not in allowed_game_roots:
+            return None
+
+        try:
+            if str(payload["game_id"]) != self.game_id:
+                raise InstallRecoveryConflict("日志游戏编号与当前卡带不匹配")
+            relative_target = Path(payload["target"])
+            if (
+                relative_target.is_absolute()
+                or ".." in relative_target.parts
+                or relative_target.parent != self._dlc_relative_path
+                or not relative_target.name
+            ):
+                raise InstallRecoveryConflict(
+                    "日志目标不是当前卡带 DLC 目录的直接子目录"
+                )
+            replaced = payload["replaced_existing"]
+            if not isinstance(replaced, bool):
+                raise InstallRecoveryConflict("日志替换状态无效")
+            plan = InstallPlan(
+                transaction_id=transaction_id,
+                game_id=self.game_id,
+                dlc_id=str(payload["dlc_id"]),
+                package_path=Path(payload["package_path"]),
+                package_sha256=str(payload["package_sha256"]),
+                game_root=game_root,
+                relative_target=relative_target,
+                staging_root=transaction_root / "staging",
+                backup_root=self.data_root / "backups" / transaction_id,
+                journal_path=journal_path,
+            )
+            dlc_root = self._dlc_root(game_root)
+            target = self._contained(dlc_root, plan.target_path)
+            if target.parent != dlc_root:
+                raise InstallRecoveryConflict("日志目标越过 DLC 根目录")
+            staged = plan.staging_root / relative_target.name
+            backup = plan.backup_root / relative_target.name
+            for root in (plan.staging_root, plan.backup_root):
+                if self._path_present(root) and self._is_link(root):
+                    raise InstallRecoveryConflict("事务目录包含链接或目录联接")
+            target_present = self._path_present(target)
+            backup_present = self._path_present(backup)
+            if target_present and self._is_link(target):
+                raise InstallRecoveryConflict("目标 DLC 是链接或目录联接")
+            if backup_present and (
+                self._is_link(backup) or not backup.is_dir()
+            ):
+                raise InstallRecoveryConflict("回滚备份不是可信目录")
+
+            if phase is InstallPhase.BACKUP_COPIED and target_present:
+                if not backup_present or self._tree_sha256(target) != self._tree_sha256(backup):
+                    raise InstallRecoveryConflict(
+                        "目标与复制备份不一致，已全部保留"
+                    )
+                # The original target is still intact.  Make the rollback
+                # durable first; maintenance removes the duplicate backup.
+                self._write_journal(plan, InstallPhase.ROLLED_BACK, replaced)
+                self._cleanup_staging_best_effort(staged)
+                return transaction_id
+
+            if target_present:
+                if backup_present:
+                    raise InstallRecoveryConflict(
+                        "目标和回滚备份同时存在，无法证明目标归属，已全部保留"
+                    )
+                # A previous rollback may already have consumed the backup but
+                # crashed before persisting ROLLED_BACK.  Never delete this
+                # surviving target on a later startup.
+                self._write_journal(plan, InstallPhase.ROLLED_BACK, replaced)
+                self._cleanup_staging_best_effort(staged)
+                return transaction_id
+
+            if replaced and not backup_present:
+                raise InstallRecoveryConflict(
+                    "原 DLC 目标和可信回滚备份均缺失，不能自动继续"
+                )
+            backup_created = backup_present and replaced
+            self._rollback(
+                plan, target, staged, backup, replaced,
+                backup_created=backup_created,
+                remove_target=False,
+            )
+            return transaction_id
+        except InstallRecoveryConflict:
+            raise
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise InstallRecoveryConflict(str(error)) from error
+
+    def _recover_uninstall_journal(
+        self, journal_path: Path, payload: dict,
+        allowed_game_roots: tuple[Path, ...],
+    ) -> str | None:
+        transaction_id = str(payload["transaction_id"])
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id)
+            or journal_path.parent.name != f"uninstall-{transaction_id}"
+        ):
+            raise InstallError("uninstall journal transaction ID is invalid")
+        target = Path(payload["target_path"]).resolve(strict=False)
+        matched_root = None
+        for game_root in allowed_game_roots:
+            dlc_root = self._dlc_root(game_root)
+            if target.parent == dlc_root:
+                matched_root = game_root
+                break
+        if matched_root is None:
+            return None
+        phase = str(payload["phase"])
+        if phase in {"committed", "rolled_back"}:
+            return None
+        if phase != "removing":
+            raise InstallRecoveryConflict("卸载事务阶段无效")
+        if self._path_present(target) and self._is_link(target):
+            raise InstallRecoveryConflict("卸载目标是链接或目录联接")
+        removed = journal_path.parent / "removed" / target.name
+        if self._path_present(removed) and (
+            self._is_link(removed) or not removed.is_dir()
+        ):
+            raise InstallRecoveryConflict("卸载暂存目录无效")
+        target_present = self._path_present(target)
+        removed_present = self._path_present(removed)
+        if target_present and removed_present:
+            raise InstallRecoveryConflict(
+                "卸载目标与暂存副本同时存在，已保留两者"
+            )
+        if not target_present and removed_present:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._replace_with_retry(removed, target)
+        elif not target_present:
+            raise InstallRecoveryConflict("卸载目标与暂存副本均缺失")
+        payload = dict(payload)
+        payload["phase"] = "rolled_back"
+        self._write_json_atomic(journal_path, payload)
+        return transaction_id
+
+    def _cleanup_staging_best_effort(self, staged: Path) -> None:
+        if not self._path_present(staged):
+            return
+        try:
+            self._remove_tree(staged)
+        except OSError:
+            pass
+
+    def preview_maintenance(
+        self,
+        *,
+        protected_transaction_ids=(),
+        retired_transaction_ids=(),
+        min_age_seconds: float = 24 * 60 * 60,
+        now: float | None = None,
+    ) -> InstallMaintenancePreview:
+        """Find old transaction storage that can be removed without guessing.
+
+        A committed transaction is removable only when its receipt is known to
+        be retired.  Rolled-back transactions are removable without a receipt.
+        Active receipt chains and unknown committed transactions are retained.
+        No path lacking a small, valid terminal journal is ever proposed.
+        """
+        if min_age_seconds < 0:
+            raise ValueError("maintenance age cannot be negative")
+        protected = frozenset(str(item) for item in protected_transaction_ids)
+        retired = frozenset(str(item) for item in retired_transaction_ids)
+        current_time = time.time() if now is None else float(now)
+        transactions = self.data_root / "transactions"
+        backups = self.data_root / "backups"
+        if not transactions.is_dir():
+            return InstallMaintenancePreview()
+
+        candidates: list[InstallMaintenanceEntry] = []
+        retained: list[str] = []
+        for transaction_root in sorted(
+            transactions.iterdir(), key=lambda item: item.name.casefold()
+        ):
+            if not transaction_root.is_dir() or self._is_link(transaction_root):
+                retained.append(f"{transaction_root.name}: 不是普通事务目录")
+                continue
+            journal = transaction_root / "journal.json"
+            try:
+                payload = self._read_maintenance_journal(journal)
+                transaction_id, terminal, rolled_back = (
+                    self._maintenance_journal_state(transaction_root, payload)
+                )
+            except (InstallError, OSError, ValueError, KeyError, TypeError) as error:
+                retained.append(f"{transaction_root.name}: {error}")
+                continue
+            if not terminal:
+                retained.append(f"{transaction_root.name}: 事务尚未结束")
+                continue
+            if transaction_id in protected:
+                retained.append(f"{transaction_root.name}: 活动安装记录仍在引用")
+                continue
+            if not rolled_back and transaction_id not in retired:
+                retained.append(f"{transaction_root.name}: 完成记录来源未知，保守保留")
+                continue
+            if current_time - journal.stat().st_mtime < min_age_seconds:
+                retained.append(f"{transaction_root.name}: 尚未达到清理时间")
+                continue
+            if self._tree_has_link(transaction_root):
+                retained.append(f"{transaction_root.name}: 包含链接或目录联接")
+                continue
+
+            reason = "已回滚的旧事务" if rolled_back else "已卸载记录的旧事务"
+            candidates.append(InstallMaintenanceEntry(
+                path=transaction_root.resolve(strict=True),
+                transaction_id=transaction_id,
+                kind="transaction",
+                size_bytes=self._tree_size(transaction_root),
+                reason=reason,
+            ))
+
+            backup_root = backups / transaction_id
+            if (
+                backup_root.is_dir()
+                and not self._is_link(backup_root)
+                and not self._tree_has_link(backup_root)
+            ):
+                candidates.append(InstallMaintenanceEntry(
+                    path=backup_root.resolve(strict=True),
+                    transaction_id=transaction_id,
+                    kind="backup",
+                    size_bytes=self._tree_size(backup_root),
+                    reason="不再被活动安装链引用的回滚备份",
+                ))
+        unique_candidates = {
+            item.path: item for item in candidates
+        }
+        return InstallMaintenancePreview(
+            candidates=tuple(unique_candidates.values()),
+            retained=tuple(retained),
+        )
+
+    def execute_maintenance(
+        self,
+        *,
+        protected_transaction_ids=(),
+        retired_transaction_ids=(),
+        min_age_seconds: float = 24 * 60 * 60,
+        now: float | None = None,
+    ) -> InstallMaintenanceResult:
+        """Re-scan and remove only candidates proven safe in this pass."""
+        preview = self.preview_maintenance(
+            protected_transaction_ids=protected_transaction_ids,
+            retired_transaction_ids=retired_transaction_ids,
+            min_age_seconds=min_age_seconds,
+            now=now,
+        )
+        removed = []
+        failed = []
+        blocked_transactions: set[str] = set()
+        candidates = sorted(
+            preview.candidates,
+            key=lambda item: 0 if item.kind == "backup" else 1,
+        )
+        for entry in candidates:
+            if (
+                entry.kind == "transaction"
+                and entry.transaction_id in blocked_transactions
+            ):
+                failed.append((
+                    entry,
+                    "associated backup could not be removed; journal retained for retry",
+                ))
+                continue
+            try:
+                allowed_parent = (
+                    self.data_root / "transactions"
+                    if entry.kind == "transaction"
+                    else self.data_root / "backups"
+                ).resolve(strict=False)
+                path = entry.path.resolve(strict=True)
+                if path.parent != allowed_parent:
+                    raise InstallError("maintenance path escaped its storage root")
+                if self._is_link(path) or self._tree_has_link(path):
+                    raise InstallError("maintenance path contains a link or junction")
+                self._remove_tree(path)
+                removed.append(entry)
+            except (OSError, InstallError) as error:
+                if entry.kind == "backup":
+                    blocked_transactions.add(entry.transaction_id)
+                failed.append((entry, str(error)))
+        return InstallMaintenanceResult(
+            preview=preview,
+            removed=tuple(removed),
+            failed=tuple(failed),
+        )
 
     def _stage(self, plan: InstallPlan, staged: Path) -> None:
         if plan.staging_root.exists():
@@ -435,9 +1040,14 @@ class StellarisInstallEngine:
                         raise
                     self._copy_tree_atomic(backup, target)
                     self._remove_tree(backup)
-            if self._path_present(staged):
-                self._remove_tree(staged)
             self._write_journal(plan, InstallPhase.ROLLED_BACK, replaced_existing)
+            if self._path_present(staged):
+                try:
+                    self._remove_tree(staged)
+                except OSError:
+                    # The rollback is already durable and user data is safe.
+                    # Terminal-transaction maintenance can retry this cleanup.
+                    pass
         except Exception as rollback_error:
             raise InstallError(f"installation rollback failed: {rollback_error}") from rollback_error
 
@@ -583,6 +1193,119 @@ class StellarisInstallEngine:
         } or not self._path_present(target)
 
     @staticmethod
+    def _expanded_package_size(package_path: Path) -> int:
+        try:
+            with zipfile.ZipFile(package_path) as archive:
+                return sum(
+                    int(info.file_size)
+                    for info in archive.infolist()
+                    if not info.is_dir()
+                )
+        except (OSError, zipfile.BadZipFile) as error:
+            raise InstallError(
+                f"无法读取资源包的解压大小：{error}"
+            ) from error
+
+    @staticmethod
+    def _existing_ancestor(path: Path) -> Path:
+        candidate = Path(path).resolve(strict=False)
+        while not candidate.exists():
+            parent = candidate.parent
+            if parent == candidate:
+                raise InstallError(f"无法确定磁盘空间检查位置：{path}")
+            candidate = parent
+        return candidate.resolve(strict=True)
+
+    def _volume_key(self, path: Path) -> object:
+        if self._volume_key_override is not None:
+            return self._volume_key_override(path)
+        if os.name == "nt":
+            # Drive/UNC anchors are stable even on Python builds whose st_dev
+            # value does not distinguish every Windows volume.
+            return ("windows-anchor", path.anchor.casefold())
+        try:
+            return ("device", path.stat().st_dev)
+        except OSError as error:
+            raise InstallError(f"无法识别安装磁盘：{path}") from error
+
+    @staticmethod
+    def _tree_size(root: Path) -> int:
+        if not root.exists():
+            return 0
+        total = 0
+        try:
+            for path in root.rglob("*"):
+                if path.is_file() and not path.is_symlink():
+                    total += path.stat().st_size
+        except OSError as error:
+            raise InstallError(f"无法统计目录大小：{root}（{error}）") from error
+        return total
+
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        amount = float(max(0, value))
+        for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+            if amount < 1024 or unit == "TiB":
+                return f"{amount:.1f} {unit}"
+            amount /= 1024
+        return f"{amount:.1f} TiB"
+
+    @staticmethod
+    def _read_maintenance_journal(path: Path) -> dict:
+        if not path.is_file() or path.is_symlink():
+            raise InstallError("缺少可信事务日志")
+        if path.stat().st_size > 256 * 1024:
+            raise InstallError("事务日志过大")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise InstallError("事务日志无法读取") from error
+        if not isinstance(payload, dict):
+            raise InstallError("事务日志格式无效")
+        return payload
+
+    @staticmethod
+    def _maintenance_journal_state(
+        transaction_root: Path, payload: dict
+    ) -> tuple[str, bool, bool]:
+        if payload.get("schema_version") not in {1, 2}:
+            raise InstallError("不支持的事务日志版本")
+        operation = payload.get("operation", "install")
+        if operation not in {"install", "uninstall"}:
+            raise InstallError("不支持的事务操作类型")
+        transaction_id = str(payload["transaction_id"])
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id):
+            raise InstallError("事务编号无效")
+        if operation == "uninstall":
+            if transaction_root.name != f"uninstall-{transaction_id}":
+                raise InstallError("卸载事务目录与日志不匹配")
+            phase = str(payload["phase"])
+            return transaction_id, phase in {"committed", "rolled_back"}, phase == "rolled_back"
+        if transaction_root.name != transaction_id:
+            raise InstallError("安装事务目录与日志不匹配")
+        phase = InstallPhase(payload["phase"])
+        return (
+            transaction_id,
+            phase in {InstallPhase.COMMITTED, InstallPhase.ROLLED_BACK},
+            phase is InstallPhase.ROLLED_BACK,
+        )
+
+    @staticmethod
+    def _is_link(path: Path) -> bool:
+        return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+
+    @classmethod
+    def _tree_has_link(cls, root: Path) -> bool:
+        try:
+            for current, directories, files in os.walk(root, followlinks=False):
+                for name in (*directories, *files):
+                    if cls._is_link(Path(current) / name):
+                        return True
+        except OSError:
+            return True
+        return False
+
+    @staticmethod
     def _remove_tree(path: Path) -> None:
         def make_writable(function, name, error_info):
             error = error_info[1]
@@ -593,10 +1316,18 @@ class StellarisInstallEngine:
 
         shutil.rmtree(path, onerror=make_writable)
 
-    def _write_journal(self, plan, phase, replaced_existing) -> None:
+    def _write_journal(
+        self,
+        plan,
+        phase,
+        replaced_existing,
+        *,
+        receipt: InstallReceipt | None = None,
+    ) -> None:
         plan.journal_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "operation": "install",
             "transaction_id": plan.transaction_id,
             "game_id": plan.game_id,
             "dlc_id": plan.dlc_id,
@@ -607,17 +1338,18 @@ class StellarisInstallEngine:
             "target": plan.relative_target.as_posix(),
             "replaced_existing": replaced_existing,
         }
-        temporary = plan.journal_path.with_suffix(".json.tmp")
-        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, plan.journal_path)
+        if receipt is not None:
+            payload["receipt"] = {
+                "installed_tree_sha256": receipt.installed_tree_sha256,
+                "previous_transaction_id": receipt.previous_transaction_id,
+            }
+            payload["receipt_persisted"] = False
+        self._write_json_atomic(plan.journal_path, payload)
 
     @staticmethod
     def _write_simple_journal(path: Path, phase: str, receipt: InstallReceipt) -> None:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "operation": "uninstall",
             "phase": phase,
             "transaction_id": receipt.transaction_id,
@@ -625,6 +1357,10 @@ class StellarisInstallEngine:
             "target_path": str(receipt.target_path),
             "installed_tree_sha256": receipt.installed_tree_sha256,
         }
+        StellarisInstallEngine._write_json_atomic(path, payload)
+
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict) -> None:
         temporary = path.with_suffix(".json.tmp")
         with temporary.open("w", encoding="utf-8", newline="\n") as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2)

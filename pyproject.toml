@@ -34,3 +34,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q --basetemp=.test-artifacts/pytest-tmp"
 cache_dir = ".test-artifacts/pytest-cache"
+
+[tool.ruff]
+cache-dir = ".test-artifacts/ruff-cache"

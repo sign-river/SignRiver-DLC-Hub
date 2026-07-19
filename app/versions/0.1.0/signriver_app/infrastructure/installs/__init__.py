@@ -4,6 +4,8 @@ from .engine import (
     InstallAccessError,
     InstallConflictError,
     InstallError,
+    InstallRecoveryConflict,
+    InstallSpaceError,
     StellarisInstallEngine,
 )
 
@@ -14,5 +16,7 @@ __all__ = [
     "InstallAccessError",
     "InstallConflictError",
     "InstallError",
+    "InstallRecoveryConflict",
+    "InstallSpaceError",
     "StellarisInstallEngine",
 ]

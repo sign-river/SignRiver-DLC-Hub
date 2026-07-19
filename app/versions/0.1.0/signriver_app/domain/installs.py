@@ -68,3 +68,62 @@ class InstallReceipt:
     installed_tree_sha256: str
     owned_files: tuple[OwnedFile, ...] = ()
     previous_transaction_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiskSpaceRequirement:
+    """Conservative free-space requirement for one filesystem."""
+
+    probe_path: Path
+    required_bytes: int
+    available_bytes: int
+    purposes: tuple[str, ...]
+
+    @property
+    def sufficient(self) -> bool:
+        return self.available_bytes >= self.required_bytes
+
+
+@dataclass(frozen=True, slots=True)
+class InstallSpaceEstimate:
+    """Space needed before an install starts changing persistent state."""
+
+    expanded_package_bytes: int
+    existing_target_bytes: int
+    requirements: tuple[DiskSpaceRequirement, ...]
+
+    @property
+    def sufficient(self) -> bool:
+        return all(item.sufficient for item in self.requirements)
+
+
+@dataclass(frozen=True, slots=True)
+class InstallMaintenanceEntry:
+    """One transaction-owned directory proven safe to remove."""
+
+    path: Path
+    transaction_id: str
+    kind: str
+    size_bytes: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstallMaintenancePreview:
+    """Read-only result of transaction storage maintenance discovery."""
+
+    candidates: tuple[InstallMaintenanceEntry, ...] = ()
+    retained: tuple[str, ...] = ()
+
+    @property
+    def reclaimable_bytes(self) -> int:
+        return sum(item.size_bytes for item in self.candidates)
+
+
+@dataclass(frozen=True, slots=True)
+class InstallMaintenanceResult:
+    """Outcome of an execution pass which re-scanned safety conditions."""
+
+    preview: InstallMaintenancePreview
+    removed: tuple[InstallMaintenanceEntry, ...] = ()
+    failed: tuple[tuple[InstallMaintenanceEntry, str], ...] = ()

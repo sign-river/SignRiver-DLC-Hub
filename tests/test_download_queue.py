@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 from pathlib import Path
 import threading
 
@@ -9,7 +10,7 @@ import pytest
 
 from signriver_app.application import DownloadQueue
 from signriver_app.domain import DownloadSnapshot, DownloadSpec, DownloadState
-from signriver_app.infrastructure.downloads import DownloadManager, DownloadPolicy
+from signriver_app.infrastructure.downloads import DownloadManager
 from signriver_app.infrastructure.persistence import Database, DownloadTaskRepository
 
 
@@ -183,6 +184,320 @@ def test_reconcile_cached_recovers_orphan_package(tmp_path: Path) -> None:
     assert recovered[0].state is DownloadState.READY
     assert recovered[0].result_path == package
     assert repository.list_all()[0].state is DownloadState.READY
+
+
+def test_reconcile_cached_memoizes_stable_orphan_package_hash(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    digest = hashlib.sha256(DATA).hexdigest()
+    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    queue = DownloadQueue(
+        DownloadManager(tmp_path / "cache"),
+        verifier_for=lambda _spec: lambda path, _sha256: path.stat(),
+    )
+    original = queue._file_sha256
+    hashed = []
+
+    def counted(path: Path) -> str:
+        hashed.append(path)
+        return original(path)
+
+    monkeypatch.setattr(queue, "_file_sha256", counted)
+    assert queue.reconcile_cached((make_spec(),))
+    queue.forget(("queue-1",))
+    assert queue.reconcile_cached((make_spec(),))
+    queue.shutdown()
+
+    assert hashed == [package]
+
+
+def test_reconcile_cached_hash_memo_invalidates_when_file_changes(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    digest = hashlib.sha256(DATA).hexdigest()
+    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    original = queue._file_sha256
+    hashed = []
+
+    def counted(path: Path) -> str:
+        hashed.append(path)
+        return original(path)
+
+    monkeypatch.setattr(queue, "_file_sha256", counted)
+    assert queue.reconcile_cached((make_spec(),))
+    queue.forget(("queue-1",))
+
+    previous = package.stat()
+    changed = b"changed---" * 100
+    assert len(changed) == len(DATA)
+    package.write_bytes(changed)
+    os.utime(package, ns=(previous.st_atime_ns, previous.st_mtime_ns + 1_000_000))
+
+    assert queue.reconcile_cached((make_spec(),)) == ()
+    queue.shutdown()
+    assert hashed == [package, package]
+
+
+def test_concurrent_cache_hash_requests_share_one_inflight_read(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    package = tmp_path / "large.zip"
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    original = queue._file_sha256
+    hashing_started = threading.Event()
+    release_hash = threading.Event()
+    start_together = threading.Barrier(3)
+    hashed = []
+    results = []
+
+    def slow_hash(path: Path) -> str:
+        hashed.append(path)
+        hashing_started.set()
+        assert release_hash.wait(5)
+        return original(path)
+
+    def read_hash() -> None:
+        start_together.wait()
+        results.append(queue._cached_file_sha256(package))
+
+    monkeypatch.setattr(queue, "_file_sha256", slow_hash)
+    readers = [threading.Thread(target=read_hash) for _ in range(2)]
+    for reader in readers:
+        reader.start()
+    start_together.wait()
+    assert hashing_started.wait(5)
+    release_hash.set()
+    for reader in readers:
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+    queue.shutdown()
+
+    assert results == [hashlib.sha256(DATA).hexdigest()] * 2
+    assert hashed == [package]
+
+
+def test_hash_owner_failure_wakes_waiter_for_a_fresh_attempt(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    package = tmp_path / "large.zip"
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    original = queue._file_sha256
+    first_started = threading.Event()
+    release_first = threading.Event()
+    call_lock = threading.Lock()
+    call_count = 0
+    results = []
+    errors = []
+
+    def flaky_hash(path: Path) -> str:
+        nonlocal call_count
+        with call_lock:
+            call_count += 1
+            call = call_count
+        if call == 1:
+            first_started.set()
+            assert release_first.wait(5)
+            raise OSError("simulated read failure")
+        return original(path)
+
+    def read_hash() -> None:
+        try:
+            results.append(queue._cached_file_sha256(package))
+        except Exception as error:
+            errors.append(error)
+
+    monkeypatch.setattr(queue, "_file_sha256", flaky_hash)
+    owner = threading.Thread(target=read_hash)
+    owner.start()
+    assert first_started.wait(5)
+    waiter = threading.Thread(target=read_hash)
+    waiter.start()
+    release_first.set()
+    for reader in (owner, waiter):
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+    queue.shutdown()
+
+    assert results == [hashlib.sha256(DATA).hexdigest()]
+    assert len(errors) == 1
+    assert isinstance(errors[0], OSError)
+    assert call_count == 2
+    assert queue._cached_hash_inflight == {}
+
+
+def test_hash_memo_detects_atomic_replacement_with_same_size_and_mtime(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package.zip"
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    original_digest = queue._cached_file_sha256(package)
+    original_stat = package.stat()
+    changed = b"changed---" * 100
+    assert len(changed) == len(DATA)
+    replacement = tmp_path / "replacement.zip"
+    replacement.write_bytes(changed)
+    os.utime(
+        replacement,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+    os.replace(replacement, package)
+
+    changed_digest = queue._cached_file_sha256(package)
+    queue.shutdown()
+
+    assert package.stat().st_size == original_stat.st_size
+    assert package.stat().st_mtime_ns == original_stat.st_mtime_ns
+    assert changed_digest == hashlib.sha256(changed).hexdigest()
+    assert changed_digest != original_digest
+
+
+def test_invalidate_hashes_forgets_descendant_package_memos(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    package_root = tmp_path / "cache" / "packages" / ("a" * 64)
+    package = package_root / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    original = queue._file_sha256
+    hashed = []
+
+    def counted(path: Path) -> str:
+        hashed.append(path)
+        return original(path)
+
+    monkeypatch.setattr(queue, "_file_sha256", counted)
+    queue._cached_file_sha256(package)
+    queue.invalidate_hashes((package_root,))
+    queue._cached_file_sha256(package)
+    queue.shutdown()
+
+    assert hashed == [package, package]
+
+
+def test_invalidate_hashes_fences_an_inflight_memo_write(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    package = tmp_path / "cache" / "packages" / ("a" * 64) / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(DATA)
+    queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
+    generation_checked = threading.Event()
+    release_generation_check = threading.Event()
+    original_same_generation = queue._same_hash_generation
+    errors = []
+
+    def blocked_same_generation(before, after) -> bool:
+        generation_checked.set()
+        assert release_generation_check.wait(5)
+        return original_same_generation(before, after)
+
+    def read_hash() -> None:
+        try:
+            queue._cached_file_sha256(package)
+        except Exception as error:
+            errors.append(error)
+
+    monkeypatch.setattr(queue, "_same_hash_generation", blocked_same_generation)
+    reader = threading.Thread(target=read_hash)
+    reader.start()
+    assert generation_checked.wait(5)
+    package.unlink()
+    queue.invalidate_hashes((package,))
+    release_generation_check.set()
+    reader.join(timeout=5)
+    queue.shutdown()
+
+    assert not reader.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], OSError)
+    assert queue._cached_hash_memo == {}
+    assert queue._cached_hash_inflight == {}
+
+
+@pytest.mark.parametrize("cache_kind", ("packages", "quarantine"))
+def test_reconcile_cannot_overwrite_task_started_during_hash_validation(
+    tmp_path: Path, monkeypatch, cache_kind: str,
+) -> None:
+    digest = hashlib.sha256(DATA).hexdigest()
+    cache_root = tmp_path / "cache"
+    if cache_kind == "packages":
+        candidate = cache_root / "packages" / digest / "dlc.zip"
+        reconcile_name = "reconcile_cached"
+    else:
+        candidate = cache_root / "quarantine" / "queue-1-old.bad"
+        reconcile_name = "reconcile_quarantined"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_bytes(DATA)
+
+    hash_started = threading.Event()
+    release_hash = threading.Event()
+    download_read_started = threading.Event()
+    release_download = threading.Event()
+
+    class BlockingReader(io.BytesIO):
+        def read(self, *args, **kwargs):
+            download_read_started.set()
+            assert release_download.wait(5)
+            return super().read(*args, **kwargs)
+
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    queue = DownloadQueue(
+        DownloadManager(
+            cache_root,
+            opener=lambda *_args: BlockingReader(DATA),
+        ),
+        repository=repository,
+    )
+    original_hash = queue._cached_file_sha256
+
+    def blocked_hash(path: Path) -> str:
+        hash_started.set()
+        assert release_hash.wait(5)
+        return original_hash(path)
+
+    monkeypatch.setattr(queue, "_cached_file_sha256", blocked_hash)
+    recovered = []
+    reconcile_errors = []
+
+    def reconcile() -> None:
+        try:
+            recovered.extend(getattr(queue, reconcile_name)((make_spec(),)))
+        except Exception as error:
+            reconcile_errors.append(error)
+
+    reconcile_thread = threading.Thread(target=reconcile)
+    reconcile_thread.start()
+    future = None
+    try:
+        assert hash_started.wait(5)
+        future = queue.enqueue(make_spec())
+        assert download_read_started.wait(5)
+        release_hash.set()
+        reconcile_thread.join(timeout=5)
+        assert not reconcile_thread.is_alive()
+
+        assert reconcile_errors == []
+        assert recovered == []
+        assert queue.snapshots()[0].state is DownloadState.DOWNLOADING
+        assert repository.list_all()[0].state is DownloadState.DOWNLOADING
+        if cache_kind == "quarantine":
+            assert candidate.is_file()
+    finally:
+        release_hash.set()
+        release_download.set()
+        reconcile_thread.join(timeout=5)
+        if future is not None:
+            future.result(timeout=5)
+        queue.shutdown(wait=True)
 
 
 def test_clear_all_keeps_cache_without_recreating_cleared_history(

@@ -18,6 +18,24 @@ def _ui_palette() -> dict[str, str]:
     return ast.literal_eval(assignment.value)
 
 
+def _app_method(name: str):
+    """Compile one UI method without constructing a Tk window."""
+    module = ast.parse(APP_ENTRY.read_text(encoding="utf-8"))
+    application = next(
+        node for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "DlcHubApplication"
+    )
+    method = next(
+        node for node in application.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == name
+    )
+    isolated = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
+    namespace = {}
+    exec(compile(isolated, str(APP_ENTRY), "exec"), namespace)
+    return namespace[name]
+
+
 def test_ui_palette_uses_blue_white_design_tokens() -> None:
     palette = _ui_palette()
 
@@ -290,6 +308,65 @@ def test_cached_install_uses_a_visible_non_interactive_primary_state() -> None:
     assert "Automatic DLC installation blocked" in schedule_method
 
 
+def test_cached_install_reports_item_progress_and_recovers_interrupted_work() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    schedule_method = source.split("def _schedule_ready_installs", 1)[1].split(
+        "@staticmethod", 1
+    )[0]
+    recovery_method = source.split("def _recover_incomplete_installs", 1)[1].split(
+        "def _show_game_error", 1
+    )[0]
+
+    assert "enumerate(jobs, start=1)" in schedule_method
+    assert "def _on_auto_install_progress" in schedule_method
+    assert 'text=f"安装中 {index}/{total}…"' in schedule_method
+    assert "service.recover_incomplete((game_root,))" in recovery_method
+    assert 'name="install-transaction-recovery"' in recovery_method
+    assert "self.install_recovery_pending" in recovery_method
+
+
+def test_advanced_catalog_uses_one_lightweight_receipt_lookup() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    render_method = source.split("def _render_catalog_rows", 1)[1].split(
+        "def _render_catalog_batch", 1
+    )[0]
+    state_method = source.split("def _show_install_state", 1)[1].split(
+        "def _manage_entry", 1
+    )[0]
+
+    assert "self._refresh_active_receipt_dlc_ids()" in render_method
+    assert "active_dlc_ids(" in source
+    assert "has_receipt =" in state_method
+    assert "self._active_receipt(" not in state_method
+    assert "snapshots.get(task_id)" in source
+
+
+def test_cache_analysis_and_cleanup_do_not_block_tk_thread() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    cleanup_method = source.split("def _cleanup_cache", 1)[1].split(
+        "def _run_speed_test", 1
+    )[0]
+
+    assert 'name="cache-maintenance-preview"' in cleanup_method
+    assert 'name="cache-maintenance-execute"' in cleanup_method
+    assert "preview_install_maintenance" in cleanup_method
+    assert "execute_install_maintenance" in cleanup_method
+    assert "self._post_ui(" in cleanup_method
+    assert "活动事务及其备份不会删除" in cleanup_method
+
+
+def test_client_refuses_to_close_during_destructive_background_work() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    close_method = source.split("def _close", 1)[1].split(
+        "def _show_download_state", 1
+    )[0]
+
+    assert "self._content_work_is_active()" in close_method
+    assert "self.cache_cleanup_running" in close_method
+    assert "任务仍在进行" in close_method
+    assert close_method.index("return") < close_method.index("self.window.destroy()")
+
+
 def test_bulk_uninstall_selects_every_absent_catalog_entry_for_reinstall() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     finish_method = source.split("def _finish_dlc_removal", 1)[1].split(
@@ -379,9 +456,113 @@ def test_ready_cache_is_restored_installed_items_are_grey_and_batch_can_cancel()
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "def _reconcile_catalog_cache" in source
-    assert "self.download_queue.reconcile_cached(tuple(specs))" in source
+    assert "queue.reconcile_cached(" in source
+    assert "verifier_for=verifier_for" in source
+    assert "self.cache_reconcile_running" in source
+    assert "self.cache_reconcile_pending" in source
     assert "specs.extend(self._patch_download_specs())" not in source
     assert "def _installed_dlc_path" in source
+
+
+def test_cache_reconcile_stale_generation_is_silent_and_runs_latest_pending() -> None:
+    finish = _app_method("_finish_cache_reconcile")
+
+    class Cartridge:
+        cartridge_id = "new-cartridge"
+
+    class Application:
+        game_selection_generation = 8
+        cartridge = Cartridge()
+        cache_reconcile_lock = __import__("threading").Lock()
+        cache_reconcile_running = True
+        cache_reconcile_active_key = "old-key"
+        cache_reconcile_pending = ("new-request",)
+
+        def __init__(self) -> None:
+            self.notices = []
+            self.started = []
+
+        def _on_cache_reconciled(self, *args, **kwargs) -> None:
+            self.notices.append((args, kwargs))
+
+        def _start_cache_reconcile(self, request) -> None:
+            self.started.append(request)
+
+    application = Application()
+    old_request = ("old-key", 7, "old-cartridge", (), None)
+    finish(
+        application,
+        old_request,
+        4,
+        generation=7,
+        cartridge_id="old-cartridge",
+    )
+
+    assert application.notices == []
+    assert application.started == [("new-request",)]
+    assert application.cache_reconcile_running is True
+    assert application.cache_reconcile_active_key == "new-request"
+    assert application.cache_reconcile_pending is None
+
+
+def test_cache_reconcile_latest_request_can_cancel_stale_pending_scan() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _reconcile_catalog_cache", 1)[1].split(
+        "def _start_cache_reconcile", 1
+    )[0]
+
+    assert "if self.cache_reconcile_active_key != request_key:" in method
+    assert "else:\n                    # A -> B -> A" in method
+    assert "self.cache_reconcile_pending = None" in method
+
+
+def test_manual_dlc_operations_share_the_global_file_operation_gate() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    begin = source.split("def _begin_manual_file_operation", 1)[1].split(
+        "def _manual_file_operation_is_current", 1
+    )[0]
+    require = source.split("def _require_game_stopped", 1)[1].split(
+        "def _launch_game", 1
+    )[0]
+
+    for marker in (
+        "self.auto_install_worker_running",
+        "self.cache_cleanup_running",
+        'self.batch_download_state != "idle"',
+        'self.patch_workflow_state != "idle"',
+    ):
+        assert marker in begin
+        assert marker in require
+
+
+def test_game_switch_and_missing_install_clear_previous_install_state() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    select = source.split("def _select_game", 1)[1].split(
+        "def _content_work_is_active", 1
+    )[0]
+    scanned = source.split("def _on_game_scanned", 1)[1].split(
+        "def _choose_game_path", 1
+    )[0]
+
+    for method in (select, scanned):
+        assert "self.installed_dlc_paths = {}" in method
+        assert "self.active_receipt_dlc_ids = frozenset()" in method
+        assert "self.install_recovery_failed = False" in method
+
+
+def test_partial_cache_cleanup_always_rescans_cache_and_ready_records() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    worker = source.split("def _confirm_cache_cleanup", 1)[1].split(
+        "def _finish_cache_cleanup", 1
+    )[0]
+    failed = source.split("def _finish_cache_cleanup_error", 1)[1].split(
+        "def _run_speed_test", 1
+    )[0]
+
+    assert "finally:" in worker
+    assert "invalidate_hashes(fresh_plan.paths)" in worker
+    assert "self._schedule_cache_usage_scan(force=True)" in failed
+    assert "self._reconcile_catalog_cache()" in failed
 
 
 def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:

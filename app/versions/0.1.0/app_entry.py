@@ -200,6 +200,13 @@ class DlcHubApplication:
         self.download_queue = None
         self.install_repository = None
         self.install_service = None
+        self.active_receipt_dlc_ids = frozenset()
+        self.install_recovery_running = False
+        self.install_recovery_failed = False
+        self.install_recovery_key = None
+        self.install_recovery_pending = None
+        self.cache_cleanup_running = False
+        self.manual_file_operation_token = None
         self.task_refresh_pending = False
         self.task_status_labels = {}
         self.task_row_states = {}
@@ -212,6 +219,10 @@ class DlcHubApplication:
         self.cache_usage_bytes: int | None = None
         self.cache_usage_scan_running = False
         self.cache_usage_last_scan = 0.0
+        self.cache_reconcile_lock = threading.Lock()
+        self.cache_reconcile_running = False
+        self.cache_reconcile_active_key = None
+        self.cache_reconcile_pending = None
         self.compact_layout = None
         self.supported_games = {
             item.selection_name: {
@@ -638,10 +649,11 @@ class DlcHubApplication:
             cache_header, text="打开缓存目录",
             command=lambda: self._open_path(self.context.paths.cache), width=110,
         ).pack(side="right")
-        ctk.CTkButton(
+        self.cache_cleanup_button = ctk.CTkButton(
             cache_header, text="分析并清理",
             command=self._cleanup_cache, width=110,
-        ).pack(side="right", padx=(0, 8))
+        )
+        self.cache_cleanup_button.pack(side="right", padx=(0, 8))
         ctk.CTkLabel(
             cache_card,
             text=(
@@ -937,6 +949,12 @@ class DlcHubApplication:
             self.patch_bundle = None
             self.current_installation = None
             self.catalog_entries = ()
+            self.installed_dlc_paths = {}
+            self.active_receipt_dlc_ids = frozenset()
+            self.install_recovery_running = False
+            self.install_recovery_failed = False
+            self.install_recovery_key = None
+            self.install_recovery_pending = None
             self.unlock_workflow_active = False
             self.unlock_requested_dlc_ids = ()
             self.unlock_failed_dlc_ids.clear()
@@ -953,6 +971,9 @@ class DlcHubApplication:
     def _content_work_is_active(self) -> bool:
         if (
             self.auto_install_worker_running
+            or self.install_recovery_running
+            or self.manual_file_operation_token is not None
+            or self.cache_cleanup_running
             or self.batch_download_state != "idle"
             or self.patch_workflow_state != "idle"
         ):
@@ -1250,6 +1271,12 @@ class DlcHubApplication:
     def _task_action(self, task_id: str, action: str) -> None:
         if self.download_queue is None:
             return
+        if action == "resume" and self.cache_cleanup_running:
+            messagebox.showwarning(
+                "缓存正在维护", "请等待缓存清理完成后再继续下载。",
+                parent=self.window,
+            )
+            return
         try:
             if action == "cancel":
                 self.download_queue.cancel(task_id)
@@ -1298,19 +1325,25 @@ class DlcHubApplication:
             messagebox.showerror("清除记录失败", str(error), parent=self.window)
 
     def _cleanup_cache(self) -> None:
+        if self.cache_cleanup_running:
+            return
+        if self._content_work_is_active():
+            messagebox.showwarning(
+                "当前任务尚未结束",
+                "请先等待下载、安装或补丁操作结束，再分析缓存。",
+                parent=self.window,
+            )
+            return
+        with self.cache_reconcile_lock:
+            reconcile_running = self.cache_reconcile_running
+        if reconcile_running:
+            messagebox.showwarning(
+                "缓存目录正在核对",
+                "请等待当前资源目录的缓存核对完成后再分析和清理。",
+                parent=self.window,
+            )
+            return
         snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
-        protected = [
-            item.result_path for item in snapshots
-            if item.state is DownloadState.READY and item.result_path is not None
-        ]
-        if self.install_repository is not None:
-            try:
-                protected.extend(
-                    self.context.paths.cache / "packages" / receipt.package_sha256
-                    for receipt in self.install_repository.active()
-                )
-            except Exception:
-                self.context.logger.exception("Unable to enumerate installed package references")
         active_ids = [
             item.spec.task_id for item in snapshots
             if item.state not in {
@@ -1318,34 +1351,166 @@ class DlcHubApplication:
                 DownloadState.FAILED, DownloadState.CORRUPT,
             }
         ]
-        try:
-            usage = self.cache_maintenance.usage_bytes()
-            plan = self.cache_maintenance.plan(
-                protected_paths=protected, active_task_ids=active_ids
-            )
-            if not plan.paths:
-                self.cache_usage_bytes = usage
-                self.cache_status.configure(
-                    text=f"缓存 {usage / 1048576:.1f} MiB，无可安全清理内容"
+        ready_paths = tuple(
+            item.result_path for item in snapshots
+            if item.state is DownloadState.READY and item.result_path is not None
+        )
+        repository = self.install_repository
+        install_service = self.install_service
+        self._set_cache_cleanup_running(True, "正在分析……")
+
+        def worker() -> None:
+            try:
+                protected = list(ready_paths)
+                if repository is not None:
+                    protected.extend(
+                        self.context.paths.cache / "packages" / receipt.package_sha256
+                        for receipt in repository.active()
+                    )
+                usage = self.cache_maintenance.usage_bytes()
+                plan = self.cache_maintenance.plan(
+                    protected_paths=protected, active_task_ids=active_ids
                 )
-                return
-            if not messagebox.askyesno(
-                "确认清理缓存",
-                f"当前缓存 {usage / 1048576:.1f} MiB。\n"
-                f"将删除 {plan.file_count} 个无引用/隔离文件，释放约 "
-                f"{plan.bytes_to_remove / 1048576:.1f} MiB。是否继续？",
-                parent=self.window,
-            ):
-                return
-            self.cache_maintenance.execute(plan)
+                maintenance = (
+                    install_service.preview_install_maintenance()
+                    if install_service is not None else None
+                )
+                self._post_ui(
+                    lambda usage=usage, plan=plan, maintenance=maintenance:
+                    self._confirm_cache_cleanup(usage, plan, maintenance)
+                )
+            except Exception as error:
+                self.context.logger.exception("Cache cleanup analysis failed")
+                message = str(error)
+                self._post_ui(
+                    lambda message=message:
+                    self._finish_cache_cleanup_error(message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="cache-maintenance-preview"
+        ).start()
+
+    def _set_cache_cleanup_running(self, running: bool, text: str) -> None:
+        self.cache_cleanup_running = running
+        self.cache_cleanup_button.configure(
+            state="disabled" if running else "normal", text=text
+        )
+
+    def _confirm_cache_cleanup(self, usage, plan, maintenance) -> None:
+        transaction_count = len(maintenance.candidates) if maintenance is not None else 0
+        transaction_bytes = (
+            maintenance.reclaimable_bytes if maintenance is not None else 0
+        )
+        if not plan.paths and not transaction_count:
+            self.cache_usage_bytes = usage
             self.cache_status.configure(
-                text=f"已清理 {plan.file_count} 个文件，释放 {plan.bytes_to_remove / 1048576:.1f} MiB"
+                text=f"缓存 {usage / 1048576:.1f} MiB，无可安全清理内容"
             )
-            self.cache_usage_bytes = max(0, usage - plan.bytes_to_remove)
-            self._schedule_cache_usage_scan(force=True)
-        except Exception as error:
-            self.context.logger.exception("Cache cleanup failed")
-            messagebox.showerror("缓存清理失败", str(error), parent=self.window)
+            self._set_cache_cleanup_running(False, "分析并清理")
+            return
+        if not messagebox.askyesno(
+            "确认清理缓存",
+            f"当前下载缓存 {usage / 1048576:.1f} MiB。\n"
+            f"· 无引用/隔离缓存：{plan.file_count} 个文件，约 "
+            f"{plan.bytes_to_remove / 1048576:.1f} MiB；\n"
+            f"· 已终结安装事务：{transaction_count} 个目录，约 "
+            f"{transaction_bytes / 1048576:.1f} MiB。\n\n"
+            "已安装 DLC、仍被引用的资源包、活动事务及其备份不会删除。是否继续？",
+            parent=self.window,
+        ):
+            self._set_cache_cleanup_running(False, "分析并清理")
+            return
+        self.cache_cleanup_button.configure(text="正在清理……")
+        install_service = self.install_service
+
+        def worker() -> None:
+            try:
+                snapshots = (
+                    self.download_queue.snapshots()
+                    if self.download_queue is not None else ()
+                )
+                active_ids = [
+                    item.spec.task_id for item in snapshots
+                    if item.state not in {
+                        DownloadState.READY, DownloadState.CANCELLED,
+                        DownloadState.FAILED, DownloadState.CORRUPT,
+                    }
+                ]
+                protected = [
+                    item.result_path for item in snapshots
+                    if item.state is DownloadState.READY
+                    and item.result_path is not None
+                ]
+                if self.install_repository is not None:
+                    protected.extend(
+                        self.context.paths.cache / "packages" / receipt.package_sha256
+                        for receipt in self.install_repository.active()
+                    )
+                fresh_plan = self.cache_maintenance.plan(
+                    protected_paths=protected, active_task_ids=active_ids
+                )
+                invalidate_hashes = getattr(
+                    self.download_queue, "invalidate_hashes", None
+                )
+                try:
+                    self.cache_maintenance.execute(fresh_plan)
+                finally:
+                    # Cleanup can remove several candidates before Windows
+                    # rejects one locked path.  Invalidate every candidate so
+                    # no stale digest survives a partially successful pass.
+                    if callable(invalidate_hashes):
+                        invalidate_hashes(fresh_plan.paths)
+                result = (
+                    install_service.execute_install_maintenance()
+                    if install_service is not None and transaction_count else None
+                )
+                self._post_ui(
+                    lambda usage=usage, plan=fresh_plan, result=result:
+                    self._finish_cache_cleanup(usage, plan, result)
+                )
+            except Exception as error:
+                self.context.logger.exception("Cache cleanup failed")
+                message = str(error)
+                self._post_ui(
+                    lambda message=message:
+                    self._finish_cache_cleanup_error(message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="cache-maintenance-execute"
+        ).start()
+
+    def _finish_cache_cleanup(self, usage, plan, maintenance_result) -> None:
+        removed_transactions = (
+            len(maintenance_result.removed) if maintenance_result is not None else 0
+        )
+        failed_transactions = (
+            len(maintenance_result.failed) if maintenance_result is not None else 0
+        )
+        self.cache_usage_bytes = max(0, usage - plan.bytes_to_remove)
+        self.cache_status.configure(
+            text=(
+                f"已清理 {plan.file_count} 个缓存文件、"
+                f"{removed_transactions} 个终态事务；失败 {failed_transactions} 项"
+            )
+        )
+        self._set_cache_cleanup_running(False, "分析并清理")
+        self._schedule_cache_usage_scan(force=True)
+        self._reconcile_catalog_cache()
+        if failed_transactions:
+            messagebox.showwarning(
+                "清理部分完成",
+                f"缓存已完成清理，但有 {failed_transactions} 个安装事务目录因权限或占用被保留。",
+                parent=self.window,
+            )
+
+    def _finish_cache_cleanup_error(self, message: str) -> None:
+        self._set_cache_cleanup_running(False, "分析并清理")
+        self.cache_status.configure(text="缓存分析或清理失败")
+        self._schedule_cache_usage_scan(force=True)
+        self._reconcile_catalog_cache()
+        messagebox.showerror("缓存清理失败", message, parent=self.window)
 
     def _run_speed_test(self) -> None:
         if self.speed_test_running:
@@ -1658,31 +1823,119 @@ class DlcHubApplication:
         self._schedule_ready_installs()
 
     def _reconcile_catalog_cache(self) -> None:
-        if self.download_queue is None or not self.catalog_entries:
+        if (
+            self.download_queue is None
+            or not self.catalog_entries
+            or self.cache_cleanup_running
+        ):
             return
         # Filename-based package discovery is intentionally limited to DLC.
         # Patch files and AppInfo are versioned by Release attachment ID and
         # are reused only through their exact persisted task record.
-        specs = list(self._download_spec_for_entry(entry) for entry in self.catalog_entries)
+        specs = tuple(
+            self._download_spec_for_entry(entry) for entry in self.catalog_entries
+        )
+
+        generation = self.game_selection_generation
+        cartridge = self.cartridge
+        cartridge_id = cartridge.cartridge_id
+        patch_task_roles = dict(self.patch_task_roles)
+        request_key = (generation, cartridge_id, specs)
+
+        def verifier_for(spec: DownloadSpec):
+            return self._package_verifier_for_context(
+                spec, cartridge=cartridge, patch_task_roles=patch_task_roles,
+            )
+
+        request = (
+            request_key, generation, cartridge_id, specs, verifier_for,
+        )
+        with self.cache_reconcile_lock:
+            if self.cache_reconcile_running:
+                # Identical refreshes are satisfied by the active scan.  A
+                # newer game/catalog replaces the pending request, keeping at
+                # most one full-cache scan active and one waiting behind it.
+                if self.cache_reconcile_active_key != request_key:
+                    self.cache_reconcile_pending = request
+                else:
+                    # A -> B -> A means A is once again the newest desired
+                    # result.  Do not run the now-stale B request afterwards.
+                    self.cache_reconcile_pending = None
+                return
+            self.cache_reconcile_running = True
+            self.cache_reconcile_active_key = request_key
+        self._start_cache_reconcile(request)
+
+    def _start_cache_reconcile(self, request) -> None:
+        (
+            _request_key, generation, cartridge_id, specs, verifier_for,
+        ) = request
+        queue = self.download_queue
 
         def worker() -> None:
+            recovered_count = 0
             try:
-                recovered = list(
-                    self.download_queue.reconcile_cached(tuple(specs))
-                )
-                recovered.extend(
-                    self.download_queue.reconcile_quarantined(tuple(specs))
-                )
-                if recovered:
-                    self._post_ui(
-                        lambda count=len(recovered): self._on_cache_reconciled(count)
-                    )
+                if queue is not None:
+                    recovered = list(queue.reconcile_cached(
+                        specs, verifier_for=verifier_for,
+                    ))
+                    recovered.extend(queue.reconcile_quarantined(
+                        specs, verifier_for=verifier_for,
+                    ))
+                    recovered_count = len(recovered)
             except Exception:
                 self.context.logger.exception("Unable to reconcile cached packages")
+            finally:
+                self._post_ui(lambda: self._finish_cache_reconcile(
+                    request,
+                    recovered_count,
+                    generation=generation,
+                    cartridge_id=cartridge_id,
+                ))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_cache_reconciled(self, count: int) -> None:
+    def _finish_cache_reconcile(
+        self,
+        request,
+        count: int,
+        *,
+        generation: int,
+        cartridge_id: str,
+    ) -> None:
+        if (
+            count
+            and generation == self.game_selection_generation
+            and cartridge_id == self.cartridge.cartridge_id
+        ):
+            self._on_cache_reconciled(
+                count, generation=generation, cartridge_id=cartridge_id,
+            )
+
+        next_request = None
+        with self.cache_reconcile_lock:
+            if self.cache_reconcile_active_key == request[0]:
+                next_request = self.cache_reconcile_pending
+                self.cache_reconcile_pending = None
+                if next_request is None:
+                    self.cache_reconcile_running = False
+                    self.cache_reconcile_active_key = None
+                else:
+                    self.cache_reconcile_active_key = next_request[0]
+        if next_request is not None:
+            self._start_cache_reconcile(next_request)
+
+    def _on_cache_reconciled(
+        self,
+        count: int,
+        *,
+        generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
         self.catalog_preview.configure(text=f"已从缓存恢复 {count} 个已下载 DLC")
         self._schedule_ready_installs()
 
@@ -1738,6 +1991,7 @@ class DlcHubApplication:
                 entry.asset.display_size,
                 tuple(part.asset_id for part in entry.parts),
                 self._is_entry_installed(entry),
+                entry.dlc_id.casefold() in self.active_receipt_dlc_ids,
                 snapshot.state.value if snapshot is not None else None,
             ))
         return (
@@ -1786,10 +2040,14 @@ class DlcHubApplication:
                 # Active download progress changes without changing the render
                 # key.  Advanced rows can update those labels in place.
                 self._show_download_state(snapshot)
+            if self.catalog_view_mode == "advanced":
+                self._show_install_state(entry, snapshot)
 
     def _render_catalog_rows(self) -> None:
         self._cancel_catalog_render()
         self._activate_catalog_view_storage(self.catalog_view_mode)
+        if self.catalog_view_mode == "advanced":
+            self._refresh_active_receipt_dlc_ids()
         snapshots = {}
         if self.download_queue is not None:
             snapshots = {item.spec.task_id: item for item in self.download_queue.snapshots()}
@@ -2085,7 +2343,7 @@ class DlcHubApplication:
             )
             if task_id in snapshots:
                 self._show_download_state(snapshots[task_id])
-            self._show_install_state(entry)
+            self._show_install_state(entry, snapshots.get(task_id))
 
     def _simple_entry_status(self, entry, snapshot=None) -> tuple[str, str]:
         if self._is_entry_installed(entry):
@@ -2229,6 +2487,11 @@ class DlcHubApplication:
 
     def _start_unlock_workflow(self) -> None:
         """Kick off the patch phase; DLC downloads begin once patching succeeds."""
+        if self.cache_cleanup_running:
+            self.catalog_preview.configure(
+                text="缓存正在维护，请等待完成后再执行一键解锁"
+            )
+            return
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
@@ -2285,6 +2548,11 @@ class DlcHubApplication:
         self._start_dlc_batch(selected_entries)
 
     def _start_dlc_batch(self, selected_entries) -> None:
+        if self.cache_cleanup_running:
+            self.catalog_preview.configure(
+                text="缓存正在维护，请等待完成后再开始下载"
+            )
+            return
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
@@ -2367,6 +2635,14 @@ class DlcHubApplication:
             fg_color=UI["primary"],
             hover_color=UI["primary_hover"],
         )
+        if self.install_recovery_running:
+            self.download_selected_button.configure(
+                text="正在检查安装…", state="disabled"
+            )
+        elif self.install_recovery_failed:
+            self.download_selected_button.configure(
+                text="请重新扫描", state="disabled"
+            )
         # During patch download/apply and cancel/repair/restore the DLC-level cancel
         # button must not tear down anything; the patch flow owns those tasks.
         interactive = state not in {
@@ -2613,6 +2889,12 @@ class DlcHubApplication:
             self._maybe_finish_unlock_workflow()
 
     def _start_entry_download(self, entry, *, show_error: bool = True):
+        if self.cache_cleanup_running:
+            if show_error:
+                self.catalog_preview.configure(
+                    text="缓存正在维护，请等待完成后再开始下载"
+                )
+            return None
         spec = self._download_spec_for_entry(entry)
         self.auto_install_attempted.discard(spec.task_id)
         self.auto_install_redownload_attempted.discard(spec.task_id)
@@ -2723,13 +3005,30 @@ class DlcHubApplication:
                 pass
 
     def _package_verifier_for(self, spec: DownloadSpec):
-        role = self.patch_task_roles.get(spec.task_id)
+        # Capture all cartridge-sensitive state now.  DownloadQueue may invoke
+        # this verifier after a queued task has waited behind another game, and
+        # cache reconciliation may finish after the user switches cartridges.
+        return self._package_verifier_for_context(
+            spec,
+            cartridge=self.cartridge,
+            patch_task_roles=dict(self.patch_task_roles),
+        )
+
+    def _package_verifier_for_context(
+        self,
+        spec: DownloadSpec,
+        *,
+        cartridge,
+        patch_task_roles,
+    ):
+        role = patch_task_roles.get(spec.task_id)
         if role is not None:
             return self._patch_asset_verifier(role, spec.filename)
-        expected_dlc_id = self._dlc_id_from_task(spec.task_id)
+        prefix = f"{cartridge.adapter.descriptor.game_id}-"
+        expected_dlc_id = spec.task_id.removeprefix(prefix)
 
         def verify(path: Path, actual_sha256: str):
-            metadata = self.cartridge.inspect_package(
+            metadata = cartridge.inspect_package(
                 path,
                 asset_name=spec.filename,
                 known_sha256=actual_sha256,
@@ -2792,6 +3091,20 @@ class DlcHubApplication:
             self.context.logger.exception("Unable to read install receipt")
             return None
 
+    def _refresh_active_receipt_dlc_ids(self) -> None:
+        if self.install_repository is None:
+            self.active_receipt_dlc_ids = frozenset()
+            return
+        try:
+            self.active_receipt_dlc_ids = frozenset(
+                dlc_id.casefold() for dlc_id in self.install_repository.active_dlc_ids(
+                    self.cartridge.adapter.descriptor.game_id
+                )
+            )
+        except Exception:
+            self.context.logger.exception("Unable to read active install receipt IDs")
+            self.active_receipt_dlc_ids = frozenset()
+
     def _ready_download(self, dlc_id: str):
         if self.download_queue is None:
             return None
@@ -2806,6 +3119,8 @@ class DlcHubApplication:
     def _schedule_ready_installs(self) -> None:
         if (
             self.auto_install_worker_running
+            or self.install_recovery_running
+            or self.install_recovery_failed
             or self.install_service is None
             or self.current_installation is None
             or self.download_queue is None
@@ -2855,7 +3170,8 @@ class DlcHubApplication:
         cartridge_id = self.cartridge.cartridge_id
 
         def worker() -> None:
-            for entry, snapshot in jobs:
+            total = len(jobs)
+            for index, (entry, snapshot) in enumerate(jobs, start=1):
                 try:
                     current = self.current_installation
                     if (
@@ -2865,6 +3181,12 @@ class DlcHubApplication:
                         or cartridge_id != self.cartridge.cartridge_id
                     ):
                         break
+                    self._post_ui(
+                        lambda entry=entry, index=index, total=total:
+                        self._on_auto_install_progress(
+                            entry, index, total, generation, cartridge_id
+                        )
+                    )
                     receipt = service.install(
                         snapshot.result_path,
                         game_root,
@@ -2914,6 +3236,22 @@ class DlcHubApplication:
         threading.Thread(
             target=worker, daemon=True, name="dlc-installer"
         ).start()
+
+    def _on_auto_install_progress(
+        self, entry, index: int, total: int, generation: int, cartridge_id: str
+    ) -> None:
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+        ):
+            return
+        if self.batch_download_state == "installing":
+            self.download_selected_button.configure(
+                text=f"安装中 {index}/{total}…", state="disabled"
+            )
+        self.catalog_preview.configure(
+            text=f"正在安装 {index}/{total}：{entry.display_name}"
+        )
 
     @staticmethod
     def _cache_integrity_failure(error: Exception) -> bool:
@@ -2981,6 +3319,9 @@ class DlcHubApplication:
         # this one entry avoids rescanning every DLC directory after every
         # small package; the worker performs one full reconciliation at the end.
         self.installed_dlc_paths[entry.dlc_id.casefold()] = receipt.target_path
+        self.active_receipt_dlc_ids = frozenset((
+            *self.active_receipt_dlc_ids, entry.dlc_id.casefold()
+        ))
         self._show_install_state(entry)
         self.catalog_preview.configure(text=f"{entry.display_name} 已自动安装到游戏目录")
         self._notify(f"{entry.display_name}：安装完成")
@@ -3064,7 +3405,7 @@ class DlcHubApplication:
         self._notify("一键解锁成功")
         messagebox.showinfo("一键解锁成功", detail, parent=self.window)
 
-    def _show_install_state(self, entry) -> None:
+    def _show_install_state(self, entry, snapshot=None) -> None:
         task_id = self._dlc_task_id(entry.dlc_id)
         installed = self._is_entry_installed(entry)
         checkbox = self.catalog_selection_widgets.get(entry.dlc_id)
@@ -3083,8 +3424,7 @@ class DlcHubApplication:
             name_label.configure(text_color=UI["muted"] if installed else UI["text"])
         simple_status = self.simple_status_labels.get(task_id)
         if simple_status is not None:
-            snapshot = None
-            if self.download_queue is not None:
+            if snapshot is None and self.download_queue is not None:
                 snapshot = next((
                     item for item in self.download_queue.snapshots()
                     if item.spec.task_id == task_id
@@ -3095,28 +3435,87 @@ class DlcHubApplication:
         if row is None:
             return
         _status, _action, _cancel, manage, uninstall = row
-        receipt = self._active_receipt(entry.dlc_id)
+        has_receipt = entry.dlc_id.casefold() in self.active_receipt_dlc_ids
         if installed:
             _status.configure(text="已安装", text_color=UI["muted"])
             _action.configure(state="disabled", text="已安装")
             _cancel.configure(state="disabled")
             uninstall.configure(state="normal")
-            if receipt is not None:
+            if has_receipt:
                 manage.configure(state="normal", text="检查")
             else:
                 manage.configure(state="disabled", text="已存在")
             return
-        if receipt is not None and self.current_installation is not None:
+        if has_receipt and self.current_installation is not None:
             manage.configure(state="normal", text="检查")
             uninstall.configure(state="normal")
             return
         uninstall.configure(state="disabled")
         if self.current_installation is None:
             manage.configure(state="disabled", text="无路径")
-        elif self._ready_download(entry.dlc_id) is None:
+        elif not (
+            snapshot is not None
+            and snapshot.state is DownloadState.READY
+            and snapshot.result_path is not None
+            and snapshot.sha256 is not None
+        ) and self._ready_download(entry.dlc_id) is None:
             manage.configure(state="disabled", text="先下载")
         else:
             manage.configure(state="normal", text="安装")
+
+    def _begin_manual_file_operation(self, label: str):
+        if self.manual_file_operation_token is not None:
+            messagebox.showwarning(
+                "文件操作尚未结束",
+                "请等待当前 DLC 检查、安装或卸载操作完成。",
+                parent=self.window,
+            )
+            return None
+        if (
+            self.auto_install_worker_running
+            or self.install_recovery_running
+            or self.cache_cleanup_running
+            or self.batch_download_state != "idle"
+            or self.patch_workflow_state != "idle"
+        ):
+            messagebox.showwarning(
+                "当前任务尚未结束",
+                "请等待下载、自动安装、补丁或缓存维护完成后再操作单个 DLC。",
+                parent=self.window,
+            )
+            return None
+        installation = self.current_installation
+        if installation is None:
+            return None
+        token = (
+            object(), self.game_selection_generation,
+            self.cartridge.cartridge_id,
+            str(installation.root.resolve(strict=False)), label,
+        )
+        self.manual_file_operation_token = token
+        self.catalog_preview.configure(text=f"正在{label}……")
+        return token
+
+    def _manual_file_operation_is_current(self, token) -> bool:
+        if self.manual_file_operation_token != token:
+            return False
+        _marker, generation, cartridge_id, game_root, _label = token
+        return (
+            generation == self.game_selection_generation
+            and cartridge_id == self.cartridge.cartridge_id
+            and self.current_installation is not None
+            and str(self.current_installation.root.resolve(strict=False)) == game_root
+        )
+
+    def _finish_manual_file_error(self, token, title: str, message: str) -> None:
+        if self.manual_file_operation_token != token:
+            return
+        current = self._manual_file_operation_is_current(token)
+        self.manual_file_operation_token = None
+        if not current:
+            return
+        self.catalog_preview.configure(text=f"{title}：{message}")
+        messagebox.showerror(title, message, parent=self.window)
 
     def _manage_entry(self, entry) -> None:
         if self.install_service is None or self.current_installation is None:
@@ -3127,28 +3526,37 @@ class DlcHubApplication:
         if receipt is not None:
             game_root = self.current_installation.root
             download = self._ready_download(entry.dlc_id)
+            service = self.install_service
+            game_id = self.cartridge.adapter.descriptor.game_id
+            token = self._begin_manual_file_operation("检查 DLC")
+            if token is None:
+                return
 
             def inspect_worker() -> None:
                 try:
                     audit = next(
-                        item.audit for item in self.install_service.audit(
-                            self.cartridge.adapter.descriptor.game_id, game_root
+                        item.audit for item in service.audit(
+                            game_id, game_root
                         ) if item.receipt.dlc_id == entry.dlc_id
                     )
                     if audit.health is not InstallHealth.HEALTHY and audit.missing and download is not None:
-                        audit = self.install_service.repair_missing(
-                            self.cartridge.adapter.descriptor.game_id,
+                        audit = service.repair_missing(
+                            game_id,
                             entry.dlc_id, download.result_path, game_root
                         )
                     self._post_ui(
-                        lambda audit=audit: self._show_audit_result(entry, audit)
+                        lambda audit=audit:
+                        self._finish_manual_audit(token, entry, audit)
                     )
                 except Exception as error:
                     self.context.logger.exception("DLC audit failed")
                     message = str(error)
-                    self._post_ui(lambda message=message: messagebox.showerror(
-                        "检查失败", message, parent=self.window
-                    ))
+                    self._post_ui(
+                        lambda message=message:
+                        self._finish_manual_file_error(
+                            token, "检查失败", message
+                        )
+                    )
 
             threading.Thread(target=inspect_worker, daemon=True).start()
             return
@@ -3161,14 +3569,24 @@ class DlcHubApplication:
             parent=self.window,
         ):
             return
+        service = self.install_service
+        game_root = self.current_installation.root
         self._run_install_action(
-            lambda: self.install_service.install(
-                download.result_path, self.current_installation.root,
+            lambda: service.install(
+                download.result_path, game_root,
                 expected_sha256=download.sha256,
             ),
             entry,
             "安装完成",
         )
+
+    def _finish_manual_audit(self, token, entry, audit) -> None:
+        if self.manual_file_operation_token != token:
+            return
+        current = self._manual_file_operation_is_current(token)
+        self.manual_file_operation_token = None
+        if current:
+            self._show_audit_result(entry, audit)
 
     def _show_audit_result(self, entry, audit) -> None:
         if audit.health is InstallHealth.HEALTHY:
@@ -3237,6 +3655,11 @@ class DlcHubApplication:
     def _start_dlc_removal(self, targets: dict[str, str], title: str) -> None:
         game_root = self.current_installation.root
         repository = self.install_repository
+        cartridge = self.cartridge
+        game_id = cartridge.adapter.descriptor.game_id
+        token = self._begin_manual_file_operation(title)
+        if token is None:
+            return
         self.catalog_preview.configure(text=f"正在移除 {len(targets)} 个 DLC……")
 
         def worker() -> None:
@@ -3244,10 +3667,10 @@ class DlcHubApplication:
             failures = []
             for dlc_id, display_name in targets.items():
                 try:
-                    self.cartridge.remove_installed_dlc(game_root, dlc_id)
+                    cartridge.remove_installed_dlc(game_root, dlc_id)
                     if repository is not None:
                         receipt = repository.find_active(
-                            self.cartridge.adapter.descriptor.game_id, dlc_id
+                            game_id, dlc_id
                         )
                         if receipt is not None:
                             repository.mark_uninstalled(
@@ -3260,12 +3683,20 @@ class DlcHubApplication:
                     )
                     failures.append(f"{display_name}：{error}")
             self._post_ui(
-                lambda: self._finish_dlc_removal(title, removed, failures)
+                lambda: self._finish_dlc_removal(
+                    token, title, removed, failures
+                )
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_dlc_removal(self, title: str, removed, failures) -> None:
+    def _finish_dlc_removal(self, token, title: str, removed, failures) -> None:
+        if self.manual_file_operation_token != token:
+            return
+        current = self._manual_file_operation_is_current(token)
+        self.manual_file_operation_token = None
+        if not current:
+            return
         self._refresh_installed_dlc_paths()
         if title == "卸载全部 DLC":
             # A bulk uninstall is normally followed by a reinstall. Select all
@@ -3940,25 +4371,51 @@ class DlcHubApplication:
     # ---- End of patch workflow ---------------------------------------------
 
     def _run_install_action(self, operation, entry, success_text: str) -> None:
+        token = self._begin_manual_file_operation(success_text)
+        if token is None:
+            return
+
         def worker() -> None:
             try:
                 operation()
-                self._post_ui(lambda: self._finish_install_action(entry, success_text))
+                self._post_ui(
+                    lambda: self._finish_install_action(
+                        token, entry, success_text
+                    )
+                )
             except Exception as error:
                 self.context.logger.exception("DLC install action failed")
                 message = str(error)
-                self._post_ui(lambda message=message: messagebox.showerror(
-                    "操作失败", message, parent=self.window
-                ))
+                self._post_ui(
+                    lambda message=message:
+                    self._finish_manual_file_error(
+                        token, "操作失败", message
+                    )
+                )
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_install_action(self, entry, text: str) -> None:
+    def _finish_install_action(self, token, entry, text: str) -> None:
+        if self.manual_file_operation_token != token:
+            return
+        current = self._manual_file_operation_is_current(token)
+        self.manual_file_operation_token = None
+        if not current:
+            return
         self._refresh_installed_dlc_paths()
+        self._refresh_active_receipt_dlc_ids()
         self._render_catalog_rows()
         self._notify(f"{entry.display_name}：{text}")
         messagebox.showinfo(text, f"{entry.display_name}：{text}", parent=self.window)
 
     def _close(self) -> None:
+        if self._content_work_is_active() or self.cache_cleanup_running:
+            messagebox.showwarning(
+                "任务仍在进行",
+                "当前仍有下载、安装、补丁恢复或缓存维护任务。\n"
+                "请等待完成，或先取消全部下载，再关闭程序。",
+                parent=self.window,
+            )
+            return
         self.ui_event_pump_running = False
         if self.download_queue is not None:
             self.download_queue.shutdown(wait=False)
@@ -4085,6 +4542,12 @@ class DlcHubApplication:
         ]
         if not installations:
             self.current_installation = None
+            self.installed_dlc_paths = {}
+            self.active_receipt_dlc_ids = frozenset()
+            self.install_recovery_running = False
+            self.install_recovery_failed = False
+            self.install_recovery_key = None
+            self.install_recovery_pending = None
             self.game_status.configure(text=f"{game_name} · 未检测到有效安装")
             suffix = f"（扫描产生 {len(report.issues)} 条诊断信息）" if report.issues else ""
             self.game_path.configure(
@@ -4093,6 +4556,7 @@ class DlcHubApplication:
             self.open_game_button.configure(state="disabled")
             self.launch_game_button.configure(state="disabled")
             self.top_health.configure(text=f"{game_name} · 未检测到有效路径")
+            self._render_catalog_rows()
             return
 
         installation = next(
@@ -4178,7 +4642,113 @@ class DlcHubApplication:
             )
         }
         self._render_catalog_rows()
-        self._schedule_ready_installs()
+        self._recover_incomplete_installs(
+            installation.root,
+            generation=(
+                self.game_selection_generation if generation is None else generation
+            ),
+            cartridge_id=self.cartridge.cartridge_id,
+        )
+
+    def _recover_incomplete_installs(
+        self, game_root: Path, *, generation: int, cartridge_id: str
+    ) -> None:
+        service = self.install_service
+        if service is None:
+            self._schedule_ready_installs()
+            return
+        installation = self.current_installation
+        try:
+            game_state = (
+                self.cartridge.adapter.inspect(installation)
+                if installation is not None else None
+            )
+        except Exception:
+            self.install_recovery_failed = True
+            self.context.logger.exception(
+                "Unable to verify game state before transaction recovery"
+            )
+            self.catalog_preview.configure(
+                text="无法确认游戏是否运行；已暂停安装恢复"
+            )
+            self._set_batch_download_state(self.batch_download_state)
+            return
+        if game_state is None or game_state.running:
+            self.install_recovery_failed = True
+            self.catalog_preview.configure(
+                text="游戏正在运行；请关闭游戏并重新扫描后再安装"
+            )
+            self._set_batch_download_state(self.batch_download_state)
+            return
+        key = (generation, cartridge_id, str(Path(game_root).resolve(strict=False)))
+        if self.install_recovery_running:
+            if key != self.install_recovery_key:
+                self.install_recovery_pending = (game_root, generation, cartridge_id)
+            return
+        self.install_recovery_failed = False
+        self.install_recovery_running = True
+        self.install_recovery_key = key
+        self._set_batch_download_state(self.batch_download_state)
+
+        def worker() -> None:
+            try:
+                recovered = service.recover_incomplete((game_root,))
+                self._post_ui(
+                    lambda key=key, recovered=recovered:
+                    self._finish_install_recovery(key, recovered, None)
+                )
+            except Exception as error:
+                self.context.logger.exception("Interrupted install recovery failed")
+                message = str(error)
+                self._post_ui(
+                    lambda key=key, message=message:
+                    self._finish_install_recovery(key, (), message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="install-transaction-recovery"
+        ).start()
+
+    def _finish_install_recovery(self, key, recovered, error: str | None) -> None:
+        if key != self.install_recovery_key:
+            return
+        self.install_recovery_running = False
+        self.install_recovery_key = None
+        pending = self.install_recovery_pending
+        self.install_recovery_pending = None
+        generation, cartridge_id, game_root = key
+        stale = (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+            or self.current_installation is None
+            or str(self.current_installation.root.resolve(strict=False)) != game_root
+        )
+        if not stale and error is not None:
+            self.install_recovery_failed = True
+            self.catalog_preview.configure(text="检测到未完成安装，但自动恢复失败")
+            self._notify("未完成安装恢复失败，请查看日志后重新扫描", error=True)
+            messagebox.showwarning(
+                "安装恢复失败",
+                f"程序没有继续自动安装，以免覆盖尚未恢复的文件。\n\n{error}",
+                parent=self.window,
+            )
+        elif not stale and recovered:
+            self.install_recovery_failed = False
+            self._refresh_installed_dlc_paths()
+            self._refresh_active_receipt_dlc_ids()
+            self._render_catalog_rows()
+            self._notify(f"已安全恢复 {len(recovered)} 个中断安装事务")
+        if not stale and error is None:
+            self.install_recovery_failed = False
+            self._set_batch_download_state(self.batch_download_state)
+            self._schedule_ready_installs()
+        if pending is not None:
+            pending_root, pending_generation, pending_cartridge_id = pending
+            self._recover_incomplete_installs(
+                pending_root,
+                generation=pending_generation,
+                cartridge_id=pending_cartridge_id,
+            )
 
     def _show_game_error(
         self, message: str, *, popup: bool = True,
@@ -4212,6 +4782,40 @@ class DlcHubApplication:
 
     def _require_game_stopped(self, action: str) -> bool:
         """Fail closed before changing files that may be locked by the game."""
+        if (
+            self.auto_install_worker_running
+            or self.cache_cleanup_running
+            or self.batch_download_state != "idle"
+            or self.patch_workflow_state != "idle"
+        ):
+            messagebox.showwarning(
+                "当前任务尚未结束",
+                f"请等待下载、自动安装、补丁或缓存维护完成后再执行“{action}”。",
+                parent=self.window,
+            )
+            return False
+        if self.install_recovery_running:
+            messagebox.showwarning(
+                "正在检查安装事务",
+                f"请等待中断安装恢复完成后再执行“{action}”。",
+                parent=self.window,
+            )
+            return False
+        if self.install_recovery_failed:
+            messagebox.showwarning(
+                "安装恢复尚未完成",
+                f"为避免覆盖未恢复文件，暂不执行“{action}”。\n"
+                "请关闭游戏后点击“重新扫描”，确认恢复成功再重试。",
+                parent=self.window,
+            )
+            return False
+        if self.manual_file_operation_token is not None:
+            messagebox.showwarning(
+                "文件操作尚未结束",
+                "请等待当前 DLC 检查、安装或卸载操作结束。",
+                parent=self.window,
+            )
+            return False
         installation = self.current_installation
         if installation is None:
             return False

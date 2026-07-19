@@ -7,6 +7,7 @@ import os
 import zipfile
 from errno import EACCES, EXDEV
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,8 @@ from signriver_app.infrastructure.installs import (
     InstallAccessError,
     InstallConflictError,
     InstallError,
+    InstallRecoveryConflict,
+    InstallSpaceError,
     StellarisInstallEngine,
 )
 
@@ -56,6 +59,73 @@ def test_install_new_dlc_commits_journal_and_receipt(tmp_path: Path) -> None:
     journal = json.loads(plan.journal_path.read_text(encoding="utf-8"))
     assert journal["phase"] == InstallPhase.COMMITTED
     assert journal["target"] == "dlc/dlc001_symbols_of_domination"
+
+
+def test_install_preflight_reserves_staging_and_safe_commit_space(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        disk_usage=lambda _path: SimpleNamespace(free=10**12),
+        space_margin_bytes=0,
+    )
+    plan = engine.plan(package, game, expected_sha256=digest, transaction_id="space-ok")
+
+    estimate = engine.estimate_disk_space(plan, replaced_existing=False)
+
+    assert estimate.expanded_package_bytes > 0
+    assert len(estimate.requirements) == 1
+    assert estimate.requirements[0].required_bytes == 2 * estimate.expanded_package_bytes
+    assert set(estimate.requirements[0].purposes) == {
+        "解压暂存", "目标侧安全提交副本",
+    }
+    assert estimate.sufficient
+
+
+def test_install_preflight_fails_before_journal_or_game_change(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    existing = game / "dlc" / "dlc001_symbols_of_domination"
+    existing.mkdir()
+    (existing / "keep.txt").write_text("keep", encoding="utf-8")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        disk_usage=lambda _path: SimpleNamespace(free=1),
+        space_margin_bytes=0,
+    )
+    plan = engine.plan(package, game, expected_sha256=digest, transaction_id="space-low")
+
+    with pytest.raises(InstallSpaceError, match="尚未改动游戏文件"):
+        engine.install(plan)
+
+    assert (existing / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not plan.journal_path.exists()
+
+
+def test_install_preflight_reports_disk_query_failure(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+
+    def unavailable(_path: Path):
+        raise OSError("volume unavailable")
+
+    engine = StellarisInstallEngine(
+        tmp_path / "data", disk_usage=unavailable
+    )
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="space-query"
+    )
+
+    with pytest.raises(InstallError, match="无法检查安装磁盘"):
+        engine.install(plan)
+    assert not plan.journal_path.exists()
 
 
 def test_single_pass_installed_snapshot_preserves_receipt_hash_semantics(
@@ -309,8 +379,6 @@ def test_recover_incomplete_restores_backup_for_allowed_game(tmp_path: Path) -> 
     engine = StellarisInstallEngine(tmp_path / "data")
     plan = engine.plan(package, game, expected_sha256=digest, transaction_id="txn-crash")
     target = plan.target_path
-    target.mkdir()
-    (target / "new.txt").write_text("new", encoding="utf-8")
     backup = plan.backup_root / target.name
     backup.mkdir(parents=True)
     (backup / "old.txt").write_text("old", encoding="utf-8")
@@ -323,6 +391,32 @@ def test_recover_incomplete_restores_backup_for_allowed_game(tmp_path: Path) -> 
     assert journal["phase"] == InstallPhase.ROLLED_BACK
 
 
+def test_recovery_preserves_ambiguous_target_and_backup(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-conflict"
+    )
+    target = plan.target_path
+    target.mkdir()
+    (target / "new.txt").write_text("new", encoding="utf-8")
+    backup = plan.backup_root / target.name
+    backup.mkdir(parents=True)
+    (backup / "old.txt").write_text("old", encoding="utf-8")
+    engine._write_journal(plan, InstallPhase.BACKED_UP, True)
+
+    with pytest.raises(InstallRecoveryConflict, match="全部保留"):
+        engine.recover_incomplete([game])
+
+    assert (target / "new.txt").read_text(encoding="utf-8") == "new"
+    assert (backup / "old.txt").read_text(encoding="utf-8") == "old"
+    assert json.loads(plan.journal_path.read_text(encoding="utf-8"))["phase"] == (
+        InstallPhase.BACKED_UP
+    )
+
+
 def test_recovery_ignores_transaction_for_unapproved_game_root(tmp_path: Path) -> None:
     game = make_game(tmp_path / "Stellaris")
     package = tmp_path / "dlc001.zip"
@@ -332,6 +426,198 @@ def test_recovery_ignores_transaction_for_unapproved_game_root(tmp_path: Path) -
     engine._write_journal(plan, InstallPhase.STAGED, False)
     assert engine.recover_incomplete([]) == ()
     assert json.loads(plan.journal_path.read_text(encoding="utf-8"))["phase"] == InstallPhase.STAGED
+
+
+def test_recovery_never_touches_target_outside_configured_dlc_root(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-forged"
+    )
+    victim = game / "keep-me"
+    victim.mkdir()
+    (victim / "save.txt").write_text("keep", encoding="utf-8")
+    engine._write_journal(plan, InstallPhase.COMMITTING, False)
+    payload = json.loads(plan.journal_path.read_text(encoding="utf-8"))
+    payload["target"] = "keep-me"
+    plan.journal_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InstallRecoveryConflict, match="DLC 目录"):
+        engine.recover_incomplete([game])
+
+    assert (victim / "save.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_recovery_preserves_target_when_backup_was_already_consumed(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-restored"
+    )
+    target = plan.target_path
+    target.mkdir()
+    (target / "original.txt").write_text("original", encoding="utf-8")
+    engine._write_journal(plan, InstallPhase.COMMITTING, True)
+
+    assert engine.recover_incomplete([game]) == ("txn-restored",)
+    assert (target / "original.txt").read_text(encoding="utf-8") == "original"
+    assert json.loads(plan.journal_path.read_text(encoding="utf-8"))["phase"] == (
+        InstallPhase.ROLLED_BACK
+    )
+
+
+def test_invalid_journal_does_not_block_an_independent_safe_recovery(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    invalid = tmp_path / "data" / "transactions" / "broken" / "journal.json"
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("not-json", encoding="utf-8")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-valid"
+    )
+    engine._write_journal(plan, InstallPhase.STAGED, False)
+
+    assert engine.recover_incomplete([game]) == ("txn-valid",)
+    assert invalid.read_text(encoding="utf-8") == "not-json"
+    assert any("broken" in warning for warning in engine.last_recovery_warnings)
+
+
+def test_recovery_rolls_back_interrupted_uninstall(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(
+            package, game, expected_sha256=digest,
+            transaction_id="txn-uninstall-recovery",
+        )
+    )
+    transaction = (
+        tmp_path / "data" / "transactions" /
+        f"uninstall-{receipt.transaction_id}"
+    )
+    journal = transaction / "journal.json"
+    removed = transaction / "removed" / receipt.target_path.name
+    transaction.mkdir(parents=True, exist_ok=True)
+    engine._write_simple_journal(journal, "removing", receipt)
+    removed.parent.mkdir(parents=True)
+    os.replace(receipt.target_path, removed)
+
+    assert engine.recover_incomplete([game]) == (receipt.transaction_id,)
+    assert receipt.target_path.is_dir()
+    assert not removed.exists()
+    assert json.loads(journal.read_text(encoding="utf-8"))["phase"] == "rolled_back"
+
+
+def test_maintenance_removes_rolled_back_transaction_and_orphan_backup(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="rolled-back-old"
+    )
+    plan.staging_root.mkdir(parents=True)
+    backup = plan.backup_root / plan.relative_target.name
+    backup.mkdir(parents=True)
+    (backup / "stale.txt").write_text("stale", encoding="utf-8")
+    engine._write_journal(plan, InstallPhase.ROLLED_BACK, False)
+
+    preview = engine.preview_maintenance(min_age_seconds=0, now=10**12)
+    assert {item.kind for item in preview.candidates} == {"transaction", "backup"}
+    assert preview.reclaimable_bytes >= len("stale")
+
+    result = engine.execute_maintenance(min_age_seconds=0, now=10**12)
+    assert not result.failed
+    assert not plan.journal_path.parent.exists()
+    assert not plan.backup_root.exists()
+
+
+def test_maintenance_retains_unknown_committed_transaction(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="unknown-commit"
+    )
+    engine._write_journal(plan, InstallPhase.COMMITTED, False)
+
+    preview = engine.preview_maintenance(min_age_seconds=0, now=10**12)
+
+    assert not preview.candidates
+    assert any("保守保留" in reason for reason in preview.retained)
+    assert plan.journal_path.is_file()
+
+
+def test_maintenance_retains_unknown_journal_schema(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="future-schema"
+    )
+    engine._write_journal(plan, InstallPhase.ROLLED_BACK, False)
+    payload = json.loads(plan.journal_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 999
+    plan.journal_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    preview = engine.preview_maintenance(min_age_seconds=0, now=10**12)
+
+    assert not preview.candidates
+    assert any("future-schema" in reason for reason in preview.retained)
+    assert plan.journal_path.is_file()
+
+
+def test_maintenance_keeps_journal_when_backup_removal_fails(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    plan = engine.plan(
+        package, game, expected_sha256=digest,
+        transaction_id="blocked-backup-cleanup",
+    )
+    backup = plan.backup_root / plan.relative_target.name
+    backup.mkdir(parents=True)
+    (backup / "keep.txt").write_text("keep", encoding="utf-8")
+    engine._write_journal(plan, InstallPhase.ROLLED_BACK, False)
+    original_remove_tree = engine._remove_tree
+
+    def fail_backup(path: Path) -> None:
+        if Path(path).resolve() == plan.backup_root.resolve():
+            raise PermissionError("backup is locked")
+        original_remove_tree(path)
+
+    monkeypatch.setattr(engine, "_remove_tree", fail_backup)
+    result = engine.execute_maintenance(min_age_seconds=0, now=10**12)
+
+    assert plan.backup_root.is_dir()
+    assert plan.journal_path.is_file()
+    assert {item.kind for item, _message in result.failed} == {
+        "backup", "transaction"
+    }
+    assert any(
+        "journal retained" in message for _item, message in result.failed
+    )
 
 
 def test_verify_and_uninstall_unchanged_installation(tmp_path: Path) -> None:

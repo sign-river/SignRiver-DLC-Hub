@@ -12,7 +12,19 @@ from .games import (
 )
 from .catalog import DlcCatalogEntry, NormalizedRelease, ReleaseAsset
 from .downloads import DownloadSnapshot, DownloadSpec, DownloadState
-from .installs import InstallAudit, InstallHealth, InstallPhase, InstallPlan, InstallReceipt, OwnedFile
+from .installs import (
+    DiskSpaceRequirement,
+    InstallAudit,
+    InstallHealth,
+    InstallMaintenanceEntry,
+    InstallMaintenancePreview,
+    InstallMaintenanceResult,
+    InstallPhase,
+    InstallPlan,
+    InstallReceipt,
+    InstallSpaceEstimate,
+    OwnedFile,
+)
 from .patches import (
     PatchAssetRole,
     PatchAudit,
@@ -43,6 +55,11 @@ __all__ = [
     "InstallPhase",
     "InstallHealth",
     "InstallAudit",
+    "DiskSpaceRequirement",
+    "InstallSpaceEstimate",
+    "InstallMaintenanceEntry",
+    "InstallMaintenancePreview",
+    "InstallMaintenanceResult",
     "OwnedFile",
     "PatchAssetRole",
     "PatchAudit",

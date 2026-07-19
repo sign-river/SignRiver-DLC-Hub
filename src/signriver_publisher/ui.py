@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import threading
@@ -34,6 +35,8 @@ from .models import GameProfile, PublishAsset
 from .remote import RemoteAsset, RemoteBulkDeleteResult, RemoteRelease, RemoteResourceManager
 from .settings import PublisherSettings
 from .workspace import PublisherWorkspace, WorkspaceError
+
+LOGGER = logging.getLogger(__name__)
 
 BLUE = "#1976D2"
 LIGHT_BLUE = "#42A5F5"
@@ -86,6 +89,18 @@ class PublisherApplication(ctk.CTk):
         self._remote_operation_active = False
         self._build_operation_active = False
         self._build_progress_events = SimpleQueue()
+        # Tk must only be touched by the main thread.  Background build,
+        # network, and fingerprint workers post plain callbacks here; one
+        # main-loop pump applies them in bounded batches.
+        self._ui_events = SimpleQueue()
+        self._ui_pump_running = True
+        self._pending_upload_progress: tuple[int, int, str, int, int] | None = None
+        self._pending_upload_progress_lock = threading.Lock()
+        # Main-thread owned registry for background operations that mutate the
+        # workspace or a remote Release.  Keeping the window/event pump alive
+        # until these finish prevents daemon workers from being terminated in
+        # the middle of a ZIP, state-file write, or attachment upload.
+        self._background_mutations: dict[str, str] = {}
         self._upload_control: UploadControl | None = None
         self._publish_resume_context: (
             tuple[GitLinkRepository, GameProfile, tuple[PublishAsset, ...], str | None]
@@ -101,6 +116,7 @@ class PublisherApplication(ctk.CTk):
         ctk.set_appearance_mode("light")
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._close_publisher)
+        self.after(40, self._drain_ui_events)
         self.refresh()
 
     def _build_ui(self) -> None:
@@ -147,6 +163,69 @@ class PublisherApplication(ctk.CTk):
         self._build_remote_tab()
         self._build_acceptance_tab()
         self._build_games_tab()
+
+    def _post_ui(self, callback) -> None:
+        """Transfer work to Tk's owning thread without calling Tk directly."""
+        if self._ui_pump_running:
+            self._ui_events.put(callback)
+
+    def _begin_background_mutation(self, key: str, label: str) -> None:
+        """Register a background write operation from Tk's owning thread."""
+        self._background_mutations[key] = label
+
+    def _end_background_mutation(self, key: str) -> None:
+        """Mark a registered background write operation as terminal."""
+        self._background_mutations.pop(key, None)
+
+    def _active_background_mutations(self) -> tuple[str, ...]:
+        """Return stable, de-duplicated descriptions for close protection."""
+        active = dict(self._background_mutations)
+        # Retain defensive fallbacks for operations started by older call
+        # paths or a future path that sets the established state flags first.
+        if self._build_operation_active:
+            active.setdefault("build", "正在构建发布文件")
+        if self._remote_operation_active:
+            active.setdefault("remote", "正在处理 GitLink 远程资源")
+        if self._upload_control is not None:
+            active.setdefault("publish", "正在上传 Release")
+        return tuple(dict.fromkeys(active.values()))
+
+    def _queue_upload_progress(
+        self, index: int, total: int, name: str, sent: int, size: int
+    ) -> None:
+        """Keep only the newest high-frequency upload progress sample."""
+        if not self._ui_pump_running:
+            return
+        with self._pending_upload_progress_lock:
+            if not self._ui_pump_running:
+                return
+            self._pending_upload_progress = (index, total, name, sent, size)
+
+    def _drain_ui_events(self) -> None:
+        if not self._ui_pump_running:
+            return
+        for _ in range(250):
+            try:
+                callback = self._ui_events.get_nowait()
+            except Empty:
+                break
+            try:
+                callback()
+            except Exception:
+                # One stale callback must not stop delivery of later build or
+                # upload events.  This also covers a window destroyed between
+                # posting and delivery.
+                LOGGER.exception("Unable to apply publisher UI event")
+        with self._pending_upload_progress_lock:
+            progress = self._pending_upload_progress
+            self._pending_upload_progress = None
+        if progress is not None:
+            self._show_upload_progress(*progress)
+        if self._ui_pump_running:
+            try:
+                self.after(40, self._drain_ui_events)
+            except TclError:
+                self._ui_pump_running = False
 
     def _card(self, parent, row: int, title: str) -> ctk.CTkFrame:
         parent.grid_columnconfigure(0, weight=1)
@@ -832,18 +911,16 @@ class PublisherApplication(ctk.CTk):
             try:
                 fingerprint = self.acceptance.fingerprint(profile, paths.client_path)
                 session = self.acceptance.ensure_session(profile, fingerprint)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._acceptance_loaded(
                         generation, profile.game_id, paths, cases, fingerprint, session
-                    ),
+                    )
                 )
             except (AcceptanceError, OSError, ValueError) as error:
-                self.after(
-                    0,
+                self._post_ui(
                     lambda value=str(error): self._acceptance_load_failed(
                         generation, profile.game_id, value
-                    ),
+                    )
                 )
 
         threading.Thread(target=work, daemon=True).start()
@@ -1552,23 +1629,22 @@ class PublisherApplication(ctk.CTk):
         self.dlc_import_button.configure(state="disabled", text="准备中…")
         self.dlc_clear_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
+        self._begin_background_mutation("dlc-import", "正在导入 DLC 资源")
 
         def progress(index: int, total: int, name: str) -> None:
-            self.after(
-                0,
+            self._post_ui(
                 lambda: self.dlc_import_button.configure(
                     text=f"{index}/{total} {name[:10]}"
-                ),
+                )
             )
 
         def work() -> None:
             try:
                 if reset_interrupted:
-                    self.after(
-                        0,
+                    self._post_ui(
                         lambda: self.dlc_import_button.configure(
                             text="清理上次失败记录…"
-                        ),
+                        )
                     )
                     self.workspace.reset_interrupted_collection_import(profile, source)
                 if wrapped is not None:
@@ -1581,16 +1657,17 @@ class PublisherApplication(ctk.CTk):
                     )
                 else:
                     result = (self.workspace.import_dlc(profile, source),)
-                self.after(0, lambda: self._import_dlc_done(profile, result))
-            except (WorkspaceError, OSError) as error:
+                self._post_ui(lambda: self._import_dlc_done(profile, result))
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda: self._import_dlc_failed(message))
+                self._post_ui(lambda: self._import_dlc_failed(message))
 
         threading.Thread(target=work, daemon=True).start()
 
     def _import_dlc_done(
         self, profile: GameProfile, imported: tuple[Path, ...]
     ) -> None:
+        self._end_background_mutation("dlc-import")
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -1599,6 +1676,7 @@ class PublisherApplication(ctk.CTk):
         messagebox.showinfo("导入完成", f"已导入 {len(imported)} 个 DLC 文件夹")
 
     def _import_dlc_failed(self, message: str) -> None:
+        self._end_background_mutation("dlc-import")
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -1650,30 +1728,42 @@ class PublisherApplication(ctk.CTk):
         clear_button.configure(state="disabled", text="正在清空…")
         self.game_menu.configure(state="disabled")
         profile = self.profile
+        operation_key = f"clear-local-{kind}"
+        self._begin_background_mutation(operation_key, f"正在清空本地{label}")
 
         def work() -> None:
             try:
                 count = self.workspace.clear_sources(profile, kind)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._clear_local_resources_done(
-                        profile, label, count, import_button, clear_button
-                    ),
+                        profile,
+                        label,
+                        count,
+                        import_button,
+                        clear_button,
+                        operation_key,
+                    )
                 )
-            except (WorkspaceError, OSError) as error:
+            except Exception as error:
                 message = str(error)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._clear_local_resources_failed(
-                        message, import_button, clear_button
-                    ),
+                        message, import_button, clear_button, operation_key
+                    )
                 )
 
         threading.Thread(target=work, daemon=True).start()
 
     def _clear_local_resources_done(
-        self, profile: GameProfile, label: str, count: int, import_button, clear_button
+        self,
+        profile: GameProfile,
+        label: str,
+        count: int,
+        import_button,
+        clear_button,
+        operation_key: str,
     ) -> None:
+        self._end_background_mutation(operation_key)
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
         self.game_menu.configure(state="normal")
@@ -1682,8 +1772,9 @@ class PublisherApplication(ctk.CTk):
         messagebox.showinfo("清理完成", f"已删除 {count} 项本地{label}")
 
     def _clear_local_resources_failed(
-        self, message: str, import_button, clear_button
+        self, message: str, import_button, clear_button, operation_key: str
     ) -> None:
+        self._end_background_mutation(operation_key)
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
         self.game_menu.configure(state="normal")
@@ -1747,6 +1838,7 @@ class PublisherApplication(ctk.CTk):
         self.adopt_remote_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
         self._build_operation_active = True
+        self._begin_background_mutation("build", "正在构建发布文件")
         profile = self.profile
         workers = self.workspace.compression_worker_count()
         self._log(
@@ -1766,15 +1858,14 @@ class PublisherApplication(ctk.CTk):
                 records = self.workspace.build(profile, progress=progress)
                 files = self.workspace.publish_files(profile)
                 size = sum(path.stat().st_size for path in files)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._build_done(
                         profile.game_id, len(records), len(files), size
-                    ),
+                    )
                 )
             except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._build_failed(value))
+                self._post_ui(lambda value=message: self._build_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1799,6 +1890,7 @@ class PublisherApplication(ctk.CTk):
 
     def _build_done(self, game_id: str, resources: int, files: int, size: int) -> None:
         self._build_operation_active = False
+        self._end_background_mutation("build")
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
@@ -1814,6 +1906,7 @@ class PublisherApplication(ctk.CTk):
 
     def _build_failed(self, message: str) -> None:
         self._build_operation_active = False
+        self._end_background_mutation("build")
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
@@ -1826,25 +1919,28 @@ class PublisherApplication(ctk.CTk):
     def refresh_steam_data(self) -> None:
         self.steam_button.configure(state="disabled", text="正在查询…")
         profile = self.profile
+        self._begin_background_mutation("steam-refresh", "正在刷新 Steam 数据")
 
         def work() -> None:
             try:
                 appinfo = self.workspace.refresh_appinfo(profile)
-                self.after(
-                    0, lambda: self._steam_refresh_done(appinfo.name, len(appinfo.dlcs))
+                self._post_ui(
+                    lambda: self._steam_refresh_done(appinfo.name, len(appinfo.dlcs))
                 )
-            except (WorkspaceError, OSError) as error:
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._steam_refresh_failed(value))
+                self._post_ui(lambda value=message: self._steam_refresh_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
     def _steam_refresh_done(self, name: str, count: int) -> None:
+        self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
         self._log(f"Steam 数据已更新：{name}，{count} 个 DLC。")
         messagebox.showinfo("更新完成", f"已生成 Steam AppInfo，共 {count} 个 DLC。")
 
     def _steam_refresh_failed(self, message: str) -> None:
+        self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
         messagebox.showerror("Steam 数据更新失败", message)
 
@@ -1853,17 +1949,17 @@ class PublisherApplication(ctk.CTk):
             return
         try:
             manager, profile = self._remote_manager()
-        except GitLinkError as error:
+        except (GitLinkError, OSError) as error:
             self._remote_failed(str(error))
             return
 
         def work() -> None:
             try:
                 release = manager.get_release(profile.release_tag)
-                self.after(0, lambda: self._remote_loaded(profile, release))
-            except (GitLinkError, OSError) as error:
+                self._post_ui(lambda: self._remote_loaded(profile, release))
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._remote_failed(value))
+                self._post_ui(lambda value=message: self._remote_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1886,7 +1982,7 @@ class PublisherApplication(ctk.CTk):
             return
         try:
             manager, profile = self._remote_manager()
-        except GitLinkError as error:
+        except (GitLinkError, OSError) as error:
             self._remote_failed(str(error))
             return
 
@@ -1894,19 +1990,18 @@ class PublisherApplication(ctk.CTk):
             try:
                 result = manager.upload_file(profile, path)
                 release = manager.get_release(profile.release_tag)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._remote_mutation_done(
                         profile,
                         result.action,
                         result.asset.name,
                         result.warnings,
                         release,
-                    ),
+                    )
                 )
-            except (GitLinkError, OSError) as error:
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._remote_failed(value))
+                self._post_ui(lambda value=message: self._remote_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1923,7 +2018,7 @@ class PublisherApplication(ctk.CTk):
             repo = manager.repository
             state = self.workspace.load_publish_state(profile, repo.owner, repo.name)
             upload_id = self._publish_upload_id(state, asset.name)
-        except GitLinkError as error:
+        except (GitLinkError, OSError) as error:
             self._remote_failed(str(error))
             return
 
@@ -1932,19 +2027,18 @@ class PublisherApplication(ctk.CTk):
                 result = manager.delete_asset(profile, asset.asset_id, upload_id)
                 self._remove_publish_state_assets(profile, state, (asset.name,))
                 release = manager.get_release(profile.release_tag)
-                self.after(
-                    0,
+                self._post_ui(
                     lambda: self._remote_mutation_done(
                         profile,
                         result.action,
                         result.asset.name,
                         result.warnings,
                         release,
-                    ),
+                    )
                 )
-            except (GitLinkError, OSError) as error:
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._remote_failed(value))
+                self._post_ui(lambda value=message: self._remote_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1969,7 +2063,7 @@ class PublisherApplication(ctk.CTk):
                 asset.name.casefold(): self._publish_upload_id(state, asset.name)
                 for asset in release.assets
             }
-        except GitLinkError as error:
+        except (GitLinkError, OSError) as error:
             self._remote_failed(str(error))
             return
 
@@ -1979,9 +2073,11 @@ class PublisherApplication(ctk.CTk):
                 self._remove_publish_state_assets(
                     profile, state, tuple(asset.name for asset in result.deleted)
                 )
-                self.after(0, lambda value=result: self._remote_bulk_delete_done(profile, value))
-            except (GitLinkError, OSError) as error:
-                self.after(0, lambda value=str(error): self._remote_failed(value))
+                self._post_ui(
+                    lambda value=result: self._remote_bulk_delete_done(profile, value)
+                )
+            except Exception as error:
+                self._post_ui(lambda value=str(error): self._remote_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -2013,6 +2109,7 @@ class PublisherApplication(ctk.CTk):
             messagebox.showinfo("远程操作进行中", "请等待当前远程操作完成")
             return False
         self._remote_operation_active = True
+        self._begin_background_mutation("remote", "正在处理 GitLink 远程资源")
         self.remote_refresh_button.configure(state="disabled")
         self.remote_delete_all_button.configure(state="disabled")
         self.remote_status.configure(text=message)
@@ -2022,6 +2119,7 @@ class PublisherApplication(ctk.CTk):
         self, profile: GameProfile, release: RemoteRelease | None
     ) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         if profile.game_id != self.profile.game_id:
             return
@@ -2051,6 +2149,7 @@ class PublisherApplication(ctk.CTk):
         release: RemoteRelease | None,
     ) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         self._log(f"远程资源{action}完成：{name}")
         if profile.game_id == self.profile.game_id:
@@ -2079,6 +2178,7 @@ class PublisherApplication(ctk.CTk):
         self, profile: GameProfile, result: RemoteBulkDeleteResult
     ) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         release = result.release
         if profile.game_id == self.profile.game_id:
@@ -2102,6 +2202,7 @@ class PublisherApplication(ctk.CTk):
 
     def _remote_failed(self, message: str) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         release = self._current_remote_release
         self.remote_delete_all_button.configure(
@@ -2123,10 +2224,10 @@ class PublisherApplication(ctk.CTk):
         def work() -> None:
             try:
                 release = manager.get_release(profile.release_tag)
-                self.after(0, lambda: self._gitlink_check_done(repo, profile, release))
+                self._post_ui(lambda: self._gitlink_check_done(repo, profile, release))
             except (GitLinkError, OSError) as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._gitlink_check_failed(value))
+                self._post_ui(lambda value=message: self._gitlink_check_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -2207,15 +2308,16 @@ class PublisherApplication(ctk.CTk):
                     profile, assets, previous_state
                 )
                 self.workspace.save_publish_state(profile, result.state)
-                self.after(0, lambda: self._adoption_done(profile, result))
-            except (GitLinkError, OSError) as error:
+                self._post_ui(lambda: self._adoption_done(profile, result))
+            except Exception as error:
                 message = str(error)
-                self.after(0, lambda value=message: self._adoption_failed(value))
+                self._post_ui(lambda value=message: self._adoption_failed(value))
 
         threading.Thread(target=work, daemon=True).start()
 
     def _adoption_done(self, profile: GameProfile, result) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal", text="采用远程附件")
         self.publish_button.configure(state="normal")
@@ -2238,6 +2340,7 @@ class PublisherApplication(ctk.CTk):
 
     def _adoption_failed(self, message: str) -> None:
         self._remote_operation_active = False
+        self._end_background_mutation("remote")
         self.remote_refresh_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal", text="采用远程附件")
         self.publish_button.configure(state="normal")
@@ -2277,6 +2380,9 @@ class PublisherApplication(ctk.CTk):
         token: str | None,
     ) -> None:
         self._upload_control = UploadControl()
+        self._begin_background_mutation("publish", "正在上传 Release")
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
         self._upload_sample = None
         self._upload_speed = 0.0
         self.publish_button.configure(state="disabled", text="正在发布…")
@@ -2306,26 +2412,16 @@ class PublisherApplication(ctk.CTk):
             manager = RemoteResourceManager(client, repo)
 
             def progress(index: int, total: int, name: str, stage: str) -> None:
-                self.after(
-                    0,
+                self._post_ui(
                     lambda i=index, count=total, value=name, action=stage: self._log(
                         f"[{i}/{count}] {action} {value}"
-                    ),
+                    )
                 )
 
             def upload_progress(
                 index: int, total: int, name: str, sent: int, size: int
             ) -> None:
-                self.after(
-                    0,
-                    lambda i=index,
-                    count=total,
-                    value=name,
-                    done=sent,
-                    maximum=size: self._show_upload_progress(
-                        i, count, value, done, maximum
-                    ),
-                )
+                self._queue_upload_progress(index, total, name, sent, size)
 
             def checkpoint(state: dict[str, object]) -> None:
                 self.workspace.save_publish_state(profile, state)
@@ -2348,8 +2444,7 @@ class PublisherApplication(ctk.CTk):
                     *warnings,
                     f"Release 已更新，但本地发布状态保存失败；下次可能重新上传：{error}",
                 )
-            self.after(
-                0,
+            self._post_ui(
                 lambda value=result, notes=warnings: self._publish_done(
                     repo,
                     profile,
@@ -2358,13 +2453,13 @@ class PublisherApplication(ctk.CTk):
                     value.reused,
                     value.removed,
                     notes,
-                ),
+                )
             )
         except UploadPaused as error:
-            self.after(0, lambda value=str(error): self._publish_paused(value))
-        except (GitLinkError, OSError) as error:
+            self._post_ui(lambda value=str(error): self._publish_paused(value))
+        except Exception as error:
             message = str(error)
-            self.after(0, lambda value=message: self._publish_failed(value))
+            self._post_ui(lambda value=message: self._publish_failed(value))
 
     def _publish_done(
         self,
@@ -2376,6 +2471,9 @@ class PublisherApplication(ctk.CTk):
         removed: int,
         warnings: tuple[str, ...],
     ) -> None:
+        self._end_background_mutation("publish")
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
         self.publish_button.configure(state="normal", text="发布到 Release")
         self.adopt_remote_button.configure(state="normal")
         self.publish_pause_button.configure(state="disabled", text="暂停发布")
@@ -2398,6 +2496,9 @@ class PublisherApplication(ctk.CTk):
             )
 
     def _publish_failed(self, message: str) -> None:
+        self._end_background_mutation("publish")
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
         self.publish_button.configure(state="normal", text="发布到 Release")
         self.adopt_remote_button.configure(state="normal")
         self.publish_pause_button.configure(state="disabled", text="暂停发布")
@@ -2433,6 +2534,9 @@ class PublisherApplication(ctk.CTk):
         self._start_publish(repo, profile, assets, previous_state, token)
 
     def _publish_paused(self, message: str) -> None:
+        self._end_background_mutation("publish")
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
         self._upload_control = None
         self.publish_button.configure(state="disabled", text="发布已暂停")
         self.adopt_remote_button.configure(state="disabled")
@@ -2540,4 +2644,22 @@ class PublisherApplication(ctk.CTk):
                 "直接退出不会自动恢复游戏文件。确定仍要退出吗？",
             ):
                 return
+        background = self._active_background_mutations()
+        if background:
+            detail = "\n".join(f"• {label}" for label in background)
+            if self._upload_control is not None:
+                messagebox.showwarning(
+                    "发布仍在进行，暂时无法退出",
+                    f"以下后台操作尚未安全结束：\n{detail}\n\n"
+                    "请先点击“暂停发布”，并等待界面明确显示“发布已暂停”后再退出。\n"
+                    "现在直接关闭可能中断当前附件，并使远程附件与本地发布记录不一致。",
+                )
+            else:
+                messagebox.showwarning(
+                    "后台操作尚未完成",
+                    f"以下后台操作尚未安全结束：\n{detail}\n\n"
+                    "请等待操作完成后再退出，以免留下不完整的本地文件或发布状态。",
+                )
+            return
+        self._ui_pump_running = False
         self.destroy()

@@ -3,6 +3,7 @@ __pycache__/
 *.pyd
 *.so
 .pytest_cache/
+.ruff_cache/
 /.pytest-tmp*/
 /.test-artifacts/*
 !/.test-artifacts/.gitkeep

@@ -114,7 +114,9 @@ def test_publisher_seeds_all_game_cartridges_without_overwriting_existing(tmp_pa
 
 
 def test_civilization_publisher_keeps_asset_id_but_strips_install_prefix(tmp_path: Path) -> None:
-    provider = lambda app_id: SteamAppInfo(app_id, "Civilization VI", "2026-07-15", ())
+    def provider(app_id):
+        return SteamAppInfo(app_id, "Civilization VI", "2026-07-15", ())
+
     workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=provider)
     workspace.initialize()
     profile = next(item for item in workspace.list_games() if item.game_id == "civilization_6")

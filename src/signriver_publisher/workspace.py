@@ -23,10 +23,10 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .models import GameProfile, PublishAsset, ResourceRecord
+from .steam import SteamApiError, SteamStoreClient
 
 RELEASE_PART_SIZE = 280 * 1024 * 1024
 _RELEASE_PART = re.compile(r"^(?P<base>dlc\d{3,}_[a-z0-9_-]+\.zip)\.part\d{3}-of-\d{3}$", re.I)
-from .steam import SteamApiError, SteamStoreClient
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _DLC_DIR = re.compile(r"^(dlc\d{3,})_([A-Za-z0-9][A-Za-z0-9_-]*)$", re.I)

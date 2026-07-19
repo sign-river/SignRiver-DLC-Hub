@@ -119,15 +119,114 @@ class InstallReceiptRepository:
         except Exception as error:
             raise PersistenceError("could not load install receipts") from error
 
+    def active_dlc_ids(self, game_id: str) -> frozenset[str]:
+        """Return active DLC identifiers without materializing receipt files.
+
+        Catalog rendering only needs to know whether a receipt exists.  Loading
+        every ``install_owned_files`` row for that check is needlessly
+        expensive, especially when an advanced catalog contains dozens of
+        entries.
+        """
+        try:
+            with self.database.connection() as connection:
+                rows = connection.execute(
+                    "SELECT dlc_id FROM install_receipts "
+                    "WHERE status='installed' AND game_id=?",
+                    (game_id,),
+                ).fetchall()
+            return frozenset(str(row["dlc_id"]) for row in rows)
+        except Exception as error:
+            raise PersistenceError("could not load active DLC receipt identifiers") from error
+
     def find_active(self, game_id: str, dlc_id: str) -> InstallReceipt | None:
-        matches = tuple(
-            item for item in self.active(game_id) if item.dlc_id == dlc_id
-        )
-        if len(matches) > 1:
+        """Load one active receipt without scanning the game's full history."""
+        try:
+            with self.database.connection() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM install_receipts "
+                    "WHERE status='installed' AND game_id=? AND dlc_id=? "
+                    "ORDER BY created_at LIMIT 2",
+                    (game_id, dlc_id),
+                ).fetchall()
+                if len(rows) > 1:
+                    raise PersistenceError(
+                        f"multiple active install receipts exist for {game_id}/{dlc_id}"
+                    )
+                if not rows:
+                    return None
+                row = rows[0]
+                files = connection.execute(
+                    "SELECT relative_path, size, sha256 FROM install_owned_files "
+                    "WHERE transaction_id=? ORDER BY relative_path",
+                    (row["transaction_id"],),
+                ).fetchall()
+            return self._from_row(row, files)
+        except Exception as error:
+            if isinstance(error, PersistenceError):
+                raise
+            raise PersistenceError("could not load active install receipt") from error
+
+    def has_transaction(self, transaction_id: str) -> bool:
+        """Return whether a receipt transaction was already persisted."""
+        try:
+            with self.database.connection() as connection:
+                row = connection.execute(
+                    "SELECT 1 FROM install_receipts WHERE transaction_id=? LIMIT 1",
+                    (transaction_id,),
+                ).fetchone()
+            return row is not None
+        except Exception as error:
             raise PersistenceError(
-                f"multiple active install receipts exist for {game_id}/{dlc_id}"
-            )
-        return matches[0] if matches else None
+                "could not check install receipt transaction"
+            ) from error
+
+    def maintenance_transaction_ids(
+        self,
+    ) -> tuple[frozenset[str], frozenset[str]]:
+        """Return ``(protected, retired)`` transaction IDs for maintenance.
+
+        Every predecessor reachable from an active receipt remains protected:
+        uninstalling the latest version can reactivate that predecessor and
+        require its backup.  Only known, uninstalled receipts outside those
+        chains are classified as retired.  Unknown on-disk transactions are
+        deliberately absent from both sets and are therefore retained.
+        """
+        try:
+            with self.database.connection() as connection:
+                rows = connection.execute(
+                    "SELECT transaction_id, status, previous_transaction_id "
+                    "FROM install_receipts"
+                ).fetchall()
+        except Exception as error:
+            raise PersistenceError(
+                "could not load install receipt maintenance references"
+            ) from error
+
+        by_id = {str(row["transaction_id"]): row for row in rows}
+        protected: set[str] = {
+            transaction_id
+            for transaction_id, row in by_id.items()
+            if row["status"] == "installed"
+        }
+        pending = list(protected)
+        while pending:
+            row = by_id.get(pending.pop())
+            if row is None:
+                continue
+            previous = row["previous_transaction_id"]
+            if previous is None:
+                continue
+            previous = str(previous)
+            if previous not in protected:
+                protected.add(previous)
+                pending.append(previous)
+
+        retired = {
+            transaction_id
+            for transaction_id, row in by_id.items()
+            if row["status"] == "uninstalled" and transaction_id not in protected
+        }
+        return frozenset(protected), frozenset(retired)
 
     @staticmethod
     def _from_row(row, files) -> InstallReceipt:
