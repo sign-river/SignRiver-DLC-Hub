@@ -169,9 +169,30 @@ class PublisherApplication(ctk.CTk):
         if self._ui_pump_running:
             self._ui_events.put(callback)
 
-    def _begin_background_mutation(self, key: str, label: str) -> None:
-        """Register a background write operation from Tk's owning thread."""
+    def _begin_background_mutation(
+        self, key: str, label: str, *, resume: bool = False
+    ) -> bool:
+        """Acquire the publisher's single-writer reservation on the Tk thread.
+
+        The publisher has several independent tabs, but their write operations
+        share the same workspace and Release.  Serializing them here prevents a
+        build from racing a source edit and prevents two Release updates from
+        replacing each other's attachment list.  A paused publish retains its
+        reservation and may reacquire only that same key when it resumes.
+        """
+        registered = set(self._background_mutations)
+        if resume and registered == {key}:
+            return True
+        active = self._active_background_mutations()
+        if active:
+            detail = "\n".join(f"• {value}" for value in active)
+            messagebox.showinfo(
+                "操作正在进行",
+                f"请等待当前操作完成后再试：\n{detail}",
+            )
+            return False
         self._background_mutations[key] = label
+        return True
 
     def _end_background_mutation(self, key: str) -> None:
         """Mark a registered background write operation as terminal."""
@@ -1626,10 +1647,13 @@ class PublisherApplication(ctk.CTk):
             )
             if not confirmed:
                 return
+        if not self._begin_background_mutation(
+            "dlc-import", "正在导入 DLC 资源"
+        ):
+            return
         self.dlc_import_button.configure(state="disabled", text="准备中…")
         self.dlc_clear_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
-        self._begin_background_mutation("dlc-import", "正在导入 DLC 资源")
 
         def progress(index: int, total: int, name: str) -> None:
             self._post_ui(
@@ -1724,12 +1748,15 @@ class PublisherApplication(ctk.CTk):
         clear_button = (
             self.dlc_clear_button if kind == "dlc" else self.patch_clear_button
         )
+        operation_key = f"clear-local-{kind}"
+        if not self._begin_background_mutation(
+            operation_key, f"正在清空本地{label}"
+        ):
+            return
         import_button.configure(state="disabled")
         clear_button.configure(state="disabled", text="正在清空…")
         self.game_menu.configure(state="disabled")
         profile = self.profile
-        operation_key = f"clear-local-{kind}"
-        self._begin_background_mutation(operation_key, f"正在清空本地{label}")
 
         def work() -> None:
             try:
@@ -1781,6 +1808,10 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("清理失败", message)
 
     def save_profile(self) -> None:
+        if not self._begin_background_mutation(
+            "profile-save", "正在保存游戏卡带配置"
+        ):
+            return
         try:
             values = {
                 key: entry.get().strip() for key, entry in self.profile_entries.items()
@@ -1801,26 +1832,34 @@ class PublisherApplication(ctk.CTk):
             messagebox.showinfo("保存成功", "游戏卡带配置已保存")
         except (WorkspaceError, OSError) as error:
             messagebox.showerror("保存失败", str(error))
+        finally:
+            self._end_background_mutation("profile-save")
 
     def add_game(self) -> None:
-        game_id = simpledialog.askstring(
-            "新增游戏卡带", "输入游戏 ID（如 crusader_kings_3）：", parent=self
-        )
-        if not game_id:
+        if not self._begin_background_mutation(
+            "game-add", "正在新增游戏卡带"
+        ):
             return
-        display = (
-            simpledialog.askstring("新增游戏卡带", "输入显示名称：", parent=self)
-            or game_id
-        )
-        steam_app_id = (
-            simpledialog.askstring("新增游戏卡带", "输入 Steam App ID：", parent=self)
-            or ""
-        )
-        normalized_id = game_id.strip().lower()
-        profile = GameProfile.create(
-            normalized_id, display.strip(), steam_app_id.strip()
-        )
         try:
+            game_id = simpledialog.askstring(
+                "新增游戏卡带", "输入游戏 ID（如 crusader_kings_3）：", parent=self
+            )
+            if not game_id:
+                return
+            display = (
+                simpledialog.askstring("新增游戏卡带", "输入显示名称：", parent=self)
+                or game_id
+            )
+            steam_app_id = (
+                simpledialog.askstring(
+                    "新增游戏卡带", "输入 Steam App ID：", parent=self
+                )
+                or ""
+            )
+            normalized_id = game_id.strip().lower()
+            profile = GameProfile.create(
+                normalized_id, display.strip(), steam_app_id.strip()
+            )
             if any(
                 item.game_id == profile.game_id for item in self.workspace.list_games()
             ):
@@ -1830,15 +1869,20 @@ class PublisherApplication(ctk.CTk):
             self.refresh()
         except (WorkspaceError, OSError) as error:
             messagebox.showerror("新增失败", str(error))
+        finally:
+            self._end_background_mutation("game-add")
 
     def build_all(self) -> None:
+        if not self._begin_background_mutation(
+            "build", "正在构建发布文件"
+        ):
+            return
         self.build_button.configure(state="disabled", text="正在构建…")
         self.steam_button.configure(state="disabled")
         self.publish_button.configure(state="disabled")
         self.adopt_remote_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
         self._build_operation_active = True
-        self._begin_background_mutation("build", "正在构建发布文件")
         profile = self.profile
         workers = self.workspace.compression_worker_count()
         self._log(
@@ -1917,9 +1961,12 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("构建失败", message)
 
     def refresh_steam_data(self) -> None:
+        if not self._begin_background_mutation(
+            "steam-refresh", "正在刷新 Steam 数据"
+        ):
+            return
         self.steam_button.configure(state="disabled", text="正在查询…")
         profile = self.profile
-        self._begin_background_mutation("steam-refresh", "正在刷新 Steam 数据")
 
         def work() -> None:
             try:
@@ -2108,8 +2155,11 @@ class PublisherApplication(ctk.CTk):
         if self._remote_operation_active:
             messagebox.showinfo("远程操作进行中", "请等待当前远程操作完成")
             return False
+        if not self._begin_background_mutation(
+            "remote", "正在处理 GitLink 远程资源"
+        ):
+            return False
         self._remote_operation_active = True
-        self._begin_background_mutation("remote", "正在处理 GitLink 远程资源")
         self.remote_refresh_button.configure(state="disabled")
         self.remote_delete_all_button.configure(state="disabled")
         self.remote_status.configure(text=message)
@@ -2265,6 +2315,10 @@ class PublisherApplication(ctk.CTk):
             "创建新仓库", f"确认创建公开资源仓库 {repo.owner}/{repo.name}？"
         ):
             return
+        if not self._begin_background_mutation(
+            "repository-create", "正在创建 GitLink 资源仓库"
+        ):
+            return
         try:
             self.gitlink.create_repository(
                 repo, "SignRiver DLC Hub public release assets"
@@ -2274,6 +2328,8 @@ class PublisherApplication(ctk.CTk):
             )
         except GitLinkError as error:
             messagebox.showerror("创建失败", str(error))
+        finally:
+            self._end_background_mutation("repository-create")
 
     def adopt_remote_assets(self) -> None:
         try:
@@ -2350,26 +2406,31 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("采用远程附件失败", message)
 
     def publish_release(self) -> None:
+        if not self._begin_background_mutation(
+            "publish", "正在上传 Release"
+        ):
+            return
         try:
             assets = self.workspace.publish_assets(self.profile)
             repo = self._repository()
             previous_state = self.workspace.load_publish_state(
                 self.profile, repo.owner, repo.name
             )
-        except WorkspaceError as error:
-            messagebox.showerror("无法发布", str(error))
-            return
-        except GitLinkError as error:
+        except (WorkspaceError, GitLinkError, OSError) as error:
+            self._end_background_mutation("publish")
             messagebox.showerror("无法发布", str(error))
             return
         if not messagebox.askyesno(
             "确认增量发布",
             f"同步 {len(assets)} 个文件到\n{repo.owner}/{repo.name} · {self.profile.release_tag}\n\n未变化文件将复用远程附件；AppInfo 每次强制更新。是否继续？",
         ):
+            self._end_background_mutation("publish")
             return
         token = self.token_entry.get().strip() or None
         self._publish_resume_context = (repo, self.profile, assets, token)
-        self._start_publish(repo, self.profile, assets, previous_state, token)
+        if not self._start_publish(repo, self.profile, assets, previous_state, token):
+            self._publish_resume_context = None
+            self._end_background_mutation("publish")
 
     def _start_publish(
         self,
@@ -2378,9 +2439,14 @@ class PublisherApplication(ctk.CTk):
         assets: tuple[PublishAsset, ...],
         previous_state: dict[str, object],
         token: str | None,
-    ) -> None:
+    ) -> bool:
+        if not self._begin_background_mutation(
+            "publish",
+            "正在上传 Release",
+            resume=self._upload_control is None,
+        ):
+            return False
         self._upload_control = UploadControl()
-        self._begin_background_mutation("publish", "正在上传 Release")
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
         self._upload_sample = None
@@ -2398,6 +2464,7 @@ class PublisherApplication(ctk.CTk):
             args=(repo, profile, assets, previous_state, token),
             daemon=True,
         ).start()
+        return True
 
     def _publish_worker(
         self,
@@ -2503,6 +2570,7 @@ class PublisherApplication(ctk.CTk):
         self.adopt_remote_button.configure(state="normal")
         self.publish_pause_button.configure(state="disabled", text="暂停发布")
         self.upload_status.configure(text="发布中断；已确认文件已保留")
+        self._publish_resume_context = None
         self._upload_control = None
         self._log(
             f"发布中断：{message}。已确认的文件不会重新上传，可再次点击发布继续。"
@@ -2534,7 +2602,6 @@ class PublisherApplication(ctk.CTk):
         self._start_publish(repo, profile, assets, previous_state, token)
 
     def _publish_paused(self, message: str) -> None:
-        self._end_background_mutation("publish")
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
         self._upload_control = None
@@ -2599,12 +2666,18 @@ class PublisherApplication(ctk.CTk):
         return "已认证用户"
 
     def _run_action(self, command, success: str) -> None:
+        if not self._begin_background_mutation(
+            "local-action", "正在修改本地发布资源"
+        ):
+            return
         try:
             command()
             self.refresh()
             messagebox.showinfo("完成", success)
         except (WorkspaceError, OSError) as error:
             messagebox.showerror("操作失败", str(error))
+        finally:
+            self._end_background_mutation("local-action")
 
     def _log(self, message: str) -> None:
         if not hasattr(self, "log"):

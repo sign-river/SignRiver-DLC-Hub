@@ -26,6 +26,18 @@ def sample_appinfo(app_id: str = "281990") -> SteamAppInfo:
     )
 
 
+def built_minimal_workspace(tmp_path: Path) -> tuple[PublisherWorkspace, GameProfile]:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = workspace.initialize()
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"new")
+    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    workspace.build(profile)
+    return workspace, profile
+
+
 def test_initializes_stellaris_workspace(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
 
@@ -203,6 +215,132 @@ def test_builds_each_dlc_and_patch_and_generates_appinfo(tmp_path: Path) -> None
         assert all(item.compress_type == zipfile.ZIP_DEFLATED for item in archive.infolist())
     appinfo = json.loads((workspace.output_dir / "stellaris" / "stellaris_appinfo.json").read_text(encoding="utf-8"))
     assert appinfo == appinfo_payload
+
+
+def test_successful_build_writes_verified_completion_manifest(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+
+    manifest = json.loads(
+        (workspace.game_dir(profile.game_id) / ".build-complete.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assets = workspace.publish_assets(profile)
+
+    assert manifest["version"] == 1
+    assert manifest["profile"] == profile.to_dict()
+    assert manifest["assets"] == [
+        {
+            "name": asset.name,
+            "size_bytes": asset.size_bytes,
+            "sha256": asset.sha256,
+        }
+        for asset in assets
+    ]
+
+
+def test_failed_rebuild_invalidates_previous_publishable_output(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).unlink()
+
+    with pytest.raises(WorkspaceError, match=profile.patch_unlocker_name):
+        workspace.build(profile)
+
+    assert (workspace.output_dir / profile.game_id / profile.appinfo_name).is_file()
+    assert not (workspace.game_dir(profile.game_id) / ".build-complete.json").exists()
+    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+        workspace.publish_assets(profile)
+
+
+def test_legacy_output_without_completion_manifest_is_not_publishable(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    profile = workspace.initialize()
+    output = workspace.output_dir / profile.game_id
+    output.mkdir(parents=True)
+    (output / profile.appinfo_name).write_text("{}", encoding="utf-8")
+    for name in profile.patch_asset_names:
+        (output / name).write_bytes(b"legacy")
+
+    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+        workspace.publish_files(profile)
+
+
+def test_publish_rejects_tampered_output_even_when_size_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    output = workspace.output_dir / profile.game_id / profile.patch_unlocker_name
+    output.write_bytes(b"BAD")
+
+    with pytest.raises(WorkspaceError, match="校验失败"):
+        workspace.publish_assets(profile)
+
+
+def test_publish_rejects_missing_release_part(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("signriver_publisher.workspace.RELEASE_PART_SIZE", 4096)
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = workspace.initialize()
+    dlc = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_large"
+    dlc.mkdir()
+    (dlc / "payload.bin").write_bytes(random.Random(9).randbytes(20000))
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"new")
+    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    workspace.build(profile)
+    parts = tuple(
+        sorted((workspace.output_dir / profile.game_id).glob("*.part*-of-*"))
+    )
+    assert len(parts) > 1
+
+    parts[1].unlink()
+
+    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+        workspace.publish_files(profile)
+
+
+def test_standalone_appinfo_refresh_invalidates_complete_build(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+
+    workspace.refresh_appinfo(profile)
+
+    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+        workspace.publish_assets(profile)
+
+
+def test_source_change_invalidates_complete_build(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    source = tmp_path / "optional_patch.txt"
+    source.write_text("changed source set", encoding="utf-8")
+
+    workspace.import_patch(profile, source)
+
+    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+        workspace.publish_assets(profile)
+
+
+def test_build_rejects_non_dlc_attachment_over_safe_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("signriver_publisher.workspace.RELEASE_PART_SIZE", 512)
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = workspace.initialize()
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"x" * 1024)
+    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+
+    with pytest.raises(WorkspaceError, match="安全上限"):
+        workspace.build(profile)
+
+    assert not (workspace.game_dir(profile.game_id) / ".build-complete.json").exists()
 
 
 def test_rebuild_removes_stale_output(tmp_path: Path) -> None:

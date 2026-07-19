@@ -26,7 +26,12 @@ from .models import GameProfile, PublishAsset, ResourceRecord
 from .steam import SteamApiError, SteamStoreClient
 
 RELEASE_PART_SIZE = 280 * 1024 * 1024
-_RELEASE_PART = re.compile(r"^(?P<base>dlc\d{3,}_[a-z0-9_-]+\.zip)\.part\d{3}-of-\d{3}$", re.I)
+_BUILD_COMPLETE_VERSION = 1
+_RELEASE_PART = re.compile(
+    r"^(?P<base>dlc\d{3,}_[a-z0-9_-]+\.zip)"
+    r"\.part(?P<index>\d{3})-of-(?P<total>\d{3})$",
+    re.I,
+)
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _DLC_DIR = re.compile(r"^(dlc\d{3,})_([A-Za-z0-9][A-Za-z0-9_-]*)$", re.I)
@@ -42,6 +47,10 @@ class PublisherWorkspace:
         self.games_dir = self.root / "games"
         self.output_dir = self.root / "output"
         self._appinfo_provider = appinfo_provider or SteamStoreClient().fetch_appinfo
+        # Full release validation intentionally hashes every attachment once.
+        # Repeated UI refreshes can then reuse the verified digest while the
+        # file identity (size and both Windows timestamps) remains unchanged.
+        self._verified_digest_cache: dict[tuple[str, int, int, int], str] = {}
 
     def initialize(self) -> GameProfile:
         self.games_dir.mkdir(parents=True, exist_ok=True)
@@ -74,6 +83,7 @@ class PublisherWorkspace:
         (game_dir / "patches").mkdir(parents=True, exist_ok=True)
         path = game_dir / "game.json"
         self._atomic_json(path, profile.to_dict())
+        self._invalidate_build_complete(profile)
 
     def game_dir(self, game_id: str) -> Path:
         if not _SAFE_ID.fullmatch(game_id):
@@ -115,6 +125,7 @@ class PublisherWorkspace:
             if staging.exists():
                 self._remove_tree(staging)
         self._advance_dlc_import_number(profile, managed_name)
+        self._invalidate_build_complete(profile)
         return destination
 
     def is_dlc_collection(self, profile: GameProfile, source: Path) -> bool:
@@ -194,6 +205,7 @@ class PublisherWorkspace:
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
             {"version": 1, "next_number": first_number + len(planned)},
         )
+        self._invalidate_build_complete(profile)
         return tuple(destination for _, destination in planned)
 
     def interrupted_collection_import(
@@ -232,6 +244,7 @@ class PublisherWorkspace:
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
             {"version": 1, "next_number": 1},
         )
+        self._invalidate_build_complete(profile)
         return len(candidates)
 
     def wrapped_collection_import(
@@ -273,6 +286,7 @@ class PublisherWorkspace:
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
             {"version": 1, "next_number": max(remaining_numbers, default=0) + 1},
         )
+        self._invalidate_build_complete(profile)
 
     def split_wrapped_collection_import(
         self, profile: GameProfile, source: Path, *, progress=None
@@ -334,6 +348,7 @@ class PublisherWorkspace:
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
             {"version": 1, "next_number": next_number},
         )
+        self._invalidate_build_complete(profile)
         return tuple(destination for _, destination in planned)
 
     def import_patch(self, profile: GameProfile, source: Path) -> Path:
@@ -347,6 +362,7 @@ class PublisherWorkspace:
             shutil.copytree(source, destination)
         else:
             shutil.copy2(source, destination)
+        self._invalidate_build_complete(profile)
         return destination
 
     def remove_source(self, profile: GameProfile, kind: str, name: str) -> None:
@@ -360,6 +376,7 @@ class PublisherWorkspace:
             self._remove_tree(target)
         else:
             target.unlink()
+        self._invalidate_build_complete(profile)
 
     def clear_sources(self, profile: GameProfile, kind: str) -> int:
         if kind not in {"dlc", "patches"}:
@@ -380,6 +397,7 @@ class PublisherWorkspace:
                     self._remove_tree(staging)
             for state_name in (".dlc-import-state.json", ".build-state.json"):
                 (self.game_dir(profile.game_id) / state_name).unlink(missing_ok=True)
+        self._invalidate_build_complete(profile)
         return len(resources)
 
     @staticmethod
@@ -390,6 +408,10 @@ class PublisherWorkspace:
 
     def build(self, profile: GameProfile, *, progress=None) -> tuple[ResourceRecord, ...]:
         self._validate_profile(profile)
+        # A previous output must never remain publishable while a new build is
+        # incomplete.  The completion manifest is recreated only after every
+        # DLC, patch, AppInfo file, and stale-output cleanup has succeeded.
+        self._invalidate_build_complete(profile)
         dlcs, patches = self.scan_sources(profile)
         target = self.output_dir / profile.game_id
         target.mkdir(parents=True, exist_ok=True)
@@ -601,10 +623,15 @@ class PublisherWorkspace:
             if stale.is_file() and stale.name not in expected:
                 stale.unlink()
 
+        self._write_build_complete(profile)
         return tuple(records)
 
     def refresh_appinfo(self, profile: GameProfile) -> SteamAppInfo:
         self._validate_profile(profile)
+        # A standalone Steam refresh changes one release attachment without
+        # rebuilding the rest.  Invalidating is safer than silently blessing a
+        # mixture of outputs from different build generations.
+        self._invalidate_build_complete(profile)
         if not profile.steam_app_id:
             raise WorkspaceError("当前游戏没有配置 Steam App ID")
         target = self.output_dir / profile.game_id / profile.appinfo_name
@@ -624,6 +651,12 @@ class PublisherWorkspace:
         return appinfo
 
     def publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
+        return tuple(asset.path for asset in self._validated_publish_assets(profile))
+
+    def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
+        return self._validated_publish_assets(profile)
+
+    def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id
         appinfo = target / profile.appinfo_name
         if not appinfo.is_file():
@@ -642,8 +675,9 @@ class PublisherWorkspace:
             if not (path.name.casefold() in split_bases and path.suffix.casefold() == ".zip")
         )
 
-    def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
-        files = self.publish_files(profile)
+    def _snapshot_publish_assets(
+        self, profile: GameProfile, files: tuple[Path, ...]
+    ) -> tuple[PublishAsset, ...]:
         build_state = self._load_build_state(profile)
         raw_dlcs = build_state.get("dlcs") if isinstance(build_state.get("dlcs"), dict) else {}
         cached_by_asset: dict[str, dict[str, object]] = {}
@@ -663,6 +697,125 @@ class PublisherWorkspace:
             digest = self._cached_publish_digest(cached, stat.st_size, stat.st_mtime_ns) or self._file_sha256(path)
             assets.append(PublishAsset(path, path.name, stat.st_size, digest))
         return tuple(assets)
+
+    def _write_build_complete(self, profile: GameProfile) -> None:
+        files = self._unvalidated_publish_files(profile)
+        assets = self._snapshot_publish_assets(profile, files)
+        oversized = next(
+            (asset for asset in assets if asset.size_bytes > RELEASE_PART_SIZE), None
+        )
+        if oversized is not None:
+            raise WorkspaceError(
+                f"发布附件超过安全上限 280 MiB：{oversized.name}"
+            )
+        self._validate_release_parts(tuple(asset.name for asset in assets))
+        payload = {
+            "version": _BUILD_COMPLETE_VERSION,
+            "profile": profile.to_dict(),
+            "assets": [
+                {
+                    "name": asset.name,
+                    "size_bytes": asset.size_bytes,
+                    "sha256": asset.sha256,
+                }
+                for asset in assets
+            ],
+        }
+        self._atomic_json(self._build_complete_path(profile), payload)
+
+    def _validated_publish_assets(
+        self, profile: GameProfile
+    ) -> tuple[PublishAsset, ...]:
+        self._validate_profile(profile)
+        files = self._unvalidated_publish_files(profile)
+        manifest_path = self._build_complete_path(profile)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise WorkspaceError(
+                "发布文件没有完整构建凭证，请重新生成全部发布文件"
+            ) from error
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("version") != _BUILD_COMPLETE_VERSION
+            or manifest.get("profile") != profile.to_dict()
+            or not isinstance(manifest.get("assets"), list)
+        ):
+            raise WorkspaceError("构建凭证与当前游戏卡带不一致，请重新构建")
+
+        recorded: dict[str, dict[str, object]] = {}
+        recorded_casefold: set[str] = set()
+        for value in manifest["assets"]:
+            if not isinstance(value, dict):
+                raise WorkspaceError("构建凭证中的附件记录无效，请重新构建")
+            name = str(value.get("name", ""))
+            folded = name.casefold()
+            if (
+                not name
+                or Path(name).name != name
+                or folded in recorded_casefold
+            ):
+                raise WorkspaceError("构建凭证中的附件名称无效或重复，请重新构建")
+            recorded[name] = value
+            recorded_casefold.add(folded)
+
+        target = self.output_dir / profile.game_id
+        actual_all = tuple(sorted(path for path in target.iterdir() if path.is_file()))
+        actual_names = {path.name for path in actual_all}
+        if actual_names != set(recorded):
+            raise WorkspaceError("发布文件与完整构建凭证不一致，请重新构建")
+        if {path.name for path in files} != actual_names:
+            raise WorkspaceError("发布目录包含不应上传的完整压缩包，请重新构建")
+
+        self._validate_release_parts(tuple(recorded))
+        assets: list[PublishAsset] = []
+        for path in files:
+            value = recorded[path.name]
+            try:
+                expected_size = int(value.get("size_bytes", -1))
+                expected_sha256 = str(value.get("sha256", ""))
+                stat = path.stat()
+            except (OSError, TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    f"无法验证发布文件：{path.name}"
+                ) from error
+            if stat.st_size > RELEASE_PART_SIZE:
+                raise WorkspaceError(
+                    f"发布附件超过安全上限 280 MiB：{path.name}"
+                )
+            if expected_size != stat.st_size or len(expected_sha256) != 64:
+                raise WorkspaceError(f"发布文件已变化，请重新构建：{path.name}")
+            digest = self._verified_file_sha256(path)
+            if digest != expected_sha256:
+                raise WorkspaceError(f"发布文件校验失败，请重新构建：{path.name}")
+            assets.append(PublishAsset(path, path.name, stat.st_size, digest))
+        return tuple(assets)
+
+    @staticmethod
+    def _validate_release_parts(names: tuple[str, ...]) -> None:
+        groups: dict[str, list[tuple[int, int]]] = {}
+        folded_names = {name.casefold() for name in names}
+        for name in names:
+            match = _RELEASE_PART.fullmatch(name)
+            if match is None:
+                continue
+            base = match.group("base").casefold()
+            groups.setdefault(base, []).append(
+                (int(match.group("index")), int(match.group("total")))
+            )
+        for base, parts in groups.items():
+            totals = {total for _, total in parts}
+            if (
+                len(totals) != 1
+                or next(iter(totals)) < 2
+                or base in folded_names
+            ):
+                raise WorkspaceError(f"DLC 分卷记录无效：{base}")
+            total = next(iter(totals))
+            if len(parts) != total or {index for index, _ in parts} != set(
+                range(1, total + 1)
+            ):
+                raise WorkspaceError(f"DLC 分卷不完整：{base}")
 
     def load_publish_state(self, profile: GameProfile, owner: str, repository: str) -> dict[str, object]:
         path = self._publish_state_path(profile)
@@ -912,8 +1065,37 @@ class PublisherWorkspace:
                 digest.update(chunk)
         return digest.hexdigest()
 
+    def _verified_file_sha256(self, path: Path) -> str:
+        before = path.stat()
+        key = (
+            str(path.resolve()).casefold(),
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        cached = self._verified_digest_cache.get(key)
+        if cached is not None:
+            return cached
+        digest = self._file_sha256(path)
+        after = path.stat()
+        if (
+            after.st_size != before.st_size
+            or after.st_mtime_ns != before.st_mtime_ns
+            or after.st_ctime_ns != before.st_ctime_ns
+        ):
+            raise WorkspaceError(f"发布文件在校验期间发生变化：{path.name}")
+        self._verified_digest_cache[key] = digest
+        return digest
+
     def _build_state_path(self, profile: GameProfile) -> Path:
         return self.game_dir(profile.game_id) / ".build-state.json"
+
+    def _build_complete_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / ".build-complete.json"
+
+    def _invalidate_build_complete(self, profile: GameProfile) -> None:
+        self._build_complete_path(profile).unlink(missing_ok=True)
+        self._verified_digest_cache.clear()
 
     def _publish_state_path(self, profile: GameProfile) -> Path:
         return self.game_dir(profile.game_id) / ".publish-state.json"

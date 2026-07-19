@@ -67,6 +67,82 @@ def test_publisher_stopped_pump_drops_callbacks_and_progress() -> None:
     assert harness._pending_upload_progress is None
 
 
+def test_publisher_single_writer_rejects_overlapping_mutations(monkeypatch) -> None:
+    harness = _CloseHarness()
+    notices = []
+    monkeypatch.setattr(
+        publisher_ui.messagebox,
+        "showinfo",
+        lambda title, message: notices.append((title, message)),
+    )
+
+    assert PublisherApplication._begin_background_mutation(
+        harness, "build", "正在构建发布文件"
+    )
+    assert not PublisherApplication._begin_background_mutation(
+        harness, "remote", "正在处理 GitLink 远程资源"
+    )
+
+    assert harness._background_mutations == {"build": "正在构建发布文件"}
+    assert notices and "正在构建发布文件" in notices[-1][1]
+
+    PublisherApplication._end_background_mutation(harness, "build")
+    assert PublisherApplication._begin_background_mutation(
+        harness, "remote", "正在处理 GitLink 远程资源"
+    )
+
+
+def test_publisher_paused_publish_can_resume_but_blocks_other_writers(
+    monkeypatch,
+) -> None:
+    harness = _CloseHarness()
+    harness._background_mutations["publish"] = "正在上传 Release"
+    notices = []
+    monkeypatch.setattr(
+        publisher_ui.messagebox,
+        "showinfo",
+        lambda title, message: notices.append((title, message)),
+    )
+
+    assert PublisherApplication._begin_background_mutation(
+        harness, "publish", "正在上传 Release", resume=True
+    )
+    assert not PublisherApplication._begin_background_mutation(
+        harness, "build", "正在构建发布文件"
+    )
+    assert harness._background_mutations == {"publish": "正在上传 Release"}
+    assert notices and "正在上传 Release" in notices[-1][1]
+
+
+def test_publisher_pause_keeps_single_writer_reservation() -> None:
+    paused_source = inspect.getsource(PublisherApplication._publish_paused)
+    done_source = inspect.getsource(PublisherApplication._publish_done)
+    failed_source = inspect.getsource(PublisherApplication._publish_failed)
+
+    assert "_end_background_mutation" not in paused_source
+    assert '_end_background_mutation("publish")' in done_source
+    assert '_end_background_mutation("publish")' in failed_source
+
+
+def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
+    guarded = (
+        "import_dlc",
+        "clear_local_resources",
+        "build_all",
+        "refresh_steam_data",
+        "publish_release",
+        "_begin_remote_operation",
+        "_run_action",
+        "save_profile",
+        "add_game",
+        "create_repository",
+    )
+
+    for name in guarded:
+        source = inspect.getsource(getattr(PublisherApplication, name))
+        assert "_begin_background_mutation" in source, name
+
+
 def test_publisher_worker_functions_do_not_touch_obvious_tk_apis_directly() -> None:
     tree = ast.parse(textwrap.dedent(inspect.getsource(PublisherApplication)))
     workers = [
@@ -157,6 +233,23 @@ def test_publisher_close_blocks_active_upload_without_stopping_pump(
     assert harness._ui_pump_running
     assert warnings and "暂停发布" in warnings[0][1]
     assert "发布已暂停" in warnings[0][1]
+
+
+def test_publisher_close_blocks_paused_publish_reservation(monkeypatch) -> None:
+    harness = _CloseHarness()
+    harness._background_mutations["publish"] = "正在上传 Release"
+    warnings = []
+    monkeypatch.setattr(
+        publisher_ui.messagebox,
+        "showwarning",
+        lambda title, message: warnings.append((title, message)),
+    )
+
+    PublisherApplication._close_publisher(harness)
+
+    assert not harness.destroyed
+    assert harness._ui_pump_running
+    assert warnings and "正在上传 Release" in warnings[0][1]
 
 
 def test_publisher_close_blocks_other_background_mutation(monkeypatch) -> None:

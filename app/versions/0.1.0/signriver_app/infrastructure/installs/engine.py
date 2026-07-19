@@ -405,28 +405,68 @@ class StellarisInstallEngine:
         if self._tree_sha256(target) != receipt.installed_tree_sha256:
             raise InstallError("installed DLC files were modified; refusing unsafe uninstall")
         transaction_root = self.data_root / "transactions" / f"uninstall-{receipt.transaction_id}"
-        removed = transaction_root / "removed" / target.name
+        # Keep the displaced tree beside the target.  The first rename is then
+        # same-volume and atomic even when the application data lives on a
+        # different drive from the game library.
+        removed = self._uninstall_removed_path(target, receipt.transaction_id)
+        if self._path_present(removed):
+            raise InstallConflictError(
+                f"uninstall temporary directory already exists: {removed}"
+            )
         journal = transaction_root / "journal.json"
+        backup = receipt.backup_path
+        if backup is not None:
+            backup = self._contained(self.data_root / "backups", backup)
         transaction_root.mkdir(parents=True, exist_ok=True)
-        self._write_simple_journal(journal, "removing", receipt)
+        self._write_simple_journal(
+            journal, "removing", receipt,
+            removed_path=removed, backup_path=backup,
+        )
+        backup_was_copied = False
         try:
-            removed.parent.mkdir(parents=True, exist_ok=True)
-            self._replace(target, removed)
-            if receipt.backup_path is not None and receipt.backup_path.exists():
-                self._contained(self.data_root / "backups", receipt.backup_path)
-                self._replace(receipt.backup_path, target)
-            self._write_simple_journal(journal, "committed", receipt)
-            if removed.exists():
-                shutil.rmtree(removed)
+            self._replace_with_retry(target, removed)
+            self._write_simple_journal(
+                journal, "removed", receipt,
+                removed_path=removed, backup_path=backup,
+            )
+            if backup is not None and self._path_present(backup):
+                if self._is_link(backup) or not backup.is_dir():
+                    raise InstallConflictError(
+                        "uninstall predecessor backup is not a trusted directory"
+                    )
+                self._write_simple_journal(
+                    journal, "restoring_predecessor", receipt,
+                    removed_path=removed, backup_path=backup,
+                )
+                backup_was_copied = self._restore_uninstall_backup(
+                    backup, target
+                )
+            self._write_simple_journal(
+                journal, "committed", receipt,
+                removed_path=removed, backup_path=backup,
+            )
         except Exception as error:
             try:
-                if not target.exists() and removed.exists():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    self._replace(removed, target)
-                self._write_simple_journal(journal, "rolled_back", receipt)
+                self._rollback_uninstall_files(
+                    target=target,
+                    removed=removed,
+                    backup=backup,
+                    installed_tree_sha256=receipt.installed_tree_sha256,
+                )
+                self._write_simple_journal(
+                    journal, "rolled_back", receipt,
+                    removed_path=removed, backup_path=backup,
+                )
             except Exception as rollback_error:
                 raise InstallError(f"uninstall rollback failed: {rollback_error}") from rollback_error
             raise InstallError(f"uninstall failed and was rolled back: {error}") from error
+
+        # The committed journal is authoritative.  Cleanup must never turn a
+        # successful uninstall into a reported rollback or prevent database
+        # reconciliation; startup and maintenance can retry leftovers.
+        self._cleanup_uninstall_tree_best_effort(removed)
+        if backup_was_copied and backup is not None:
+            self._cleanup_uninstall_tree_best_effort(backup)
 
     def uninstall_committed(self, receipt: InstallReceipt) -> bool:
         journal = (
@@ -437,11 +477,22 @@ class StellarisInstallEngine:
             payload = json.loads(journal.read_text(encoding="utf-8"))
         except (OSError, ValueError, json.JSONDecodeError):
             return False
-        return (
+        committed = (
             payload.get("operation") == "uninstall"
             and payload.get("transaction_id") == receipt.transaction_id
             and payload.get("phase") == "committed"
         )
+        if committed:
+            expected = self._uninstall_removed_path(
+                receipt.target_path, receipt.transaction_id
+            )
+            try:
+                recorded = payload.get("removed_path")
+                if recorded is not None and Path(recorded).resolve(strict=False) == expected:
+                    self._cleanup_uninstall_tree_best_effort(expected)
+            except (OSError, TypeError, ValueError):
+                pass
+        return committed
 
     def pending_committed_receipts(
         self, allowed_game_roots
@@ -808,28 +859,29 @@ class StellarisInstallEngine:
         if matched_root is None:
             return None
         phase = str(payload["phase"])
-        if phase in {"committed", "rolled_back"}:
+        if phase == "rolled_back":
             return None
-        if phase != "removing":
+        removed = self._uninstall_removed_from_journal(
+            journal_path, payload, target, transaction_id
+        )
+        if phase == "committed":
+            self._cleanup_uninstall_tree_best_effort(removed)
+            return None
+        if phase not in {"removing", "removed", "restoring_predecessor"}:
             raise InstallRecoveryConflict("卸载事务阶段无效")
         if self._path_present(target) and self._is_link(target):
             raise InstallRecoveryConflict("卸载目标是链接或目录联接")
-        removed = journal_path.parent / "removed" / target.name
         if self._path_present(removed) and (
             self._is_link(removed) or not removed.is_dir()
         ):
             raise InstallRecoveryConflict("卸载暂存目录无效")
-        target_present = self._path_present(target)
-        removed_present = self._path_present(removed)
-        if target_present and removed_present:
-            raise InstallRecoveryConflict(
-                "卸载目标与暂存副本同时存在，已保留两者"
-            )
-        if not target_present and removed_present:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            self._replace_with_retry(removed, target)
-        elif not target_present:
-            raise InstallRecoveryConflict("卸载目标与暂存副本均缺失")
+        backup = self._uninstall_backup_from_journal(payload)
+        self._rollback_uninstall_files(
+            target=target,
+            removed=removed,
+            backup=backup,
+            installed_tree_sha256=str(payload["installed_tree_sha256"]),
+        )
         payload = dict(payload)
         payload["phase"] = "rolled_back"
         self._write_json_atomic(journal_path, payload)
@@ -1106,6 +1158,170 @@ class StellarisInstallEngine:
             if self._path_present(temporary):
                 self._remove_tree(temporary)
 
+    def _restore_uninstall_backup(
+        self, backup: Path, target: Path
+    ) -> bool:
+        """Restore a predecessor and report whether its backup was copied."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._replace_with_retry(backup, target)
+            return False
+        except OSError as direct_error:
+            if not (
+                self._is_cross_device(direct_error)
+                or self._is_access_error(direct_error)
+            ):
+                raise self._destination_error(
+                    direct_error, target, "restore predecessor DLC"
+                ) from direct_error
+            if self._path_present(target):
+                raise InstallConflictError(
+                    f"uninstall target changed while restoring predecessor: {target}"
+                ) from direct_error
+            try:
+                self._copy_tree_atomic(backup, target)
+            except OSError as fallback_error:
+                raise self._destination_error(
+                    fallback_error, target, "restore predecessor DLC"
+                ) from fallback_error
+            return True
+
+    def _rollback_uninstall_files(
+        self,
+        *,
+        target: Path,
+        removed: Path,
+        backup: Path | None,
+        installed_tree_sha256: str,
+    ) -> None:
+        """Restore the pre-uninstall filesystem state without deleting ambiguity."""
+        target_present = self._path_present(target)
+        removed_present = self._path_present(removed)
+        if removed_present:
+            if self._is_link(removed) or not removed.is_dir():
+                raise InstallRecoveryConflict(
+                    "uninstall temporary tree is not a trusted directory"
+                )
+            if self._tree_sha256(removed) != installed_tree_sha256:
+                raise InstallRecoveryConflict(
+                    "uninstall temporary tree no longer matches the receipt"
+                )
+        if target_present and self._is_link(target):
+            raise InstallRecoveryConflict(
+                "uninstall target became a link or junction"
+            )
+
+        if target_present and removed_present:
+            if backup is None:
+                raise InstallRecoveryConflict(
+                    "uninstall target and temporary tree both exist without a predecessor backup"
+                )
+            if self._path_present(backup):
+                if self._is_link(backup) or not backup.is_dir():
+                    raise InstallRecoveryConflict(
+                        "uninstall predecessor backup is not a trusted directory"
+                    )
+                if self._tree_sha256(target) != self._tree_sha256(backup):
+                    raise InstallRecoveryConflict(
+                        "restored predecessor and retained backup differ"
+                    )
+                self._remove_tree(target)
+            else:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    self._replace_with_retry(target, backup)
+                except OSError as direct_error:
+                    if not (
+                        self._is_cross_device(direct_error)
+                        or self._is_access_error(direct_error)
+                    ):
+                        raise
+                    self._copy_tree_atomic(target, backup)
+                    self._remove_tree(target)
+            target_present = False
+
+        if not target_present and removed_present:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._replace_with_retry(removed, target)
+            return
+        if target_present and not removed_present:
+            if (
+                not target.is_dir()
+                or self._tree_sha256(target) != installed_tree_sha256
+            ):
+                raise InstallRecoveryConflict(
+                    "uninstall target changed before rollback could be confirmed"
+                )
+            return
+        raise InstallRecoveryConflict(
+            "uninstall target and temporary tree are both missing"
+        )
+
+    def _uninstall_removed_path(
+        self, target: Path, transaction_id: str
+    ) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id):
+            raise InstallError("uninstall transaction ID is invalid")
+        return self._contained(
+            target.parent,
+            target.parent / f".signriver-uninstall-{transaction_id}.removed",
+        )
+
+    def _uninstall_removed_from_journal(
+        self,
+        journal_path: Path,
+        payload: dict,
+        target: Path,
+        transaction_id: str,
+    ) -> Path:
+        recorded = payload.get("removed_path")
+        if recorded is None:
+            # Schema-v2 journals written by older builds kept this directory
+            # below the data transaction root.
+            return journal_path.parent / "removed" / target.name
+        try:
+            actual = Path(recorded).resolve(strict=False)
+            expected = self._uninstall_removed_path(target, transaction_id)
+        except (OSError, TypeError, ValueError) as error:
+            raise InstallRecoveryConflict(
+                "uninstall temporary path is invalid"
+            ) from error
+        if actual != expected:
+            raise InstallRecoveryConflict(
+                "uninstall temporary path escaped the configured DLC directory"
+            )
+        return expected
+
+    def _uninstall_backup_from_journal(self, payload: dict) -> Path | None:
+        recorded = payload.get("backup_path")
+        if recorded is None:
+            return None
+        try:
+            backup = Path(recorded).resolve(strict=False)
+            self._contained(self.data_root / "backups", backup)
+        except (OSError, TypeError, ValueError, InstallError) as error:
+            raise InstallRecoveryConflict(
+                "uninstall predecessor backup path is invalid"
+            ) from error
+        if self._path_present(backup) and (
+            self._is_link(backup) or not backup.is_dir()
+        ):
+            raise InstallRecoveryConflict(
+                "uninstall predecessor backup is not a trusted directory"
+            )
+        return backup
+
+    def _cleanup_uninstall_tree_best_effort(self, path: Path) -> None:
+        try:
+            if (
+                self._path_present(path)
+                and not self._is_link(path)
+                and path.is_dir()
+            ):
+                self._remove_tree(path)
+        except OSError:
+            pass
+
     def _replace_with_retry(self, source: Path, destination: Path) -> None:
         for delay in (*self._replace_retry_delays, None):
             try:
@@ -1347,7 +1563,14 @@ class StellarisInstallEngine:
         self._write_json_atomic(plan.journal_path, payload)
 
     @staticmethod
-    def _write_simple_journal(path: Path, phase: str, receipt: InstallReceipt) -> None:
+    def _write_simple_journal(
+        path: Path,
+        phase: str,
+        receipt: InstallReceipt,
+        *,
+        removed_path: Path | None = None,
+        backup_path: Path | None = None,
+    ) -> None:
         payload = {
             "schema_version": 2,
             "operation": "uninstall",
@@ -1357,6 +1580,10 @@ class StellarisInstallEngine:
             "target_path": str(receipt.target_path),
             "installed_tree_sha256": receipt.installed_tree_sha256,
         }
+        if removed_path is not None:
+            payload["removed_path"] = str(removed_path)
+        if backup_path is not None:
+            payload["backup_path"] = str(backup_path)
         StellarisInstallEngine._write_json_atomic(path, payload)
 
     @staticmethod

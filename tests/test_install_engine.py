@@ -719,3 +719,79 @@ def test_uninstall_restores_pre_install_backup(tmp_path: Path) -> None:
     engine.uninstall(receipt, game)
     assert (existing / "old.txt").read_text(encoding="utf-8") == "old"
     assert not (existing / "dlc001.dlc").exists()
+
+
+def test_uninstall_restores_predecessor_across_filesystems(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    existing = game / "dlc" / "dlc001_symbols_of_domination"
+    existing.mkdir()
+    (existing / "old.txt").write_text("old", encoding="utf-8")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(
+            package,
+            game,
+            expected_sha256=digest,
+            transaction_id="txn-restore-cross-volume",
+        )
+    )
+    original_replace = engine._replace
+
+    def fail_direct_backup_move(source: Path, destination: Path) -> None:
+        if (
+            receipt.backup_path is not None
+            and Path(source).resolve() == receipt.backup_path.resolve()
+            and Path(destination).resolve() == receipt.target_path.resolve()
+        ):
+            raise OSError(EXDEV, "injected cross-device move", str(destination))
+        original_replace(source, destination)
+
+    engine._replace = fail_direct_backup_move
+    engine.uninstall(receipt, game)
+
+    assert (existing / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not (existing / "dlc001.dlc").exists()
+    assert receipt.backup_path is not None
+    assert not receipt.backup_path.exists()
+    assert not engine._uninstall_removed_path(
+        receipt.target_path, receipt.transaction_id
+    ).exists()
+
+
+def test_uninstall_cleanup_failure_does_not_undo_committed_result(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+    receipt = engine.install(
+        engine.plan(
+            package,
+            game,
+            expected_sha256=digest,
+            transaction_id="txn-cleanup-retry",
+        )
+    )
+    removed = engine._uninstall_removed_path(
+        receipt.target_path, receipt.transaction_id
+    )
+    original_remove_tree = engine._remove_tree
+    cleanup_attempts = 0
+
+    def fail_first_cleanup(path: Path) -> None:
+        nonlocal cleanup_attempts
+        if Path(path).resolve() == removed.resolve() and cleanup_attempts == 0:
+            cleanup_attempts += 1
+            raise PermissionError("injected cleanup lock")
+        original_remove_tree(path)
+
+    engine._remove_tree = fail_first_cleanup
+    engine.uninstall(receipt, game)
+
+    assert not receipt.target_path.exists()
+    assert removed.is_dir()
+    assert engine.uninstall_committed(receipt)
+    assert not removed.exists()

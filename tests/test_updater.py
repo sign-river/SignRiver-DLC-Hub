@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from signriver_launcher.config import UpdateSettings
-from signriver_launcher.errors import IntegrityError, PackageError
+from signriver_launcher.errors import DownloadError, IntegrityError, PackageError
 from signriver_launcher.models import ReleaseInfo
 from signriver_launcher.paths import RuntimePaths
 from signriver_launcher.state import StateStore
@@ -105,3 +105,77 @@ def test_rejects_zip_path_traversal(tmp_path) -> None:
         client.install_archive(archive, release_for(archive))
     assert not (tmp_path / "escaped.txt").exists()
     assert store.load().active_version == "0.1.0"
+
+
+def test_replaces_invalid_non_active_version_directory(tmp_path: Path) -> None:
+    client, store, paths = client_for(tmp_path)
+    archive = tmp_path / "module.zip"
+    create_module_package(archive)
+    invalid = paths.versions_dir / "0.1.1"
+    invalid.mkdir()
+    (invalid / "partial.txt").write_text("interrupted", encoding="utf-8")
+
+    client.install_archive(archive, release_for(archive))
+
+    assert store.load().active_version == "0.1.1"
+    assert (invalid / "app_entry.py").is_file()
+    assert not (invalid / "partial.txt").exists()
+    assert not tuple(paths.staging_dir.iterdir())
+
+
+def test_never_replaces_damaged_active_version_directory(tmp_path: Path) -> None:
+    client, store, paths = client_for(tmp_path)
+    archive = tmp_path / "module.zip"
+    create_module_package(archive, version="0.1.0")
+    active = paths.versions_dir / "0.1.0"
+    marker = active / "keep.txt"
+    marker.write_text("untouched", encoding="utf-8")
+
+    with pytest.raises(PackageError, match="active application module is damaged"):
+        client.install_archive(archive, release_for(archive, version="0.1.0"))
+
+    assert store.load().active_version == "0.1.0"
+    assert marker.read_text(encoding="utf-8") == "untouched"
+
+
+def test_restores_displaced_directory_when_activation_fails(tmp_path: Path) -> None:
+    client, store, paths = client_for(tmp_path)
+    archive = tmp_path / "module.zip"
+    create_module_package(archive)
+    invalid = paths.versions_dir / "0.1.1"
+    invalid.mkdir()
+    marker = invalid / "partial.txt"
+    marker.write_text("preserve me", encoding="utf-8")
+
+    class FailingStore:
+        load = staticmethod(store.load)
+
+        @staticmethod
+        def activate(_version: str):
+            raise OSError("state disk unavailable")
+
+    client.state_store = FailingStore()
+
+    with pytest.raises(PackageError, match="state disk unavailable"):
+        client.install_archive(archive, release_for(archive))
+
+    assert marker.read_text(encoding="utf-8") == "preserve me"
+    assert not (invalid / "app_entry.py").exists()
+    assert store.load().active_version == "0.1.0"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@example.test/module.zip",
+        "https://user:secret@example.test/module.zip",
+        "http://user@example.test/module.zip",
+    ],
+)
+def test_rejects_update_urls_with_embedded_credentials(
+    tmp_path: Path, url: str
+) -> None:
+    client, _store, _paths = client_for(tmp_path)
+
+    with pytest.raises(DownloadError, match="without embedded credentials"):
+        client._validate_remote_url(url)

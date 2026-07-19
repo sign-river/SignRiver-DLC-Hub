@@ -175,20 +175,70 @@ class DownloadManager:
                         speed_bytes_per_second=None,
                         eta_seconds=None,
                     ), notify)
+                requested = self._finish_requested_control(
+                    control=control,
+                    part=part,
+                    snapshot=snapshot,
+                    downloaded=downloaded,
+                    attempt=attempt,
+                    callback=notify,
+                )
+                if requested is not None:
+                    return requested
                 actual_hash = digest.hexdigest()
                 snapshot = self._emit(snapshot.evolve(state=DownloadState.VERIFYING, bytes_downloaded=downloaded, sha256=actual_hash), notify)
                 if spec.expected_size is not None and downloaded != spec.expected_size:
                     raise ValueError(f"size mismatch: expected {spec.expected_size}, got {downloaded}")
                 if spec.expected_sha256 and actual_hash.casefold() != spec.expected_sha256.casefold():
                     raise ValueError("SHA-256 mismatch")
+                requested = self._finish_requested_control(
+                    control=control,
+                    part=part,
+                    snapshot=snapshot,
+                    downloaded=downloaded,
+                    attempt=attempt,
+                    callback=notify,
+                )
+                if requested is not None:
+                    return requested
                 if verifier is not None:
                     verifier(part, actual_hash)
+                requested = self._finish_requested_control(
+                    control=control,
+                    part=part,
+                    snapshot=snapshot,
+                    downloaded=downloaded,
+                    attempt=attempt,
+                    callback=notify,
+                )
+                if requested is not None:
+                    return requested
                 target_dir = packages / actual_hash
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target = target_dir / spec.filename
+                requested = self._finish_requested_control(
+                    control=control,
+                    part=part,
+                    snapshot=snapshot,
+                    downloaded=downloaded,
+                    attempt=attempt,
+                    callback=notify,
+                )
+                if requested is not None:
+                    return requested
                 os.replace(part, target)
                 return self._emit(snapshot.evolve(state=DownloadState.READY, result_path=target), notify)
             except ValueError as error:
+                requested = self._finish_requested_control(
+                    control=control,
+                    part=part,
+                    snapshot=snapshot,
+                    downloaded=downloaded,
+                    attempt=attempt,
+                    callback=notify,
+                )
+                if requested is not None:
+                    return requested
                 # Keep only the newest rejected attempt for a task.  Retrying
                 # a multi-gigabyte package must not multiply cache usage.
                 isolated = quarantine / f"{spec.task_id}-latest.bad"
@@ -228,6 +278,40 @@ class DownloadManager:
                 snapshot = self._emit(snapshot.evolve(state=DownloadState.RETRYING, bytes_downloaded=downloaded, error=str(error)), notify)
                 self._sleep(self.policy.retry_delay * attempt)
         raise AssertionError("unreachable")
+
+    @classmethod
+    def _finish_requested_control(
+        cls,
+        *,
+        control: DownloadControl,
+        part: Path,
+        snapshot: DownloadSnapshot,
+        downloaded: int,
+        attempt: int,
+        callback: Callable[[DownloadSnapshot], None],
+    ) -> DownloadSnapshot | None:
+        """Finish a late pause/cancel before a verified package is committed."""
+        if control.cancel_requested:
+            part.unlink(missing_ok=True)
+            return cls._emit(snapshot.evolve(
+                state=DownloadState.CANCELLED,
+                attempt=attempt,
+                bytes_downloaded=downloaded,
+                error=None,
+                speed_bytes_per_second=None,
+                eta_seconds=None,
+            ), callback)
+        if control.pause_requested:
+            part.unlink(missing_ok=True)
+            return cls._emit(snapshot.evolve(
+                state=DownloadState.PAUSED,
+                attempt=attempt,
+                bytes_downloaded=0,
+                error=None,
+                speed_bytes_per_second=None,
+                eta_seconds=None,
+            ), callback)
+        return None
 
     @staticmethod
     def _emit(snapshot: DownloadSnapshot, callback: Callable[[DownloadSnapshot], None]) -> DownloadSnapshot:

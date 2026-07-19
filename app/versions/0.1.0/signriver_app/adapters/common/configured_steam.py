@@ -147,11 +147,16 @@ class ConfiguredSteamAdapter:
 def _is_process_running(executable: Path) -> bool:
     if os.name != "nt":
         return False
-    result = subprocess.run(
-        ["tasklist", "/FI", f"IMAGENAME eq {executable.name}", "/FO", "CSV", "/NH"],
-        capture_output=True, text=True, check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {executable.name}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=5, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired as error:
+        raise OSError("tasklist 进程检查超时（5 秒内未响应）") from error
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or "tasklist 进程检查失败")
     return executable.name.casefold() in result.stdout.casefold()
 
 

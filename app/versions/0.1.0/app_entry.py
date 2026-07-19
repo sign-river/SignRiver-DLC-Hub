@@ -36,6 +36,7 @@ from .signriver_app.infrastructure.installs import (
     InstallAccessError,
     InstallConflictError,
 )
+from .signriver_app.infrastructure.log_reader import read_tail_lines
 from .signriver_app.infrastructure.patching import PatchEngine, PatchError
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.persistence import (
@@ -195,6 +196,9 @@ class DlcHubApplication:
         self.auto_install_worker_running = False
         self.auto_install_attempted = set()
         self.auto_install_redownload_attempted = set()
+        # READY cache is reusable data, not permission to modify a game.  Only
+        # downloads explicitly requested during this session may auto-install.
+        self.auto_install_requested_task_ids = set()
         self.speed_test_running = False
         self.download_repository = None
         self.download_queue = None
@@ -216,6 +220,8 @@ class DlcHubApplication:
         self.task_scroll_after_id = None
         self.task_scroll_target = None
         self.catalog_search_after_id = None
+        self.log_search_after_id = None
+        self.diagnostics_export_running = False
         self.cache_usage_bytes: int | None = None
         self.cache_usage_scan_running = False
         self.cache_usage_last_scan = 0.0
@@ -754,7 +760,7 @@ class DlcHubApplication:
             log_tools, placeholder_text="筛选日志关键词", width=220
         )
         self.log_search.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        self.log_search.bind("<KeyRelease>", lambda _event: self._refresh_log_preview())
+        self.log_search.bind("<KeyRelease>", self._schedule_log_refresh)
 
         log_action_grid = ctk.CTkFrame(
             log_command_area, fg_color="transparent"
@@ -772,10 +778,13 @@ class DlcHubApplication:
             log_action_grid, text="打开日志目录",
             command=lambda: self._open_path(self.context.paths.data / "logs"), width=128,
         ).grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 4))
-        ctk.CTkButton(
+        self.diagnostics_export_button = ctk.CTkButton(
             log_action_grid, text="导出诊断包",
             command=self._export_diagnostics, width=128,
-        ).grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0))
+        )
+        self.diagnostics_export_button.grid(
+            row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0)
+        )
         ctk.CTkButton(
             log_action_grid, text="复制当前日志",
             command=self._copy_log, width=128,
@@ -958,8 +967,15 @@ class DlcHubApplication:
             self.unlock_workflow_active = False
             self.unlock_requested_dlc_ids = ()
             self.unlock_failed_dlc_ids.clear()
+            self.auto_install_requested_task_ids.clear()
             self.selected_dlc_ids.clear()
             self.catalog_selection_initialized = False
+            self.catalog_online = False
+            self._clear_catalog_views(f"正在读取 {display_name} 的 DLC 目录……")
+            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.download_selected_button.configure(
+                state="disabled", text="正在读取目录……"
+            )
         self.selected_game_name = display_name
         self.platform_status.configure(
             text=f"{game['platform']} · App {game['store_app_id']}"
@@ -974,6 +990,7 @@ class DlcHubApplication:
             or self.install_recovery_running
             or self.manual_file_operation_token is not None
             or self.cache_cleanup_running
+            or self.diagnostics_export_running
             or self.batch_download_state != "idle"
             or self.patch_workflow_state != "idle"
         ):
@@ -1279,6 +1296,7 @@ class DlcHubApplication:
             return
         try:
             if action == "cancel":
+                self.auto_install_requested_task_ids.discard(task_id)
                 self.download_queue.cancel(task_id)
             elif action == "resume":
                 future = self.download_queue.resume(task_id)
@@ -1291,6 +1309,9 @@ class DlcHubApplication:
         if self.download_queue is None:
             return
         count = self.download_queue.clear_terminal()
+        self.auto_install_requested_task_ids.intersection_update(
+            item.spec.task_id for item in self.download_queue.snapshots()
+        )
         self._refresh_task_page()
         self.catalog_preview.configure(text=f"已清除 {count} 条终态任务记录")
 
@@ -1310,6 +1331,7 @@ class DlcHubApplication:
             return
         try:
             count = self.download_queue.clear_all()
+            self.auto_install_requested_task_ids.clear()
             self.batch_download_task_ids = ()
             self._set_batch_download_state("idle")
             self._refresh_task_page()
@@ -1591,7 +1613,8 @@ class DlcHubApplication:
 
     def _post_ui(self, callback) -> None:
         """Queue a UI callback without touching Tk from a worker thread."""
-        self.ui_events.put(callback)
+        if self.ui_event_pump_running:
+            self.ui_events.put(callback)
 
     def _drain_ui_events(self) -> None:
         if not self.ui_event_pump_running:
@@ -1697,7 +1720,7 @@ class DlcHubApplication:
         path = self.context.paths.data / "logs" / "launcher.log"
         try:
             if path.is_file():
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]
+                lines = read_tail_lines(path, max_lines=500)
                 level = self.log_level_filter.get()
                 query = self.log_search.get().strip().casefold()
                 if level != "全部":
@@ -1710,6 +1733,8 @@ class DlcHubApplication:
                 content = "尚未生成日志文件"
         except OSError as error:
             content = f"无法读取日志：{error}"
+        if content == self.last_log_content:
+            return
         self.last_log_content = content
         self.log_preview.configure(state="normal")
         self.log_preview.delete("1.0", "end")
@@ -1717,30 +1742,82 @@ class DlcHubApplication:
         self.log_preview.see("end")
         self.log_preview.configure(state="disabled")
 
+    def _schedule_log_refresh(self, _event=None) -> None:
+        """Debounce searches so rapid typing never rebuilds the textbox."""
+        try:
+            if self.log_search_after_id is not None:
+                self.window.after_cancel(self.log_search_after_id)
+            self.log_search_after_id = self.window.after(
+                160, self._apply_scheduled_log_refresh
+            )
+        except TclError:
+            self.log_search_after_id = None
+
+    def _apply_scheduled_log_refresh(self) -> None:
+        self.log_search_after_id = None
+        self._refresh_log_preview()
+
     def _copy_log(self) -> None:
         self.window.clipboard_clear()
         self.window.clipboard_append(self.last_log_content)
         self.window.update_idletasks()
 
     def _export_diagnostics(self) -> None:
-        try:
-            snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
-            output = self.diagnostic_exporter.export(
-                app_version=self.context.app_version,
-                launcher_version=self.context.launcher_version,
-                settings=self.user_settings,
-                snapshots=snapshots,
-                log_path=self.context.paths.data / "logs" / "launcher.log",
-            )
-            if messagebox.askyesno(
-                "诊断包已导出",
-                f"已生成：{output.name}\n\n是否打开所在目录？",
-                parent=self.window,
-            ):
-                self._open_path(output.parent)
-        except Exception as error:
-            self.context.logger.exception("Diagnostic export failed")
-            messagebox.showerror("诊断导出失败", str(error), parent=self.window)
+        if self.diagnostics_export_running:
+            return
+        self.diagnostics_export_running = True
+        self.diagnostics_export_button.configure(
+            state="disabled", text="正在导出……"
+        )
+        snapshots = (
+            self.download_queue.snapshots()
+            if self.download_queue is not None else ()
+        )
+        settings = self.user_settings
+
+        def worker() -> None:
+            try:
+                output = self.diagnostic_exporter.export(
+                    app_version=self.context.app_version,
+                    launcher_version=self.context.launcher_version,
+                    settings=settings,
+                    snapshots=snapshots,
+                    log_path=self.context.paths.data / "logs" / "launcher.log",
+                )
+                self._post_ui(
+                    lambda output=output: self._finish_diagnostic_export(output)
+                )
+            except Exception as error:
+                self.context.logger.exception("Diagnostic export failed")
+                message = str(error)
+                self._post_ui(
+                    lambda message=message: self._finish_diagnostic_export_error(
+                        message
+                    )
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="diagnostic-export"
+        ).start()
+
+    def _finish_diagnostic_export(self, output: Path) -> None:
+        self.diagnostics_export_running = False
+        self.diagnostics_export_button.configure(
+            state="normal", text="导出诊断包"
+        )
+        if messagebox.askyesno(
+            "诊断包已导出",
+            f"已生成：{output.name}\n\n是否打开所在目录？",
+            parent=self.window,
+        ):
+            self._open_path(output.parent)
+
+    def _finish_diagnostic_export_error(self, message: str) -> None:
+        self.diagnostics_export_running = False
+        self.diagnostics_export_button.configure(
+            state="normal", text="导出诊断包"
+        )
+        messagebox.showerror("诊断导出失败", message, parent=self.window)
 
     def _refresh_catalog(self) -> None:
         generation = self.game_selection_generation
@@ -1809,7 +1886,14 @@ class DlcHubApplication:
         )
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
+            self._clear_catalog_views("当前 Release 中没有可用的 DLC 资源")
+            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.download_selected_button.configure(
+                state="disabled", text="暂无可用 DLC"
+            )
             return
+        self.selection_toggle_button.configure(state="normal")
+        self._set_batch_download_state(self.batch_download_state)
         if snapshot.patch_bundle is None:
             self.catalog_preview.configure(
                 text="补丁资源缺失，一键解锁暂不可用；请稍后刷新目录"
@@ -1951,6 +2035,21 @@ class DlcHubApplication:
         self.catalog_refresh_button.configure(state="normal")
         self.catalog_status.configure(text="DLC 目录读取失败")
         self.catalog_preview.configure(text=message)
+        # Errors carrying a generation/cartridge pair come from a catalog
+        # refresh.  The previous rows may belong to an older Release snapshot
+        # (or even a different cartridge), so fail closed instead of leaving
+        # stale callbacks available to the user.  Operation-level errors call
+        # this helper without that context and must not discard a valid list.
+        if generation is not None and cartridge_id is not None:
+            self.catalog_entries = ()
+            self.patch_bundle = None
+            self.patch_task_roles = {}
+            self.catalog_missing_patch_assets = ()
+            self._clear_catalog_views("目录刷新失败，请重试")
+            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.download_selected_button.configure(
+                state="disabled", text="目录不可用"
+            )
         self._notify("DLC 目录刷新失败", error=True)
 
     def _schedule_catalog_search(self, _event=None) -> None:
@@ -1978,6 +2077,34 @@ class DlcHubApplication:
         self.catalog_entry_frames = state["entry_frames"]
         self.catalog_name_labels = state["name_labels"]
         self.dlc_selection_vars = state["selection_vars"]
+
+    def _clear_catalog_views(self, message: str) -> None:
+        """Replace both persistent catalog canvases with one current empty state.
+
+        Both views remain alive between toggles for performance.  Clearing only
+        the visible view would therefore expose rows and callbacks belonging to
+        the previously selected cartridge when the hidden view is opened.
+        """
+        self._cancel_catalog_render()
+        for mode, frame in self.catalog_view_frames.items():
+            for child in frame.winfo_children():
+                child.destroy()
+            state = self.catalog_view_widgets[mode]
+            for key in (
+                "catalog_rows",
+                "simple_status_labels",
+                "selection_widgets",
+                "entry_frames",
+                "name_labels",
+                "selection_vars",
+            ):
+                state[key].clear()
+            state["render_key"] = None
+            ctk.CTkLabel(frame, text=message).grid(
+                row=0, column=0, columnspan=8, padx=12, pady=24
+            )
+            self._schedule_scrollable_reset(frame)
+        self._activate_catalog_view_storage(self.catalog_view_mode)
 
     def _catalog_render_key(self, visible_entries, snapshots) -> tuple:
         """Describe changes that require rebuilding the current widget tree."""
@@ -2578,7 +2705,12 @@ class DlcHubApplication:
                 and snapshot.result_path.is_file()
                 and snapshot.sha256 is not None
             )
-            if self._is_entry_installed(entry) or cache_ready:
+            if self._is_entry_installed(entry):
+                self.auto_install_requested_task_ids.discard(task_id)
+                skipped += 1
+                continue
+            self.auto_install_requested_task_ids.add(task_id)
+            if cache_ready:
                 skipped += 1
                 continue
             if snapshot is not None and snapshot.state in active_states:
@@ -2591,6 +2723,7 @@ class DlcHubApplication:
                 started += 1
             except Exception:
                 self.context.logger.exception("Unable to enqueue selected DLC")
+                self.auto_install_requested_task_ids.discard(task_id)
                 self.unlock_failed_dlc_ids.add(entry.dlc_id)
                 failed += 1
         self.batch_download_task_ids = tuple(dict.fromkeys(batch_task_ids))
@@ -2701,6 +2834,7 @@ class DlcHubApplication:
         ):
             return
         self.batch_download_task_ids = unfinished
+        self.auto_install_requested_task_ids.difference_update(unfinished)
         self._set_batch_download_state("cancelling")
         requested = self.download_queue.cancel_many(unfinished)
         self.catalog_preview.configure(text=f"正在取消 {requested} 个未完成下载任务……")
@@ -2902,6 +3036,7 @@ class DlcHubApplication:
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
+        self.auto_install_requested_task_ids.add(spec.task_id)
         try:
             existing = {
                 item.spec.task_id: item for item in self.download_queue.snapshots()
@@ -2913,6 +3048,7 @@ class DlcHubApplication:
             future.add_done_callback(self._download_finished)
             return future
         except Exception as error:
+            self.auto_install_requested_task_ids.discard(spec.task_id)
             if show_error:
                 self.catalog_preview.configure(text=str(error))
             else:
@@ -2999,6 +3135,9 @@ class DlcHubApplication:
 
     def _cancel_entry(self, entry) -> None:
         if self.download_queue is not None:
+            self.auto_install_requested_task_ids.discard(
+                self._dlc_task_id(entry.dlc_id)
+            )
             try:
                 self.download_queue.cancel(self._dlc_task_id(entry.dlc_id))
             except (KeyError, ValueError):
@@ -3150,6 +3289,7 @@ class DlcHubApplication:
                 or snapshot.state is not DownloadState.READY
                 or snapshot.result_path is None
                 or snapshot.sha256 is None
+                or task_id not in self.auto_install_requested_task_ids
                 or task_id in self.auto_install_attempted
                 or self._is_entry_installed(entry)
             ):
@@ -3319,6 +3459,9 @@ class DlcHubApplication:
         # this one entry avoids rescanning every DLC directory after every
         # small package; the worker performs one full reconciliation at the end.
         self.installed_dlc_paths[entry.dlc_id.casefold()] = receipt.target_path
+        self.auto_install_requested_task_ids.discard(
+            self._dlc_task_id(entry.dlc_id)
+        )
         self.active_receipt_dlc_ids = frozenset((
             *self.active_receipt_dlc_ids, entry.dlc_id.casefold()
         ))
@@ -3335,6 +3478,9 @@ class DlcHubApplication:
             or cartridge_id != self.cartridge.cartridge_id
         ):
             return
+        self.auto_install_requested_task_ids.discard(
+            self._dlc_task_id(entry.dlc_id)
+        )
         if self.unlock_workflow_active and entry.dlc_id in self.unlock_requested_dlc_ids:
             self.unlock_failed_dlc_ids.add(entry.dlc_id)
         self.catalog_preview.configure(
@@ -3660,6 +3806,9 @@ class DlcHubApplication:
         token = self._begin_manual_file_operation(title)
         if token is None:
             return
+        self.auto_install_requested_task_ids.difference_update(
+            self._dlc_task_id(dlc_id) for dlc_id in targets
+        )
         self.catalog_preview.configure(text=f"正在移除 {len(targets)} 个 DLC……")
 
         def worker() -> None:
@@ -4108,6 +4257,7 @@ class DlcHubApplication:
             parent=self.window,
         ):
             return
+        self.auto_install_requested_task_ids.clear()
         self._set_batch_download_state("restoring")
         self.catalog_preview.configure(text="正在恢复游戏原版，请勿启动游戏……")
 
@@ -4265,6 +4415,7 @@ class DlcHubApplication:
             parent=self.window,
         ):
             return
+        self.auto_install_requested_task_ids.clear()
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()

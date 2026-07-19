@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from signriver_app.adapters.builtin import create_builtin_cartridges
+from signriver_app.adapters.common import configured_steam
 from signriver_app.infrastructure.catalog import inspect_directory_package
 from signriver_publisher import (
     PublisherWorkspace, SteamAppInfo,
@@ -60,6 +64,21 @@ def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> N
     (hoi_root / "hoi4.exe").write_bytes(b"exe")
     (hoi_root / "dlc").mkdir()
     assert cartridges["hearts_of_iron_4"].adapter.validate(hoi_root).valid
+
+
+def test_configured_process_check_has_a_clear_five_second_timeout(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(configured_steam.os, "name", "nt")
+
+    def timeout(*_args, **kwargs):
+        assert kwargs["timeout"] == 5
+        raise subprocess.TimeoutExpired("tasklist", kwargs["timeout"])
+
+    monkeypatch.setattr(configured_steam.subprocess, "run", timeout)
+
+    with pytest.raises(OSError, match="tasklist.*5 秒"):
+        configured_steam._is_process_running(Path("CivilizationVI.exe"))
 
 
 def test_generic_package_installs_to_each_cartridge_dlc_directory(tmp_path: Path) -> None:

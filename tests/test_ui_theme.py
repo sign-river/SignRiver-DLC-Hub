@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 
 APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
@@ -152,6 +153,109 @@ def test_catalog_views_are_persistent_and_first_build_is_incremental() -> None:
     assert "batch_size = 12 if mode == \"simple\" else 3" in batch_method
     assert "self.window.after(" in batch_method
     assert 'state["render_key"] = render_key' in source
+
+
+def test_switch_and_empty_release_clear_both_persistent_catalog_views() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    select_method = source.split("def _select_game", 1)[1].split(
+        "def _content_work_is_active", 1
+    )[0]
+    show_method = source.split("def _show_catalog(", 1)[1].split(
+        "def _reconcile_catalog_cache", 1
+    )[0]
+    error_method = source.split("def _show_catalog_error(", 1)[1].split(
+        "def _schedule_catalog_search", 1
+    )[0]
+    clear_views = _app_method("_clear_catalog_views")
+
+    assert "self._clear_catalog_views(" in select_method
+    assert "self.catalog_online = False" in select_method
+    assert "if not entries:" in show_method
+    assert "self._clear_catalog_views(" in show_method
+    assert show_method.index("self._clear_catalog_views(") < show_method.index(
+        "            return", show_method.index("if not entries:")
+    )
+    assert "if generation is not None and cartridge_id is not None:" in error_method
+    assert 'self._clear_catalog_views("目录刷新失败，请重试")' in error_method
+    assert 'self.download_selected_button.configure(' in error_method
+
+    class Child:
+        def __init__(self) -> None:
+            self.destroyed = False
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    class Frame:
+        def __init__(self) -> None:
+            self.children = [Child(), Child()]
+
+        def winfo_children(self):
+            return tuple(self.children)
+
+    class Label:
+        def __init__(self, parent, *, text) -> None:
+            self.text = text
+            parent.label = self
+
+        def grid(self, **_kwargs) -> None:
+            return None
+
+    states = {
+        mode: {
+            "catalog_rows": {"old": object()},
+            "simple_status_labels": {"old": object()},
+            "selection_widgets": {"old": object()},
+            "entry_frames": {"old": object()},
+            "name_labels": {"old": object()},
+            "selection_vars": {"old": object()},
+            "render_key": ("old",),
+        }
+        for mode in ("simple", "advanced")
+    }
+    frames = {mode: Frame() for mode in states}
+
+    class Application:
+        catalog_view_frames = frames
+        catalog_view_widgets = states
+        catalog_view_mode = "simple"
+
+        def __init__(self) -> None:
+            self.cancelled = False
+            self.reset = []
+            self.activated = None
+
+        def _cancel_catalog_render(self) -> None:
+            self.cancelled = True
+
+        def _schedule_scrollable_reset(self, frame) -> None:
+            self.reset.append(frame)
+
+        def _activate_catalog_view_storage(self, mode) -> None:
+            self.activated = mode
+
+    clear_views.__globals__["ctk"] = SimpleNamespace(CTkLabel=Label)
+    application = Application()
+    clear_views(application, "正在读取新目录")
+
+    assert application.cancelled is True
+    assert application.activated == "simple"
+    assert application.reset == list(frames.values())
+    for mode, frame in frames.items():
+        assert all(child.destroyed for child in frame.children)
+        assert frame.label.text == "正在读取新目录"
+        assert states[mode]["render_key"] is None
+        assert all(
+            not states[mode][key]
+            for key in (
+                "catalog_rows",
+                "simple_status_labels",
+                "selection_widgets",
+                "entry_frames",
+                "name_labels",
+                "selection_vars",
+            )
+        )
 
 
 def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> None:
@@ -306,6 +410,69 @@ def test_cached_install_uses_a_visible_non_interactive_primary_state() -> None:
     assert "InstallAccessError" in source
     assert "InstallConflictError" in source
     assert "Automatic DLC installation blocked" in schedule_method
+
+
+def test_ready_cache_requires_explicit_session_install_intent() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    schedule_method = source.split("def _schedule_ready_installs", 1)[1].split(
+        "def _on_auto_install_progress", 1
+    )[0]
+    batch_method = source.split("def _start_dlc_batch", 1)[1].split(
+        "def _set_batch_download_state", 1
+    )[0]
+    restore_method = source.split("def _restore_original_state", 1)[1].split(
+        "def _on_original_state_restored", 1
+    )[0]
+
+    assert "self.auto_install_requested_task_ids = set()" in source
+    assert "task_id not in self.auto_install_requested_task_ids" in schedule_method
+    assert "self.auto_install_requested_task_ids.add(task_id)" in batch_method
+    assert "self.auto_install_requested_task_ids.clear()" in restore_method
+    assert source.count("self.auto_install_requested_task_ids.discard(") >= 5
+    assert "self.auto_install_requested_task_ids.discard(" in source.split(
+        "def _on_auto_install_success", 1
+    )[1].split("def _on_auto_install_failure", 1)[0]
+
+
+def test_ready_cache_without_current_intent_does_not_start_installer() -> None:
+    from signriver_app.domain import DownloadState
+
+    schedule = _app_method("_schedule_ready_installs")
+    schedule.__globals__["DownloadState"] = DownloadState
+    task_id = "test-dlc001"
+    snapshot = SimpleNamespace(
+        spec=SimpleNamespace(task_id=task_id),
+        state=DownloadState.READY,
+        result_path=Path("cached.zip"),
+        sha256="a" * 64,
+    )
+    queue = SimpleNamespace(snapshots=lambda: (snapshot,))
+    entry = SimpleNamespace(dlc_id="dlc001")
+    app = SimpleNamespace(
+        auto_install_worker_running=False,
+        install_recovery_running=False,
+        install_recovery_failed=False,
+        install_service=object(),
+        current_installation=SimpleNamespace(root=Path("game")),
+        download_queue=queue,
+        cartridge=SimpleNamespace(
+            adapter=SimpleNamespace(
+                inspect=lambda _installation: SimpleNamespace(running=False)
+            ),
+            cartridge_id="test",
+        ),
+        context=SimpleNamespace(logger=SimpleNamespace(exception=lambda *_args: None)),
+        catalog_entries=(entry,),
+        auto_install_requested_task_ids=set(),
+        auto_install_attempted=set(),
+        _dlc_task_id=lambda dlc_id: f"test-{dlc_id}",
+        _is_entry_installed=lambda _entry: False,
+    )
+
+    schedule(app)
+
+    assert app.auto_install_worker_running is False
+    assert app.auto_install_attempted == set()
 
 
 def test_cached_install_reports_item_progress_and_recovers_interrupted_work() -> None:

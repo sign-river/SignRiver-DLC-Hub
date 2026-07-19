@@ -279,6 +279,69 @@ def test_package_verifier_reuses_streamed_sha256(tmp_path: Path) -> None:
     assert observed == [("stellaris-dlc001.part", hashlib.sha256(DATA).hexdigest())]
 
 
+def test_cancel_requested_by_verifier_does_not_commit_package(tmp_path: Path) -> None:
+    control = DownloadControl()
+    states = []
+
+    def verify(_path: Path, _actual_sha256: str) -> None:
+        control.cancel()
+
+    result = DownloadManager(
+        tmp_path, opener=lambda *_args: io.BytesIO(DATA)
+    ).run(spec(), control, states.append, verifier=verify)
+
+    assert result.state is DownloadState.CANCELLED
+    assert result.error is None
+    assert DownloadState.VERIFYING in [item.state for item in states]
+    assert DownloadState.READY not in [item.state for item in states]
+    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not list((tmp_path / "packages").rglob("*.zip"))
+
+
+def test_pause_requested_by_verifier_does_not_commit_package(tmp_path: Path) -> None:
+    control = DownloadControl()
+    states = []
+
+    def verify(_path: Path, _actual_sha256: str) -> None:
+        control.pause()
+
+    result = DownloadManager(
+        tmp_path, opener=lambda *_args: io.BytesIO(DATA)
+    ).run(spec(), control, states.append, verifier=verify)
+
+    assert result.state is DownloadState.PAUSED
+    assert result.bytes_downloaded == 0
+    assert result.error is None
+    assert DownloadState.VERIFYING in [item.state for item in states]
+    assert DownloadState.READY not in [item.state for item in states]
+    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not list((tmp_path / "packages").rglob("*.zip"))
+
+
+def test_cancel_requested_at_eof_does_not_enter_verification(tmp_path: Path) -> None:
+    control = DownloadControl()
+    states = []
+
+    class CancelAtEof(io.BytesIO):
+        def read(self, size=-1):
+            block = super().read(size)
+            if not block:
+                control.cancel()
+            return block
+
+    result = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(chunk_size=len(DATA)),
+        opener=lambda *_args: CancelAtEof(DATA),
+    ).run(spec(), control, states.append)
+
+    assert result.state is DownloadState.CANCELLED
+    assert DownloadState.VERIFYING not in [item.state for item in states]
+    assert DownloadState.READY not in [item.state for item in states]
+    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not list((tmp_path / "packages").rglob("*.zip"))
+
+
 def test_transient_package_verification_failure_redownloads(tmp_path: Path) -> None:
     inspections = 0
     opens = 0

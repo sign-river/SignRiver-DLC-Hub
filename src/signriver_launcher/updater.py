@@ -162,23 +162,54 @@ class UpdateClient:
         self.paths.staging_dir.mkdir(parents=True, exist_ok=True)
         stage = self.paths.staging_dir / f"{release.version}-{uuid.uuid4().hex}"
         destination = self.paths.versions_dir / release.version
+        replace_invalid_destination = False
         if destination.exists():
-            metadata = self._validate_module(destination, release.version)
-            if metadata.version == release.version:
-                self.state_store.activate(release.version)
-                return
+            try:
+                metadata = self._validate_module(destination, release.version)
+            except PackageError:
+                state = self.state_store.load()
+                if state.active_version == release.version:
+                    raise PackageError(
+                        "The active application module is damaged; refusing to "
+                        "replace files while that version is running"
+                    )
+                replace_invalid_destination = True
+            else:
+                if metadata.version == release.version:
+                    self.state_store.activate(release.version)
+                    return
+        displaced = self.paths.staging_dir / (
+            f"{release.version}-invalid-{uuid.uuid4().hex}"
+        )
+        installed = False
+        activated = False
         try:
             stage.mkdir(parents=True)
             self._safe_extract(archive, stage)
             self._validate_module(stage, release.version)
             self.paths.versions_dir.mkdir(parents=True, exist_ok=True)
-            os.replace(stage, destination)
-            self.state_store.activate(release.version)
+            if replace_invalid_destination:
+                os.replace(destination, displaced)
+            try:
+                os.replace(stage, destination)
+                installed = True
+                self.state_store.activate(release.version)
+                activated = True
+            except BaseException:
+                # If activation itself fails, restore the previous directory
+                # rather than leaving state.json and versions/ inconsistent.
+                if installed and destination.exists():
+                    shutil.rmtree(destination, ignore_errors=True)
+                if displaced.exists() and not destination.exists():
+                    os.replace(displaced, destination)
+                raise
         except (zipfile.BadZipFile, OSError, RuntimeError, ValueError) as error:
             raise PackageError(f"Unable to install module package: {error}") from error
         finally:
             if stage.exists():
                 shutil.rmtree(stage, ignore_errors=True)
+            if displaced.exists() and activated:
+                shutil.rmtree(displaced, ignore_errors=True)
 
     def _fetch_manifest(self) -> UpdateManifest:
         url = self.settings.manifest_url
@@ -251,11 +282,18 @@ class UpdateClient:
 
     def _validate_remote_url(self, url: str) -> None:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme == "https" and parsed.netloc:
+        has_safe_authority = bool(
+            parsed.hostname and parsed.username is None and parsed.password is None
+        )
+        if parsed.scheme == "https" and has_safe_authority:
             return
-        if parsed.scheme == "http" and parsed.netloc and self.settings.allow_insecure_http:
+        if (
+            parsed.scheme == "http"
+            and has_safe_authority
+            and self.settings.allow_insecure_http
+        ):
             return
-        raise DownloadError("Update URLs must use HTTPS")
+        raise DownloadError("Update URLs must use HTTPS without embedded credentials")
 
     @staticmethod
     def _sha256(path: Path) -> str:
