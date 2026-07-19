@@ -343,12 +343,23 @@ class DlcHubApplication:
             text_color=UI["on_blue"],
             font=ctk.CTkFont(size=30, weight="bold"),
         ).pack(anchor="w")
+        title_status_row = ctk.CTkFrame(title_group, fg_color="transparent")
+        title_status_row.pack(anchor="w", pady=(3, 0))
         self.top_health = ctk.CTkLabel(
-            title_group,
+            title_status_row,
             text=f"{self.cartridge.adapter.descriptor.display_name} · 等待路径检测",
             text_color="#E8F2FA", font=ctk.CTkFont(size=14),
         )
-        self.top_health.pack(anchor="w", pady=(3, 0))
+        self.top_health.pack(side="left")
+        ctk.CTkLabel(
+            title_status_row,
+            text="开源免费 · 付费购买请立即退款",
+            text_color=UI["on_blue"],
+            fg_color="#2F6FA9",
+            corner_radius=8,
+            height=22,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(side="left", padx=(10, 0))
         profile_group = ctk.CTkFrame(topbar, fg_color="transparent")
         profile_group.pack(side="right", padx=22, pady=24)
         ctk.CTkLabel(

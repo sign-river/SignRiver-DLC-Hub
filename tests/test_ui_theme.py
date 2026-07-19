@@ -74,6 +74,14 @@ def test_game_selector_has_visible_border_and_home_uses_github() -> None:
     assert '"github.com", "space.bilibili.com"' in source
 
 
+def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'text="开源免费 · 付费购买请立即退款"' in source
+    assert 'fg_color="#2F6FA9"' in source
+    assert 'title_status_row.pack(anchor="w", pady=(3, 0))' in source
+
+
 def test_all_dropdowns_use_bordered_combo_box_factory() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
