@@ -75,7 +75,7 @@ class DownloadManager:
         spec: DownloadSpec,
         control: DownloadControl | None = None,
         on_change: Callable[[DownloadSnapshot], None] | None = None,
-        verifier: Callable[[Path], object] | None = None,
+        verifier: Callable[[Path, str], object] | None = None,
     ) -> DownloadSnapshot:
         self._validate_spec(spec)
         control = control or DownloadControl()
@@ -106,7 +106,14 @@ class DownloadManager:
                     state=DownloadState.PAUSED, attempt=attempt, error=None,
                     speed_bytes_per_second=None, eta_seconds=None,
                 ), notify)
-            snapshot = self._emit(snapshot.evolve(state=DownloadState.DOWNLOADING, attempt=attempt, error=None), notify)
+            snapshot = self._emit(snapshot.evolve(
+                state=DownloadState.DOWNLOADING,
+                attempt=attempt,
+                bytes_downloaded=0,
+                error=None,
+                speed_bytes_per_second=None,
+                eta_seconds=None,
+            ), notify)
             digest = hashlib.sha256()
             downloaded = 0
             cancelled = False
@@ -175,16 +182,28 @@ class DownloadManager:
                 if spec.expected_sha256 and actual_hash.casefold() != spec.expected_sha256.casefold():
                     raise ValueError("SHA-256 mismatch")
                 if verifier is not None:
-                    verifier(part)
+                    verifier(part, actual_hash)
                 target_dir = packages / actual_hash
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target = target_dir / spec.filename
                 os.replace(part, target)
                 return self._emit(snapshot.evolve(state=DownloadState.READY, result_path=target), notify)
             except ValueError as error:
-                isolated = quarantine / f"{spec.task_id}-{int(time.time())}.bad"
+                # Keep only the newest rejected attempt for a task.  Retrying
+                # a multi-gigabyte package must not multiply cache usage.
+                isolated = quarantine / f"{spec.task_id}-latest.bad"
                 if part.exists():
                     os.replace(part, isolated)
+                if attempt < self.policy.attempts:
+                    snapshot = self._emit(snapshot.evolve(
+                        state=DownloadState.RETRYING,
+                        bytes_downloaded=0,
+                        error=f"包校验失败，准备重新下载：{error}",
+                        speed_bytes_per_second=None,
+                        eta_seconds=None,
+                    ), notify)
+                    self._sleep(self.policy.retry_delay * attempt)
+                    continue
                 return self._emit(snapshot.evolve(state=DownloadState.CORRUPT, bytes_downloaded=downloaded, error=str(error)), notify)
             except (OSError, TimeoutError) as error:
                 part.unlink(missing_ok=True)

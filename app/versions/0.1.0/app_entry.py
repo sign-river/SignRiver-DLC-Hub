@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from queue import Empty, SimpleQueue
@@ -31,6 +32,10 @@ from .signriver_app.domain import (
 from .signriver_app.infrastructure.cache import CacheMaintenance
 from .signriver_app.infrastructure.downloads import DownloadManager
 from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
+from .signriver_app.infrastructure.installs import (
+    InstallAccessError,
+    InstallConflictError,
+)
 from .signriver_app.infrastructure.patching import PatchEngine, PatchError
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.persistence import (
@@ -152,17 +157,44 @@ class DlcHubApplication:
         self.catalog_selection_widgets = {}
         self.catalog_entry_frames = {}
         self.catalog_name_labels = {}
+        self.dlc_selection_vars = {}
         self.catalog_view_mode = "simple"
+        # Each catalog mode owns a persistent scroll frame and widget registry.
+        # Switching views can therefore reveal an already-built tree instead of
+        # destroying and recreating hundreds of CustomTkinter canvases.
+        self.catalog_view_frames = {}
+        self.catalog_view_widgets = {
+            "simple": {
+                "catalog_rows": self.catalog_rows,
+                "simple_status_labels": self.simple_status_labels,
+                "selection_widgets": self.catalog_selection_widgets,
+                "entry_frames": self.catalog_entry_frames,
+                "name_labels": self.catalog_name_labels,
+                "selection_vars": self.dlc_selection_vars,
+                "render_key": None,
+            },
+            "advanced": {
+                "catalog_rows": {},
+                "simple_status_labels": {},
+                "selection_widgets": {},
+                "entry_frames": {},
+                "name_labels": {},
+                "selection_vars": {},
+                "render_key": None,
+            },
+        }
+        self.catalog_render_generation = 0
+        self.catalog_render_after_id = None
         self.simple_catalog_columns = 5
         self.selected_dlc_ids = set()
         self.catalog_selection_initialized = False
-        self.dlc_selection_vars = {}
         self.batch_download_state = "idle"
         self.batch_download_task_ids = ()
         self.batch_pause_poll_pending = False
         self.batch_cancel_poll_pending = False
         self.auto_install_worker_running = False
         self.auto_install_attempted = set()
+        self.auto_install_redownload_attempted = set()
         self.speed_test_running = False
         self.download_repository = None
         self.download_queue = None
@@ -172,6 +204,14 @@ class DlcHubApplication:
         self.task_status_labels = {}
         self.task_row_states = {}
         self.task_rows = {}
+        self.task_action_frames = {}
+        self.task_action_keys = {}
+        self.task_scroll_after_id = None
+        self.task_scroll_target = None
+        self.catalog_search_after_id = None
+        self.cache_usage_bytes: int | None = None
+        self.cache_usage_scan_running = False
+        self.cache_usage_last_scan = 0.0
         self.compact_layout = None
         self.supported_games = {
             item.selection_name: {
@@ -462,7 +502,7 @@ class DlcHubApplication:
             catalog_tools, placeholder_text="搜索 DLC 编号或名称", width=240
         )
         self.catalog_search.grid(row=0, column=0, sticky="ew")
-        self.catalog_search.bind("<KeyRelease>", lambda _event: self._render_catalog_rows())
+        self.catalog_search.bind("<KeyRelease>", self._schedule_catalog_search)
         self.catalog_filter = _combo_box(
             catalog_tools,
             values=["全部状态", "未下载", "进行中", "已暂停", "已完成", "失败"],
@@ -548,12 +588,17 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=18, weight="bold"),
         )
         self.download_selected_button.pack(padx=4, pady=4)
-        self.dlc_list_frame = ctk.CTkScrollableFrame(
-            catalog_card, height=250, fg_color=UI["panel"], corner_radius=10,
-            border_width=1, border_color=UI["border"],
-            scrollbar_button_color=UI["input_border"],
-            scrollbar_button_hover_color=UI["muted"],
-        )
+        def create_catalog_list_frame():
+            return ctk.CTkScrollableFrame(
+                catalog_card, height=250, fg_color=UI["panel"], corner_radius=10,
+                border_width=1, border_color=UI["border"],
+                scrollbar_button_color=UI["input_border"],
+                scrollbar_button_hover_color=UI["muted"],
+            )
+
+        self.dlc_list_frame = create_catalog_list_frame()
+        self.catalog_view_frames["simple"] = self.dlc_list_frame
+        self.catalog_view_frames["advanced"] = create_catalog_list_frame()
         self.dlc_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 16))
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
@@ -599,7 +644,10 @@ class DlcHubApplication:
         ).pack(side="right", padx=(0, 8))
         ctk.CTkLabel(
             cache_card,
-            text="已完成的资源会保留以便以后重复安装；清理时只删除无引用、隔离或残留文件。",
+            text=(
+                "packages 保存已校验资源（哈希目录名用于防止串包）；downloads 保存下载半包；"
+                "quarantine 隔离坏包。请使用“分析并清理”，无需手动进入这些目录。"
+            ),
             text_color=UI["text_secondary"], anchor="w",
         ).pack(fill="x", padx=24)
         self.cache_status = ctk.CTkLabel(
@@ -858,6 +906,13 @@ class DlcHubApplication:
         self.game_path_button.configure(state=state)
 
     def _select_game(self, display_name: str) -> None:
+        if (
+            display_name != self.selected_game_name
+            and self._content_work_is_active()
+        ):
+            self.game_selector.set(self.selected_game_name)
+            self._notify("请先取消或结束当前下载/安装任务，再切换游戏", error=True)
+            return
         try:
             game = self.supported_games[display_name]
             cartridge = self.cartridges[display_name]
@@ -894,6 +949,28 @@ class DlcHubApplication:
         self.top_health.configure(text=f"{display_name} · 正在刷新")
         self._scan_games()
         self._refresh_catalog()
+
+    def _content_work_is_active(self) -> bool:
+        if (
+            self.auto_install_worker_running
+            or self.batch_download_state != "idle"
+            or self.patch_workflow_state != "idle"
+        ):
+            return True
+        if self.download_queue is None:
+            return False
+        active_states = {
+            DownloadState.QUEUED,
+            DownloadState.DOWNLOADING,
+            DownloadState.PAUSING,
+            DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        return any(
+            snapshot.state in active_states
+            and self.download_queue.is_active(snapshot.spec.task_id)
+            for snapshot in self.download_queue.snapshots()
+        )
 
     def _dlc_task_id(self, dlc_id: str) -> str:
         return f"{self.cartridge.adapter.descriptor.game_id}-{dlc_id}"
@@ -950,13 +1027,27 @@ class DlcHubApplication:
 
     def _refresh_task_page(self) -> None:
         self.task_refresh_pending = False
+        snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
+        snapshot_ids = tuple(snapshot.spec.task_id for snapshot in snapshots)
+        active_task_id = self._active_download_task_id(snapshots)
+        if snapshot_ids and snapshot_ids == tuple(self.task_rows):
+            try:
+                rows_alive = all(row.winfo_exists() for row in self.task_rows.values())
+            except TclError:
+                rows_alive = False
+            if rows_alive:
+                for snapshot in snapshots:
+                    self._update_task_row_snapshot(snapshot)
+                self._schedule_task_scroll(active_task_id)
+                return
+
         self.task_status_labels.clear()
         self.task_row_states.clear()
         self.task_rows.clear()
+        self.task_action_frames.clear()
+        self.task_action_keys.clear()
         for child in self.task_list_frame.winfo_children():
             child.destroy()
-        snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
-        active_task_id = self._active_download_task_id(snapshots)
         if not snapshots:
             ctk.CTkLabel(
                 self.task_list_frame, text="暂无下载任务"
@@ -970,33 +1061,8 @@ class DlcHubApplication:
             )
             row.pack(fill="x", pady=3)
             row.pack_propagate(False)
-            active = snapshot.state in {
-                DownloadState.QUEUED, DownloadState.DOWNLOADING,
-                DownloadState.PAUSING, DownloadState.RETRYING,
-                DownloadState.VERIFYING,
-            }
-            is_batch_task = snapshot.spec.task_id in self.batch_download_task_ids
-            if active or snapshot.state in {DownloadState.PAUSED, DownloadState.FAILED}:
-                actions = ctk.CTkFrame(row, fg_color="transparent", height=34)
-                actions.pack(side="right", padx=(8, 12), pady=16)
-                if snapshot.state is DownloadState.FAILED or (
-                    snapshot.state is DownloadState.PAUSED and not is_batch_task
-                ):
-                    ctk.CTkButton(
-                        actions,
-                        text="重试" if snapshot.state is DownloadState.FAILED else "重新下载",
-                        width=72,
-                        command=lambda task_id=snapshot.spec.task_id: self._task_action(
-                            task_id, "resume"
-                        ),
-                    ).pack(side="left")
-                if active or snapshot.state is DownloadState.PAUSED:
-                    ctk.CTkButton(
-                        actions, text="取消", width=64,
-                        command=lambda task_id=snapshot.spec.task_id: self._task_action(
-                            task_id, "cancel"
-                        ),
-                    ).pack(side="left", padx=(6, 0))
+            self.task_rows[snapshot.spec.task_id] = row
+            self._render_task_row_actions(snapshot)
             info = ctk.CTkFrame(row, fg_color="transparent")
             info.pack(side="left", fill="both", expand=True, padx=(14, 4), pady=7)
             ctk.CTkLabel(
@@ -1010,11 +1076,68 @@ class DlcHubApplication:
             status_label.pack(fill="x")
             self.task_status_labels[snapshot.spec.task_id] = status_label
             self.task_row_states[snapshot.spec.task_id] = snapshot.state
-            self.task_rows[snapshot.spec.task_id] = row
             self._apply_visual_theme_to_children(
                 row, set(self.navigation_buttons.values())
             )
         self._schedule_task_scroll(active_task_id)
+
+    def _render_task_row_actions(self, snapshot) -> None:
+        task_id = snapshot.spec.task_id
+        row = self.task_rows.get(task_id)
+        if row is None:
+            return
+        is_batch_task = task_id in self.batch_download_task_ids
+        action_key = (snapshot.state, is_batch_task)
+        if self.task_action_keys.get(task_id) == action_key:
+            return
+        previous = self.task_action_frames.pop(task_id, None)
+        if previous is not None:
+            previous.destroy()
+        self.task_action_keys[task_id] = action_key
+        active = snapshot.state in {
+            DownloadState.QUEUED,
+            DownloadState.DOWNLOADING,
+            DownloadState.PAUSING,
+            DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        if not active and snapshot.state not in {
+            DownloadState.PAUSED, DownloadState.FAILED,
+        }:
+            return
+        actions = ctk.CTkFrame(row, fg_color="transparent", height=34)
+        actions.pack(side="right", padx=(8, 12), pady=16)
+        if snapshot.state is DownloadState.FAILED or (
+            snapshot.state is DownloadState.PAUSED and not is_batch_task
+        ):
+            ctk.CTkButton(
+                actions,
+                text="重试" if snapshot.state is DownloadState.FAILED else "重新下载",
+                width=72,
+                command=lambda task_id=task_id: self._task_action(task_id, "resume"),
+            ).pack(side="left")
+        if active or snapshot.state is DownloadState.PAUSED:
+            ctk.CTkButton(
+                actions,
+                text="取消",
+                width=64,
+                command=lambda task_id=task_id: self._task_action(task_id, "cancel"),
+            ).pack(side="left", padx=(6, 0))
+        self.task_action_frames[task_id] = actions
+        self._apply_visual_theme_to_children(
+            actions, set(self.navigation_buttons.values())
+        )
+
+    def _update_task_row_snapshot(self, snapshot) -> bool:
+        """Update one stable task row without rebuilding the scroll list."""
+        task_id = snapshot.spec.task_id
+        label = self.task_status_labels.get(task_id)
+        if label is None:
+            return False
+        label.configure(text=self._task_status_text(snapshot))
+        self._render_task_row_actions(snapshot)
+        self.task_row_states[task_id] = snapshot.state
+        return True
 
     @staticmethod
     def _active_download_task_id(snapshots) -> str | None:
@@ -1053,17 +1176,20 @@ class DlcHubApplication:
             return
 
     def _schedule_task_scroll(self, task_id: str | None) -> None:
-        """Wait for rebuilt task rows to settle before positioning the viewport."""
-        def after_layout() -> None:
-            try:
-                self.window.after(20, lambda: self._reset_task_scroll(task_id))
-            except TclError:
-                return
-
+        """Coalesce scroll requests and position after geometry propagation."""
+        self.task_scroll_target = task_id
         try:
-            self.window.after_idle(after_layout)
+            if self.task_scroll_after_id is not None:
+                self.window.after_cancel(self.task_scroll_after_id)
+            self.task_scroll_after_id = self.window.after(
+                40, self._apply_scheduled_task_scroll
+            )
         except TclError:
             return
+
+    def _apply_scheduled_task_scroll(self) -> None:
+        self.task_scroll_after_id = None
+        self._reset_task_scroll(self.task_scroll_target)
 
     @staticmethod
     def _task_status_text(snapshot) -> str:
@@ -1094,28 +1220,26 @@ class DlcHubApplication:
         return f"{state} · {snapshot.bytes_downloaded / 1024:.1f} KiB{speed}{error}"
 
     def _update_task_page_snapshot(self, snapshot) -> None:
-        """Update progress in place and rebuild only when row controls change."""
+        """Update progress and controls in place; rebuild only for new tasks."""
         if getattr(self, "current_page", None) != "下载任务":
             return
         task_id = snapshot.spec.task_id
-        label = self.task_status_labels.get(task_id)
         previous_state = self.task_row_states.get(task_id)
-        control_states = {
-            DownloadState.PAUSED,
+        if not self._update_task_row_snapshot(snapshot):
+            self._schedule_task_refresh()
+            return
+        if snapshot.state != previous_state and snapshot.state in {
+            DownloadState.DOWNLOADING,
             DownloadState.READY,
             DownloadState.CANCELLED,
             DownloadState.FAILED,
             DownloadState.CORRUPT,
-        }
-        if (
-            label is None
-            or snapshot.state != previous_state
-            and (snapshot.state in control_states or previous_state in control_states)
-        ):
-            self._schedule_task_refresh()
-            return
-        label.configure(text=self._task_status_text(snapshot))
-        self.task_row_states[task_id] = snapshot.state
+        }:
+            snapshots = (
+                self.download_queue.snapshots()
+                if self.download_queue is not None else ()
+            )
+            self._schedule_task_scroll(self._active_download_task_id(snapshots))
 
     def _schedule_task_refresh(self) -> None:
         if self.task_refresh_pending:
@@ -1200,6 +1324,7 @@ class DlcHubApplication:
                 protected_paths=protected, active_task_ids=active_ids
             )
             if not plan.paths:
+                self.cache_usage_bytes = usage
                 self.cache_status.configure(
                     text=f"缓存 {usage / 1048576:.1f} MiB，无可安全清理内容"
                 )
@@ -1216,6 +1341,8 @@ class DlcHubApplication:
             self.cache_status.configure(
                 text=f"已清理 {plan.file_count} 个文件，释放 {plan.bytes_to_remove / 1048576:.1f} MiB"
             )
+            self.cache_usage_bytes = max(0, usage - plan.bytes_to_remove)
+            self._schedule_cache_usage_scan(force=True)
         except Exception as error:
             self.context.logger.exception("Cache cleanup failed")
             messagebox.showerror("缓存清理失败", str(error), parent=self.window)
@@ -1336,11 +1463,11 @@ class DlcHubApplication:
         }
         active = [item for item in snapshots if item.state in active_states]
         speed = sum(item.speed_bytes_per_second or 0 for item in active)
-        try:
-            usage = self.cache_maintenance.usage_bytes()
-            cache_text = f"{usage / 1048576:.1f} MiB"
-        except OSError:
-            cache_text = "不可用"
+        cache_text = (
+            f"{self.cache_usage_bytes / 1048576:.1f} MiB"
+            if self.cache_usage_bytes is not None
+            else "统计中"
+        )
         self.global_status.configure(text=(
             f"网络：{'已连接' if self.catalog_online else '未连接'}\n"
             f"任务：{len(active)} · {speed / 1024:.1f} KiB/s\n"
@@ -1352,7 +1479,44 @@ class DlcHubApplication:
                 current_cache_status
             ).startswith("当前缓存："):
                 self.cache_status.configure(text=f"当前缓存：{cache_text}")
+        self._schedule_cache_usage_scan()
         self.window.after(2000, self._update_global_status)
+
+    def _schedule_cache_usage_scan(self, *, force: bool = False) -> None:
+        """Refresh cache usage off the Tk thread and never overlap scans."""
+        if self.cache_usage_scan_running:
+            return
+        now = time.monotonic()
+        if not force and now - self.cache_usage_last_scan < 30:
+            return
+        self.cache_usage_scan_running = True
+
+        def worker() -> None:
+            try:
+                usage = self.cache_maintenance.usage_bytes()
+            except Exception:
+                self.context.logger.exception("Unable to calculate cache usage")
+                usage = None
+            self._post_ui(lambda usage=usage: self._finish_cache_usage_scan(usage))
+
+        threading.Thread(
+            target=worker, daemon=True, name="cache-usage-scan"
+        ).start()
+
+    def _finish_cache_usage_scan(self, usage: int | None) -> None:
+        self.cache_usage_scan_running = False
+        self.cache_usage_last_scan = time.monotonic()
+        if usage is not None:
+            self.cache_usage_bytes = usage
+            if hasattr(self, "cache_status"):
+                current = str(self.cache_status.cget("text"))
+                if (
+                    current == "缓存用量将在后台统计"
+                    or current.startswith("当前缓存：")
+                ):
+                    self.cache_status.configure(
+                        text=f"当前缓存：{usage / 1048576:.1f} MiB"
+                    )
 
     def _open_path(self, path: Path) -> None:
         try:
@@ -1520,7 +1684,6 @@ class DlcHubApplication:
 
     def _on_cache_reconciled(self, count: int) -> None:
         self.catalog_preview.configure(text=f"已从缓存恢复 {count} 个已下载 DLC")
-        self._render_catalog_rows()
         self._schedule_ready_installs()
 
     def _show_catalog_error(
@@ -1537,7 +1700,118 @@ class DlcHubApplication:
         self.catalog_preview.configure(text=message)
         self._notify("DLC 目录刷新失败", error=True)
 
+    def _schedule_catalog_search(self, _event=None) -> None:
+        """Debounce expensive catalog filtering while the user is typing."""
+        if self.catalog_search_after_id is not None:
+            try:
+                self.window.after_cancel(self.catalog_search_after_id)
+            except TclError:
+                return
+        self.catalog_search_after_id = self.window.after(
+            180, self._apply_catalog_search
+        )
+
+    def _apply_catalog_search(self) -> None:
+        self.catalog_search_after_id = None
+        self._render_catalog_rows()
+
+    def _activate_catalog_view_storage(self, mode: str) -> None:
+        """Point the legacy row aliases at one persistent catalog view."""
+        state = self.catalog_view_widgets[mode]
+        self.dlc_list_frame = self.catalog_view_frames[mode]
+        self.catalog_rows = state["catalog_rows"]
+        self.simple_status_labels = state["simple_status_labels"]
+        self.catalog_selection_widgets = state["selection_widgets"]
+        self.catalog_entry_frames = state["entry_frames"]
+        self.catalog_name_labels = state["name_labels"]
+        self.dlc_selection_vars = state["selection_vars"]
+
+    def _catalog_render_key(self, visible_entries, snapshots) -> tuple:
+        """Describe changes that require rebuilding the current widget tree."""
+        entries = []
+        for entry in visible_entries:
+            snapshot = snapshots.get(self._dlc_task_id(entry.dlc_id))
+            entries.append((
+                entry.dlc_id,
+                entry.display_name,
+                entry.asset.asset_id,
+                entry.asset.display_size,
+                tuple(part.asset_id for part in entry.parts),
+                self._is_entry_installed(entry),
+                snapshot.state.value if snapshot is not None else None,
+            ))
+        return (
+            self.cartridge.cartridge_id,
+            (
+                str(self.current_installation.root)
+                if self.current_installation is not None
+                else None
+            ),
+            self.catalog_view_mode,
+            self.simple_catalog_columns if self.catalog_view_mode == "simple" else 1,
+            tuple(entries),
+        )
+
+    def _cancel_catalog_render(self) -> None:
+        """Invalidate a pending incremental render before starting another one."""
+        self.catalog_render_generation += 1
+        callback_id = self.catalog_render_after_id
+        self.catalog_render_after_id = None
+        if callback_id is None:
+            return
+        try:
+            self.window.after_cancel(callback_id)
+        except TclError:
+            return
+
+    def _sync_cached_catalog_view(self, visible_entries, snapshots) -> None:
+        """Refresh cheap progress/selection fields without rebuilding widgets."""
+        active_states = {
+            DownloadState.QUEUED, DownloadState.DOWNLOADING,
+            DownloadState.PAUSING, DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        for entry in visible_entries:
+            installed = self._is_entry_installed(entry)
+            variable = self.dlc_selection_vars.get(entry.dlc_id)
+            if variable is not None:
+                variable.set(entry.dlc_id in self.selected_dlc_ids and not installed)
+            task_id = self._dlc_task_id(entry.dlc_id)
+            snapshot = snapshots.get(task_id)
+            status = self.simple_status_labels.get(task_id)
+            if status is not None:
+                text, color = self._simple_entry_status(entry, snapshot)
+                status.configure(text=text, text_color=color)
+            elif snapshot is not None and snapshot.state in active_states:
+                # Active download progress changes without changing the render
+                # key.  Advanced rows can update those labels in place.
+                self._show_download_state(snapshot)
+
     def _render_catalog_rows(self) -> None:
+        self._cancel_catalog_render()
+        self._activate_catalog_view_storage(self.catalog_view_mode)
+        snapshots = {}
+        if self.download_queue is not None:
+            snapshots = {item.spec.task_id: item for item in self.download_queue.snapshots()}
+        visible_entries = self._visible_catalog_entries(snapshots)
+        valid_ids = {entry.dlc_id for entry in self.catalog_entries}
+        self.selected_dlc_ids.intersection_update(valid_ids)
+        render_key = self._catalog_render_key(visible_entries, snapshots)
+        state = self.catalog_view_widgets[self.catalog_view_mode]
+        if state["render_key"] == render_key:
+            self._sync_cached_catalog_view(visible_entries, snapshots)
+            self.advanced_view_button.configure(
+                state="normal",
+                text=(
+                    "返回简洁视图"
+                    if self.catalog_view_mode == "advanced"
+                    else "切换高级视图"
+                ),
+            )
+            self._update_selection_toggle_button(visible_entries)
+            self._schedule_catalog_scroll_reset()
+            return
+
         for child in self.dlc_list_frame.winfo_children():
             child.destroy()
         self.catalog_rows.clear()
@@ -1545,24 +1819,69 @@ class DlcHubApplication:
         self.catalog_selection_widgets.clear()
         self.catalog_entry_frames.clear()
         self.catalog_name_labels.clear()
-        snapshots = {}
-        if self.download_queue is not None:
-            snapshots = {item.spec.task_id: item for item in self.download_queue.snapshots()}
-        visible_entries = self._visible_catalog_entries(snapshots)
-        valid_ids = {entry.dlc_id for entry in self.catalog_entries}
-        self.selected_dlc_ids.intersection_update(valid_ids)
         self.dlc_selection_vars.clear()
-        if self.catalog_view_mode == "simple":
-            self._render_simple_catalog_rows(visible_entries, snapshots)
-        else:
-            self._render_advanced_catalog_rows(visible_entries, snapshots)
+        state["render_key"] = None
         if not visible_entries:
             ctk.CTkLabel(
                 self.dlc_list_frame, text="没有符合当前搜索和筛选条件的 DLC"
             ).grid(row=0, column=0, columnspan=3, padx=12, pady=24)
-        self._update_selection_toggle_button(visible_entries)
+            state["render_key"] = render_key
+            self.advanced_view_button.configure(
+                state="normal",
+                text=(
+                    "返回简洁视图"
+                    if self.catalog_view_mode == "advanced"
+                    else "切换高级视图"
+                ),
+            )
+            self._update_selection_toggle_button(visible_entries)
+            self._schedule_catalog_scroll_reset()
+            return
 
-        self._schedule_catalog_scroll_reset()
+        generation = self.catalog_render_generation
+        self.advanced_view_button.configure(state="disabled", text="正在准备视图…")
+        self._render_catalog_batch(
+            self.catalog_view_mode, visible_entries, snapshots,
+            render_key, generation, 0,
+        )
+
+    def _render_catalog_batch(
+        self, mode: str, visible_entries, snapshots,
+        render_key: tuple, generation: int, start: int,
+    ) -> None:
+        """Build a few rows per UI tick so CustomTkinter never blocks Tk."""
+        if generation != self.catalog_render_generation or mode != self.catalog_view_mode:
+            return
+        batch_size = 12 if mode == "simple" else 3
+        end = min(start + batch_size, len(visible_entries))
+        if mode == "simple":
+            self._render_simple_catalog_rows(
+                visible_entries, snapshots, start=start, end=end,
+            )
+        else:
+            self._render_advanced_catalog_rows(
+                visible_entries, snapshots, start=start, end=end,
+            )
+        if end >= len(visible_entries):
+            self.catalog_render_after_id = None
+            self.catalog_view_widgets[mode]["render_key"] = render_key
+            self.advanced_view_button.configure(
+                state="normal",
+                text="返回简洁视图" if mode == "advanced" else "切换高级视图",
+            )
+            self._update_selection_toggle_button(visible_entries)
+            self._schedule_catalog_scroll_reset()
+            return
+        try:
+            self.catalog_render_after_id = self.window.after(
+                1,
+                lambda: self._render_catalog_batch(
+                    mode, visible_entries, snapshots,
+                    render_key, generation, end,
+                ),
+            )
+        except TclError:
+            self.catalog_render_after_id = None
 
     @staticmethod
     def _reset_scrollable_frame(frame) -> None:
@@ -1600,10 +1919,18 @@ class DlcHubApplication:
     def _schedule_catalog_scroll_reset(self) -> None:
         self._schedule_scrollable_reset(self.dlc_list_frame)
 
+    def _show_catalog_view_frame(self, mode: str) -> None:
+        """Swap persistent canvases without rebuilding the hidden view."""
+        target = self.catalog_view_frames[mode]
+        current = self.dlc_list_frame
+        if current is not target:
+            current.pack_forget()
+            target.pack(fill="both", expand=True, padx=18, pady=(0, 16))
+        self._activate_catalog_view_storage(mode)
+
     def _toggle_catalog_view(self) -> None:
-        # Reset the old, taller view before replacing its rows.  Otherwise the
-        # compact view can inherit a scroll offset beyond its new content.
-        self._reset_catalog_scroll()
+        if self.catalog_render_after_id is not None:
+            return
         if self.catalog_view_mode == "simple":
             self.catalog_view_mode = "advanced"
             self.advanced_view_button.configure(text="返回简洁视图")
@@ -1616,17 +1943,23 @@ class DlcHubApplication:
             self.catalog_preview.configure(
                 text="简洁视图：勾选需要的内容后可一键下载"
             )
+        self._show_catalog_view_frame(self.catalog_view_mode)
         self._render_catalog_rows()
 
-    def _render_simple_catalog_rows(self, visible_entries, snapshots) -> None:
+    def _render_simple_catalog_rows(
+        self, visible_entries, snapshots, *, start: int = 0, end: int | None = None,
+    ) -> None:
         columns = self.simple_catalog_columns
-        for column in range(5):
-            active = column < columns
-            self.dlc_list_frame.grid_columnconfigure(
-                column, weight=1 if active else 0,
-                uniform="dlc" if active else "",
-            )
-        for index, entry in enumerate(visible_entries):
+        if start == 0:
+            for column in range(5):
+                active = column < columns
+                self.dlc_list_frame.grid_columnconfigure(
+                    column, weight=1 if active else 0,
+                    uniform="dlc" if active else "",
+                )
+        if end is None:
+            end = len(visible_entries)
+        for index, entry in enumerate(visible_entries[start:end], start=start):
             task_id = self._dlc_task_id(entry.dlc_id)
             installed = self._is_entry_installed(entry)
             if installed:
@@ -1677,11 +2010,16 @@ class DlcHubApplication:
                 cell, set(self.navigation_buttons.values())
             )
 
-    def _render_advanced_catalog_rows(self, visible_entries, snapshots) -> None:
-        self.dlc_list_frame.grid_columnconfigure(0, weight=1, uniform="")
-        for column in range(1, 4):
-            self.dlc_list_frame.grid_columnconfigure(column, weight=0, uniform="")
-        for index, entry in enumerate(visible_entries):
+    def _render_advanced_catalog_rows(
+        self, visible_entries, snapshots, *, start: int = 0, end: int | None = None,
+    ) -> None:
+        if start == 0:
+            self.dlc_list_frame.grid_columnconfigure(0, weight=1, uniform="")
+            for column in range(1, 4):
+                self.dlc_list_frame.grid_columnconfigure(column, weight=0, uniform="")
+        if end is None:
+            end = len(visible_entries)
+        for index, entry in enumerate(visible_entries[start:end], start=start):
             installed = self._is_entry_installed(entry)
             if installed:
                 self.selected_dlc_ids.discard(entry.dlc_id)
@@ -1874,6 +2212,11 @@ class DlcHubApplication:
         if self.patch_workflow_state in {"downloading", "applying"}:
             self.catalog_preview.configure(text="补丁流程正在执行，请稍候……")
             return
+        if self.batch_download_state == "installing":
+            self.catalog_preview.configure(
+                text="正在使用已下载缓存安装 DLC，请等待安装完成……"
+            )
+            return
         if self.batch_download_state == "cancelling":
             return
         if self.batch_download_state == "running":
@@ -1915,6 +2258,9 @@ class DlcHubApplication:
         self.unlock_failed_dlc_ids.clear()
         for entry in selected_entries:
             self.auto_install_attempted.discard(self._dlc_task_id(entry.dlc_id))
+            self.auto_install_redownload_attempted.discard(
+                self._dlc_task_id(entry.dlc_id)
+            )
         # Remember whichever DLC the user asked for; if patch download is
         # already needed the batch launches automatically after patching.
         self.pending_dlc_batch_task_ids = tuple(
@@ -1957,9 +2303,14 @@ class DlcHubApplication:
         for entry in selected_entries:
             task_id = self._dlc_task_id(entry.dlc_id)
             snapshot = snapshots.get(task_id)
-            if self._is_entry_installed(entry) or (
-                snapshot is not None and snapshot.state is DownloadState.READY
-            ):
+            cache_ready = (
+                snapshot is not None
+                and snapshot.state is DownloadState.READY
+                and snapshot.result_path is not None
+                and snapshot.result_path.is_file()
+                and snapshot.sha256 is not None
+            )
+            if self._is_entry_installed(entry) or cache_ready:
                 skipped += 1
                 continue
             if snapshot is not None and snapshot.state in active_states:
@@ -1978,6 +2329,9 @@ class DlcHubApplication:
         self.pending_dlc_batch_task_ids = ()
         if self.batch_download_task_ids:
             self._set_batch_download_state("running")
+            # READY packages from an earlier run can be installed immediately
+            # while the single download worker fetches only the missing ones.
+            self._schedule_ready_installs()
         else:
             self._set_batch_download_state("idle")
             self._schedule_ready_installs()
@@ -1997,6 +2351,7 @@ class DlcHubApplication:
         text, enabled = {
             "idle": ("一键解锁", True),
             "running": ("暂停下载", True),
+            "installing": ("正在安装…", False),
             "pausing": ("继续下载", True),
             "paused": ("继续下载", True),
             "resuming": ("正在继续…", False),
@@ -2016,11 +2371,16 @@ class DlcHubApplication:
         # button must not tear down anything; the patch flow owns those tasks.
         interactive = state not in {
             "cancelling", "patch_downloading", "patch_applying", "repairing",
-            "restoring",
+            "restoring", "installing",
         }
-        self.cancel_all_downloads_button.configure(
-            state="normal" if interactive else "disabled"
-        )
+        for cancel_button in (
+            self.cancel_all_downloads_button,
+            getattr(self, "task_cancel_all_downloads_button", None),
+        ):
+            if cancel_button is not None:
+                cancel_button.configure(
+                    state="normal" if interactive else "disabled"
+                )
         repair_button = getattr(self, "repair_button", None)
         remove_patch_button = getattr(self, "remove_patch_button", None)
         restore_original_button = getattr(self, "restore_original_button", None)
@@ -2201,7 +2561,9 @@ class DlcHubApplication:
                 text=f"批量下载已继续；{resumed} 个未完成 DLC 将从头下载"
             )
         else:
-            self._set_batch_download_state("idle")
+            self._set_batch_download_state(
+                "installing" if self.auto_install_worker_running else "idle"
+            )
             self.batch_download_task_ids = ()
 
     def _update_batch_download_state(self, snapshot) -> None:
@@ -2241,7 +2603,9 @@ class DlcHubApplication:
                 entry.dlc_id for entry in self.catalog_entries
                 if self._dlc_task_id(entry.dlc_id) in failed_task_ids
             )
-            self._set_batch_download_state("idle")
+            self._set_batch_download_state(
+                "installing" if self.auto_install_worker_running else "idle"
+            )
             self.batch_download_task_ids = ()
             self.catalog_preview.configure(
                 text=f"批量下载结束：完成 {completed} 个，失败 {failed} 个"
@@ -2251,6 +2615,7 @@ class DlcHubApplication:
     def _start_entry_download(self, entry, *, show_error: bool = True):
         spec = self._download_spec_for_entry(entry)
         self.auto_install_attempted.discard(spec.task_id)
+        self.auto_install_redownload_attempted.discard(spec.task_id)
 
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
@@ -2297,38 +2662,6 @@ class DlcHubApplication:
                 # off to the DLC batch (or abort with a proper message).
                 self._post_ui(self._maybe_advance_patch_workflow)
                 return
-            if (
-                result.state is DownloadState.READY
-                and result.result_path is not None
-                and result.sha256 is not None
-                and self.install_service is not None
-                and self.current_installation is not None
-            ):
-                entry = next((
-                    item for item in self.catalog_entries
-                    if self._dlc_task_id(item.dlc_id) == result.spec.task_id
-                ), None)
-                if entry is not None and not self._is_entry_installed(entry):
-                    self.auto_install_attempted.add(result.spec.task_id)
-                    try:
-                        self.install_service.install(
-                            result.result_path,
-                            self.current_installation.root,
-                            expected_sha256=result.sha256,
-                        )
-                        self._post_ui(
-                            lambda entry=entry: self._on_auto_install_success(entry)
-                        )
-                    except Exception as error:
-                        self.context.logger.exception(
-                            "Automatic DLC installation failed: dlc=%s",
-                            entry.dlc_id,
-                        )
-                        message = str(error)
-                        self._post_ui(
-                            lambda entry=entry, message=message:
-                            self._on_auto_install_failure(entry, message)
-                        )
             self.context.logger.info(
                 "DLC download finished: task=%s state=%s sha256=%s",
                 result.spec.task_id, result.state, result.sha256,
@@ -2395,9 +2728,11 @@ class DlcHubApplication:
             return self._patch_asset_verifier(role, spec.filename)
         expected_dlc_id = self._dlc_id_from_task(spec.task_id)
 
-        def verify(path: Path):
+        def verify(path: Path, actual_sha256: str):
             metadata = self.cartridge.inspect_package(
-                path, asset_name=spec.filename
+                path,
+                asset_name=spec.filename,
+                known_sha256=actual_sha256,
             )
             if metadata.dlc_id.casefold() != expected_dlc_id.casefold():
                 raise ValueError(
@@ -2412,7 +2747,7 @@ class DlcHubApplication:
         """Return a verifier that rejects obviously-broken patch downloads."""
         expected_filename = filename
 
-        def verify(path: Path):
+        def verify(path: Path, _actual_sha256: str):
             if path.stat().st_size == 0:
                 raise ValueError(f"patch asset {expected_filename} is empty")
             if role == "appinfo_json":
@@ -2509,44 +2844,156 @@ class DlcHubApplication:
         if not jobs:
             return
         self.auto_install_worker_running = True
+        if self.batch_download_state == "idle":
+            self._set_batch_download_state("installing")
+            self.catalog_preview.configure(
+                text=f"发现 {len(jobs)} 个已下载缓存，正在安装到游戏目录……"
+            )
         game_root = self.current_installation.root
         service = self.install_service
+        generation = self.game_selection_generation
+        cartridge_id = self.cartridge.cartridge_id
 
         def worker() -> None:
             for entry, snapshot in jobs:
                 try:
                     current = self.current_installation
-                    if current is None or current.root != game_root:
+                    if (
+                        current is None
+                        or current.root != game_root
+                        or generation != self.game_selection_generation
+                        or cartridge_id != self.cartridge.cartridge_id
+                    ):
                         break
-                    service.install(
+                    receipt = service.install(
                         snapshot.result_path,
                         game_root,
                         expected_sha256=snapshot.sha256,
                     )
                     self._post_ui(
-                        lambda entry=entry: self._on_auto_install_success(entry)
+                        lambda entry=entry, receipt=receipt:
+                        self._on_auto_install_success(
+                            entry, receipt, generation, cartridge_id
+                        )
                     )
                 except Exception as error:
-                    self.context.logger.exception(
-                        "Automatic DLC installation failed: dlc=%s", entry.dlc_id
-                    )
+                    if isinstance(error, (InstallAccessError, InstallConflictError)):
+                        # Access/locking failures are expected environmental
+                        # conditions and already carry a clear user-facing
+                        # recovery message. Keep diagnostics useful without a
+                        # frightening full traceback for these cases.
+                        self.context.logger.warning(
+                            "Automatic DLC installation blocked: dlc=%s error=%s",
+                            entry.dlc_id, error,
+                        )
+                    else:
+                        self.context.logger.exception(
+                            "Automatic DLC installation failed: dlc=%s", entry.dlc_id
+                        )
                     message = str(error)
-                    self._post_ui(
-                        lambda entry=entry, message=message:
-                        self._on_auto_install_failure(entry, message)
-                    )
-            self._post_ui(self._on_auto_install_worker_done)
+                    if self._cache_integrity_failure(error):
+                        self._post_ui(
+                            lambda entry=entry, snapshot=snapshot, message=message:
+                            self._retry_invalid_cached_package(
+                                entry, snapshot, message, generation, cartridge_id
+                            )
+                        )
+                    else:
+                        self._post_ui(
+                            lambda entry=entry, message=message:
+                            self._on_auto_install_failure(
+                                entry, message, generation, cartridge_id
+                            )
+                        )
+            self._post_ui(
+                lambda: self._on_auto_install_worker_done(
+                    generation, cartridge_id
+                )
+            )
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(
+            target=worker, daemon=True, name="dlc-installer"
+        ).start()
 
-    def _on_auto_install_success(self, entry) -> None:
-        self._refresh_installed_dlc_paths()
+    @staticmethod
+    def _cache_integrity_failure(error: Exception) -> bool:
+        message = str(error).casefold()
+        return (
+            isinstance(error, FileNotFoundError)
+            or error.__class__.__name__ in {
+                "BadZipFile", "PackageInspectionError"
+            }
+            or "package sha-256 changed before installation" in message
+            or "not a valid zip" in message
+        )
+
+    def _retry_invalid_cached_package(
+        self,
+        entry,
+        snapshot,
+        message: str,
+        generation: int,
+        cartridge_id: str,
+    ) -> None:
+        task_id = snapshot.spec.task_id
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+        ):
+            return
+        if task_id in self.auto_install_redownload_attempted:
+            self._on_auto_install_failure(
+                entry, message, generation, cartridge_id
+            )
+            return
+        try:
+            self.download_queue.invalidate_cached(task_id, reason=message)
+            self.auto_install_redownload_attempted.add(task_id)
+            self.auto_install_attempted.discard(task_id)
+            future = self.download_queue.resume(task_id)
+            future.add_done_callback(self._download_finished)
+            self.batch_download_task_ids = tuple(dict.fromkeys(
+                (*self.batch_download_task_ids, task_id)
+            ))
+            self._set_batch_download_state("running")
+            self.catalog_preview.configure(
+                text=f"{entry.display_name} 的缓存已损坏或丢失，正在自动重新下载一次"
+            )
+            self._notify(f"{entry.display_name}：缓存异常，已自动重下")
+        except Exception as retry_error:
+            self.context.logger.exception(
+                "Unable to retry invalid cached package: dlc=%s", entry.dlc_id
+            )
+            self._on_auto_install_failure(
+                entry, f"{message}；自动重下失败：{retry_error}",
+                generation, cartridge_id,
+            )
+
+    def _on_auto_install_success(
+        self, entry, receipt, generation: int, cartridge_id: str
+    ) -> None:
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+        ):
+            return
+        # The installer already returned the exact committed target. Updating
+        # this one entry avoids rescanning every DLC directory after every
+        # small package; the worker performs one full reconciliation at the end.
+        self.installed_dlc_paths[entry.dlc_id.casefold()] = receipt.target_path
         self._show_install_state(entry)
         self.catalog_preview.configure(text=f"{entry.display_name} 已自动安装到游戏目录")
         self._notify(f"{entry.display_name}：安装完成")
         self._maybe_finish_unlock_workflow()
 
-    def _on_auto_install_failure(self, entry, message: str) -> None:
+    def _on_auto_install_failure(
+        self, entry, message: str, generation: int, cartridge_id: str
+    ) -> None:
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+        ):
+            return
         if self.unlock_workflow_active and entry.dlc_id in self.unlock_requested_dlc_ids:
             self.unlock_failed_dlc_ids.add(entry.dlc_id)
         self.catalog_preview.configure(
@@ -2555,9 +3002,23 @@ class DlcHubApplication:
         self._notify(f"{entry.display_name}：自动安装失败", error=True)
         self._maybe_finish_unlock_workflow()
 
-    def _on_auto_install_worker_done(self) -> None:
+    def _on_auto_install_worker_done(
+        self, generation: int, cartridge_id: str
+    ) -> None:
         self.auto_install_worker_running = False
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+        ):
+            return
         self._schedule_ready_installs()
+        if (
+            not self.auto_install_worker_running
+            and self.batch_download_state == "installing"
+        ):
+            self._set_batch_download_state("idle")
+        if not self.auto_install_worker_running and not self._content_work_is_active():
+            self._refresh_installed_dlc_paths()
         self._maybe_finish_unlock_workflow()
 
     def _maybe_finish_unlock_workflow(self) -> None:
@@ -2567,6 +3028,7 @@ class DlcHubApplication:
             or self.repair_workflow_active
             or self.patch_workflow_state != "idle"
             or self.batch_download_state != "idle"
+            or self.auto_install_worker_running
         ):
             return
         if self.current_installation is None:
@@ -2805,9 +3267,24 @@ class DlcHubApplication:
 
     def _finish_dlc_removal(self, title: str, removed, failures) -> None:
         self._refresh_installed_dlc_paths()
+        if title == "卸载全部 DLC":
+            # A bulk uninstall is normally followed by a reinstall. Select all
+            # entries that are now absent so the primary action works without
+            # another easy-to-miss selection step.
+            self.selected_dlc_ids = {
+                entry.dlc_id for entry in self.catalog_entries
+                if not self._is_entry_installed(entry)
+            }
+            self.catalog_selection_initialized = True
         self._render_catalog_rows()
         self.catalog_preview.configure(
-            text=f"已移除 {len(removed)} 个 DLC；失败 {len(failures)} 个"
+            text=(
+                f"已移除 {len(removed)} 个 DLC；失败 {len(failures)} 个"
+                + (
+                    "；已自动全选可重新安装的 DLC"
+                    if title == "卸载全部 DLC" else ""
+                )
+            )
         )
         detail = f"成功移除 {len(removed)} 个 DLC。"
         if failures:
@@ -3343,16 +3820,17 @@ class DlcHubApplication:
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
-        # A repair may re-download every DLC and the patch, so warn loudly.
+        # Repair replaces game files but keeps verified local packages whenever
+        # possible. Missing or externally removed cache entries are downloaded.
         patch_paths = "、".join(self.patch_profile.patch_file_paths)
         if not messagebox.askyesno(
             "确认一键修复",
             "一键修复会执行以下操作：\n\n"
             "1. 移除当前游戏卡带能够确认的全部 DLC；\n"
             f"2. 删除现有补丁文件（{patch_paths}）；\n"
-            "3. 重新下载所有 DLC 和三个补丁文件；\n"
+            "3. 优先复用已校验缓存，缓存缺失时才重新下载；\n"
             "4. 应用补丁并重新安装全部 DLC。\n\n"
-            "整个过程会下载大量数据、耗时较长，请先关闭游戏并保证网络稳定。是否继续？",
+            "如果本地缓存不完整，过程仍可能下载大量数据。请先关闭游戏并保证网络稳定。是否继续？",
             parent=self.window,
         ):
             return
@@ -3415,22 +3893,14 @@ class DlcHubApplication:
                     f"{len(cleanup_errors)} 个问题，但会继续尝试重新下载……"
                 )
             )
-        # Purge cached snapshots and package files for every DLC and patch
-        # task so the download queue really does re-download everything from
-        # the release, matching the user's expectation of "重新下载一遍".
-        if self.download_queue is not None:
-            targets = tuple(
-                sorted(
-                    set(self.patch_task_roles)
-                    | {self._dlc_task_id(entry.dlc_id) for entry in self.catalog_entries}
-                )
+        # A prior successful unlock marks each task as already installed. The
+        # game files have just been removed, so allow the installer pipeline to
+        # consume the still-valid READY packages again.
+        for entry in self.catalog_entries:
+            self.auto_install_attempted.discard(self._dlc_task_id(entry.dlc_id))
+            self.auto_install_redownload_attempted.discard(
+                self._dlc_task_id(entry.dlc_id)
             )
-            try:
-                self.download_queue.forget(targets, delete_cached_packages=True)
-            except Exception:
-                self.context.logger.exception(
-                    "Unable to purge cached tasks for repair"
-                )
         # Queue every DLC as the pending batch so the patch flow will hand off
         # into a full-catalog batch after the patch is applied.
         self.pending_dlc_batch_task_ids = tuple(
@@ -3450,14 +3920,14 @@ class DlcHubApplication:
         if not selected_entries:
             self._set_batch_download_state("idle")
             self.catalog_preview.configure(
-                text="一键修复：补丁已就绪，没有需要重新下载的 DLC"
+                text="一键修复：补丁已就绪，没有需要下载或重新安装的 DLC"
             )
             return
         # Start the DLC batch; auto-install is already wired into the queue's
         # completion callback, so nothing more to do here.
         self._start_dlc_batch(selected_entries)
         self.catalog_preview.configure(
-            text=f"一键修复：补丁已应用，正在重新下载并安装 {len(selected_entries)} 个 DLC"
+            text=f"一键修复：补丁已应用，正在复用缓存或下载并安装 {len(selected_entries)} 个 DLC"
         )
 
     def _on_repair_failed(self, message: str) -> None:
@@ -3560,10 +4030,13 @@ class DlcHubApplication:
                 text="正在暂停" if snapshot.state is DownloadState.PAUSING else "下载中",
             )
             cancel.configure(state="normal")
-        if entry is not None:
+        if entry is not None and snapshot.state in terminal:
             self._show_install_state(entry)
 
     def _scan_games(self) -> None:
+        if self.current_installation is not None and self._content_work_is_active():
+            self._notify("请先取消或结束当前下载/安装任务，再重新扫描游戏", error=True)
+            return
         generation = self.game_selection_generation
         cartridge_id = self.cartridge.cartridge_id
         game_name = self.cartridge.adapter.descriptor.display_name
@@ -3630,6 +4103,9 @@ class DlcHubApplication:
 
     def _choose_game_path(self) -> None:
         if self.discovery is None:
+            return
+        if self.current_installation is not None and self._content_work_is_active():
+            self._notify("请先取消或结束当前下载/安装任务，再更改游戏目录", error=True)
             return
         selected = filedialog.askdirectory(
             title=f"选择 {self.cartridge.adapter.descriptor.display_name} 游戏根目录",

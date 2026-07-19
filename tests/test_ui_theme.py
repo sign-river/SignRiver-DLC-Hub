@@ -116,6 +116,26 @@ def test_catalog_view_toggle_resets_scroll_after_rebuilding_rows() -> None:
     assert "self._schedule_catalog_scroll_reset()" in source
 
 
+def test_catalog_views_are_persistent_and_first_build_is_incremental() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    toggle_method = source.split("def _toggle_catalog_view", 1)[1].split(
+        "def _render_simple_catalog_rows", 1
+    )[0]
+    batch_method = source.split("def _render_catalog_batch", 1)[1].split(
+        "@staticmethod", 1
+    )[0]
+
+    assert 'self.catalog_view_frames["simple"]' in source
+    assert 'self.catalog_view_frames["advanced"]' in source
+    assert "def _show_catalog_view_frame" in source
+    assert "target.pack(fill=\"both\", expand=True" in source
+    assert "self._show_catalog_view_frame(self.catalog_view_mode)" in toggle_method
+    assert "self._render_catalog_rows()" in toggle_method
+    assert "batch_size = 12 if mode == \"simple\" else 3" in batch_method
+    assert "self.window.after(" in batch_method
+    assert 'state["render_key"] = render_key' in source
+
+
 def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     task_method = source.split("def _refresh_task_page", 1)[1].split(
@@ -127,8 +147,12 @@ def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> N
 
     assert "self.window.after_idle(after_layout)" in source
     assert "self.window.after(" in source
-    # Empty and populated task lists both position the viewport after layout.
-    assert task_method.count("self._schedule_task_scroll(") == 2
+    # Task scroll requests are coalesced so consecutive small downloads cannot
+    # accumulate expensive update_idletasks callbacks.
+    assert "self.task_scroll_after_id" in source
+    assert "self.window.after_cancel(self.task_scroll_after_id)" in source
+    assert "def _apply_scheduled_task_scroll" in task_method
+    assert task_method.count("self._schedule_task_scroll(") >= 2
     assert "self._schedule_catalog_scroll_reset()" in catalog_method
 
 
@@ -244,11 +268,48 @@ def test_batch_download_has_one_pause_control_and_thread_safe_ui_events() -> Non
     assert "def _drain_ui_events" in source
 
 
+def test_cached_install_uses_a_visible_non_interactive_primary_state() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    state_method = source.split("def _set_batch_download_state", 1)[1].split(
+        "def _cancel_all_downloads", 1
+    )[0]
+    schedule_method = source.split("def _schedule_ready_installs", 1)[1].split(
+        "def _cache_integrity_failure", 1
+    )[0]
+    done_method = source.split("def _on_auto_install_worker_done", 1)[1].split(
+        "def _maybe_finish_unlock_workflow", 1
+    )[0]
+
+    assert '"installing": ("正在安装…", False)' in state_method
+    assert 'self._set_batch_download_state("installing")' in schedule_method
+    assert "发现 {len(jobs)} 个已下载缓存" in schedule_method
+    assert 'self.batch_download_state == "installing"' in done_method
+    assert 'self._set_batch_download_state("idle")' in done_method
+    assert "InstallAccessError" in source
+    assert "InstallConflictError" in source
+    assert "Automatic DLC installation blocked" in schedule_method
+
+
+def test_bulk_uninstall_selects_every_absent_catalog_entry_for_reinstall() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    finish_method = source.split("def _finish_dlc_removal", 1)[1].split(
+        "# ---- Patch workflow", 1
+    )[0]
+
+    assert 'title == "卸载全部 DLC"' in finish_method
+    assert "self.selected_dlc_ids = {" in finish_method
+    assert "if not self._is_entry_installed(entry)" in finish_method
+    assert "self.catalog_selection_initialized = True" in finish_method
+    assert "已自动全选可重新安装的 DLC" in finish_method
+
+
 def test_download_task_rows_are_compact_and_do_not_create_empty_action_frames() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'border_width=1, border_color=UI["border"], height=68' in source
-    assert 'if active or snapshot.state in {DownloadState.PAUSED, DownloadState.FAILED}:' in source
+    assert "def _render_task_row_actions" in source
+    assert "if not active and snapshot.state not in" in source
+    assert "self.task_action_keys.get(task_id) == action_key" in source
     assert 'row.pack_propagate(False)' in source
 
 
@@ -260,13 +321,18 @@ def test_download_task_progress_updates_in_place_until_row_controls_change() -> 
     update_method = source.split("def _update_task_page_snapshot", 1)[1].split(
         "def _schedule_task_refresh", 1
     )[0]
+    row_update_method = source.split("def _update_task_row_snapshot", 1)[1].split(
+        "def _active_download_task_id", 1
+    )[0]
 
     assert "self.task_status_labels" in source
     assert "self.task_row_states" in source
     assert "self._update_task_page_snapshot(snapshot)" in event_method
     assert "self._schedule_task_refresh()" not in event_method
-    assert "label.configure(text=self._task_status_text(snapshot))" in update_method
+    assert "self._update_task_row_snapshot(snapshot)" in update_method
+    assert "label.configure(text=self._task_status_text(snapshot))" in row_update_method
     assert "DownloadState.READY" in update_method
+    # A full rebuild is now only the fallback for a genuinely new/missing row.
     assert "self._schedule_task_refresh()" in update_method
 
 
@@ -392,10 +458,32 @@ def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
     assert 'command=self._one_click_repair' in source
     assert "def _one_click_repair" in source
     assert 'self._set_batch_download_state("repairing")' in source
-    assert "整个过程会下载大量数据、耗时较长" in source
+    assert "优先复用已校验缓存，缓存缺失时才重新下载" in source
     assert "patch_engine.reset(game_root)" in source
-    assert "self.download_queue.forget(targets, delete_cached_packages=True)" in source
+    repair_method = source.split("def _one_click_repair", 1)[1].split(
+        "def _continue_repair_after_patch", 1
+    )[0]
+    assert "delete_cached_packages=True" not in repair_method
+    assert "self.auto_install_attempted.discard" in repair_method
     assert "def _continue_repair_after_patch" in source
+
+
+def test_download_and_install_form_a_single_worker_pipeline_without_duplicate_install() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    finished = source.split("def _download_finished", 1)[1].split(
+        "def _queue_download_event", 1
+    )[0]
+    installer = source.split("def _schedule_ready_installs", 1)[1].split(
+        "def _on_auto_install_success", 1
+    )[0]
+
+    assert "install_service.install" not in finished
+    assert "service.install(" in installer
+    assert 'name="dlc-installer"' in installer
+    assert "self.auto_install_worker_running" in installer
+    assert "known_sha256=actual_sha256" in source
+    assert "def _retry_invalid_cached_package" in source
+    assert "self.download_queue.invalidate_cached" in source
 
 
 def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:

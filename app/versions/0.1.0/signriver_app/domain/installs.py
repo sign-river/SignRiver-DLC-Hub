@@ -10,7 +10,9 @@ from pathlib import Path
 class InstallPhase(StrEnum):
     PLANNED = "planned"
     STAGED = "staged"
+    BACKUP_COPIED = "backup_copied"
     BACKED_UP = "backed_up"
+    COMMITTING = "committing"
     COMMITTED = "committed"
     ROLLED_BACK = "rolled_back"
 

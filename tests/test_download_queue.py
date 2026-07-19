@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -38,6 +39,81 @@ def test_queue_runs_and_persists_task(tmp_path: Path) -> None:
     assert result.state is DownloadState.READY
     assert repository.list_all()[0].state is DownloadState.READY
     assert events[-1].state is DownloadState.READY
+
+
+def test_progress_snapshots_notify_every_time_but_persist_only_state_changes() -> None:
+    class RecordingRepository:
+        def __init__(self) -> None:
+            self.saved = []
+
+        def save(self, snapshot) -> None:
+            self.saved.append(snapshot)
+
+    repository = RecordingRepository()
+    events = []
+    queue = DownloadQueue(
+        object(), repository=repository, on_change=events.append
+    )
+    spec = make_spec()
+
+    queue._record(DownloadSnapshot(spec, DownloadState.QUEUED))
+    for index in range(1, 1_001):
+        queue._record(DownloadSnapshot(
+            spec,
+            DownloadState.DOWNLOADING,
+            bytes_downloaded=index,
+            total_bytes=1_000,
+        ))
+    queue._record(DownloadSnapshot(
+        spec,
+        DownloadState.VERIFYING,
+        bytes_downloaded=1_000,
+        total_bytes=1_000,
+    ))
+    ready = DownloadSnapshot(
+        spec,
+        DownloadState.READY,
+        bytes_downloaded=1_000,
+        total_bytes=1_000,
+        result_path=Path("dlc.zip"),
+        sha256="a" * 64,
+    )
+    queue._record(ready)
+    queue.shutdown()
+
+    assert len(events) == 1_003
+    assert [item.state for item in repository.saved] == [
+        DownloadState.QUEUED,
+        DownloadState.DOWNLOADING,
+        DownloadState.VERIFYING,
+        DownloadState.READY,
+    ]
+    assert repository.saved[-1] is ready
+
+
+def test_repository_save_runs_without_holding_the_queue_lock() -> None:
+    queue_holder = {}
+    lock_was_available = []
+
+    class ProbingRepository:
+        def save(self, _snapshot) -> None:
+            completed = threading.Event()
+
+            def read_queue() -> None:
+                queue_holder["queue"].snapshots()
+                completed.set()
+
+            probe = threading.Thread(target=read_queue)
+            probe.start()
+            lock_was_available.append(completed.wait(1))
+            probe.join(timeout=1)
+
+    queue = DownloadQueue(object(), repository=ProbingRepository())
+    queue_holder["queue"] = queue
+    queue._record(DownloadSnapshot(make_spec(), DownloadState.QUEUED))
+    queue.shutdown()
+
+    assert lock_was_available == [True]
 
 
 def test_restore_normalizes_interrupted_task_to_paused(tmp_path: Path) -> None:
@@ -98,7 +174,7 @@ def test_reconcile_cached_recovers_orphan_package(tmp_path: Path) -> None:
     queue = DownloadQueue(
         DownloadManager(tmp_path / "cache"),
         repository=repository,
-        verifier_for=lambda _spec: lambda path: path.stat(),
+        verifier_for=lambda _spec: lambda path, _sha256: path.stat(),
     )
 
     recovered = queue.reconcile_cached((make_spec(),))
@@ -121,7 +197,7 @@ def test_clear_all_keeps_cache_without_recreating_cleared_history(
     queue = DownloadQueue(
         DownloadManager(cache),
         repository=repository,
-        verifier_for=lambda _spec: lambda path: path.stat(),
+        verifier_for=lambda _spec: lambda path, _sha256: path.stat(),
     )
     queue._record(DownloadSnapshot(
         make_spec(), DownloadState.READY, len(DATA), len(DATA), 1,
@@ -134,7 +210,7 @@ def test_clear_all_keeps_cache_without_recreating_cleared_history(
     restarted = DownloadQueue(
         DownloadManager(cache),
         repository=repository,
-        verifier_for=lambda _spec: lambda path: path.stat(),
+        verifier_for=lambda _spec: lambda path, _sha256: path.stat(),
     )
     assert restarted.restore() == ()
     assert restarted.reconcile_cached((make_spec(),)) == ()
@@ -177,7 +253,7 @@ def test_reconcile_quarantined_recovers_file_accepted_by_current_verifier(
     queue = DownloadQueue(
         DownloadManager(cache),
         repository=repository,
-        verifier_for=lambda _spec: lambda path: path.stat(),
+        verifier_for=lambda _spec: lambda path, _sha256: path.stat(),
     )
     queue.restore()
 
@@ -292,6 +368,43 @@ def test_observer_error_does_not_abort_download(tmp_path: Path) -> None:
     assert result.state is DownloadState.READY
 
 
+def test_queued_task_keeps_verifier_captured_at_submission(tmp_path: Path) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    generation = {"value": "old-cartridge"}
+    observed = []
+
+    class BlockingManager:
+        cache_root = tmp_path
+
+        def run(self, spec, _control, callback, verifier=None):
+            callback(DownloadSnapshot(spec, DownloadState.DOWNLOADING))
+            if spec.task_id == "first":
+                started.set()
+                assert release.wait(5)
+            assert verifier is not None
+            verifier(tmp_path / spec.filename, "a" * 64)
+            result = DownloadSnapshot(spec, DownloadState.READY, sha256="a" * 64)
+            callback(result)
+            return result
+
+    def verifier_for(_spec):
+        captured = generation["value"]
+        return lambda _path, _digest: observed.append(captured)
+
+    queue = DownloadQueue(BlockingManager(), verifier_for=verifier_for)
+    first = queue.enqueue(make_spec("first"))
+    assert started.wait(5)
+    second = queue.enqueue(make_spec("second"))
+    generation["value"] = "new-cartridge"
+    release.set()
+
+    assert first.result(timeout=5).state is DownloadState.READY
+    assert second.result(timeout=5).state is DownloadState.READY
+    queue.shutdown()
+    assert observed == ["old-cartridge", "old-cartridge"]
+
+
 def test_worker_crash_is_recorded_as_failed_instead_of_stale_queued(tmp_path: Path) -> None:
     class CrashingManager:
         def run(self, *_args, **_kwargs):
@@ -379,3 +492,30 @@ def test_forget_refuses_active_tasks(tmp_path: Path) -> None:
     queue.cancel("active-forget")
     assert future.result(timeout=5).state is DownloadState.CANCELLED
     queue.shutdown()
+
+
+def test_invalidate_cached_quarantines_package_and_allows_redownload(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "cache"
+    digest = hashlib.sha256(DATA).hexdigest()
+    package = cache / "packages" / digest / "dlc.zip"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(b"externally changed")
+    queue = DownloadQueue(
+        DownloadManager(cache, opener=lambda *_args: io.BytesIO(DATA))
+    )
+    queue._record(DownloadSnapshot(
+        make_spec(), DownloadState.READY,
+        result_path=package, sha256=digest,
+    ))
+
+    isolated = queue.invalidate_cached("queue-1", reason="digest changed")
+    result = queue.resume("queue-1").result(timeout=5)
+
+    queue.shutdown()
+    assert isolated is not None and isolated.is_file()
+    assert isolated.parent == cache / "quarantine"
+    assert result.state is DownloadState.READY
+    assert result.result_path is not None
+    assert result.result_path.read_bytes() == DATA

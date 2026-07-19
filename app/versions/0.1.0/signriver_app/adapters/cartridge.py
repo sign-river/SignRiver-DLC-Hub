@@ -38,7 +38,11 @@ class GameCartridge(Protocol):
     def create_catalog(self) -> Any: ...
     def create_install_engine(self, data_root: Path) -> Any: ...
     def inspect_package(
-        self, path: Path, *, asset_name: str | None = None
+        self,
+        path: Path,
+        *,
+        asset_name: str | None = None,
+        known_sha256: str | None = None,
     ) -> Any: ...
     def discover_installed_dlc(
         self, game_root: Path, catalog_entries=()

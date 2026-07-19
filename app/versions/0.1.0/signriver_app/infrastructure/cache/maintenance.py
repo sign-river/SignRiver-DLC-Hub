@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,10 +21,55 @@ class CacheMaintenance:
         self.cache_root = Path(cache_root).resolve()
 
     def usage_bytes(self) -> int:
-        return sum(
-            path.stat().st_size for path in self.cache_root.rglob("*")
-            if path.is_file()
-        ) if self.cache_root.exists() else 0
+        """Return the size of cache content owned by the application.
+
+        The cache root may also contain development leftovers or directories
+        created by another Windows account.  Those entries are neither part of
+        the runtime cache nor a reason for the settings page to fail.  Walk only
+        the documented cache namespaces and ignore individual paths that cannot
+        be inspected.
+        """
+        total = sum(
+            self._directory_usage(self.cache_root / name)
+            for name in ("downloads", "packages", "quarantine")
+        )
+
+        # Module updates briefly live directly below cache/ before the launcher
+        # installs and removes them.  Include only that known file family; do
+        # not count arbitrary root-level files left by tests or users.
+        try:
+            root_entries = tuple(self.cache_root.iterdir())
+        except OSError:
+            root_entries = ()
+        for path in root_entries:
+            if path.name.startswith("module-") and path.name.endswith(
+                (".zip", ".zip.part")
+            ):
+                total += self._regular_file_size(path)
+        return total
+
+    @classmethod
+    def _directory_usage(cls, root: Path) -> int:
+        total = 0
+        try:
+            for directory, _subdirectories, filenames in os.walk(
+                root, followlinks=False, onerror=lambda _error: None
+            ):
+                for filename in filenames:
+                    total += cls._regular_file_size(Path(directory) / filename)
+        except OSError:
+            # A directory can disappear or become inaccessible between walk
+            # iterations.  Other cache namespaces should still be counted.
+            pass
+        return total
+
+    @staticmethod
+    def _regular_file_size(path: Path) -> int:
+        try:
+            details = path.stat(follow_symlinks=False)
+        except OSError:
+            return 0
+        return details.st_size if stat.S_ISREG(details.st_mode) else 0
 
     def plan(self, *, protected_paths=(), active_task_ids=()) -> CacheCleanupPlan:
         protected = {Path(path).resolve(strict=False) for path in protected_paths}

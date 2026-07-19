@@ -143,6 +143,18 @@ def test_inspect_stellaris_package_reads_descriptor_and_payload(tmp_path: Path) 
     assert len(result.package_sha256) == 64
 
 
+def test_inspect_stellaris_package_accepts_trusted_existing_digest(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "dlc.zip"
+    write_package(path)
+    known = "a" * 64
+
+    result = inspect_stellaris_package(path, known_sha256=known)
+
+    assert result.package_sha256 == known
+
+
 def test_inspect_stellaris_package_rejects_traversal(tmp_path: Path) -> None:
     path = tmp_path / "unsafe.zip"
     with zipfile.ZipFile(path, "w") as package:

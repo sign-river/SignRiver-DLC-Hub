@@ -39,14 +39,22 @@ def _safe_member(info: zipfile.ZipInfo) -> PurePosixPath:
     return path
 
 
-def inspect_stellaris_package(path: Path) -> StellarisPackageMetadata:
+def inspect_stellaris_package(
+    path: Path, *, known_sha256: str | None = None
+) -> StellarisPackageMetadata:
     path = Path(path)
     if not zipfile.is_zipfile(path):
         raise PackageInspectionError("package is not a valid ZIP file")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
+    if known_sha256 is None:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        package_sha256 = digest.hexdigest()
+    elif re.fullmatch(r"[0-9a-fA-F]{64}", known_sha256):
+        package_sha256 = known_sha256.casefold()
+    else:
+        raise ValueError("known SHA-256 is invalid")
 
     with zipfile.ZipFile(path) as package:
         infos = package.infolist()
@@ -109,6 +117,6 @@ def inspect_stellaris_package(path: Path) -> StellarisPackageMetadata:
         steam_id=fields.get("steam_id"),
         thumbnail_path=thumbnail,
         package_size=path.stat().st_size,
-        package_sha256=digest.hexdigest(),
+        package_sha256=package_sha256,
         payload_entries=payload_entries,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import logging
 import hashlib
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -24,7 +25,9 @@ class DownloadQueue:
         repository=None,
         max_concurrent: int = 1,
         on_change: Callable[[DownloadSnapshot], None] | None = None,
-        verifier_for: Callable[[DownloadSpec], Callable[[Path], object] | None] | None = None,
+        verifier_for: Callable[
+            [DownloadSpec], Callable[[Path, str], object] | None
+        ] | None = None,
     ) -> None:
         if max_concurrent != 1:
             raise ValueError("downloads are intentionally single-threaded")
@@ -92,33 +95,12 @@ class DownloadQueue:
                 and current.result_path.is_file()
             ):
                 continue
-            for candidate in packages.glob(f"*/{spec.filename}"):
-                if not candidate.is_file():
-                    continue
-                digest = self._file_sha256(candidate)
-                if candidate.parent.name.casefold() != digest.casefold():
-                    continue
-                if spec.expected_sha256 and digest.casefold() != spec.expected_sha256.casefold():
-                    continue
-                try:
-                    verifier = self.verifier_for(spec)
-                    if verifier is not None:
-                        verifier(candidate)
-                except Exception:
-                    LOGGER.exception("Ignoring invalid cached package: %s", candidate)
-                    continue
-                size = candidate.stat().st_size
-                snapshot = DownloadSnapshot(
-                    spec=spec,
-                    state=DownloadState.READY,
-                    bytes_downloaded=size,
-                    total_bytes=spec.expected_size or size,
-                    result_path=candidate,
-                    sha256=digest,
-                )
+            snapshot = self._cached_snapshot(
+                spec, self.verifier_for(spec)
+            )
+            if snapshot is not None:
                 self._record(snapshot)
                 recovered.append(snapshot)
-                break
         return tuple(recovered)
 
     def reconcile_quarantined(self, specs) -> tuple[DownloadSnapshot, ...]:
@@ -167,7 +149,7 @@ class DownloadQueue:
                         continue
                     verifier = self.verifier_for(spec)
                     if verifier is not None:
-                        verifier(candidate)
+                        verifier(candidate, digest)
                     target_dir = self.manager.cache_root / "packages" / digest
                     target_dir.mkdir(parents=True, exist_ok=True)
                     target = target_dir / spec.filename
@@ -199,6 +181,10 @@ class DownloadQueue:
             current = self._futures.get(spec.task_id)
             if current is not None and not current.done():
                 raise ValueError(f"download task is already active: {spec.task_id}")
+            # Capture the verifier when the task is submitted.  A queued task
+            # must keep using the cartridge that created it even if the shell
+            # changes its current selection before this worker slot opens.
+            verifier = self.verifier_for(spec)
             # An explicit download request supersedes a previous "clear task
             # history" choice, so this task may be recorded and recovered
             # normally again.
@@ -207,7 +193,7 @@ class DownloadQueue:
             self._controls[spec.task_id] = control
             queued = DownloadSnapshot(spec=spec)
             self._record(queued)
-            future = self._executor.submit(self._run, spec, control)
+            future = self._executor.submit(self._run, spec, control, verifier)
             self._futures[spec.task_id] = future
             return future
 
@@ -374,16 +360,69 @@ class DownloadQueue:
                     removed.append(task_id)
             return tuple(removed)
 
+    def invalidate_cached(self, task_id: str, *, reason: str) -> Path | None:
+        """Quarantine one READY package and make its task retryable.
+
+        This is used when the installer detects that a previously verified
+        cache file was removed or changed by external software.  It never
+        touches paths outside the content-addressed package directory.
+        """
+        with self._lock:
+            snapshot = self._require(task_id)
+            future = self._futures.get(task_id)
+            if future is not None and not future.done():
+                raise ValueError(f"cannot invalidate an active task: {task_id}")
+            if snapshot.state is not DownloadState.READY:
+                raise ValueError(f"task cache is not ready: {task_id}")
+            cached_path = snapshot.result_path
+
+        isolated = None
+        if cached_path is not None and cached_path.exists():
+            cache_root = Path(self.manager.cache_root).resolve(strict=False)
+            packages = (cache_root / "packages").resolve(strict=False)
+            resolved = cached_path.resolve(strict=True)
+            try:
+                resolved.relative_to(packages)
+            except ValueError as error:
+                raise ValueError("cached package escaped the package directory") from error
+            quarantine = cache_root / "quarantine"
+            quarantine.mkdir(parents=True, exist_ok=True)
+            isolated = quarantine / f"{task_id}-{time.time_ns()}.bad"
+            resolved.replace(isolated)
+            try:
+                parent = resolved.parent
+                if parent != packages and not any(parent.iterdir()):
+                    parent.rmdir()
+            except OSError:
+                pass
+
+        failed = snapshot.evolve(
+            state=DownloadState.FAILED,
+            bytes_downloaded=0,
+            result_path=None,
+            sha256=None,
+            error=reason,
+            speed_bytes_per_second=None,
+            eta_seconds=None,
+        )
+        self._record(failed)
+        return isolated
+
     def shutdown(self, *, wait: bool = False) -> None:
         with self._lock:
             for control in self._controls.values():
                 control.pause()
         self._executor.shutdown(wait=wait, cancel_futures=False)
 
-    def _run(self, spec: DownloadSpec, control: DownloadControl) -> DownloadSnapshot:
+    def _run(
+        self,
+        spec: DownloadSpec,
+        control: DownloadControl,
+        verifier: Callable[[Path, str], object] | None,
+    ) -> DownloadSnapshot:
         try:
             return self.manager.run(
-                spec, control, self._record, verifier=self.verifier_for(spec)
+                spec, control, self._record, verifier=verifier
             )
         except Exception as error:
             LOGGER.exception("Download worker crashed: task=%s", spec.task_id)
@@ -403,10 +442,21 @@ class DownloadQueue:
                     self._controls.pop(spec.task_id, None)
 
     def _record(self, snapshot: DownloadSnapshot) -> None:
+        repository = None
         with self._lock:
+            previous = self._snapshots.get(snapshot.spec.task_id)
             self._snapshots[snapshot.spec.task_id] = snapshot
-            if self.repository is not None:
-                self.repository.save(snapshot)
+            if self.repository is not None and (
+                previous is None or previous.state != snapshot.state
+            ):
+                repository = self.repository
+        # Progress events can arrive for every downloaded chunk.  Persisting
+        # each one both adds needless SQLite churn (partial files are not
+        # resumable) and used to keep the queue lock held during disk I/O.
+        # State transitions remain restart-safe, while in-memory observers
+        # still receive every progress snapshot below.
+        if repository is not None:
+            repository.save(snapshot)
         try:
             self.on_change(snapshot)
         except Exception:
@@ -452,6 +502,45 @@ class DownloadQueue:
         marker = self._reconcile_marker(task_id)
         if marker is not None:
             marker.unlink(missing_ok=True)
+
+    def _cached_snapshot(
+        self,
+        spec: DownloadSpec,
+        verifier: Callable[[Path, str], object] | None,
+    ) -> DownloadSnapshot | None:
+        cache_root = getattr(self.manager, "cache_root", None)
+        if cache_root is None:
+            return None
+        packages = Path(cache_root) / "packages"
+        if not packages.is_dir():
+            return None
+        for candidate in packages.glob(f"*/{spec.filename}"):
+            if not candidate.is_file():
+                continue
+            try:
+                digest = self._file_sha256(candidate)
+                if candidate.parent.name.casefold() != digest.casefold():
+                    continue
+                if (
+                    spec.expected_sha256
+                    and digest.casefold() != spec.expected_sha256.casefold()
+                ):
+                    continue
+                if verifier is not None:
+                    verifier(candidate, digest)
+                size = candidate.stat().st_size
+            except Exception:
+                LOGGER.exception("Ignoring invalid cached package: %s", candidate)
+                continue
+            return DownloadSnapshot(
+                spec=spec,
+                state=DownloadState.READY,
+                bytes_downloaded=size,
+                total_bytes=spec.expected_size or size,
+                result_path=candidate,
+                sha256=digest,
+            )
+        return None
 
     @staticmethod
     def _file_sha256(path: Path) -> str:

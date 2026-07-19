@@ -36,7 +36,10 @@ class DlcInstallService:
         expected_sha256: str,
     ) -> InstallReceipt:
         previous = self.repository.find_active(
-            self.game_id, self._package_dlc_id(package_path)
+            self.game_id,
+            self._package_dlc_id(
+                package_path, known_sha256=expected_sha256
+            ),
         )
         plan = self.engine.plan(
             package_path, game_root, expected_sha256=expected_sha256
@@ -104,7 +107,9 @@ class DlcInstallService:
                 reconciled.append(receipt.transaction_id)
         return tuple(reconciled)
 
-    def _package_dlc_id(self, package_path: Path) -> str:
+    def _package_dlc_id(
+        self, package_path: Path, *, known_sha256: str | None = None
+    ) -> str:
         # Planning performs the authoritative package validation. This lookup
         # only finds a possible predecessor for the same descriptor ID.
         if self.package_inspector is None:
@@ -112,4 +117,6 @@ class DlcInstallService:
             inspector = inspect_stellaris_package
         else:
             inspector = self.package_inspector
-        return inspector(Path(package_path)).dlc_id
+        return inspector(
+            Path(package_path), known_sha256=known_sha256
+        ).dlc_id

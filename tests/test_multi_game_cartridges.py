@@ -19,6 +19,16 @@ def make_directory_package(path: Path, root: str = "dlc001_test_pack") -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def test_directory_inspector_accepts_trusted_existing_digest(tmp_path: Path) -> None:
+    package = tmp_path / "dlc001_test_pack.zip"
+    make_directory_package(package)
+    known = "b" * 64
+
+    metadata = inspect_directory_package(package, known_sha256=known)
+
+    assert metadata.package_sha256 == known
+
+
 def test_client_registry_contains_three_independent_cartridges() -> None:
     cartridges = {item.adapter.descriptor.game_id: item for item in create_builtin_cartridges()}
 

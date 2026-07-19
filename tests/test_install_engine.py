@@ -5,12 +5,18 @@ import io
 import json
 import os
 import zipfile
+from errno import EACCES, EXDEV
 from pathlib import Path
 
 import pytest
 
 from signriver_app.domain import InstallHealth, InstallPhase
-from signriver_app.infrastructure.installs import InstallError, StellarisInstallEngine
+from signriver_app.infrastructure.installs import (
+    InstallAccessError,
+    InstallConflictError,
+    InstallError,
+    StellarisInstallEngine,
+)
 
 
 def make_game(root: Path) -> Path:
@@ -50,6 +56,21 @@ def test_install_new_dlc_commits_journal_and_receipt(tmp_path: Path) -> None:
     journal = json.loads(plan.journal_path.read_text(encoding="utf-8"))
     assert journal["phase"] == InstallPhase.COMMITTED
     assert journal["target"] == "dlc/dlc001_symbols_of_domination"
+
+
+def test_single_pass_installed_snapshot_preserves_receipt_hash_semantics(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "tree"
+    (root / "nested").mkdir(parents=True)
+    (root / "a.txt").write_bytes(b"alpha")
+    (root / "nested" / "b.bin").write_bytes(b"beta")
+
+    engine = StellarisInstallEngine(tmp_path / "data")
+    tree_sha256, owned_files = engine._installed_snapshot(root)
+
+    assert tree_sha256 == engine._tree_sha256(root)
+    assert owned_files == engine._owned_files(root)
 
 
 def test_install_uses_cartridge_owned_nested_dlc_directory(tmp_path: Path) -> None:
@@ -111,13 +132,152 @@ def test_commit_failure_restores_previous_installation(tmp_path: Path) -> None:
 
     engine = StellarisInstallEngine(tmp_path / "data", replace=fail_second)
     plan = engine.plan(package, game, expected_sha256=digest, transaction_id="txn-rollback")
-    with pytest.raises(InstallError, match="rolled back"):
+    with pytest.raises(InstallError, match="提交 DLC 目录失败"):
         engine.install(plan)
 
     assert (existing / "old.txt").read_text(encoding="utf-8") == "old"
     assert not (existing / "dlc001.dlc").exists()
     journal = json.loads(plan.journal_path.read_text(encoding="utf-8"))
     assert journal["phase"] == InstallPhase.ROLLED_BACK
+
+
+def test_commit_retries_transient_windows_access_denied(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    sleeps = []
+    commit_attempts = 0
+    plan = None
+
+    def transient_denial(source: Path, target: Path) -> None:
+        nonlocal commit_attempts
+        if plan is not None and source.parent == plan.staging_root:
+            commit_attempts += 1
+            if commit_attempts == 1:
+                raise PermissionError(EACCES, "injected transient lock", str(target))
+        os.replace(source, target)
+
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        replace=transient_denial,
+        sleep=sleeps.append,
+        replace_retry_delays=(0.2, 0.4),
+    )
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-retry"
+    )
+    receipt = engine.install(plan)
+
+    assert receipt.target_path.is_dir()
+    assert commit_attempts == 2
+    assert sleeps == [0.2]
+
+
+def test_commit_uses_verified_target_side_copy_after_move_denied(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    plan = None
+
+    def deny_data_root_move(source: Path, target: Path) -> None:
+        if plan is not None and source.parent == plan.staging_root:
+            raise PermissionError(EACCES, "injected persistent move denial", str(target))
+        os.replace(source, target)
+
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        replace=deny_data_root_move,
+        sleep=lambda _delay: None,
+        replace_retry_delays=(0.0,),
+    )
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-local-copy"
+    )
+    receipt = engine.install(plan)
+
+    assert (receipt.target_path / "dlc001.dlc").is_file()
+    assert not tuple((game / "dlc").glob(".signriver-*.tmp"))
+
+
+def test_commit_uses_target_side_copy_across_filesystems(tmp_path: Path) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    plan = None
+
+    def cross_device_move(source: Path, target: Path) -> None:
+        if plan is not None and source.parent == plan.staging_root:
+            raise OSError(EXDEV, "injected cross-device move", str(target))
+        os.replace(source, target)
+
+    engine = StellarisInstallEngine(tmp_path / "data", replace=cross_device_move)
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-cross-device"
+    )
+    receipt = engine.install(plan)
+
+    assert engine.verify(receipt, game)
+
+
+def test_existing_target_access_denial_is_classified_and_preserved(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    existing = game / "dlc" / "dlc001_symbols_of_domination"
+    existing.mkdir()
+    (existing / "old.txt").write_text("keep", encoding="utf-8")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+
+    def deny_existing_move(source: Path, target: Path) -> None:
+        if source == existing:
+            raise PermissionError(EACCES, "injected lock", str(target))
+        os.replace(source, target)
+
+    engine = StellarisInstallEngine(
+        tmp_path / "data",
+        replace=deny_existing_move,
+        sleep=lambda _delay: None,
+        replace_retry_delays=(0.0,),
+    )
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-denied"
+    )
+    with pytest.raises(InstallAccessError, match="拒绝访问或正被占用"):
+        engine.install(plan)
+
+    assert (existing / "old.txt").read_text(encoding="utf-8") == "keep"
+    assert not (existing / "dlc001.dlc").exists()
+    journal = json.loads(plan.journal_path.read_text(encoding="utf-8"))
+    assert journal["phase"] == InstallPhase.ROLLED_BACK
+
+
+def test_new_destination_race_does_not_delete_foreign_directory(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001.zip"
+    digest = make_package(package)
+    plan = None
+
+    def create_conflict(source: Path, target: Path) -> None:
+        if plan is not None and source.parent == plan.staging_root:
+            target.mkdir()
+            (target / "foreign.txt").write_text("keep", encoding="utf-8")
+            raise FileExistsError(17, "injected destination race", str(target))
+        os.replace(source, target)
+
+    engine = StellarisInstallEngine(tmp_path / "data", replace=create_conflict)
+    plan = engine.plan(
+        package, game, expected_sha256=digest, transaction_id="txn-conflict"
+    )
+    with pytest.raises(InstallConflictError, match="目标 DLC 目录"):
+        engine.install(plan)
+
+    assert (plan.target_path / "foreign.txt").read_text(encoding="utf-8") == "keep"
+    assert not (plan.target_path / "dlc001.dlc").exists()
 
 
 def test_plan_rejects_changed_hash_and_wrong_game(tmp_path: Path) -> None:

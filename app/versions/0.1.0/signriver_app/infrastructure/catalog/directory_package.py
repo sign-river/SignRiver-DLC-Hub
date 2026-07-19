@@ -26,15 +26,27 @@ class DirectoryPackageMetadata:
 
 
 def inspect_directory_package(
-    path: Path, *, asset_name: str | None = None
+    path: Path,
+    *,
+    asset_name: str | None = None,
+    known_sha256: str | None = None,
 ) -> DirectoryPackageMetadata:
     path = Path(path)
     if not zipfile.is_zipfile(path):
         raise PackageInspectionError("package is not a valid ZIP file")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
+    if known_sha256 is None:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        package_sha256 = digest.hexdigest()
+    elif re.fullmatch(r"[0-9a-fA-F]{64}", known_sha256):
+        # DownloadManager and InstallEngine already calculated this digest
+        # while streaming/validating the same file.  Reusing it avoids reading
+        # multi-gigabyte packages a second or third time merely for metadata.
+        package_sha256 = known_sha256.casefold()
+    else:
+        raise ValueError("known SHA-256 is invalid")
     roots: set[str] = set()
     names: set[str] = set()
     total_size = 0
@@ -78,7 +90,7 @@ def inspect_directory_package(
         dlc_id=match.group(1).lower(),
         display_name=match.group(2).replace("_", " ").title(),
         package_size=path.stat().st_size,
-        package_sha256=digest.hexdigest(),
+        package_sha256=package_sha256,
         payload_entries=payload_entries,
         install_directory=root,
     )

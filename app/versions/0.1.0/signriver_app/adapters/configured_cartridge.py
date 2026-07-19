@@ -89,8 +89,16 @@ class ConfiguredSteamCartridge:
             package_inspector=self.package_inspector,
         )
 
-    def inspect_package(self, path: Path, *, asset_name: str | None = None):
-        return self.package_inspector(path, asset_name=asset_name)
+    def inspect_package(
+        self,
+        path: Path,
+        *,
+        asset_name: str | None = None,
+        known_sha256: str | None = None,
+    ):
+        return self.package_inspector(
+            path, asset_name=asset_name, known_sha256=known_sha256
+        )
 
     def discover_installed_dlc(self, game_root: Path, catalog_entries=()) -> dict[str, Path]:
         installed = discover_numbered_dlc(game_root, self.dlc_relative_dir)

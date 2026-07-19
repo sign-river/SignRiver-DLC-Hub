@@ -257,12 +257,51 @@ def test_pause_wins_over_a_simultaneous_network_error(tmp_path: Path) -> None:
 
 
 def test_package_verifier_failure_is_quarantined(tmp_path: Path) -> None:
-    def reject(_path: Path) -> None:
+    def reject(_path: Path, _sha256: str) -> None:
         raise ValueError("unsafe package")
 
     result = DownloadManager(tmp_path, opener=lambda *_args: io.BytesIO(DATA)).run(spec(), verifier=reject)
     assert result.state is DownloadState.CORRUPT
     assert result.error == "unsafe package"
+
+
+def test_package_verifier_reuses_streamed_sha256(tmp_path: Path) -> None:
+    observed = []
+
+    def verify(path: Path, actual_sha256: str) -> None:
+        observed.append((path.name, actual_sha256))
+
+    result = DownloadManager(
+        tmp_path, opener=lambda *_args: io.BytesIO(DATA)
+    ).run(spec(), verifier=verify)
+
+    assert result.state is DownloadState.READY
+    assert observed == [("stellaris-dlc001.part", hashlib.sha256(DATA).hexdigest())]
+
+
+def test_transient_package_verification_failure_redownloads(tmp_path: Path) -> None:
+    inspections = 0
+    opens = 0
+
+    def opener(*_args):
+        nonlocal opens
+        opens += 1
+        return io.BytesIO(DATA)
+
+    def verify(_path: Path, _actual_sha256: str) -> None:
+        nonlocal inspections
+        inspections += 1
+        if inspections == 1:
+            raise ValueError("temporary broken package")
+
+    result = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(attempts=3, retry_delay=0),
+        opener=opener,
+    ).run(spec(), verifier=verify)
+
+    assert result.state is DownloadState.READY
+    assert opens == inspections == 2
 
 
 def test_rejects_unsafe_url_and_filename(tmp_path: Path) -> None:

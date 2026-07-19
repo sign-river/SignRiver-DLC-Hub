@@ -8,8 +8,10 @@ import os
 import re
 import shutil
 import stat
+import time
 import uuid
 import zipfile
+from errno import EACCES, EPERM, EXDEV
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
@@ -26,6 +28,14 @@ class InstallError(RuntimeError):
     pass
 
 
+class InstallAccessError(InstallError):
+    """The game destination could not be changed safely."""
+
+
+class InstallConflictError(InstallError):
+    """The destination changed while an installation was in progress."""
+
+
 class StellarisInstallEngine:
     def __init__(
         self,
@@ -36,6 +46,8 @@ class StellarisInstallEngine:
         executable_name: str = "stellaris.exe",
         game_id: str = "stellaris",
         package_inspector=inspect_stellaris_package,
+        sleep: Callable[[float], None] = time.sleep,
+        replace_retry_delays: tuple[float, ...] = (0.15, 0.4, 0.8),
     ) -> None:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
@@ -55,6 +67,8 @@ class StellarisInstallEngine:
         )
         self.game_id = game_id
         self.package_inspector = package_inspector
+        self._sleep = sleep
+        self._replace_retry_delays = tuple(replace_retry_delays)
 
     def plan(
         self,
@@ -71,7 +85,9 @@ class StellarisInstallEngine:
         actual = self._sha256(package_path)
         if actual.casefold() != expected_sha256.casefold():
             raise InstallError("package SHA-256 changed before installation")
-        metadata = self.package_inspector(package_path)
+        metadata = self.package_inspector(
+            package_path, known_sha256=actual
+        )
         dlc_root = self._dlc_root(game_root)
         if not (game_root / self._executable_relative_path).is_file() or not dlc_root.is_dir():
             raise InstallError("目标目录不是当前卡带已验证的游戏安装目录")
@@ -106,20 +122,53 @@ class StellarisInstallEngine:
         target = self._contained(plan.game_root, plan.target_path)
         staged = plan.staging_root / plan.relative_target.name
         backup = plan.backup_root / plan.relative_target.name
-        replaced_existing = target.exists()
+        replaced_existing = self._inspect_target(target)
+        backup_created = False
+        destructive_backup_started = False
+        committed = False
         self._write_journal(plan, InstallPhase.PLANNED, replaced_existing)
         try:
             self._stage(plan, staged)
             self._write_journal(plan, InstallPhase.STAGED, replaced_existing)
             if replaced_existing:
                 plan.backup_root.mkdir(parents=True, exist_ok=True)
-                self._replace(target, backup)
+                try:
+                    self._replace_with_retry(target, backup)
+                    backup_created = True
+                except OSError as error:
+                    if not self._is_cross_device(error):
+                        raise self._destination_error(
+                            error, target, "备份已有 DLC"
+                        ) from error
+                    self._copy_tree_atomic(target, backup)
+                    backup_created = True
+                    self._write_journal(
+                        plan, InstallPhase.BACKUP_COPIED, True
+                    )
+                    destructive_backup_started = True
+                    self._remove_tree(target)
                 self._write_journal(plan, InstallPhase.BACKED_UP, True)
             target.parent.mkdir(parents=True, exist_ok=True)
-            self._replace(staged, target)
+            self._write_journal(
+                plan, InstallPhase.COMMITTING, replaced_existing
+            )
+            self._commit_staged(plan, staged, target)
+            committed = True
+            installed_tree_sha256, owned_files = self._installed_snapshot(target)
             self._write_journal(plan, InstallPhase.COMMITTED, replaced_existing)
         except Exception as error:
-            self._rollback(plan, target, staged, backup, replaced_existing)
+            backup_created = backup_created or self._completed_backup_exists(
+                plan, target, backup
+            )
+            self._rollback(
+                plan,
+                target,
+                staged,
+                backup,
+                replaced_existing,
+                backup_created=backup_created,
+                remove_target=committed or destructive_backup_started,
+            )
             if isinstance(error, InstallError):
                 raise
             raise InstallError(f"installation failed and was rolled back: {error}") from error
@@ -131,8 +180,8 @@ class StellarisInstallEngine:
             package_sha256=plan.package_sha256,
             replaced_existing=replaced_existing,
             backup_path=backup if replaced_existing else None,
-            installed_tree_sha256=self._tree_sha256(target),
-            owned_files=self._owned_files(target),
+            installed_tree_sha256=installed_tree_sha256,
+            owned_files=owned_files,
         )
 
     def verify(self, receipt: InstallReceipt, allowed_game_root: Path) -> bool:
@@ -301,7 +350,32 @@ class StellarisInstallEngine:
                 staged = plan.staging_root / relative_target.name
                 backup = plan.backup_root / relative_target.name
                 replaced = bool(payload["replaced_existing"])
-                self._rollback(plan, target, staged, backup, replaced)
+                backup_created = phase in {
+                    InstallPhase.BACKUP_COPIED,
+                    InstallPhase.BACKED_UP,
+                    InstallPhase.COMMITTING,
+                } and backup.is_dir()
+                if phase is InstallPhase.STAGED and replaced:
+                    # A crash can occur after the rename but before the next
+                    # journal write.  In that narrow window the completed
+                    # backup and absent target are the authoritative evidence.
+                    backup_created = backup.is_dir() and not target.exists()
+                self._rollback(
+                    plan,
+                    target,
+                    staged,
+                    backup,
+                    replaced,
+                    backup_created=backup_created,
+                    remove_target=phase in {
+                        InstallPhase.BACKUP_COPIED,
+                        # Schema-v1 journals written by older clients moved
+                        # directly from BACKED_UP to the commit, so a target
+                        # here can be the unjournalled new tree.
+                        InstallPhase.BACKED_UP,
+                        InstallPhase.COMMITTING,
+                    },
+                )
                 recovered.append(transaction_id)
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
                 raise InstallError(f"invalid install journal {journal_path}: {error}") from error
@@ -333,18 +407,191 @@ class StellarisInstallEngine:
         if not staged.is_dir():
             raise InstallError("staging did not produce the expected DLC directory")
 
-    def _rollback(self, plan, target, staged, backup, replaced_existing) -> None:
+    def _rollback(
+        self,
+        plan,
+        target,
+        staged,
+        backup,
+        replaced_existing,
+        *,
+        backup_created: bool,
+        remove_target: bool,
+    ) -> None:
         try:
-            if target.exists():
-                shutil.rmtree(target)
-            if replaced_existing and backup.exists():
+            if remove_target and self._path_present(target):
+                self._remove_tree(target)
+            if backup_created and self._path_present(backup):
+                if self._path_present(target):
+                    raise InstallConflictError(
+                        "回滚时目标 DLC 目录被其他程序重新创建；原目录已保存在备份中，"
+                        "为避免误删未自动覆盖"
+                    )
                 target.parent.mkdir(parents=True, exist_ok=True)
-                self._replace(backup, target)
-            if staged.exists():
-                shutil.rmtree(staged)
+                try:
+                    self._replace_with_retry(backup, target)
+                except OSError as error:
+                    if not self._is_cross_device(error):
+                        raise
+                    self._copy_tree_atomic(backup, target)
+                    self._remove_tree(backup)
+            if self._path_present(staged):
+                self._remove_tree(staged)
             self._write_journal(plan, InstallPhase.ROLLED_BACK, replaced_existing)
         except Exception as rollback_error:
             raise InstallError(f"installation rollback failed: {rollback_error}") from rollback_error
+
+    def _commit_staged(self, plan: InstallPlan, staged: Path, target: Path) -> None:
+        try:
+            self._replace_with_retry(staged, target)
+            return
+        except OSError as direct_error:
+            # A rename can fail across volumes.  Windows security software can
+            # also reject a move because the source directory carries a
+            # different ACL.  Copying to a target-side temporary directory
+            # gives the final rename destination-local ACLs and keeps the
+            # visible commit atomic.
+            if not (
+                self._is_cross_device(direct_error)
+                or self._is_access_error(direct_error)
+            ):
+                raise self._destination_error(
+                    direct_error, target, "提交 DLC 目录"
+                ) from direct_error
+            if self._path_present(target):
+                raise InstallConflictError(
+                    f"安装过程中目标 DLC 目录被其他程序创建或占用：{target}；"
+                    "为避免覆盖未知文件，本次安装已停止"
+                ) from direct_error
+            try:
+                self._copy_tree_atomic(staged, target)
+            except OSError as fallback_error:
+                raise self._destination_error(
+                    fallback_error, target, "写入 DLC 目录"
+                ) from fallback_error
+            except InstallError:
+                raise
+            try:
+                self._remove_tree(staged)
+            except OSError:
+                # The target is already committed and verified next.  A stale
+                # staging directory is safe and can be removed by maintenance.
+                pass
+
+    def _copy_tree_atomic(self, source: Path, destination: Path) -> None:
+        """Copy a directory cross-volume, exposing it only at final rename."""
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.parent / f".signriver-{uuid.uuid4().hex}.tmp"
+        self._contained(destination.parent, temporary)
+        try:
+            shutil.copytree(source, temporary, copy_function=shutil.copy2)
+            if self._tree_sha256(source) != self._tree_sha256(temporary):
+                raise InstallError("复制到游戏目录的 DLC 文件校验不一致")
+            if self._path_present(destination):
+                raise InstallConflictError(
+                    f"安装过程中目标目录被其他程序创建：{destination}"
+                )
+            self._replace_with_retry(temporary, destination)
+        finally:
+            if self._path_present(temporary):
+                self._remove_tree(temporary)
+
+    def _replace_with_retry(self, source: Path, destination: Path) -> None:
+        for delay in (*self._replace_retry_delays, None):
+            try:
+                self._replace(source, destination)
+                return
+            except OSError as error:
+                if delay is None or not self._is_access_error(error):
+                    raise
+                self._sleep(delay)
+
+    def _inspect_target(self, target: Path) -> bool:
+        try:
+            info = target.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise self._destination_error(
+                error, target, "检查目标 DLC 目录"
+            ) from error
+        is_junction = getattr(target, "is_junction", lambda: False)()
+        if target.is_symlink() or is_junction:
+            raise InstallConflictError(f"目标 DLC 路径不能是链接或联接：{target}")
+        if not stat.S_ISDIR(info.st_mode):
+            raise InstallConflictError(f"目标 DLC 路径已被同名文件占用：{target}")
+        try:
+            with os.scandir(target) as entries:
+                next(entries, None)
+        except OSError as error:
+            raise self._destination_error(
+                error, target, "读取已有 DLC 目录"
+            ) from error
+        return True
+
+    @staticmethod
+    def _path_present(path: Path) -> bool:
+        try:
+            path.lstat()
+            return True
+        except FileNotFoundError:
+            return False
+
+    @staticmethod
+    def _is_access_error(error: OSError) -> bool:
+        return (
+            isinstance(error, PermissionError)
+            or error.errno in {EACCES, EPERM}
+            or getattr(error, "winerror", None) in {5, 32, 33}
+        )
+
+    @staticmethod
+    def _is_cross_device(error: OSError) -> bool:
+        return error.errno == EXDEV or getattr(error, "winerror", None) == 17
+
+    @classmethod
+    def _destination_error(
+        cls, error: OSError, target: Path, operation: str
+    ) -> InstallError:
+        if cls._is_access_error(error):
+            return InstallAccessError(
+                f"{operation}失败：游戏 DLC 目录拒绝访问或正被占用（{target}）。"
+                "请关闭游戏及相关启动器，确认杀毒软件未锁定文件，并检查目录写入权限；"
+                "必要时以管理员身份运行。本次操作已保留原文件"
+            )
+        if isinstance(error, FileExistsError) or error.errno in {17, 39}:
+            return InstallConflictError(
+                f"{operation}失败：目标 DLC 目录已存在或在安装期间发生变化（{target}）"
+            )
+        return InstallError(f"{operation}失败：{error}")
+
+    def _completed_backup_exists(
+        self, plan: InstallPlan, target: Path, backup: Path
+    ) -> bool:
+        if not self._path_present(backup):
+            return False
+        try:
+            phase = InstallPhase(
+                json.loads(plan.journal_path.read_text(encoding="utf-8"))["phase"]
+            )
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            phase = None
+        return phase in {
+            InstallPhase.BACKUP_COPIED,
+            InstallPhase.BACKED_UP,
+            InstallPhase.COMMITTING,
+        } or not self._path_present(target)
+
+    @staticmethod
+    def _remove_tree(path: Path) -> None:
+        def make_writable(function, name, error_info):
+            error = error_info[1]
+            if not isinstance(error, PermissionError):
+                raise error
+            os.chmod(name, stat.S_IWRITE)
+            function(name)
+
+        shutil.rmtree(path, onerror=make_writable)
 
     def _write_journal(self, plan, phase, replaced_existing) -> None:
         plan.journal_path.parent.mkdir(parents=True, exist_ok=True)
@@ -446,6 +693,36 @@ class StellarisInstallEngine:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(block)
         return digest.hexdigest()
+
+    @classmethod
+    def _installed_snapshot(
+        cls, root: Path
+    ) -> tuple[str, tuple[OwnedFile, ...]]:
+        """Build the tree hash and owned-file records in one disk pass."""
+        tree_digest = hashlib.sha256()
+        records = []
+        files = sorted(
+            (item for item in root.rglob("*") if item.is_file()),
+            key=lambda item: item.relative_to(root).as_posix().casefold(),
+        )
+        for path in files:
+            relative_text = path.relative_to(root).as_posix()
+            relative = relative_text.encode("utf-8")
+            tree_digest.update(len(relative).to_bytes(4, "big"))
+            tree_digest.update(relative)
+            file_digest = hashlib.sha256()
+            size = 0
+            with path.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    size += len(block)
+                    file_digest.update(block)
+                    tree_digest.update(block)
+            records.append(OwnedFile(
+                relative_path=relative_text,
+                size=size,
+                sha256=file_digest.hexdigest(),
+            ))
+        return tree_digest.hexdigest(), tuple(records)
 
     @classmethod
     def _owned_files(cls, root: Path) -> tuple[OwnedFile, ...]:
