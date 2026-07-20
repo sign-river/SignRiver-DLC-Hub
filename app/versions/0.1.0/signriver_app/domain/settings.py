@@ -15,6 +15,8 @@ class UserSettings:
     onboarding_completed: bool = False
     download_never_timeout: bool = False
     download_source: str = "gitlink"
+    announcement_mute_until_update: bool = False
+    announcement_muted_id: str = ""
 
     def __post_init__(self) -> None:
         if not 1 <= self.download_concurrency <= 8:
@@ -25,6 +27,10 @@ class UserSettings:
             raise TypeError("onboarding_completed must be boolean")
         if not isinstance(self.download_never_timeout, bool):
             raise TypeError("download_never_timeout must be boolean")
+        if not isinstance(self.announcement_mute_until_update, bool):
+            raise TypeError("announcement_mute_until_update must be boolean")
+        muted_id = str(self.announcement_muted_id or "").strip()
+        object.__setattr__(self, "announcement_muted_id", muted_id)
         source = str(self.download_source or "gitlink").strip().lower()
         if source not in _DOWNLOAD_SOURCES:
             raise ValueError("download_source must be gitlink or github")

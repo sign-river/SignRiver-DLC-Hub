@@ -662,10 +662,12 @@ class PublisherWorkspace:
         profiles = self.list_games()
         if not profiles:
             raise WorkspaceError("没有可导出的游戏卡带")
+        announcement = self.root / "announcement.json"
         return export_hub_cartridges(
             profiles,
             self.output_dir / "hub",
             default_game_id=default_game_id or profiles[0].game_id,
+            announcement_path=announcement if announcement.is_file() else None,
         )
 
     def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:

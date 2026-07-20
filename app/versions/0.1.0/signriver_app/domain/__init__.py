@@ -43,6 +43,11 @@ from .cartridges import (
     CartridgeIndex,
     CartridgeIndexEntry,
 )
+from .announcements import (
+    ANNOUNCEMENT_ASSET_NAME,
+    ANNOUNCEMENT_SCHEMA,
+    Announcement,
+)
 from .settings import UserSettings
 from .paths import game_relative_path, normalize_game_relative_directory, resolve_game_directory
 
@@ -84,6 +89,9 @@ __all__ = [
     "CartridgeDocument",
     "CartridgeIndex",
     "CartridgeIndexEntry",
+    "ANNOUNCEMENT_ASSET_NAME",
+    "ANNOUNCEMENT_SCHEMA",
+    "Announcement",
     "UserSettings",
     "InstallPlan",
     "InstallReceipt",

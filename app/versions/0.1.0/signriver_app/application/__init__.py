@@ -18,6 +18,7 @@ from .cartridge_catalog import (
     CartridgeCatalogService,
     LoadedCartridge,
 )
+from .announcement_service import AnnouncementError, AnnouncementService
 from .download_queue import DownloadQueue
 from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
 from .original_restore import (
@@ -44,6 +45,8 @@ __all__ = [
     "CartridgeCatalogError",
     "CartridgeCatalogService",
     "LoadedCartridge",
+    "AnnouncementError",
+    "AnnouncementService",
     "DownloadQueue",
     "AuditedInstallation",
     "DlcInstallService",

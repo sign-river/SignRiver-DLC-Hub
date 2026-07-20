@@ -368,6 +368,12 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert 'text="下载容错"' in source
     assert 'text="永不因连接读取超时而中断"' in source
     assert "self.resilience_card" in source
+    assert 'text="公告"' in source
+    assert 'text="下次公告更新前不再显示"' in source
+    assert "self.announcement_card" in source
+    assert "def _refresh_announcement" in source
+    assert "def _show_announcement_dialog" in source
+    assert "_show_onboarding" not in source
     assert 'text="下载源"' in source
     assert "self.source_card" in source
     assert "self.download_manager.configure_timeout" in source

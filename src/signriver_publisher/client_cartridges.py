@@ -111,6 +111,7 @@ def export_hub_cartridges(
     output_dir: Path,
     *,
     default_game_id: str | None = None,
+    announcement_path: Path | None = None,
 ) -> tuple[Path, ...]:
     """Write every client cartridge plus the hub index into ``output_dir``."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -129,6 +130,16 @@ def export_hub_cartridges(
         encoding="utf-8",
     )
     written.append(index_path)
+    if announcement_path is not None and announcement_path.is_file():
+        target = output_dir / "announcement.json"
+        payload = json.loads(announcement_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("announcement.json root must be an object")
+        target.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        written.append(target)
     return tuple(written)
 
 

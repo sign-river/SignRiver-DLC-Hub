@@ -10,10 +10,13 @@ def test_user_settings_defaults_and_round_trip(tmp_path: Path) -> None:
     repository = UserSettingsRepository(Database(tmp_path / "hub.db"))
     assert repository.load() == UserSettings()
     settings = UserSettings(
-        download_concurrency=4, bandwidth_limit_kib=2048,
+        download_concurrency=4,
+        bandwidth_limit_kib=2048,
         onboarding_completed=True,
         download_never_timeout=True,
         download_source="github",
+        announcement_mute_until_update=True,
+        announcement_muted_id="2026-07-21-startup",
     )
     repository.save(settings)
     assert repository.load() == settings
@@ -28,3 +31,5 @@ def test_user_settings_validation() -> None:
         UserSettings(download_never_timeout=1)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="download_source"):
         UserSettings(download_source="mirror")
+    with pytest.raises(TypeError, match="announcement_mute_until_update"):
+        UserSettings(announcement_mute_until_update=1)  # type: ignore[arg-type]

@@ -4,6 +4,7 @@ import os
 import threading
 import time
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from tkinter import BooleanVar, TclError, filedialog, messagebox
 
 from .signriver_app.adapters import AdapterRegistry
 from .signriver_app.application import (
+    AnnouncementService,
     CartridgeCatalogError,
     CartridgeCatalogService,
     CatalogSnapshot,
@@ -23,6 +25,7 @@ from .signriver_app.application import (
     RestoreOriginalError,
 )
 from .signriver_app.domain import (
+    Announcement,
     DownloadSpec,
     DownloadState,
     InstallHealth,
@@ -133,6 +136,13 @@ class DlcHubApplication:
             bootstrap_dir=self.context.paths.root / "config" / "cartridges",
             download_source="gitlink",
         )
+        self.announcement_service = AnnouncementService(
+            self.context.paths.data / "announcements",
+            bootstrap_path=self.context.paths.root / "config" / "announcement.json",
+            download_source="gitlink",
+        )
+        self.current_announcement: Announcement | None = None
+        self.announcement_dialog = None
         self.cartridge_loading = False
         self.cartridges: dict[str, object] = {}
         self.supported_games: dict[str, dict[str, str]] = {}
@@ -263,6 +273,10 @@ class DlcHubApplication:
                 onboarding_completed=stored_settings.onboarding_completed,
                 download_never_timeout=stored_settings.download_never_timeout,
                 download_source=stored_settings.download_source,
+                announcement_mute_until_update=(
+                    stored_settings.announcement_mute_until_update
+                ),
+                announcement_muted_id=stored_settings.announcement_muted_id,
             )
             if (
                 stored_settings.download_concurrency != 1
@@ -273,10 +287,20 @@ class DlcHubApplication:
                 self.cartridge_catalog.set_download_source(
                     self.user_settings.download_source
                 )
+                self.announcement_service.set_download_source(
+                    self.user_settings.download_source
+                )
                 loaded = self.cartridge_catalog.load_default_cartridge(
                     allow_network=False
                 )
                 self._activate_loaded_cartridge(loaded, rebuild_services=False)
+            elif (
+                self.user_settings.download_source
+                != self.announcement_service.download_source
+            ):
+                self.announcement_service.set_download_source(
+                    self.user_settings.download_source
+                )
             self.download_manager = DownloadManager(self.context.paths.cache)
             self.download_manager.configure_timeout(
                 None if self.user_settings.download_never_timeout else 30
@@ -304,7 +328,7 @@ class DlcHubApplication:
         self.window.protocol("WM_DELETE_WINDOW", self._close)
         self.window.after(50, self._drain_ui_events)
         self._show_recovered_downloads()
-        self.window.after(900, self._show_onboarding)
+        self.window.after(900, self._refresh_announcement)
         self.window.after(1200, self._update_global_status)
         self.window.after(200, self._refresh_remote_cartridge_index)
         self.window.after(350, self._scan_games)
@@ -707,6 +731,35 @@ class DlcHubApplication:
             text_color=UI["text_secondary"], anchor="w",
         ).pack(fill="x", padx=24, pady=(0, 18))
 
+        announcement_card = _card(self.page_host)
+        self.announcement_card = announcement_card
+        announcement_header = ctk.CTkFrame(
+            announcement_card, fg_color="transparent"
+        )
+        announcement_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            announcement_header, text="公告", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        self.announcement_mute_var = BooleanVar(
+            value=self.user_settings.announcement_mute_until_update
+        )
+        self.announcement_mute_switch = ctk.CTkSwitch(
+            announcement_header,
+            text="下次公告更新前不再显示",
+            variable=self.announcement_mute_var,
+            command=self._toggle_announcement_mute,
+        )
+        self.announcement_mute_switch.pack(side="right")
+        ctk.CTkLabel(
+            announcement_card,
+            text=(
+                "启动时自动读取远程公告。开启后，当前公告关闭后不再弹出；"
+                "远程更换公告 id 后会再次显示。也可在公告窗口中一键开启。"
+            ),
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24, pady=(0, 18))
+
         source_card = _card(self.page_host)
         self.source_card = source_card
         source_header = ctk.CTkFrame(source_card, fg_color="transparent")
@@ -895,8 +948,8 @@ class DlcHubApplication:
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
             "设置": (
-                self.speed_test_card, self.resilience_card, self.source_card,
-                self.cache_card, self.update_card,
+                self.speed_test_card, self.resilience_card, self.announcement_card,
+                self.source_card, self.cache_card, self.update_card,
             ),
         }
         self._apply_visual_theme(shell)
@@ -1806,12 +1859,11 @@ class DlcHubApplication:
     def _toggle_download_never_timeout(self) -> None:
         enabled = bool(self.download_never_timeout_var.get())
         previous = self.user_settings
-        updated = UserSettings(
+        updated = replace(
+            previous,
             download_concurrency=1,
             bandwidth_limit_kib=None,
-            onboarding_completed=previous.onboarding_completed,
             download_never_timeout=enabled,
-            download_source=previous.download_source,
         )
         try:
             if self.settings_repository is not None:
@@ -1829,6 +1881,38 @@ class DlcHubApplication:
         self.user_settings = updated
         self._notify("下载永不超时已开启" if enabled else "已恢复默认下载超时")
 
+    def _toggle_announcement_mute(self) -> None:
+        enabled = bool(self.announcement_mute_var.get())
+        previous = self.user_settings
+        muted_id = previous.announcement_muted_id
+        if enabled and self.current_announcement is not None:
+            muted_id = self.current_announcement.announcement_id
+        updated = replace(
+            previous,
+            download_concurrency=1,
+            bandwidth_limit_kib=None,
+            announcement_mute_until_update=enabled,
+            announcement_muted_id=muted_id if enabled else "",
+        )
+        try:
+            if self.settings_repository is not None:
+                self.settings_repository.save(updated)
+        except Exception as error:
+            self.context.logger.exception("Unable to save announcement mute setting")
+            self.announcement_mute_var.set(
+                previous.announcement_mute_until_update
+            )
+            messagebox.showerror(
+                "保存设置失败", str(error), parent=self.window
+            )
+            return
+        self.user_settings = updated
+        self._notify(
+            "已开启：下次公告更新前不再显示"
+            if enabled
+            else "已关闭：下次仍会显示公告"
+        )
+
     def _open_resource_repository(self) -> None:
         self._open_external_link(
             repository_home_url(self.user_settings.download_source)
@@ -1845,11 +1929,10 @@ class DlcHubApplication:
             self._notify("请先结束当前下载/安装任务，再切换下载源", error=True)
             return
         previous = self.user_settings
-        updated = UserSettings(
+        updated = replace(
+            previous,
             download_concurrency=1,
             bandwidth_limit_kib=None,
-            onboarding_completed=previous.onboarding_completed,
-            download_never_timeout=previous.download_never_timeout,
             download_source=selected,
         )
         try:
@@ -1864,6 +1947,7 @@ class DlcHubApplication:
             return
         self.user_settings = updated
         self.cartridge_catalog.set_download_source(selected)
+        self.announcement_service.set_download_source(selected)
         self.cartridges.clear()
         self.catalog_preview.configure(
             text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
@@ -1955,31 +2039,141 @@ class DlcHubApplication:
         self.speed_test_status.configure(text="测速失败")
         messagebox.showerror("测速失败", message, parent=self.window)
 
-    def _show_onboarding(self) -> None:
-        if self.user_settings.onboarding_completed:
+    def _refresh_announcement(self) -> None:
+        """Fetch the remote notice in the background, then show it when needed."""
+
+        def worker() -> None:
+            announcement = None
+            try:
+                announcement = self.announcement_service.refresh(allow_network=True)
+            except Exception as error:
+                self.context.logger.warning(
+                    "Remote announcement unavailable: %s", error
+                )
+                try:
+                    announcement = self.announcement_service.refresh(
+                        allow_network=False
+                    )
+                except Exception:
+                    self.context.logger.exception(
+                        "Unable to load cached or bootstrap announcement"
+                    )
+                    return
+            self._post_ui(
+                lambda announcement=announcement: self._finish_announcement_refresh(
+                    announcement
+                )
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_announcement_refresh(self, announcement: Announcement) -> None:
+        self.current_announcement = announcement
+        if not self.announcement_service.should_display(
+            announcement,
+            mute_until_update=self.user_settings.announcement_mute_until_update,
+            muted_id=self.user_settings.announcement_muted_id,
+        ):
             return
-        messagebox.showinfo(
-            "欢迎使用 SignRiver DLC Hub",
-            "使用流程：\n\n"
-            "1. 程序会按当前游戏卡带自动检测，也可以手动选择目录。\n"
-            "2. 刷新 DLC 目录并选择需要的内容下载。\n"
-            "3. 下载完成后进行完整性检查。\n"
-            "4. 资源包命名与目录结构校验通过后，自动安装到当前游戏目录。\n\n"
-            "程序会识别游戏目录中已有的 DLC，并以灰色状态显示，避免重复下载。",
-            parent=self.window,
+        self._show_announcement_dialog(announcement)
+
+    def _show_announcement_dialog(self, announcement: Announcement) -> None:
+        existing = self.announcement_dialog
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.lift()
+                    existing.focus_force()
+                    return
+            except TclError:
+                pass
+            self.announcement_dialog = None
+
+        dialog = ctk.CTkToplevel(self.window)
+        self.announcement_dialog = dialog
+        dialog.title(announcement.title or "公告")
+        dialog.geometry("560x420")
+        dialog.minsize(480, 360)
+        dialog.configure(fg_color=UI["page"])
+        dialog.transient(self.window)
+        dialog.grab_set()
+        dialog.protocol("WM_DELETE_WINDOW", lambda: self._close_announcement_dialog())
+
+        shell = ctk.CTkFrame(dialog, fg_color=UI["page"])
+        shell.pack(fill="both", expand=True, padx=18, pady=18)
+        ctk.CTkLabel(
+            shell,
+            text=announcement.title,
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 10))
+        body = ctk.CTkTextbox(
+            shell,
+            wrap="word",
+            fg_color=UI["card"],
+            border_width=1,
+            border_color=UI["border"],
+            text_color=UI["text_secondary"],
+            corner_radius=10,
         )
-        self.user_settings = UserSettings(
+        body.pack(fill="both", expand=True)
+        body.insert("1.0", announcement.body)
+        body.configure(state="disabled")
+
+        actions = ctk.CTkFrame(shell, fg_color="transparent")
+        actions.pack(fill="x", pady=(14, 0))
+        ctk.CTkButton(
+            actions,
+            text="下次公告更新前不再显示",
+            width=200,
+            command=lambda: self._mute_and_close_announcement(announcement),
+        ).pack(side="left")
+        ctk.CTkButton(
+            actions,
+            text="关闭公告",
+            width=110,
+            command=self._close_announcement_dialog,
+        ).pack(side="right")
+
+        dialog.after(50, dialog.lift)
+        dialog.after(80, dialog.focus_force)
+
+    def _mute_and_close_announcement(self, announcement: Announcement) -> None:
+        previous = self.user_settings
+        updated = replace(
+            previous,
             download_concurrency=1,
             bandwidth_limit_kib=None,
-            onboarding_completed=True,
-            download_never_timeout=self.user_settings.download_never_timeout,
-            download_source=self.user_settings.download_source,
+            announcement_mute_until_update=True,
+            announcement_muted_id=announcement.announcement_id,
         )
-        if self.settings_repository is not None:
-            try:
-                self.settings_repository.save(self.user_settings)
-            except Exception:
-                self.context.logger.exception("Unable to persist onboarding completion")
+        try:
+            if self.settings_repository is not None:
+                self.settings_repository.save(updated)
+        except Exception as error:
+            self.context.logger.exception("Unable to mute announcement")
+            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            return
+        self.user_settings = updated
+        if hasattr(self, "announcement_mute_var"):
+            self.announcement_mute_var.set(True)
+        self._close_announcement_dialog()
+        self._notify("已开启：下次公告更新前不再显示")
+
+    def _close_announcement_dialog(self) -> None:
+        dialog = self.announcement_dialog
+        self.announcement_dialog = None
+        if dialog is None:
+            return
+        try:
+            dialog.grab_release()
+        except TclError:
+            pass
+        try:
+            dialog.destroy()
+        except TclError:
+            pass
 
     def _notify(self, message: str, *, error: bool = False) -> None:
         self.notice_serial += 1

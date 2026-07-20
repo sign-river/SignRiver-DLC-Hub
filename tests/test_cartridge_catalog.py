@@ -116,10 +116,21 @@ def test_catalog_rejects_tampered_remote_cartridge(tmp_path: Path) -> None:
 def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path)
     workspace.initialize()
+    announcement = {
+        "schema_version": 1,
+        "id": "export-test",
+        "title": "导出公告",
+        "body": "正文",
+    }
+    (tmp_path / "announcement.json").write_text(
+        json.dumps(announcement, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     written = workspace.export_client_hub(default_game_id="stellaris")
     names = {path.name for path in written}
     assert INDEX_ASSET_NAME in names
     assert "cartridge_stellaris.json" in names
+    assert "announcement.json" in names
     index = CartridgeIndex.from_dict(
         json.loads((tmp_path / "output" / "hub" / INDEX_ASSET_NAME).read_text(
             encoding="utf-8"
@@ -136,6 +147,12 @@ def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
             )
         )
         assert document.executable_relative_path
+    exported = json.loads(
+        (tmp_path / "output" / "hub" / "announcement.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert exported["id"] == "export-test"
 
 
 def test_export_hub_cartridges_helper_writes_digest_index(tmp_path: Path) -> None:

@@ -2847,8 +2847,9 @@ class PublisherApplication(ctk.CTk):
                 "导出完成",
                 "已生成客户端卡带主表与各游戏卡带文档。\n\n"
                 f"目录：{hub_dir}\n\n"
-                "请将这些文件上传到 GitLink 仓库的 hub Release"
-                "（cartridges_index.json 与 cartridge_*.json）。",
+                "请将这些文件上传到资源仓库的 hub Release"
+                "（cartridges_index.json、cartridge_*.json，"
+                "以及可选的 announcement.json）。",
             )
             self._open(hub_dir)
         except (WorkspaceError, OSError, ValueError) as error:

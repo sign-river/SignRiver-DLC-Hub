@@ -17,6 +17,7 @@ SignRiver-DLC-Hub/
 │           └── app_entry.py
 ├── config/
 │   ├── update.json
+│   ├── announcement.json        # 出厂公告（可被远程 hub 覆盖）
 │   └── cartridges/              # 出厂游戏主表与默认卡带
 ├── cache/
 └── data/
@@ -26,7 +27,7 @@ SignRiver-DLC-Hub/
 
 ## 客户端主要功能
 
-游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。设置页可在 GitLink 与 GitHub 之间切换下载源，两边保持相同的 Release 标签与资源文件名。
+游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。启动公告同样来自 `hub` Release 的 `announcement.json`（本地出厂文件为 `config/announcement.json`）；设置页可开关“下次公告更新前不再显示”，也可在 GitLink 与 GitHub 之间切换下载源，两边保持相同的 Release 标签与资源文件名。
 
 DLC 库页面提供“一键解锁 / 一键修复 / 一键移除补丁 / 恢复游戏原版”等核心操作：
 
