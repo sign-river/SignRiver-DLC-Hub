@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "engine": "steam_configured_v1",
+  "game_id": "civilization_6",
+  "display_name": "Civilization VI",
+  "store_app_id": "289070",
+  "release_tag": "civilization_6",
+  "executable_relative_path": "Base/Binaries/Win64Steam/CivilizationVI.exe",
+  "dlc_relative_dir": "DLC",
+  "package_inspector": "directory",
+  "install_directory_from_slug": true,
+  "repository": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+  "patch": {
+    "unlocker_dll_name": "steam_api64.dll",
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "appinfo_asset_name": "civilization_6_appinfo.json",
+    "install_relative_dir": "Base/Binaries/Win64Steam",
+    "ini_target_name": "cream_api.ini",
+    "language": "schinese",
+    "unlock_all": true,
+    "extra_protection": false,
+    "force_offline": false
+  }
+}

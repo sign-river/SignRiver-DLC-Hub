@@ -34,6 +34,15 @@ from .patches import (
     PatchReceipt,
     PatchTemplate,
 )
+from .cartridges import (
+    CARTRIDGE_DOCUMENT_SCHEMA,
+    CARTRIDGE_INDEX_SCHEMA,
+    HUB_RELEASE_TAG,
+    INDEX_ASSET_NAME,
+    CartridgeDocument,
+    CartridgeIndex,
+    CartridgeIndexEntry,
+)
 from .settings import UserSettings
 from .paths import game_relative_path, normalize_game_relative_directory, resolve_game_directory
 
@@ -68,6 +77,13 @@ __all__ = [
     "PatchProfile",
     "PatchReceipt",
     "PatchTemplate",
+    "CARTRIDGE_DOCUMENT_SCHEMA",
+    "CARTRIDGE_INDEX_SCHEMA",
+    "HUB_RELEASE_TAG",
+    "INDEX_ASSET_NAME",
+    "CartridgeDocument",
+    "CartridgeIndex",
+    "CartridgeIndexEntry",
     "UserSettings",
     "InstallPlan",
     "InstallReceipt",

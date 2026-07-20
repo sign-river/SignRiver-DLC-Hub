@@ -43,7 +43,7 @@ def test_initializes_stellaris_workspace(tmp_path: Path) -> None:
 
     profile = workspace.initialize()
 
-    assert profile == GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990")
+    assert profile == create_builtin_cartridges()[0]
     assert (workspace.game_dir("stellaris") / "dlc").is_dir()
     assert (workspace.game_dir("stellaris") / "patches").is_dir()
 

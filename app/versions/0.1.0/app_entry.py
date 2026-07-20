@@ -12,8 +12,9 @@ import customtkinter as ctk
 from tkinter import BooleanVar, TclError, filedialog, messagebox
 
 from .signriver_app.adapters import AdapterRegistry
-from .signriver_app.adapters.builtin import create_builtin_cartridges
 from .signriver_app.application import (
+    CartridgeCatalogError,
+    CartridgeCatalogService,
     CatalogSnapshot,
     DlcInstallService,
     DownloadQueue,
@@ -121,16 +122,27 @@ class DlcHubApplication:
         self.pending_download_lock = threading.Lock()
         self.ui_event_pump_running = True
         self.discovery = None
-        cartridges = create_builtin_cartridges()
-        if not cartridges:
-            raise RuntimeError("没有可用的游戏卡带")
-        self.cartridges = {item.selection_name: item for item in cartridges}
-        self.cartridge = cartridges[0]
-        self.patch_profile = self.cartridge.patch_profile
-        self.catalog = self.cartridge.create_catalog()
-        self.patch_engine = PatchEngine(
-            self.patch_profile, self.context.paths.data,
+        self.adapter_registry = AdapterRegistry()
+        self.cartridge_catalog = CartridgeCatalogService(
+            self.context.paths.data / "cartridges",
+            bootstrap_dir=self.context.paths.root / "config" / "cartridges",
         )
+        self.cartridge_loading = False
+        self.cartridges: dict[str, object] = {}
+        self.supported_games: dict[str, dict[str, str]] = {}
+        try:
+            # Prefer packaged/cached documents so the first paint is not blocked
+            # on GitLink.  A background refresh then replaces the hub index and
+            # only downloads cartridges the user actually selects.
+            self.cartridge_catalog.refresh_index(allow_network=False)
+            loaded = self.cartridge_catalog.load_default_cartridge(allow_network=False)
+            self._activate_loaded_cartridge(loaded, rebuild_services=False)
+        except Exception:
+            self.context.logger.exception("Unable to load bootstrap game cartridges")
+            raise RuntimeError(
+                "没有可用的游戏卡带。请确认安装包包含 config/cartridges，"
+                "或检查网络后重新启动。"
+            ) from None
         self.patch_bundle: PatchBundle | None = None
         self.patch_workflow_state = "idle"
         self.patch_task_ids: tuple[str, ...] = ()
@@ -230,22 +242,12 @@ class DlcHubApplication:
         self.cache_reconcile_active_key = None
         self.cache_reconcile_pending = None
         self.compact_layout = None
-        self.supported_games = {
-            item.selection_name: {
-                "game_id": item.adapter.descriptor.game_id,
-                "platform": item.platform_name,
-                "store_app_id": item.store_app_id,
-            }
-            for item in cartridges
-        }
-        self.selected_game_name = self.cartridge.selection_name
         self.catalog_online = False
         self.notice_serial = 0
         self.current_installation = None
         self.game_selection_generation = 0
         self.installed_dlc_paths = {}
         try:
-            registry = AdapterRegistry(item.adapter for item in cartridges)
             database = Database(self.context.paths.data / "hub.db")
             self.settings_repository = UserSettingsRepository(database)
             stored_settings = self.settings_repository.load()
@@ -273,7 +275,7 @@ class DlcHubApplication:
                 game_id=self.cartridge.adapter.descriptor.game_id,
                 package_inspector=self.cartridge.inspect_package,
             )
-            self.discovery = GameDiscoveryService(registry, repository)
+            self.discovery = GameDiscoveryService(self.adapter_registry, repository)
             self.download_queue = DownloadQueue(
                 self.download_manager,
                 repository=self.download_repository,
@@ -289,6 +291,7 @@ class DlcHubApplication:
         self._show_recovered_downloads()
         self.window.after(900, self._show_onboarding)
         self.window.after(1200, self._update_global_status)
+        self.window.after(200, self._refresh_remote_cartridge_index)
         self.window.after(350, self._scan_games)
         self.window.after(500, self._refresh_catalog)
         if self.context.updates.enabled and self.context.updates.check_on_startup:
@@ -974,6 +977,105 @@ class DlcHubApplication:
         self.game_scan_button.configure(state=state)
         self.game_path_button.configure(state=state)
 
+    def _rebuild_supported_games_from_index(self) -> None:
+        records = self.cartridge_catalog.selection_records()
+        supported: dict[str, dict[str, str]] = {}
+        for item in records:
+            loaded = self.cartridge_catalog.get_loaded(item["game_id"])
+            store_app_id = (
+                loaded.document.store_app_id if loaded is not None else item["store_app_id"]
+            )
+            supported[item["selection_name"]] = {
+                "game_id": item["game_id"],
+                "platform": item["platform"],
+                "store_app_id": store_app_id,
+                "display_name": item["display_name"],
+            }
+        self.supported_games = supported
+
+    def _activate_loaded_cartridge(self, loaded, *, rebuild_services: bool) -> None:
+        cartridge = loaded.cartridge
+        self.cartridges[cartridge.selection_name] = cartridge
+        adapter_id = cartridge.adapter.descriptor.adapter_id
+        if adapter_id not in self.adapter_registry:
+            self.adapter_registry.register(cartridge.adapter)
+        self.cartridge = cartridge
+        self.patch_profile = cartridge.patch_profile
+        self.catalog = cartridge.create_catalog()
+        self.patch_engine = PatchEngine(
+            cartridge.patch_profile, self.context.paths.data,
+        )
+        self.selected_game_name = cartridge.selection_name
+        self._rebuild_supported_games_from_index()
+        self.supported_games[cartridge.selection_name] = {
+            "game_id": cartridge.adapter.descriptor.game_id,
+            "platform": cartridge.platform_name,
+            "store_app_id": cartridge.store_app_id,
+            "display_name": cartridge.adapter.descriptor.display_name,
+        }
+        if rebuild_services and self.install_repository is not None:
+            self.install_service = DlcInstallService(
+                cartridge.create_install_engine(self.context.paths.data),
+                self.install_repository,
+                game_id=cartridge.adapter.descriptor.game_id,
+                package_inspector=cartridge.inspect_package,
+            )
+
+    def _sync_game_selector_values(self) -> None:
+        values = list(self.supported_games)
+        if not values:
+            return
+        current = self.selected_game_name
+        self.game_selector.configure(values=values)
+        if current in self.supported_games:
+            self.game_selector.set(current)
+        else:
+            self.game_selector.set(values[0])
+
+    def _refresh_remote_cartridge_index(self) -> None:
+        if self.cartridge_loading:
+            return
+
+        def worker() -> None:
+            try:
+                index = self.cartridge_catalog.refresh_index(allow_network=True)
+                active_id = self.cartridge.adapter.descriptor.game_id
+                loaded = self.cartridge_catalog.load_cartridge(
+                    active_id, allow_network=True,
+                )
+                self._post_ui(
+                    lambda index=index, loaded=loaded: self._on_remote_index_ready(
+                        index, loaded
+                    )
+                )
+            except Exception as error:
+                self.context.logger.warning(
+                    "Remote cartridge index refresh failed: %s", error
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_remote_index_ready(self, index, loaded) -> None:
+        previous_name = self.selected_game_name
+        self._rebuild_supported_games_from_index()
+        if loaded.cartridge is not self.cartridge:
+            self._activate_loaded_cartridge(loaded, rebuild_services=True)
+        else:
+            self.cartridges[loaded.cartridge.selection_name] = loaded.cartridge
+            self.supported_games[loaded.cartridge.selection_name] = {
+                "game_id": loaded.cartridge.adapter.descriptor.game_id,
+                "platform": loaded.cartridge.platform_name,
+                "store_app_id": loaded.cartridge.store_app_id,
+                "display_name": loaded.cartridge.adapter.descriptor.display_name,
+            }
+        self._sync_game_selector_values()
+        if previous_name != self.selected_game_name:
+            self._select_game(self.selected_game_name)
+        source = self.cartridge_catalog.index_source or "unknown"
+        self._notify(
+            f"已同步游戏列表（{len(index.cartridges)} 款，来源 {source}）"
+        )
+
     def _select_game(self, display_name: str) -> None:
         if (
             display_name != self.selected_game_name
@@ -984,9 +1086,80 @@ class DlcHubApplication:
             return
         try:
             game = self.supported_games[display_name]
-            cartridge = self.cartridges[display_name]
         except KeyError:
             return
+        cartridge = self.cartridges.get(display_name)
+        if cartridge is None:
+            if self.cartridge_loading:
+                self.game_selector.set(self.selected_game_name)
+                self._notify("正在加载其他游戏卡带，请稍候", error=True)
+                return
+            self._start_lazy_cartridge_load(display_name, game["game_id"])
+            return
+        self._apply_selected_cartridge(display_name, game, cartridge)
+
+    def _start_lazy_cartridge_load(self, display_name: str, game_id: str) -> None:
+        self.cartridge_loading = True
+        self.game_selector.configure(state="disabled")
+        self._set_game_buttons("disabled")
+        self.catalog_preview.configure(text=f"正在下载 {display_name} 卡带……")
+        self._notify(f"正在加载 {display_name} 卡带")
+        generation = self.game_selection_generation
+
+        def worker() -> None:
+            try:
+                loaded = self.cartridge_catalog.load_cartridge(
+                    game_id, allow_network=True,
+                )
+                self._post_ui(
+                    lambda: self._on_lazy_cartridge_loaded(
+                        display_name, loaded, generation
+                    )
+                )
+            except Exception as error:
+                message = str(error) or "卡带加载失败"
+                self._post_ui(
+                    lambda message=message: self._on_lazy_cartridge_failed(
+                        display_name, message
+                    )
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_lazy_cartridge_loaded(self, display_name: str, loaded, generation: int) -> None:
+        self.cartridge_loading = False
+        self.game_selector.configure(state="normal")
+        self._set_game_buttons("normal")
+        if generation != self.game_selection_generation:
+            return
+        self.cartridges[loaded.cartridge.selection_name] = loaded.cartridge
+        adapter_id = loaded.cartridge.adapter.descriptor.adapter_id
+        if adapter_id not in self.adapter_registry:
+            self.adapter_registry.register(loaded.cartridge.adapter)
+        game = {
+            "game_id": loaded.cartridge.adapter.descriptor.game_id,
+            "platform": loaded.cartridge.platform_name,
+            "store_app_id": loaded.cartridge.store_app_id,
+            "display_name": loaded.cartridge.adapter.descriptor.display_name,
+        }
+        self.supported_games[loaded.cartridge.selection_name] = game
+        self._apply_selected_cartridge(
+            loaded.cartridge.selection_name, game, loaded.cartridge
+        )
+
+    def _on_lazy_cartridge_failed(self, display_name: str, message: str) -> None:
+        self.cartridge_loading = False
+        self.game_selector.configure(state="normal")
+        self._set_game_buttons("normal")
+        self.game_selector.set(self.selected_game_name)
+        self.catalog_preview.configure(text="游戏卡带加载失败")
+        messagebox.showerror(
+            "无法加载游戏卡带",
+            f"{display_name}\n\n{message}",
+            parent=self.window,
+        )
+
+    def _apply_selected_cartridge(self, display_name: str, game, cartridge) -> None:
         if cartridge is not self.cartridge:
             self.game_selection_generation += 1
             self.cartridge = cartridge
@@ -1613,7 +1786,7 @@ class DlcHubApplication:
         self.speed_test_running = True
         self.speed_test_button.configure(state="disabled", text="正在测速……")
         self.speed_test_status.configure(text="正在从 GitLink 下载测速文件……")
-        url = "https://gitlink.org.cn/signriver/file-warehouse/releases/download/test/test.bin"
+        url = "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/test/test.bin"
 
         def worker() -> None:
             try:

@@ -11,7 +11,17 @@ from .models import PublisherCartridge
 
 def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
     return (
-        PublisherCartridge.create("stellaris", "Stellaris", "281990"),
+        PublisherCartridge(
+            game_id="stellaris",
+            display_name="Stellaris",
+            release_tag="stellaris",
+            appinfo_name="stellaris_appinfo.json",
+            steam_app_id="281990",
+            dlc_relative_dir="dlc",
+            patch_relative_dir=".",
+            executable_relative_path="stellaris.exe",
+            package_inspector="stellaris_zip",
+        ),
         PublisherCartridge(
             game_id="civilization_6",
             display_name="Civilization VI",
@@ -23,6 +33,9 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
             dlc_archive_root_mode="strip_id_prefix",
             dlc_import_naming_mode="auto_prefix",
             dlc_import_layout_mode="children_if_root",
+            executable_relative_path="Base/Binaries/Win64Steam/CivilizationVI.exe",
+            package_inspector="directory",
+            install_directory_from_slug=True,
         ),
         PublisherCartridge(
             game_id="hearts_of_iron_4",
@@ -33,6 +46,8 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
             dlc_relative_dir="dlc",
             patch_relative_dir=".",
             dlc_archive_root_mode="source",
+            executable_relative_path="hoi4.exe",
+            package_inspector="directory",
         ),
     )
 

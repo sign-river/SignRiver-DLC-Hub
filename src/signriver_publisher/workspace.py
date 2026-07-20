@@ -22,6 +22,7 @@ from .dlc_naming import (
     auto_managed_folder,
     parse_managed_folder,
 )
+from .client_cartridges import export_hub_cartridges
 from .models import GameProfile, PublishAsset, ResourceRecord
 from .steam import SteamApiError, SteamStoreClient
 
@@ -655,6 +656,17 @@ class PublisherWorkspace:
 
     def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
         return self._validated_publish_assets(profile)
+
+    def export_client_hub(self, *, default_game_id: str | None = None) -> tuple[Path, ...]:
+        """Materialise client cartridge documents and the hub index for upload."""
+        profiles = self.list_games()
+        if not profiles:
+            raise WorkspaceError("没有可导出的游戏卡带")
+        return export_hub_cartridges(
+            profiles,
+            self.output_dir / "hub",
+            default_game_id=default_game_id or profiles[0].game_id,
+        )
 
     def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id

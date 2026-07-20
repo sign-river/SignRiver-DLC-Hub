@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "default_game_id": "stellaris",
+  "release_tag": "hub",
+  "repository": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+  "cartridges": [
+    {
+      "game_id": "stellaris",
+      "display_name": "Stellaris",
+      "asset_name": "cartridge_stellaris.json",
+      "sha256": "d34ca43d048a8e1bd336d6f2fcd5bf1d3eb0380f304296e62acfcba4c4518259",
+      "size_bytes": 760
+    },
+    {
+      "game_id": "civilization_6",
+      "display_name": "Civilization VI",
+      "asset_name": "cartridge_civilization_6.json",
+      "sha256": "407fa8df9bcf9f2d4d140217ad72edaf573bf35ececc0315578722b0710d101a",
+      "size_bytes": 829
+    },
+    {
+      "game_id": "hearts_of_iron_4",
+      "display_name": "Hearts of Iron IV",
+      "asset_name": "cartridge_hearts_of_iron_4.json",
+      "sha256": "bd786c71391f39e9c8a5147250856d681b5c81f237ed83448ae02ab3482efe7f",
+      "size_bytes": 780
+    }
+  ]
+}

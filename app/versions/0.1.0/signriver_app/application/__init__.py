@@ -13,6 +13,11 @@ from .game_discovery import (
     InvalidAdapterResultError,
 )
 from .dlc_catalog import CatalogSnapshot, ReleaseCatalogService, StellarisCatalogService
+from .cartridge_catalog import (
+    CartridgeCatalogError,
+    CartridgeCatalogService,
+    LoadedCartridge,
+)
 from .download_queue import DownloadQueue
 from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
 from .original_restore import (
@@ -36,6 +41,9 @@ __all__ = [
     "CatalogSnapshot",
     "StellarisCatalogService",
     "ReleaseCatalogService",
+    "CartridgeCatalogError",
+    "CartridgeCatalogService",
+    "LoadedCartridge",
     "DownloadQueue",
     "AuditedInstallation",
     "DlcInstallService",

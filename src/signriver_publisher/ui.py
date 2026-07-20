@@ -60,6 +60,10 @@ PROFILE_OPTION_LABELS = {
         "single_directory": "每次导入一个 DLC 目录",
         "children_if_root": "选择 DLC 根目录时批量拆分",
     },
+    "package_inspector": {
+        "directory": "通用目录包",
+        "stellaris_zip": "Stellaris ZIP 描述包",
+    },
 }
 
 
@@ -369,6 +373,13 @@ class PublisherApplication(ctk.CTk):
             width=150,
             fg_color=LIGHT_BLUE,
             command=self.open_output_folder,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            actions,
+            text="导出客户端卡带主表",
+            width=180,
+            fg_color=LIGHT_BLUE,
+            command=self.export_client_hub,
         ).pack(side="left", padx=4)
         self.build_summary = ctk.CTkLabel(actions, text="尚未构建", text_color=MUTED)
         self.build_summary.pack(side="left", padx=18)
@@ -846,10 +857,12 @@ class PublisherApplication(ctk.CTk):
             ("Steam App ID", "steam_app_id"),
             ("Release 标签", "release_tag"),
             ("AppInfo 文件", "appinfo_name"),
+            ("可执行文件", "executable_relative_path"),
             ("补丁 DLL", "patch_unlocker_name"),
             ("原版备份 DLL", "patch_original_backup_name"),
             ("DLC 安装目录", "dlc_relative_dir"),
             ("补丁安装目录", "patch_relative_dir"),
+            ("包校验方式", "package_inspector"),
             ("压缩包目录结构", "dlc_archive_root_mode"),
             ("导入编号方式", "dlc_import_naming_mode"),
             ("批量导入方式", "dlc_import_layout_mode"),
@@ -1826,7 +1839,8 @@ class PublisherApplication(ctk.CTk):
                     displayed,
                 )
             values["appinfo_name"] = f"{values['game_id']}_appinfo.json"
-            profile = GameProfile(**values)
+            merged = {**self.profile.to_dict(), **values}
+            profile = GameProfile.from_dict(merged)
             if profile.game_id != self.profile.game_id:
                 raise WorkspaceError("已创建游戏的 ID 不允许直接修改；请新增游戏")
             self.workspace.save_game(profile)
@@ -2695,6 +2709,27 @@ class PublisherApplication(ctk.CTk):
 
     def open_patch_folder(self) -> None:
         self._open(self.workspace.game_dir(self.profile.game_id) / "patches")
+
+    def export_client_hub(self) -> None:
+        try:
+            written = self.workspace.export_client_hub(
+                default_game_id=self.profile.game_id,
+            )
+            hub_dir = self.workspace.output_dir / "hub"
+            self._log(
+                f"已导出客户端卡带主表到 {hub_dir}："
+                + "、".join(path.name for path in written)
+            )
+            messagebox.showinfo(
+                "导出完成",
+                "已生成客户端卡带主表与各游戏卡带文档。\n\n"
+                f"目录：{hub_dir}\n\n"
+                "请将这些文件上传到 GitLink 仓库的 hub Release"
+                "（cartridges_index.json 与 cartridge_*.json）。",
+            )
+            self._open(hub_dir)
+        except (WorkspaceError, OSError, ValueError) as error:
+            messagebox.showerror("导出失败", str(error))
 
     def open_output_folder(self) -> None:
         path = self.workspace.output_dir / self.profile.game_id

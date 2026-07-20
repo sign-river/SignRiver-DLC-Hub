@@ -16,7 +16,8 @@ SignRiver-DLC-Hub/
 │           ├── module.json
 │           └── app_entry.py
 ├── config/
-│   └── update.json
+│   ├── update.json
+│   └── cartridges/              # 出厂游戏主表与默认卡带
 ├── cache/
 └── data/
 ```
@@ -24,6 +25,8 @@ SignRiver-DLC-Hub/
 更完整的协议和发布流程见 [docs/update-architecture.md](docs/update-architecture.md)。
 
 ## 客户端主要功能
+
+游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。
 
 DLC 库页面提供“一键解锁 / 一键修复 / 一键移除补丁 / 恢复游戏原版”等核心操作：
 

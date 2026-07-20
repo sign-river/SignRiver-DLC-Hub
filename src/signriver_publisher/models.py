@@ -20,6 +20,15 @@ class PublisherCartridge:
     dlc_archive_root_mode: str = "source"
     dlc_import_naming_mode: str = "manual_prefixed"
     dlc_import_layout_mode: str = "single_directory"
+    # Client-facing fields exported into the remote hub cartridge documents.
+    executable_relative_path: str = ""
+    package_inspector: str = "directory"
+    install_directory_from_slug: bool = False
+    ini_target_name: str = "cream_api.ini"
+    patch_language: str = "schinese"
+    patch_unlock_all: bool = True
+    patch_extra_protection: bool = False
+    patch_force_offline: bool = False
 
     @classmethod
     def create(cls, game_id: str, display_name: str, steam_app_id: str = "") -> "PublisherCartridge":
@@ -30,7 +39,7 @@ class PublisherCartridge:
     def patch_asset_names(self) -> tuple[str, str]:
         return self.patch_unlocker_name, self.patch_original_backup_name
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
     @classmethod
@@ -39,6 +48,12 @@ class PublisherCartridge:
         legacy_steam_ids = {"stellaris": "281990"}
         builtin_naming_modes = {"civilization_6": "auto_prefix"}
         builtin_layout_modes = {"civilization_6": "children_if_root"}
+        builtin_executables = {
+            "stellaris": "stellaris.exe",
+            "civilization_6": "Base/Binaries/Win64Steam/CivilizationVI.exe",
+            "hearts_of_iron_4": "hoi4.exe",
+        }
+        builtin_inspectors = {"stellaris": "stellaris_zip"}
         return cls(
             game_id=game_id,
             display_name=str(value["display_name"]),
@@ -60,6 +75,25 @@ class PublisherCartridge:
                 value.get("dlc_import_layout_mode")
                 or builtin_layout_modes.get(game_id, "single_directory")
             ),
+            executable_relative_path=str(
+                value.get("executable_relative_path")
+                or builtin_executables.get(game_id, "")
+            ),
+            package_inspector=str(
+                value.get("package_inspector")
+                or builtin_inspectors.get(game_id, "directory")
+            ),
+            install_directory_from_slug=bool(
+                value.get(
+                    "install_directory_from_slug",
+                    game_id == "civilization_6",
+                )
+            ),
+            ini_target_name=str(value.get("ini_target_name") or "cream_api.ini"),
+            patch_language=str(value.get("patch_language") or "schinese"),
+            patch_unlock_all=bool(value.get("patch_unlock_all", True)),
+            patch_extra_protection=bool(value.get("patch_extra_protection", False)),
+            patch_force_offline=bool(value.get("patch_force_offline", False)),
         )
 
 

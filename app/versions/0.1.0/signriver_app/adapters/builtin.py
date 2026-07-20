@@ -1,24 +1,58 @@
-"""Built-in game adapters shipped with this application module."""
+"""Compatibility helpers that materialise cartridges from bootstrap documents.
+
+Production startup no longer hard-codes game cartridges in Python.  Tests and
+offline smoke paths can still build the three known games from the packaged
+``config/cartridges`` documents.
+"""
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from .cartridge import GameCartridge
+from .document_cartridge import build_cartridge_from_document
 from .protocol import GameAdapter
-from .stellaris import StellarisGameCartridge
-from .civilization_6 import Civilization6GameCartridge
-from .hearts_of_iron_4 import HeartsOfIron4GameCartridge
+from ..domain import CartridgeDocument, CartridgeIndex
 
 
-def create_builtin_cartridges() -> tuple[GameCartridge, ...]:
-    return (
-        StellarisGameCartridge(),
-        Civilization6GameCartridge(),
-        HeartsOfIron4GameCartridge(),
+def bootstrap_cartridges_dir() -> Path:
+    """Resolve the packaged bootstrap cartridge directory next to the app root."""
+    # app/versions/0.1.0/signriver_app/adapters/builtin.py -> repo root / config
+    return Path(__file__).resolve().parents[5] / "config" / "cartridges"
+
+
+def load_bootstrap_index(directory: Path | None = None) -> CartridgeIndex:
+    root = directory or bootstrap_cartridges_dir()
+    payload = json.loads((root / "cartridges_index.json").read_text(encoding="utf-8"))
+    return CartridgeIndex.from_dict(payload)
+
+
+def create_builtin_cartridges(
+    directory: Path | None = None,
+) -> tuple[GameCartridge, ...]:
+    root = directory or bootstrap_cartridges_dir()
+    index = load_bootstrap_index(root)
+    cartridges = []
+    for entry in index.cartridges:
+        document = CartridgeDocument.from_dict(
+            json.loads((root / entry.asset_name).read_text(encoding="utf-8"))
+        )
+        cartridges.append(build_cartridge_from_document(document))
+    return tuple(cartridges)
+
+
+def create_builtin_adapters(
+    directory: Path | None = None,
+) -> tuple[GameAdapter, ...]:
+    return tuple(
+        cartridge.adapter for cartridge in create_builtin_cartridges(directory)
     )
 
 
-def create_builtin_adapters() -> tuple[GameAdapter, ...]:
-    return tuple(cartridge.adapter for cartridge in create_builtin_cartridges())
-
-
-__all__ = ["create_builtin_adapters", "create_builtin_cartridges"]
+__all__ = [
+    "bootstrap_cartridges_dir",
+    "create_builtin_adapters",
+    "create_builtin_cartridges",
+    "load_bootstrap_index",
+]

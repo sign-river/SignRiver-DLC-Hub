@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from types import MappingProxyType
 
-from ..application import ReleaseCatalogService
+from ..application.dlc_catalog import ReleaseCatalogService
 from ..domain import PatchBundle, PatchProfile, ReleaseAsset, resolve_game_directory
 from ..infrastructure.catalog import (
     GitLinkReleaseSource, GitLinkSourceConfig,

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "engine": "steam_configured_v1",
+  "game_id": "hearts_of_iron_4",
+  "display_name": "Hearts of Iron IV",
+  "store_app_id": "394360",
+  "release_tag": "hearts_of_iron_4",
+  "executable_relative_path": "hoi4.exe",
+  "dlc_relative_dir": "dlc",
+  "package_inspector": "directory",
+  "install_directory_from_slug": false,
+  "repository": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+  "patch": {
+    "unlocker_dll_name": "steam_api64.dll",
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "appinfo_asset_name": "hearts_of_iron_4_appinfo.json",
+    "install_relative_dir": ".",
+    "ini_target_name": "cream_api.ini",
+    "language": "schinese",
+    "unlock_all": true,
+    "extra_protection": false,
+    "force_offline": false
+  }
+}
