@@ -421,8 +421,10 @@ def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     assert "标记通过" in source
     assert "启动客户端" in source
     assert "记录补丁基线" in source
-    assert "预览环境准备" in source
+    assert "构建该环境" in source
+    assert "def build_acceptance_failure_environment" in source
+    assert "acceptance_scenario_list" in source
     assert "恢复测试环境" in source
     assert 'uniform="acceptance_paths"' in source
-    assert 'uniform="acceptance_environment"' in source
+    assert 'uniform="acceptance_env"' in source
     assert 'uniform="acceptance_results"' in source
