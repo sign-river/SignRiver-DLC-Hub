@@ -88,6 +88,8 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
     assert 'text="星河DLC"' in source
     assert 'text="一键解锁"' in source
+    assert "def _apply_window_icon" in source
+    assert "app.ico" in source
 
 
 def test_all_dropdowns_use_bordered_combo_box_factory() -> None:

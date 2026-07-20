@@ -144,6 +144,7 @@ class DlcHubApplication:
         self.window.geometry("1120x840")
         self.window.minsize(1000, 700)
         self.window.configure(fg_color=UI["page"])
+        self._apply_window_icon()
         self.ui_events = SimpleQueue()
         self.pending_download_snapshots = {}
         self.pending_download_lock = threading.Lock()
@@ -354,6 +355,26 @@ class DlcHubApplication:
         self.window.after(500, self._refresh_catalog)
         if self.context.updates.enabled and self.context.updates.check_on_startup:
             self.window.after(800, self._check_update)
+
+    def _apply_window_icon(self) -> None:
+        icon = Path(self.context.paths.root) / "config" / "app.ico"
+        if not icon.is_file():
+            return
+        resolved = str(icon.resolve())
+        try:
+            self.window.iconbitmap(default=resolved)
+            self.window.iconbitmap(resolved)
+        except TclError:
+            png = icon.with_suffix(".png")
+            if not png.is_file():
+                return
+            try:
+                from tkinter import PhotoImage
+
+                self._window_icon_image = PhotoImage(file=str(png.resolve()))
+                self.window.iconphoto(True, self._window_icon_image)
+            except TclError:
+                self.context.logger.debug("Unable to apply window icon", exc_info=True)
 
     def _build_ui(self) -> None:
         shell = ctk.CTkFrame(self.window, fg_color=UI["page"])

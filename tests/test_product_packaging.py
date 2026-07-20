@@ -36,3 +36,15 @@ def test_runtime_paths_support_chinese_install_root(tmp_path: Path) -> None:
     marker = paths.data_dir / "中文设置.json"
     marker.write_text('{"ok": true}\n', encoding="utf-8")
     assert marker.read_text(encoding="utf-8") == '{"ok": true}\n'
+
+
+def test_packaged_app_icon_exists_with_multiple_sizes() -> None:
+    from PIL import Image
+
+    icon = Path(__file__).parents[1] / "config" / "app.ico"
+    assert icon.is_file()
+    with Image.open(icon) as image:
+        sizes = sorted(image.ico.sizes()) if image.ico is not None else []
+    assert (16, 16) in sizes
+    assert (256, 256) in sizes
+    assert (Path(__file__).parents[1] / "config" / "app.png").is_file()

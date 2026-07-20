@@ -50,6 +50,8 @@ def main() -> int:
     # Build with an ASCII PyInstaller name first, then rename for distribution.
     # This avoids historic Unicode issues in the compiler while still shipping
     # a Chinese folder/EXE for domestic users.
+    icon_path = ROOT / "config" / "app.ico"
+    icon_args = ["--icon", str(icon_path)] if icon_path.is_file() else []
     subprocess.run(
         [
             sys.executable,
@@ -61,6 +63,7 @@ def main() -> int:
             "--windowed",
             "--name",
             BUILD_EXE_BASENAME,
+            *icon_args,
             "--paths",
             str(ROOT / "src"),
             "--paths",
