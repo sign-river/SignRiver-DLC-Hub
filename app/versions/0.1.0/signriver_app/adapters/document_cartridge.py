@@ -42,6 +42,7 @@ def build_cartridge_from_document(document: CartridgeDocument) -> ConfiguredStea
         repository_name=document.repository_name,
         repositories=dict(document.repositories),
         install_directory_from_slug=document.install_directory_from_slug,
+        freshness=document.freshness,
     )
 
 

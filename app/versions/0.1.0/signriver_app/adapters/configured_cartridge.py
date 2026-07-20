@@ -36,6 +36,7 @@ class ConfiguredSteamCartridge:
         repository_name: str = "signriver-dlc-assets",
         repositories: dict[str, dict[str, str]] | None = None,
         install_directory_from_slug: bool = False,
+        freshness=None,
     ) -> None:
         self.cartridge_id = f"{game_id}.steam"
         self.selection_name = f"{display_name} · Steam"
@@ -50,6 +51,7 @@ class ConfiguredSteamCartridge:
         self.repositories = dict(repositories or {})
         self.package_inspector = package_inspector
         self.install_directory_from_slug = install_directory_from_slug
+        self.freshness = freshness
         self._installed_paths: dict[str, Path] = {}
         self._adapter = ConfiguredSteamAdapter(
             game_id=game_id,

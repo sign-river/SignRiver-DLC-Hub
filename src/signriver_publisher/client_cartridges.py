@@ -18,13 +18,17 @@ def client_cartridge_asset_name(game_id: str) -> str:
     return f"cartridge_{game_id}.json"
 
 
-def build_client_cartridge_document(profile: PublisherCartridge) -> dict[str, object]:
+def build_client_cartridge_document(
+    profile: PublisherCartridge,
+    *,
+    freshness: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Convert a publisher disk cartridge into the client remote document."""
     executable = profile.executable_relative_path.strip()
     if not executable:
         raise ValueError(f"{profile.game_id} 缺少 executable_relative_path，无法导出客户端卡带")
     inspector = profile.package_inspector.strip() or "directory"
-    return {
+    payload: dict[str, object] = {
         "schema_version": CARTRIDGE_DOCUMENT_SCHEMA,
         "engine": "steam_configured_v1",
         "game_id": profile.game_id,
@@ -61,14 +65,20 @@ def build_client_cartridge_document(profile: PublisherCartridge) -> dict[str, ob
             "force_offline": bool(profile.patch_force_offline),
         },
     }
+    if freshness:
+        payload["freshness"] = freshness
+    return payload
 
 
 def write_client_cartridge_document(
-    profile: PublisherCartridge, directory: Path
+    profile: PublisherCartridge,
+    directory: Path,
+    *,
+    freshness: dict[str, object] | None = None,
 ) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / client_cartridge_asset_name(profile.game_id)
-    payload = build_client_cartridge_document(profile)
+    payload = build_client_cartridge_document(profile, freshness=freshness)
     text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     path.write_text(text, encoding="utf-8")
     return path
@@ -112,13 +122,19 @@ def export_hub_cartridges(
     *,
     default_game_id: str | None = None,
     announcement_path: Path | None = None,
+    freshness_by_game: dict[str, dict[str, object]] | None = None,
 ) -> tuple[Path, ...]:
     """Write every client cartridge plus the hub index into ``output_dir``."""
     output_dir.mkdir(parents=True, exist_ok=True)
     documents: dict[str, Path] = {}
     written: list[Path] = []
+    freshness_map = freshness_by_game or {}
     for profile in profiles:
-        path = write_client_cartridge_document(profile, output_dir)
+        path = write_client_cartridge_document(
+            profile,
+            output_dir,
+            freshness=freshness_map.get(profile.game_id),
+        )
         documents[profile.game_id] = path
         written.append(path)
     index = build_client_cartridge_index(

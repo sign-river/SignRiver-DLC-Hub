@@ -368,6 +368,14 @@ class PublisherApplication(ctk.CTk):
             command=self.refresh_steam_data,
         )
         self.steam_button.pack(side="left", padx=4)
+        self.freshness_button = ctk.CTkButton(
+            actions,
+            text="检测最新 DLC",
+            width=140,
+            fg_color=LIGHT_BLUE,
+            command=self.detect_dlc_freshness,
+        )
+        self.freshness_button.pack(side="left", padx=4)
         ctk.CTkButton(
             actions,
             text="打开输出目录",
@@ -384,6 +392,15 @@ class PublisherApplication(ctk.CTk):
         ).pack(side="left", padx=4)
         self.build_summary = ctk.CTkLabel(actions, text="尚未构建", text_color=MUTED)
         self.build_summary.pack(side="left", padx=18)
+        self.freshness_summary = ctk.CTkLabel(
+            build_card,
+            text="完整度：尚未检测（点击“检测最新 DLC”对比 Steam 官方列表）",
+            text_color=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=980,
+        )
+        self.freshness_summary.grid(row=2, column=0, padx=22, pady=(0, 14), sticky="ew")
 
         remote = self._card(self.build_tab, 1, "GitLink 新仓库")
         remote.grid_rowconfigure(4, weight=1)
@@ -934,6 +951,29 @@ class PublisherApplication(ctk.CTk):
                 self.after_idle(self.refresh_acceptance)
             except TclError:
                 pass
+        self._update_freshness_summary()
+
+    def _update_freshness_summary(self) -> None:
+        if not hasattr(self, "freshness_summary"):
+            return
+        report = self.workspace.load_freshness(self.profile)
+        if report is None:
+            self.freshness_summary.configure(
+                text="完整度：尚未检测（点击“检测最新 DLC”对比 Steam 官方列表）",
+                text_color=MUTED,
+            )
+            return
+        color = BLUE if report.status == "current" else RED
+        if report.status == "unknown":
+            color = MUTED
+        self.freshness_summary.configure(
+            text=(
+                f"完整度：{report.summary} "
+                f"（Steam {report.steam_dlc_count} / 本地 {report.local_package_count} · "
+                f"检测于 {report.checked_at}）"
+            ),
+            text_color=color,
+        )
 
     def refresh_acceptance(self) -> None:
         self._acceptance_generation += 1
@@ -1909,6 +1949,8 @@ class PublisherApplication(ctk.CTk):
             return
         self.build_button.configure(state="disabled", text="正在构建…")
         self.steam_button.configure(state="disabled")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="disabled")
         self.publish_button.configure(state="disabled")
         self.adopt_remote_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
@@ -1968,6 +2010,8 @@ class PublisherApplication(ctk.CTk):
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="normal")
         self.publish_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -1984,6 +2028,8 @@ class PublisherApplication(ctk.CTk):
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="normal")
         self.publish_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -1996,6 +2042,8 @@ class PublisherApplication(ctk.CTk):
         ):
             return
         self.steam_button.configure(state="disabled", text="正在查询…")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="disabled")
         profile = self.profile
 
         def work() -> None:
@@ -2013,13 +2061,68 @@ class PublisherApplication(ctk.CTk):
     def _steam_refresh_done(self, name: str, count: int) -> None:
         self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="normal")
         self._log(f"Steam 数据已更新：{name}，{count} 个 DLC。")
         messagebox.showinfo("更新完成", f"已生成 Steam AppInfo，共 {count} 个 DLC。")
 
     def _steam_refresh_failed(self, message: str) -> None:
         self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
+        if hasattr(self, "freshness_button"):
+            self.freshness_button.configure(state="normal")
         messagebox.showerror("Steam 数据更新失败", message)
+
+    def detect_dlc_freshness(self) -> None:
+        if not self._begin_background_mutation(
+            "dlc-freshness", "正在检测最新 DLC"
+        ):
+            return
+        self.freshness_button.configure(state="disabled", text="正在检测…")
+        if hasattr(self, "steam_button"):
+            self.steam_button.configure(state="disabled")
+        profile = self.profile
+
+        def work() -> None:
+            try:
+                report = self.workspace.detect_dlc_freshness(profile)
+                self._post_ui(lambda report=report: self._freshness_done(report))
+            except Exception as error:
+                message = str(error)
+                self._post_ui(lambda value=message: self._freshness_failed(value))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _freshness_done(self, report) -> None:
+        self._end_background_mutation("dlc-freshness")
+        self.freshness_button.configure(state="normal", text="检测最新 DLC")
+        if hasattr(self, "steam_button"):
+            self.steam_button.configure(state="normal")
+        self._update_freshness_summary()
+        title = "已是最新" if report.status == "current" else "可能不是最新"
+        detail = report.summary
+        if report.unmatched_steam_names and report.status == "behind":
+            detail += "\n\n名称未匹配到本地包的 Steam DLC：\n- " + "\n- ".join(
+                report.unmatched_steam_names[:12]
+            )
+            if len(report.unmatched_steam_names) > 12:
+                detail += f"\n…共 {len(report.unmatched_steam_names)} 项"
+        detail += (
+            "\n\n说明：Steam 列表含音乐包/外观等条目，本地可能刻意不收录；"
+            "请人工核对后再导入。导出客户端卡带主表时会写入完整度摘要。"
+        )
+        self._log(
+            f"DLC 完整度检测：{report.status} · Steam {report.steam_dlc_count} / "
+            f"本地 {report.local_package_count}"
+        )
+        messagebox.showinfo(title, detail)
+
+    def _freshness_failed(self, message: str) -> None:
+        self._end_background_mutation("dlc-freshness")
+        self.freshness_button.configure(state="normal", text="检测最新 DLC")
+        if hasattr(self, "steam_button"):
+            self.steam_button.configure(state="normal")
+        messagebox.showerror("DLC 完整度检测失败", message)
 
     def refresh_remote_resources(self) -> None:
         if not self._begin_remote_operation("正在读取远程资源…"):

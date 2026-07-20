@@ -115,6 +115,8 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
     assert "def _render_simple_catalog_rows" in source
     assert "def _render_advanced_catalog_rows" in source
     assert "def _simple_entry_status" in source
+    assert "catalog_freshness" in source
+    assert "def _freshness_status_text" in source
 
 
 def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None:

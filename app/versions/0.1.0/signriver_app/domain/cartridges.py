@@ -162,6 +162,61 @@ class CartridgeIndex:
 
 
 @dataclass(frozen=True, slots=True)
+class CartridgeFreshness:
+    """Publisher-authored snapshot of Steam vs packaged DLC completeness."""
+
+    status: str
+    checked_at: str
+    steam_game_name: str = ""
+    steam_dlc_count: int = 0
+    package_count: int = 0
+    gap_count: int = 0
+    appinfo_update_time: str = ""
+
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> "CartridgeFreshness":
+        status = str(value.get("status") or "unknown").strip().lower()
+        if status not in {"current", "behind", "unknown"}:
+            status = "unknown"
+        return cls(
+            status=status,
+            checked_at=str(value.get("checked_at") or "").strip(),
+            steam_game_name=str(value.get("steam_game_name") or "").strip(),
+            steam_dlc_count=max(0, int(value.get("steam_dlc_count") or 0)),
+            package_count=max(0, int(value.get("package_count") or 0)),
+            gap_count=max(0, int(value.get("gap_count") or 0)),
+            appinfo_update_time=str(value.get("appinfo_update_time") or "").strip(),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "checked_at": self.checked_at,
+            "steam_game_name": self.steam_game_name,
+            "steam_dlc_count": self.steam_dlc_count,
+            "package_count": self.package_count,
+            "gap_count": self.gap_count,
+            "appinfo_update_time": self.appinfo_update_time,
+        }
+
+    def client_summary(self) -> str:
+        game = self.steam_game_name or "当前游戏"
+        checked = self.checked_at or "未知时间"
+        if self.status == "current":
+            return (
+                f"完整度：当前 DLC 包已是最新（{game} · Steam {self.steam_dlc_count} 项）"
+                f" · 检测于 {checked}"
+            )
+        if self.status == "behind":
+            return (
+                f"完整度：当前不是最新（{game} · Steam {self.steam_dlc_count} / "
+                f"已收录 {self.package_count}，约落后 {self.gap_count}）"
+                f" · 检测于 {checked}"
+            )
+        return f"完整度：尚未确认是否最新 · 检测于 {checked}"
+
+
+@dataclass(frozen=True, slots=True)
 class CartridgeDocument:
     """Complete declarative description of one Steam game cartridge."""
 
@@ -187,6 +242,7 @@ class CartridgeDocument:
     repository_owner: str = "signriver"
     repository_name: str = "signriver-dlc-assets"
     repositories: dict[str, dict[str, str]] = field(default_factory=dict)
+    freshness: CartridgeFreshness | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != CARTRIDGE_DOCUMENT_SCHEMA:
@@ -235,6 +291,10 @@ class CartridgeDocument:
         patch = value.get("patch")
         if not isinstance(patch, dict):
             raise ValueError("patch object is required")
+        freshness = None
+        raw_freshness = value.get("freshness")
+        if isinstance(raw_freshness, dict):
+            freshness = CartridgeFreshness.from_dict(raw_freshness)
         return cls(
             schema_version=int(value.get("schema_version") or 0),
             engine=str(value.get("engine") or "").strip(),
@@ -280,10 +340,11 @@ class CartridgeDocument:
             repository_owner=owner,
             repository_name=name,
             repositories=repositories,
+            freshness=freshness,
         )
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "engine": self.engine,
             "game_id": self.game_id,
@@ -311,6 +372,9 @@ class CartridgeDocument:
                 "force_offline": self.force_offline,
             },
         }
+        if self.freshness is not None:
+            payload["freshness"] = self.freshness.to_dict()
+        return payload
 
 
 __all__ = [
@@ -319,6 +383,7 @@ __all__ = [
     "HUB_RELEASE_TAG",
     "INDEX_ASSET_NAME",
     "CartridgeDocument",
+    "CartridgeFreshness",
     "CartridgeIndex",
     "CartridgeIndexEntry",
 ]

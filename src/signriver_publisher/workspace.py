@@ -23,6 +23,12 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .client_cartridges import export_hub_cartridges
+from .freshness import (
+    DlcFreshnessReport,
+    compare_steam_and_local,
+    load_freshness_report,
+    save_freshness_report,
+)
 from .models import GameProfile, PublishAsset, ResourceRecord
 from .steam import SteamApiError, SteamStoreClient
 
@@ -651,6 +657,49 @@ class PublisherWorkspace:
         self._atomic_json(target, payload)
         return appinfo
 
+    def freshness_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / "freshness.json"
+
+    def load_freshness(self, profile: GameProfile) -> DlcFreshnessReport | None:
+        path = self.freshness_path(profile)
+        try:
+            return load_freshness_report(path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+    def detect_dlc_freshness(self, profile: GameProfile) -> DlcFreshnessReport:
+        """Fetch Steam's official DLC list and compare it with local packages."""
+        appinfo = self.refresh_appinfo(profile)
+        dlcs, _patches = self.scan_sources(profile)
+        published = self._published_dlc_package_count(profile)
+        report = compare_steam_and_local(
+            appinfo,
+            local_folders=dlcs,
+            published_package_count=published,
+        )
+        save_freshness_report(self.freshness_path(profile), report)
+        return report
+
+    def _published_dlc_package_count(self, profile: GameProfile) -> int:
+        target = self.output_dir / profile.game_id
+        if not target.is_dir():
+            return 0
+        zip_names = {
+            path.name.casefold()
+            for path in target.iterdir()
+            if path.is_file()
+            and path.suffix.casefold() == ".zip"
+            and _DLC_DIR.fullmatch(path.stem) is not None
+        }
+        part_bases = {
+            match.group("base").casefold()
+            for path in target.iterdir()
+            if path.is_file()
+            for match in [_RELEASE_PART.fullmatch(path.name)]
+            if match is not None
+        }
+        return len(zip_names | part_bases)
+
     def publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         return tuple(asset.path for asset in self._validated_publish_assets(profile))
 
@@ -663,11 +712,18 @@ class PublisherWorkspace:
         if not profiles:
             raise WorkspaceError("没有可导出的游戏卡带")
         announcement = self.root / "announcement.json"
+        freshness = {
+            profile.game_id: report.to_client_dict()
+            for profile in profiles
+            for report in [self.load_freshness(profile)]
+            if report is not None
+        }
         return export_hub_cartridges(
             profiles,
             self.output_dir / "hub",
             default_game_id=default_game_id or profiles[0].game_id,
             announcement_path=announcement if announcement.is_file() else None,
+            freshness_by_game=freshness,
         )
 
     def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:

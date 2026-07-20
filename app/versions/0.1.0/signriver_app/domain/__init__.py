@@ -40,6 +40,7 @@ from .cartridges import (
     HUB_RELEASE_TAG,
     INDEX_ASSET_NAME,
     CartridgeDocument,
+    CartridgeFreshness,
     CartridgeIndex,
     CartridgeIndexEntry,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "HUB_RELEASE_TAG",
     "INDEX_ASSET_NAME",
     "CartridgeDocument",
+    "CartridgeFreshness",
     "CartridgeIndex",
     "CartridgeIndexEntry",
     "ANNOUNCEMENT_ASSET_NAME",

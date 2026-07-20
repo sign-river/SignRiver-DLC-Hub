@@ -589,6 +589,15 @@ class DlcHubApplication:
             anchor="w",
         )
         self.catalog_status.pack(fill="x", padx=24)
+        self.catalog_freshness = ctk.CTkLabel(
+            catalog_card,
+            text=self._freshness_status_text(),
+            anchor="w",
+            justify="left",
+            text_color=UI["muted"],
+            wraplength=760,
+        )
+        self.catalog_freshness.pack(fill="x", padx=24, pady=(2, 0))
         self.catalog_preview = ctk.CTkLabel(
             catalog_card,
             text="下载和安装功能尚未启用",
@@ -1022,6 +1031,8 @@ class DlcHubApplication:
         available = max(560, event.width - (210 if compact else 260))
         self.game_path.configure(wraplength=available)
         self.catalog_status.configure(wraplength=available)
+        if hasattr(self, "catalog_freshness"):
+            self.catalog_freshness.configure(wraplength=available)
         for label in getattr(self, "settings_help_labels", ()):
             label.configure(wraplength=available)
         if layout_changed:
@@ -1177,6 +1188,7 @@ class DlcHubApplication:
                 game_id=cartridge.adapter.descriptor.game_id,
                 package_inspector=cartridge.inspect_package,
             )
+        self._refresh_catalog_freshness_label()
 
     def _sync_game_selector_values(self) -> None:
         values = list(self.supported_games)
@@ -2458,6 +2470,34 @@ class DlcHubApplication:
         )
         messagebox.showerror("诊断导出失败", message, parent=self.window)
 
+    def _freshness_status_text(self, *, catalog_count: int | None = None) -> str:
+        freshness = getattr(self.cartridge, "freshness", None)
+        if freshness is None:
+            return "完整度：发布端尚未提供检测结果（导出卡带主表前请先“检测最新 DLC”）"
+        summary = freshness.client_summary()
+        if catalog_count is not None and freshness.package_count:
+            if catalog_count != freshness.package_count:
+                summary += (
+                    f" · 当前目录 {catalog_count} 项"
+                    f"（检测时收录 {freshness.package_count}）"
+                )
+        return summary
+
+    def _refresh_catalog_freshness_label(self, *, catalog_count: int | None = None) -> None:
+        if not hasattr(self, "catalog_freshness"):
+            return
+        freshness = getattr(self.cartridge, "freshness", None)
+        text = self._freshness_status_text(catalog_count=catalog_count)
+        if freshness is None:
+            color = UI["muted"]
+        elif freshness.status == "current":
+            color = UI["success"]
+        elif freshness.status == "behind":
+            color = UI["danger"]
+        else:
+            color = UI["muted"]
+        self.catalog_freshness.configure(text=text, text_color=color)
+
     def _refresh_catalog(self) -> None:
         generation = self.game_selection_generation
         cartridge_id = self.cartridge.cartridge_id
@@ -2528,6 +2568,7 @@ class DlcHubApplication:
                 f"已读取 {len(entries)} 个 DLC 资源{patch_suffix}"
             )
         )
+        self._refresh_catalog_freshness_label(catalog_count=len(entries))
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
             self._clear_catalog_views("当前 Release 中没有可用的 DLC 资源")

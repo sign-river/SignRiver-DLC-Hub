@@ -8,6 +8,8 @@
 
 客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。启动公告来自同一 Release 的 `announcement.json`；发布器工作区根目录若存在该文件，导出客户端卡带主表时会一并写入 `output/hub`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。发布器“导出客户端卡带主表”会把当前全部卡带写成可上传文件，并可通过发布目标选择 GitLink 或 GitHub。
 
+本地构建页提供「检测最新 DLC」：向 Steam Store 拉取官方 DLC 列表，与当前卡带 `dlc/` 包数量对比，标注“已是最新 / 可能不是最新”，并写入 `games/<id>/freshness.json`。导出客户端卡带时会附带完整度摘要；客户端在 DLC 列表上方展示该状态与检测时间。注意 Steam 列表可能含音乐包/外观等条目，数量差仅作提示，仍需人工核对后导入。
+
 发布验收中的补丁目录同样读取当前卡带的 `patch_relative_dir`，不会固定为 Stellaris 或文明 6 的目录。选择实际游戏目录时必须与顶部当前卡带一致；若目录不存在，提示会同时显示当前卡带与它配置的目标路径。
 
 客户端与服务端使用相同边界：客户端插入游戏卡带后读取对应 Release 并执行该游戏的检测、下载和安装；服务端选择同一游戏卡带后构建并更新对应 Release。新增游戏时不应在主程序中增加游戏名判断，而应新增一张卡带配置及其游戏专属实现。
