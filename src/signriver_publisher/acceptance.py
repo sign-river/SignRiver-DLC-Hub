@@ -149,6 +149,22 @@ class PreparationVariant:
 
 
 @dataclass(frozen=True, slots=True)
+class PatchFailureScenario:
+    """One clickable patch-failure fixture shown in the acceptance UI."""
+
+    scenario_id: str
+    case_id: str
+    title: str
+    description: str
+    expected_client: str
+    auto_buildable: bool = True
+
+    @property
+    def variant_id(self) -> str:
+        return self.scenario_id if self.auto_buildable else ""
+
+
+@dataclass(frozen=True, slots=True)
 class PreparationPreview:
     variant: PreparationVariant
     actions: tuple[str, ...]
@@ -352,6 +368,18 @@ class AcceptanceManager:
     @staticmethod
     def preparation_variants(case_id: str) -> tuple[PreparationVariant, ...]:
         return _PREPARATION_VARIANTS.get(case_id, ())
+
+    @staticmethod
+    def patch_failure_scenarios() -> tuple[PatchFailureScenario, ...]:
+        """All patch fixtures the acceptance UI can list, buildable or manual."""
+        return _PATCH_FAILURE_SCENARIOS
+
+    @staticmethod
+    def patch_failure_scenario(scenario_id: str) -> PatchFailureScenario:
+        for scenario in _PATCH_FAILURE_SCENARIOS:
+            if scenario.scenario_id == scenario_id:
+                return scenario
+        raise AcceptanceError(f"未知的补丁失败场景：{scenario_id}")
 
     def current_baseline(
         self, profile: GameProfile, session: AcceptanceSession
@@ -929,6 +957,53 @@ _PREPARATION_VARIANTS = {
 }
 
 
+_PATCH_FAILURE_SCENARIOS = (
+    PatchFailureScenario(
+        "patch.clean-original",
+        "patch.clean-install",
+        "干净首次安装",
+        "仅保留当前 DLL，移走备份 DLL 与 cream_api.ini。",
+        "客户端应识别为原版；一键解锁会下载并写入补丁三件套。",
+    ),
+    PatchFailureScenario(
+        "patch.current-missing",
+        "patch.damaged-state",
+        "当前 DLL 缺失",
+        "移走 steam_api64.dll（或卡带配置的解锁 DLL）。",
+        "审计会报主 DLL 缺失；一键解锁/修复应重新安装补丁。",
+    ),
+    PatchFailureScenario(
+        "patch.backup-missing",
+        "patch.damaged-state",
+        "原版备份 DLL 缺失",
+        "移走 steam_api64_o.dll（或卡带配置的备份 DLL）。",
+        "审计会报备份缺失；客户端不得伪造不可信备份，应按流程重建。",
+    ),
+    PatchFailureScenario(
+        "patch.ini-missing",
+        "patch.damaged-state",
+        "INI 文件缺失",
+        "移走 cream_api.ini。",
+        "客户端应根据当前 AppInfo 重新生成 INI。",
+    ),
+    PatchFailureScenario(
+        "patch.current-mismatch",
+        "patch.damaged-state",
+        "当前 DLL 内容异常",
+        "把当前 DLL 换成无效测试文件（非 PE）。",
+        "客户端应拒绝沿用坏文件，提示异常并重新下载/替换。",
+    ),
+    PatchFailureScenario(
+        "patch.security-quarantine",
+        "patch.security-quarantine",
+        "安全软件隔离（人工）",
+        "无法在程序内安全模拟杀软隔离；需在真实机器上手动触发。",
+        "客户端应提示可能被隔离，并引导恢复/重新解锁。",
+        auto_buildable=False,
+    ),
+)
+
+
 _COMMON_CASES = (
     AcceptanceCase(
         "basic.game-detection",
@@ -1081,6 +1156,7 @@ __all__ = [
     "AcceptanceSession",
     "PreparationPreview",
     "PreparationVariant",
+    "PatchFailureScenario",
     "FAILED",
     "PASSED",
     "PENDING",

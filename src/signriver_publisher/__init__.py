@@ -8,6 +8,7 @@ from .acceptance import (
     AcceptancePaths,
     AcceptanceResult,
     AcceptanceSession,
+    PatchFailureScenario,
     PreparationPreview,
     PreparationVariant,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "AcceptanceSession",
     "PreparationPreview",
     "PreparationVariant",
+    "PatchFailureScenario",
     "AppInfoError",
     "GameProfile",
     "PublisherCartridge",

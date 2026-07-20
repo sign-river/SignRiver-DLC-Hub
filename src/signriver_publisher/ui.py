@@ -706,9 +706,7 @@ class PublisherApplication(ctk.CTk):
 
         environment = ctk.CTkFrame(summary, fg_color="#F7FAFD", corner_radius=10)
         environment.grid(row=2, column=0, padx=18, pady=(2, 14), sticky="ew")
-        environment.grid_columnconfigure(
-            (0, 1, 2, 3, 4), weight=1, uniform="acceptance_environment"
-        )
+        environment.grid_columnconfigure(0, weight=1)
         self.acceptance_environment_status = ctk.CTkLabel(
             environment,
             text="补丁测试环境：尚未记录基线",
@@ -716,58 +714,31 @@ class PublisherApplication(ctk.CTk):
             anchor="w",
         )
         self.acceptance_environment_status.grid(
-            row=0, column=0, columnspan=2, padx=10, pady=(8, 4), sticky="ew"
+            row=0, column=0, padx=10, pady=(8, 4), sticky="ew"
         )
-        self.acceptance_variant_menu = ctk.CTkOptionMenu(
-            environment,
-            values=["当前项目没有自动准备方案"],
-            fg_color=LIGHT_BLUE,
-            button_color=BLUE,
-            state="disabled",
-        )
-        self.acceptance_variant_menu.grid(
-            row=0, column=2, columnspan=3, padx=6, pady=(8, 4), sticky="ew"
-        )
+        env_actions = ctk.CTkFrame(environment, fg_color="transparent")
+        env_actions.grid(row=1, column=0, padx=6, pady=(0, 4), sticky="ew")
+        env_actions.grid_columnconfigure((0, 1, 2), weight=1, uniform="acceptance_env")
         self.acceptance_inspect_button = ctk.CTkButton(
-            environment,
+            env_actions,
             text="检查并记录",
             fg_color=LIGHT_BLUE,
             command=self.inspect_acceptance_environment,
         )
         self.acceptance_inspect_button.grid(
-            row=1, column=0, padx=4, pady=(4, 8), sticky="ew"
+            row=0, column=0, padx=4, pady=4, sticky="ew"
         )
         self.acceptance_baseline_button = ctk.CTkButton(
-            environment,
+            env_actions,
             text="记录补丁基线",
             fg_color=LIGHT_BLUE,
             command=self.capture_acceptance_baseline,
         )
         self.acceptance_baseline_button.grid(
-            row=1, column=1, padx=4, pady=(4, 8), sticky="ew"
-        )
-        self.acceptance_preview_button = ctk.CTkButton(
-            environment,
-            text="预览环境准备",
-            fg_color=LIGHT_BLUE,
-            state="disabled",
-            command=self.preview_acceptance_preparation,
-        )
-        self.acceptance_preview_button.grid(
-            row=1, column=2, padx=4, pady=(4, 8), sticky="ew"
-        )
-        self.acceptance_apply_button = ctk.CTkButton(
-            environment,
-            text="执行环境准备",
-            fg_color=BLUE,
-            state="disabled",
-            command=self.apply_acceptance_preparation,
-        )
-        self.acceptance_apply_button.grid(
-            row=1, column=3, padx=4, pady=(4, 8), sticky="ew"
+            row=0, column=1, padx=4, pady=4, sticky="ew"
         )
         self.acceptance_restore_button = ctk.CTkButton(
-            environment,
+            env_actions,
             text="恢复测试环境",
             fg_color="transparent",
             border_width=1,
@@ -778,7 +749,45 @@ class PublisherApplication(ctk.CTk):
             command=self.restore_acceptance_environment,
         )
         self.acceptance_restore_button.grid(
-            row=1, column=4, padx=4, pady=(4, 8), sticky="ew"
+            row=0, column=2, padx=4, pady=4, sticky="ew"
+        )
+        ctk.CTkLabel(
+            environment,
+            text=(
+                "补丁失败场景：点「构建该环境」即可造出对应坏补丁状态；"
+                "测完后务必点「恢复测试环境」。"
+            ),
+            text_color=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=980,
+        ).grid(row=2, column=0, padx=12, pady=(2, 2), sticky="ew")
+        self.acceptance_scenario_list = ctk.CTkScrollableFrame(
+            environment,
+            height=168,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+        )
+        self.acceptance_scenario_list.grid(
+            row=3, column=0, padx=10, pady=(2, 10), sticky="ew"
+        )
+        self._acceptance_scenario_buttons: dict[str, ctk.CTkButton] = {}
+        self._render_acceptance_scenario_list()
+        # Kept for compatibility with older preparation helpers that still
+        # reference the variant menu; the scenario list is the primary UX.
+        self.acceptance_variant_menu = ctk.CTkOptionMenu(
+            environment,
+            values=["当前项目没有自动准备方案"],
+            fg_color=LIGHT_BLUE,
+            button_color=BLUE,
+            state="disabled",
+        )
+        self.acceptance_preview_button = ctk.CTkButton(
+            environment, text="预览环境准备", state="disabled"
+        )
+        self.acceptance_apply_button = ctk.CTkButton(
+            environment, text="执行环境准备", state="disabled"
         )
 
         body = ctk.CTkFrame(
@@ -1117,6 +1126,58 @@ class PublisherApplication(ctk.CTk):
             SKIPPED: ("已跳过", MUTED),
         }.get(status, ("未测试", TEXT))
 
+    def _render_acceptance_scenario_list(self) -> None:
+        for child in self.acceptance_scenario_list.winfo_children():
+            child.destroy()
+        self._acceptance_scenario_buttons = {}
+        for scenario in self.acceptance.patch_failure_scenarios():
+            row = ctk.CTkFrame(
+                self.acceptance_scenario_list,
+                fg_color=CARD,
+                border_width=1,
+                border_color="#E0E0E0",
+                corner_radius=8,
+            )
+            row.pack(fill="x", padx=4, pady=4)
+            row.grid_columnconfigure(0, weight=1)
+            text = ctk.CTkFrame(row, fg_color="transparent")
+            text.grid(row=0, column=0, padx=10, pady=8, sticky="ew")
+            ctk.CTkLabel(
+                text,
+                text=scenario.title,
+                font=("Microsoft YaHei UI", 14, "bold"),
+                text_color=TEXT,
+                anchor="w",
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                text,
+                text=f"{scenario.description}  预期：{scenario.expected_client}",
+                text_color=MUTED,
+                anchor="w",
+                justify="left",
+                wraplength=760,
+            ).pack(anchor="w", pady=(2, 0))
+            if scenario.auto_buildable:
+                button = ctk.CTkButton(
+                    row,
+                    text="构建该环境",
+                    width=110,
+                    fg_color=BLUE,
+                    command=lambda scenario_id=scenario.scenario_id: (
+                        self.build_acceptance_failure_environment(scenario_id)
+                    ),
+                )
+            else:
+                button = ctk.CTkButton(
+                    row,
+                    text="需人工操作",
+                    width=110,
+                    fg_color=LIGHT_BLUE,
+                    state="disabled",
+                )
+            button.grid(row=0, column=1, padx=10, pady=8)
+            self._acceptance_scenario_buttons[scenario.scenario_id] = button
+
     def select_acceptance_case(self, case_id: str) -> None:
         self._acceptance_case_id = case_id
         self._fill_acceptance_cases()
@@ -1170,13 +1231,12 @@ class PublisherApplication(ctk.CTk):
         if active is not None:
             label = str(active.get("variant_label", "未知方案"))
             self.acceptance_environment_status.configure(
-                text=f"存在未恢复的测试环境：{label}", text_color=RED
+                text=f"存在未恢复的测试环境：{label}（测完请恢复）",
+                text_color=RED,
             )
-            self.acceptance_variant_menu.configure(state="disabled")
             self.acceptance_baseline_button.configure(state="disabled")
-            self.acceptance_preview_button.configure(state="disabled")
-            self.acceptance_apply_button.configure(state="disabled")
             self.acceptance_restore_button.configure(state="normal")
+            self._set_acceptance_scenario_buttons(enabled=False)
             return
         baseline = (
             self.acceptance.current_baseline(self.profile, session)
@@ -1185,28 +1245,129 @@ class PublisherApplication(ctk.CTk):
         )
         if baseline is None:
             self.acceptance_environment_status.configure(
-                text="补丁测试环境：尚未记录当前轮次基线", text_color=MUTED
+                text="补丁测试环境：尚未记录当前轮次基线（可先点场景里的构建，将提示记录基线）",
+                text_color=MUTED,
             )
         else:
             self.acceptance_environment_status.configure(
                 text=f"补丁基线已记录：{baseline.get('created_at', '')}",
                 text_color="#2E7D32",
             )
-        ready = bool(
-            variants
-            and baseline is not None
-            and self._acceptance_fingerprint is not None
-            and session is not None
-        )
-        self.acceptance_variant_menu.configure(
-            state="normal" if variants else "disabled"
-        )
         self.acceptance_baseline_button.configure(
             state="normal" if session and self._acceptance_fingerprint else "disabled"
         )
-        self.acceptance_preview_button.configure(state="normal" if ready else "disabled")
-        self.acceptance_apply_button.configure(state="normal" if ready else "disabled")
         self.acceptance_restore_button.configure(state="disabled")
+        ready = bool(
+            baseline is not None
+            and self._acceptance_fingerprint is not None
+            and session is not None
+            and self._acceptance_paths.game_path is not None
+        )
+        self._set_acceptance_scenario_buttons(enabled=ready or (
+            session is not None and self._acceptance_fingerprint is not None
+        ))
+
+    def _set_acceptance_scenario_buttons(self, *, enabled: bool) -> None:
+        for scenario in self.acceptance.patch_failure_scenarios():
+            button = self._acceptance_scenario_buttons.get(scenario.scenario_id)
+            if button is None:
+                continue
+            if not scenario.auto_buildable:
+                button.configure(state="disabled", text="需人工操作")
+                continue
+            button.configure(
+                state="normal" if enabled else "disabled",
+                text="构建该环境",
+            )
+
+    def build_acceptance_failure_environment(self, scenario_id: str) -> None:
+        try:
+            scenario = self.acceptance.patch_failure_scenario(scenario_id)
+        except AcceptanceError as error:
+            messagebox.showerror("无法构建测试环境", str(error))
+            return
+        if not scenario.auto_buildable:
+            messagebox.showinfo(
+                "需要人工操作",
+                f"{scenario.title}\n\n{scenario.description}\n\n"
+                f"预期：{scenario.expected_client}",
+            )
+            return
+        if self.acceptance.active_preparation(self.profile) is not None:
+            messagebox.showwarning(
+                "请先恢复环境",
+                "当前已有未恢复的测试环境。请先点击“恢复测试环境”，再构建新的场景。",
+            )
+            return
+        fingerprint = self._acceptance_fingerprint
+        session = self._acceptance_session
+        if fingerprint is None or session is None:
+            messagebox.showinfo("验收尚未就绪", "请先等待或刷新当前构建指纹")
+            return
+        if self._acceptance_paths.game_path is None:
+            messagebox.showinfo("缺少游戏目录", "请先选择实际游戏目录")
+            return
+        baseline = self.acceptance.current_baseline(self.profile, session)
+        if baseline is None:
+            if not messagebox.askyesno(
+                "需要先记录基线",
+                "构建失败场景前需要先记录补丁基线（仅备份 DLL/INI，不改游戏文件）。\n\n"
+                "是否现在记录基线并继续构建该场景？",
+            ):
+                return
+            try:
+                self.acceptance.capture_patch_baseline(
+                    self.profile,
+                    self._acceptance_paths,
+                    session,
+                    fingerprint,
+                    overwrite=False,
+                )
+            except (AcceptanceError, OSError) as error:
+                messagebox.showerror("记录补丁基线失败", str(error))
+                return
+        self._acceptance_case_id = scenario.case_id
+        self._fill_acceptance_cases()
+        self._render_acceptance_case()
+        try:
+            preview = self.acceptance.preview_preparation(
+                self.profile,
+                self._acceptance_paths,
+                session,
+                fingerprint,
+                scenario.case_id,
+                scenario.variant_id,
+            )
+        except (AcceptanceError, OSError) as error:
+            messagebox.showerror("无法构建测试环境", str(error))
+            return
+        if not messagebox.askyesno(
+            f"构建：{scenario.title}",
+            f"{scenario.description}\n\n"
+            f"预期客户端表现：{scenario.expected_client}\n\n"
+            + "\n".join(f"· {action}" for action in preview.actions)
+            + "\n\n执行前请关闭游戏和客户端。测完后务必恢复环境。是否继续？",
+        ):
+            return
+        try:
+            self.acceptance.apply_preparation(
+                self.profile,
+                self._acceptance_paths,
+                session,
+                fingerprint,
+                scenario.case_id,
+                scenario.variant_id,
+            )
+            self._update_acceptance_environment_controls()
+            messagebox.showwarning(
+                "测试环境已构建",
+                f"「{scenario.title}」已生效。\n\n"
+                "现在可以启动客户端验证对应行为。\n"
+                "测完后请点击“恢复测试环境”。",
+            )
+        except (AcceptanceError, OSError) as error:
+            self._update_acceptance_environment_controls()
+            messagebox.showerror("构建测试环境失败", str(error))
 
     def _selected_preparation_variant(self) -> str:
         return self._acceptance_variant_by_label.get(

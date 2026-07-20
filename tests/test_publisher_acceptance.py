@@ -34,6 +34,21 @@ def test_acceptance_checklist_adds_mapping_case_only_to_mapping_cartridges(
     assert "download.multipart" in stellaris
 
 
+def test_patch_failure_scenarios_cover_auto_and_manual_cases() -> None:
+    scenarios = AcceptanceManager.patch_failure_scenarios()
+    ids = {item.scenario_id for item in scenarios}
+    assert "patch.current-missing" in ids
+    assert "patch.backup-missing" in ids
+    assert "patch.ini-missing" in ids
+    assert "patch.current-mismatch" in ids
+    assert "patch.clean-original" in ids
+    quarantine = AcceptanceManager.patch_failure_scenario("patch.security-quarantine")
+    assert quarantine.auto_buildable is False
+    assert AcceptanceManager.patch_failure_scenario(
+        "patch.current-missing"
+    ).variant_id == "patch.current-missing"
+
+
 def test_acceptance_fingerprint_binds_client_cartridge_and_publish_assets(
     tmp_path: Path,
 ) -> None:
