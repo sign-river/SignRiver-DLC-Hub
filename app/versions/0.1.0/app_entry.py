@@ -82,6 +82,11 @@ UI = {
     "danger_surface_hover": "#FFE1DE",
 }
 
+# Keep in sync with signriver_launcher.product for packaging/UI naming.
+PRODUCT_TITLE_ZH = "星河DLC一键解锁"
+AUTHOR_EN = "SignRiver"
+AUTHOR_CN = "唏嘘南溪"
+
 
 def _card(parent, **kwargs):
     return ctk.CTkFrame(
@@ -135,7 +140,7 @@ class DlcHubApplication:
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
         self.window = ctk.CTk()
-        self.window.title("SignRiver DLC Hub")
+        self.window.title(PRODUCT_TITLE_ZH)
         self.window.geometry("1120x840")
         self.window.minsize(1000, 700)
         self.window.configure(fg_color=UI["page"])
@@ -361,11 +366,11 @@ class DlcHubApplication:
         sidebar.pack_propagate(False)
         self.sidebar = sidebar
         ctk.CTkLabel(
-            sidebar, text="SignRiver", text_color=UI["primary"],
+            sidebar, text="星河DLC", text_color=UI["primary"],
             font=ctk.CTkFont(size=23, weight="bold")
         ).pack(anchor="w", padx=22, pady=(30, 4))
         ctk.CTkLabel(
-            sidebar, text="DLC HUB", text_color=UI["muted"],
+            sidebar, text="一键解锁", text_color=UI["muted"],
             font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(anchor="w", padx=23, pady=(0, 24))
         self.navigation_buttons = {}
@@ -399,9 +404,9 @@ class DlcHubApplication:
         title_group = ctk.CTkFrame(topbar, fg_color="transparent")
         title_group.pack(side="left", padx=24, pady=20)
         ctk.CTkLabel(
-            title_group, text="SignRiver DLC Hub",
+            title_group, text=PRODUCT_TITLE_ZH,
             text_color=UI["on_blue"],
-            font=ctk.CTkFont(size=30, weight="bold"),
+            font=ctk.CTkFont(size=28, weight="bold"),
         ).pack(anchor="w")
         title_status_row = ctk.CTkFrame(title_group, fg_color="transparent")
         title_status_row.pack(anchor="w", pady=(3, 0))
@@ -421,11 +426,17 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(side="left", padx=(10, 0))
         profile_group = ctk.CTkFrame(topbar, fg_color="transparent")
-        profile_group.pack(side="right", padx=22, pady=24)
+        profile_group.pack(side="right", padx=22, pady=18)
+        author_group = ctk.CTkFrame(profile_group, fg_color="transparent")
+        author_group.pack(side="left", padx=(0, 12))
         ctk.CTkLabel(
-            profile_group, text="SignRiver", text_color=UI["on_blue"],
-            font=ctk.CTkFont(weight="bold")
-        ).pack(side="left", padx=(0, 8))
+            author_group, text=AUTHOR_EN, text_color=UI["on_blue"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="e")
+        ctk.CTkLabel(
+            author_group, text=AUTHOR_CN, text_color="#E8F2FA",
+            font=ctk.CTkFont(size=12),
+        ).pack(anchor="e")
         ctk.CTkButton(
             profile_group, text="GitHub", width=68,
             command=lambda: self._open_external_link(

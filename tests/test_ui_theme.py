@@ -80,6 +80,14 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'text="开源免费 · 付费购买请立即退款"' in source
     assert 'fg_color="#2F6FA9"' in source
     assert 'title_status_row.pack(anchor="w", pady=(3, 0))' in source
+    assert "PRODUCT_TITLE_ZH" in source
+    assert 'self.window.title(PRODUCT_TITLE_ZH)' in source
+    assert 'text=PRODUCT_TITLE_ZH' in source
+    assert 'text=AUTHOR_EN' in source
+    assert 'text=AUTHOR_CN' in source
+    assert 'AUTHOR_CN = "唏嘘南溪"' in source
+    assert 'text="星河DLC"' in source
+    assert 'text="一键解锁"' in source
 
 
 def test_all_dropdowns_use_bordered_combo_box_factory() -> None:

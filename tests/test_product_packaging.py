@@ -4,14 +4,20 @@ from pathlib import Path
 
 from signriver_launcher.paths import RuntimePaths
 from signriver_launcher.product import (
+    AUTHOR_CN,
+    AUTHOR_EN,
     PRODUCT_DISPLAY_NAME,
     RELEASE_DIR_NAME,
     RELEASE_EXE_NAME,
+    WINDOW_TITLE,
 )
 
 
 def test_release_product_names_are_chinese_and_path_safe() -> None:
     assert PRODUCT_DISPLAY_NAME == "星河DLC一键解锁"
+    assert WINDOW_TITLE == PRODUCT_DISPLAY_NAME
+    assert AUTHOR_EN == "SignRiver"
+    assert AUTHOR_CN == "唏嘘南溪"
     assert RELEASE_DIR_NAME == PRODUCT_DISPLAY_NAME
     assert RELEASE_EXE_NAME == f"{PRODUCT_DISPLAY_NAME}.exe"
     for name in (RELEASE_DIR_NAME, RELEASE_EXE_NAME):
