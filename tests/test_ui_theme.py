@@ -319,7 +319,7 @@ def test_simple_catalog_is_compact_and_has_complete_bulk_selection() -> None:
     assert "self.simple_catalog_columns = 5" in source
     assert "columns = 4 if compact else 5" in source
     assert "self.catalog_selection_initialized = False" in source
-    assert "if entries and not self.catalog_selection_initialized:" in source
+    assert "if entries:" in source
     assert "if not self._is_entry_installed(entry)" in source
     assert 'checkbox_width=18, checkbox_height=18' in source
     assert 'status.grid(row=0, column=2' in source
@@ -361,7 +361,10 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert 'text="网络测速"' in source
     assert 'text="缓存管理"' in source
     assert 'text="程序与更新"' in source
-    assert '"设置": (self.speed_test_card, self.cache_card, self.update_card)' in source
+    assert 'text="下载容错"' in source
+    assert 'text="永不因连接读取超时而中断"' in source
+    assert "self.resilience_card" in source
+    assert "self.download_manager.configure_timeout" in source
     assert '"关于"' not in source
     assert "bandwidth_entry" not in source
     assert "限速 KiB/s" not in source
@@ -764,6 +767,12 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     assert "def _maybe_finish_unlock_workflow" in source
     assert 'messagebox.showinfo("一键解锁成功"' in source
     assert "self.unlock_workflow_active" in source
+    finish_method = source.split("def _maybe_finish_unlock_workflow", 1)[1].split(
+        "def _show_install_state", 1
+    )[0]
+    assert "self.patch_engine.audit_recorded" in finish_method
+    assert "DLC 已安装，但补丁复检失败" in finish_method
+    assert 'messagebox.showwarning(' in finish_method
 
 
 def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:

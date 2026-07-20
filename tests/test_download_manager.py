@@ -81,6 +81,22 @@ def test_download_policy_applies_bandwidth_limit(tmp_path: Path) -> None:
     assert delays == [2.0]
 
 
+def test_download_can_disable_socket_timeout(tmp_path: Path) -> None:
+    received_timeouts = []
+    manager = DownloadManager(
+        tmp_path,
+        opener=lambda _url, timeout: (
+            received_timeouts.append(timeout) or io.BytesIO(DATA)
+        ),
+    )
+
+    manager.configure_timeout(None)
+    result = manager.run(spec())
+
+    assert result.state is DownloadState.READY
+    assert received_timeouts == [None]
+
+
 def test_hash_mismatch_is_quarantined(tmp_path: Path) -> None:
     manager = DownloadManager(tmp_path, opener=lambda *_args: io.BytesIO(DATA))
     result = manager.run(spec(expected_sha256="0" * 64))

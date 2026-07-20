@@ -207,6 +207,27 @@ class AcceptanceManager:
         self._atomic_json(self.root / "settings.json", settings)
         return self.configured_paths(profile)
 
+    @staticmethod
+    def patch_directory(
+        profile: GameProfile, game_root: Path, *, require_exists: bool = False
+    ) -> Path:
+        """Resolve the patch directory exclusively from the active cartridge."""
+        root = Path(game_root).resolve()
+        patch_dir = (root / profile.patch_relative_dir).resolve()
+        if not patch_dir.is_relative_to(root):
+            raise AcceptanceError(
+                f"{profile.display_name} 卡带的补丁目录超出了游戏根目录："
+                f"{profile.patch_relative_dir}"
+            )
+        if require_exists and not patch_dir.is_dir():
+            raise AcceptanceError(
+                f"{profile.display_name} 卡带配置的补丁目录不存在：\n"
+                f"{patch_dir}\n\n"
+                "请确认当前选择的是该卡带对应的游戏根目录；如游戏结构已变化，"
+                "请先在“卡带配置”中更新补丁安装目录。"
+            )
+        return patch_dir
+
     def find_default_client(self) -> Path | None:
         candidates = (
             self.project_root / "dist" / "SignRiver-DLC-Hub" / "SignRiver-DLC-Hub.exe",
@@ -538,7 +559,10 @@ class AcceptanceManager:
     ) -> tuple[Path, dict[str, object]]:
         game_root = paths.game_path
         dlc_dir = game_root / profile.dlc_relative_dir if game_root else None
-        patch_dir = game_root / profile.patch_relative_dir if game_root else None
+        patch_dir = (
+            self.patch_directory(profile, game_root)
+            if game_root else None
+        )
         dlc_folders = (
             sorted(path.name for path in dlc_dir.iterdir() if path.is_dir())
             if dlc_dir and dlc_dir.is_dir()
@@ -635,11 +659,9 @@ class AcceptanceManager:
     ) -> dict[str, Path]:
         assert paths.game_path is not None
         game_root = paths.game_path.resolve()
-        patch_dir = (game_root / profile.patch_relative_dir).resolve()
-        if not patch_dir.is_relative_to(game_root):
-            raise AcceptanceError("当前卡带的补丁目录超出了游戏根目录")
-        if not patch_dir.is_dir():
-            raise AcceptanceError(f"补丁目录不存在：{patch_dir}")
+        patch_dir = self.patch_directory(
+            profile, game_root, require_exists=True
+        )
         return {
             "unlocker": patch_dir / profile.patch_unlocker_name,
             "backup": patch_dir / profile.patch_original_backup_name,

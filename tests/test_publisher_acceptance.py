@@ -373,6 +373,27 @@ def test_patch_environment_tools_follow_each_cartridge_patch_directory(
     assert root_decoy.read_bytes() == b"must not be touched"
 
 
+def test_patch_directory_rejects_escape_and_names_active_cartridge(
+    tmp_path: Path,
+) -> None:
+    workspace, manager = manager_for(tmp_path)
+    profile = profile_by_id(workspace, "civilization_6")
+    root = tmp_path / "wrong-game"
+    root.mkdir()
+
+    with pytest.raises(AcceptanceError, match="Civilization VI 卡带配置"):
+        manager.patch_directory(profile, root, require_exists=True)
+
+    unsafe = type(profile)(
+        **{
+            **profile.to_dict(),
+            "patch_relative_dir": "../outside",
+        }
+    )
+    with pytest.raises(AcceptanceError, match="超出了游戏根目录"):
+        manager.patch_directory(unsafe, root)
+
+
 def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     source = (Path(__file__).parents[1] / "src" / "signriver_publisher" / "ui.py").read_text(
         encoding="utf-8"

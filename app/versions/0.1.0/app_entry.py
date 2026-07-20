@@ -253,6 +253,7 @@ class DlcHubApplication:
                 download_concurrency=1,
                 bandwidth_limit_kib=None,
                 onboarding_completed=stored_settings.onboarding_completed,
+                download_never_timeout=stored_settings.download_never_timeout,
             )
             if (
                 stored_settings.download_concurrency != 1
@@ -260,6 +261,9 @@ class DlcHubApplication:
             ):
                 self.settings_repository.save(self.user_settings)
             self.download_manager = DownloadManager(self.context.paths.cache)
+            self.download_manager.configure_timeout(
+                None if self.user_settings.download_never_timeout else 30
+            )
             repository = GameInstallationRepository(database)
             self.download_repository = DownloadTaskRepository(database)
             self.install_repository = InstallReceiptRepository(database)
@@ -654,6 +658,36 @@ class DlcHubApplication:
         )
         self.speed_test_status.pack(fill="x", padx=24, pady=(8, 18))
 
+        resilience_card = _card(self.page_host)
+        self.resilience_card = resilience_card
+        resilience_header = ctk.CTkFrame(
+            resilience_card, fg_color="transparent"
+        )
+        resilience_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            resilience_header, text="下载容错", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        self.download_never_timeout_var = BooleanVar(
+            value=self.user_settings.download_never_timeout
+        )
+        self.download_never_timeout_switch = ctk.CTkSwitch(
+            resilience_header,
+            text="永不因连接读取超时而中断",
+            variable=self.download_never_timeout_var,
+            command=self._toggle_download_never_timeout,
+        )
+        self.download_never_timeout_switch.pack(side="right")
+        ctk.CTkLabel(
+            resilience_card,
+            text=(
+                "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
+                "主动断网或服务器拒绝连接仍会按正常重试规则处理。连接完全卡住时，"
+                "暂停或取消也可能要等网络恢复后才会生效。"
+            ),
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24, pady=(0, 18))
+
         cache_card = _card(self.page_host)
         self.cache_card = cache_card
         cache_header = ctk.CTkFrame(cache_card, fg_color="transparent")
@@ -813,7 +847,10 @@ class DlcHubApplication:
             "DLC 库": (self.game_card, self.catalog_card),
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
-            "设置": (self.speed_test_card, self.cache_card, self.update_card),
+            "设置": (
+                self.speed_test_card, self.resilience_card,
+                self.cache_card, self.update_card,
+            ),
         }
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
@@ -1545,6 +1582,31 @@ class DlcHubApplication:
         self._reconcile_catalog_cache()
         messagebox.showerror("缓存清理失败", message, parent=self.window)
 
+    def _toggle_download_never_timeout(self) -> None:
+        enabled = bool(self.download_never_timeout_var.get())
+        previous = self.user_settings
+        updated = UserSettings(
+            download_concurrency=1,
+            bandwidth_limit_kib=None,
+            onboarding_completed=previous.onboarding_completed,
+            download_never_timeout=enabled,
+        )
+        try:
+            if self.settings_repository is not None:
+                self.settings_repository.save(updated)
+            self.download_manager.configure_timeout(None if enabled else 30)
+        except Exception as error:
+            self.context.logger.exception("Unable to save download timeout setting")
+            self.download_never_timeout_var.set(
+                previous.download_never_timeout
+            )
+            messagebox.showerror(
+                "保存设置失败", str(error), parent=self.window
+            )
+            return
+        self.user_settings = updated
+        self._notify("下载永不超时已开启" if enabled else "已恢复默认下载超时")
+
     def _run_speed_test(self) -> None:
         if self.speed_test_running:
             return
@@ -1595,9 +1657,10 @@ class DlcHubApplication:
             parent=self.window,
         )
         self.user_settings = UserSettings(
-            1,
-            None,
-            True,
+            download_concurrency=1,
+            bandwidth_limit_kib=None,
+            onboarding_completed=True,
+            download_never_timeout=self.user_settings.download_never_timeout,
         )
         if self.settings_repository is not None:
             try:
@@ -1881,7 +1944,9 @@ class DlcHubApplication:
             else {}
         )
         self.catalog_missing_patch_assets = snapshot.missing_patch_assets
-        if entries and not self.catalog_selection_initialized:
+        # A refresh is a new user-facing selection session. Keep installed
+        # entries disabled, and select every DLC that can currently be acted on.
+        if entries:
             self.selected_dlc_ids = {
                 entry.dlc_id for entry in entries
                 if not self._is_entry_installed(entry)
@@ -3544,6 +3609,39 @@ class DlcHubApplication:
                 self.unlock_workflow_active = False
                 self.unlock_requested_dlc_ids = ()
                 self.unlock_failed_dlc_ids.clear()
+            return
+
+        # DLC installation can take much longer than patch application. A
+        # security product or a manual file operation may remove the patch in
+        # that interval, so success must be based on a final content audit.
+        try:
+            patch_audit = self.patch_engine.audit_recorded(
+                self.current_installation.root
+            )
+        except Exception:
+            self.context.logger.exception("Final one-click patch audit failed")
+            patch_audit = None
+        if patch_audit is None or patch_audit.health is not PatchHealth.HEALTHY:
+            affected = ()
+            if patch_audit is not None:
+                affected = (*patch_audit.missing, *patch_audit.modified)
+            affected_text = (
+                "\n\n异常文件：\n" + "\n".join(affected)
+                if affected else ""
+            )
+            self.unlock_workflow_active = False
+            self.unlock_requested_dlc_ids = ()
+            self.unlock_failed_dlc_ids.clear()
+            detail = (
+                "DLC 已安装完成，但补丁在流程结束前被删除、隔离或修改，"
+                "因此一键解锁尚未完成。请检查安全软件后重新点击一键解锁。"
+                f"{affected_text}"
+            )
+            self.catalog_preview.configure(text="DLC 已安装，但补丁复检失败")
+            self._notify("补丁复检失败", error=True)
+            messagebox.showwarning(
+                "一键解锁未完成", detail, parent=self.window
+            )
             return
 
         installed_count = len(self.unlock_requested_dlc_ids)

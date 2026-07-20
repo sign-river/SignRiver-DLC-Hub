@@ -1398,9 +1398,12 @@ class PublisherApplication(ctk.CTk):
         if game_root is None or not game_root.is_dir():
             messagebox.showinfo("未选择游戏目录", "请先选择当前游戏的实际安装目录")
             return
-        path = game_root / self.profile.patch_relative_dir
-        if not path.is_dir():
-            messagebox.showwarning("补丁目录不存在", f"当前卡带配置的目录不存在：\n{path}")
+        try:
+            path = self.acceptance.patch_directory(
+                self.profile, game_root, require_exists=True
+            )
+        except AcceptanceError as error:
+            messagebox.showwarning("补丁目录不存在", str(error))
             return
         self._open(path)
 

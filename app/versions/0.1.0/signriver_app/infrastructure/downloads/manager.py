@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import BinaryIO, Callable
 from urllib.parse import urlparse
@@ -23,12 +23,17 @@ _SAFE_FILENAME = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]+$")
 class DownloadPolicy:
     attempts: int = 3
     chunk_size: int = 256 * 1024
-    timeout: float = 30
+    timeout: float | None = 30
     retry_delay: float = 0.5
     max_bytes_per_second: int | None = None
 
     def __post_init__(self) -> None:
-        if self.attempts < 1 or self.chunk_size < 1 or self.timeout <= 0 or self.retry_delay < 0:
+        if (
+            self.attempts < 1
+            or self.chunk_size < 1
+            or (self.timeout is not None and self.timeout <= 0)
+            or self.retry_delay < 0
+        ):
             raise ValueError("invalid download policy")
         if self.max_bytes_per_second is not None and self.max_bytes_per_second < 1:
             raise ValueError("max_bytes_per_second must be positive")
@@ -60,7 +65,7 @@ class DownloadManager:
         cache_root: Path,
         *,
         policy: DownloadPolicy | None = None,
-        opener: Callable[[str, float], BinaryIO] | None = None,
+        opener: Callable[[str, float | None], BinaryIO] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -69,6 +74,10 @@ class DownloadManager:
         self._opener = opener or self._open_https
         self._sleep = sleep
         self._clock = clock
+
+    def configure_timeout(self, timeout: float | None) -> None:
+        """Apply a timeout to future connections without replacing the queue."""
+        self.policy = replace(self.policy, timeout=timeout)
 
     def run(
         self,
@@ -334,7 +343,7 @@ class DownloadManager:
             raise ValueError("expected SHA-256 is invalid")
 
     @staticmethod
-    def _open_https(url: str, timeout: float) -> BinaryIO:
+    def _open_https(url: str, timeout: float | None) -> BinaryIO:
         request = Request(url, headers={"Accept": "application/octet-stream", "User-Agent": "SignRiver-DLC-Hub/0.1"})
         response = urlopen(request, timeout=timeout)
         final = urlparse(response.geturl())

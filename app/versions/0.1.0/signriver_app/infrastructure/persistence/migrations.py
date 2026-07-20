@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 7
+LATEST_SCHEMA_VERSION = 8
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -123,6 +123,12 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
         """
         ALTER TABLE user_settings ADD COLUMN onboarding_completed INTEGER NOT NULL
         DEFAULT 0 CHECK (onboarding_completed IN (0, 1))
+        """,
+    ),
+    8: (
+        """
+        ALTER TABLE user_settings ADD COLUMN download_never_timeout INTEGER NOT NULL
+        DEFAULT 0 CHECK (download_never_timeout IN (0, 1))
         """,
     ),
 }
