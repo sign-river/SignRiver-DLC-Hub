@@ -19,7 +19,7 @@ class UserSettingsRepository:
             with self.database.connection() as connection:
                 row = connection.execute(
                     "SELECT download_concurrency, bandwidth_limit_kib, onboarding_completed, "
-                    "download_never_timeout "
+                    "download_never_timeout, download_source "
                     "FROM user_settings WHERE singleton=1"
                 ).fetchone()
             if row is None:
@@ -28,6 +28,7 @@ class UserSettingsRepository:
                 row["download_concurrency"], row["bandwidth_limit_kib"],
                 bool(row["onboarding_completed"]),
                 bool(row["download_never_timeout"]),
+                str(row["download_source"] or "gitlink"),
             )
         except Exception as error:
             raise PersistenceError("could not load user settings") from error
@@ -39,18 +40,21 @@ class UserSettingsRepository:
                 connection.execute(
                     """INSERT INTO user_settings (
                         singleton, download_concurrency, bandwidth_limit_kib,
-                        updated_at, onboarding_completed, download_never_timeout
-                    ) VALUES (1, ?, ?, ?, ?, ?)
+                        updated_at, onboarding_completed, download_never_timeout,
+                        download_source
+                    ) VALUES (1, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(singleton) DO UPDATE SET
                         download_concurrency=excluded.download_concurrency,
                         bandwidth_limit_kib=excluded.bandwidth_limit_kib,
                         updated_at=excluded.updated_at,
                         onboarding_completed=excluded.onboarding_completed,
-                        download_never_timeout=excluded.download_never_timeout""",
+                        download_never_timeout=excluded.download_never_timeout,
+                        download_source=excluded.download_source""",
                     (
                         settings.download_concurrency, settings.bandwidth_limit_kib,
                         now, int(settings.onboarding_completed),
                         int(settings.download_never_timeout),
+                        settings.download_source,
                     ),
                 )
         except Exception as error:

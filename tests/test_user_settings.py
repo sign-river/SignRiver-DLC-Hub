@@ -13,6 +13,7 @@ def test_user_settings_defaults_and_round_trip(tmp_path: Path) -> None:
         download_concurrency=4, bandwidth_limit_kib=2048,
         onboarding_completed=True,
         download_never_timeout=True,
+        download_source="github",
     )
     repository.save(settings)
     assert repository.load() == settings
@@ -25,3 +26,5 @@ def test_user_settings_validation() -> None:
         UserSettings(bandwidth_limit_kib=0)
     with pytest.raises(TypeError, match="download_never_timeout"):
         UserSettings(download_never_timeout=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="download_source"):
+        UserSettings(download_source="mirror")

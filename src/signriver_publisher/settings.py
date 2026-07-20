@@ -1,3 +1,5 @@
+"""Publisher local configuration for mirrored GitLink / GitHub targets."""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +18,43 @@ class PublisherSettings:
     owner: str = "signriver"
     repository: str = "signriver-dlc-assets"
     token: str = ""
+    github_owner: str = "sign-river"
+    github_repository: str = "signriver-dlc-assets"
+    github_token: str = ""
+    publish_target: str = "gitlink"
+
+    def __post_init__(self) -> None:
+        target = str(self.publish_target or "gitlink").strip().lower()
+        if target not in {"gitlink", "github"}:
+            raise ValueError("publish_target must be gitlink or github")
+        object.__setattr__(self, "publish_target", target)
+
+    @property
+    def active_owner(self) -> str:
+        return self.github_owner if self.publish_target == "github" else self.owner
+
+    @property
+    def active_repository(self) -> str:
+        return (
+            self.github_repository
+            if self.publish_target == "github"
+            else self.repository
+        )
+
+    @property
+    def active_token(self) -> str:
+        return self.github_token if self.publish_target == "github" else self.token
+
+    def with_publish_target(self, target: str) -> "PublisherSettings":
+        return PublisherSettings(
+            owner=self.owner,
+            repository=self.repository,
+            token=self.token,
+            github_owner=self.github_owner,
+            github_repository=self.github_repository,
+            github_token=self.github_token,
+            publish_target=target,
+        )
 
     @classmethod
     def load(cls, path: Path) -> "PublisherSettings":
@@ -33,7 +72,19 @@ class PublisherSettings:
         token = str(gitlink.get("token", "")).strip()
         if not owner or not repository:
             raise PublisherSettingsError("GitLink owner 和 repository 不能为空")
-        return cls(owner, repository, token)
+        github = value.get("github") if isinstance(value.get("github"), dict) else {}
+        github_owner = str(github.get("owner", "")).strip() or "sign-river"
+        github_repository = (
+            str(github.get("repository", "")).strip() or "signriver-dlc-assets"
+        )
+        github_token = str(github.get("token", "")).strip()
+        target = str(value.get("publish_target") or "gitlink").strip().lower()
+        if target not in {"gitlink", "github"}:
+            raise PublisherSettingsError("publish_target 只能是 gitlink 或 github")
+        return cls(
+            owner, repository, token,
+            github_owner, github_repository, github_token, target,
+        )
 
 
 def discover_settings_path() -> Path:

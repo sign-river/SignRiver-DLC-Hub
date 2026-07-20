@@ -6,7 +6,7 @@
 
 发布器相当于服务端“制卡机”，`publisher-workspace/games` 下的每个游戏目录都是一张独立卡带。卡带的 `game.json` 声明游戏 ID、Steam App ID、Release 标签、AppInfo 文件名以及该游戏使用的两个补丁 DLL 文件名；构建、增量发布和远程资源管理始终只操作当前卡带。
 
-客户端游戏列表来自 GitLink 仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。发布器“导出客户端卡带主表”会把当前全部卡带写成可上传到 `hub` Release 的文件，目录位于 `publisher-workspace/output/hub/`。
+客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。发布器“导出客户端卡带主表”会把当前全部卡带写成可上传文件，并可通过发布目标选择 GitLink 或 GitHub。
 
 发布验收中的补丁目录同样读取当前卡带的 `patch_relative_dir`，不会固定为 Stellaris 或文明 6 的目录。选择实际游戏目录时必须与顶部当前卡带一致；若目录不存在，提示会同时显示当前卡带与它配置的目标路径。
 

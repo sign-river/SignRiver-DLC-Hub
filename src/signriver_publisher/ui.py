@@ -23,6 +23,7 @@ from .acceptance import (
     AcceptanceSession,
     PreparationPreview,
 )
+from .github import GitHubPublisherError, GitHubReleaseClient, GitHubRepository
 from .gitlink import (
     GitLinkAttachmentClient,
     GitLinkCli,
@@ -388,15 +389,27 @@ class PublisherApplication(ctk.CTk):
         remote.grid_rowconfigure(4, weight=1)
         settings = ctk.CTkFrame(remote, fg_color="transparent")
         settings.grid(row=1, column=0, padx=20, sticky="ew")
-        settings.grid_columnconfigure((1, 3), weight=1)
-        ctk.CTkLabel(settings, text="所有者").grid(row=0, column=0, padx=(0, 8))
+        settings.grid_columnconfigure((1, 3, 5), weight=1)
+        ctk.CTkLabel(settings, text="发布目标").grid(row=0, column=0, padx=(0, 8))
+        self.publish_target_menu = ctk.CTkOptionMenu(
+            settings,
+            values=["GitLink", "GitHub"],
+            fg_color=LIGHT_BLUE,
+            button_color=BLUE,
+            command=self._on_publish_target_changed,
+        )
+        self.publish_target_menu.set(
+            "GitHub" if self.settings.publish_target == "github" else "GitLink"
+        )
+        self.publish_target_menu.grid(row=0, column=1, padx=(0, 18), sticky="ew")
+        ctk.CTkLabel(settings, text="所有者").grid(row=0, column=2, padx=(0, 8))
         self.owner_entry = ctk.CTkEntry(settings, border_color="#BDBDBD")
-        self.owner_entry.insert(0, self.repository.owner)
-        self.owner_entry.grid(row=0, column=1, padx=(0, 18), sticky="ew")
-        ctk.CTkLabel(settings, text="新仓库").grid(row=0, column=2, padx=(0, 8))
+        self.owner_entry.insert(0, self.settings.active_owner)
+        self.owner_entry.grid(row=0, column=3, padx=(0, 18), sticky="ew")
+        ctk.CTkLabel(settings, text="仓库").grid(row=0, column=4, padx=(0, 8))
         self.repo_entry = ctk.CTkEntry(settings, border_color="#BDBDBD")
-        self.repo_entry.insert(0, self.repository.name)
-        self.repo_entry.grid(row=0, column=3, padx=(0, 10), sticky="ew")
+        self.repo_entry.insert(0, self.settings.active_repository)
+        self.repo_entry.grid(row=0, column=5, padx=(0, 10), sticky="ew")
         buttons = ctk.CTkFrame(remote, fg_color="transparent")
         buttons.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
         self.check_gitlink_button = ctk.CTkButton(
@@ -438,8 +451,8 @@ class PublisherApplication(ctk.CTk):
             border_color="#BDBDBD",
         )
         self.token_entry.pack(side="right", padx=4)
-        if self.settings.token:
-            self.token_entry.insert(0, self.settings.token)
+        if self.settings.active_token:
+            self.token_entry.insert(0, self.settings.active_token)
         transfer = ctk.CTkFrame(remote, fg_color="transparent")
         transfer.grid(row=3, column=0, padx=22, pady=(0, 10), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
@@ -2423,6 +2436,9 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("采用远程附件失败", message)
 
     def publish_release(self) -> None:
+        if self._publish_target() == "github":
+            self._publish_release_github()
+            return
         if not self._begin_background_mutation(
             "publish", "正在上传 Release"
         ):
@@ -2448,6 +2464,113 @@ class PublisherApplication(ctk.CTk):
         if not self._start_publish(repo, self.profile, assets, previous_state, token):
             self._publish_resume_context = None
             self._end_background_mutation("publish")
+
+    def _publish_target(self) -> str:
+        return "github" if self.publish_target_menu.get() == "GitHub" else "gitlink"
+
+    def _on_publish_target_changed(self, display_name: str) -> None:
+        target = "github" if display_name == "GitHub" else "gitlink"
+        self.settings = self.settings.with_publish_target(target)
+        self.owner_entry.delete(0, "end")
+        self.repo_entry.delete(0, "end")
+        self.token_entry.delete(0, "end")
+        self.owner_entry.insert(0, self.settings.active_owner)
+        self.repo_entry.insert(0, self.settings.active_repository)
+        if self.settings.active_token:
+            self.token_entry.insert(0, self.settings.active_token)
+        self.repository = GitLinkRepository(
+            self.settings.active_owner, self.settings.active_repository
+        )
+        self._log(
+            f"发布目标已切换为 {display_name}："
+            f"{self.settings.active_owner}/{self.settings.active_repository}"
+        )
+
+    def _publish_release_github(self) -> None:
+        if not self._begin_background_mutation(
+            "publish", "正在上传 GitHub Release"
+        ):
+            return
+        try:
+            assets = self.workspace.publish_assets(self.profile)
+        except (WorkspaceError, OSError) as error:
+            self._end_background_mutation("publish")
+            messagebox.showerror("无法发布", str(error))
+            return
+        owner = self.owner_entry.get().strip()
+        name = self.repo_entry.get().strip()
+        token = self.token_entry.get().strip()
+        if not owner or not name:
+            self._end_background_mutation("publish")
+            messagebox.showerror("无法发布", "GitHub owner 和仓库名不能为空")
+            return
+        if not token:
+            self._end_background_mutation("publish")
+            messagebox.showerror("无法发布", "请填写 GitHub token")
+            return
+        if not messagebox.askyesno(
+            "确认发布到 GitHub",
+            f"上传 {len(assets)} 个文件到\n"
+            f"{owner}/{name} · {self.profile.release_tag}\n\n"
+            "同名附件会被替换。是否继续？",
+        ):
+            self._end_background_mutation("publish")
+            return
+        self.publish_button.configure(state="disabled", text="正在发布…")
+        self.adopt_remote_button.configure(state="disabled")
+        self.upload_status.configure(text="正在准备 GitHub 上传…")
+        self.upload_progress.set(0)
+        profile = self.profile
+
+        def worker() -> None:
+            try:
+                client = GitHubReleaseClient(
+                    GitHubRepository(owner, name), token
+                )
+                release = client.ensure_release(profile.release_tag)
+                total = len(assets)
+                for index, asset in enumerate(assets, start=1):
+                    self._queue_upload_progress(
+                        index, total, asset.name, 0, asset.size_bytes
+                    )
+                    client.upload_asset(release, asset.path, replace_existing=True)
+                    self._queue_upload_progress(
+                        index, total, asset.name, asset.size_bytes, asset.size_bytes
+                    )
+                self._post_ui(
+                    lambda: self._github_publish_done(owner, name, profile, total)
+                )
+            except (GitHubPublisherError, OSError) as error:
+                message = str(error)
+                self._post_ui(
+                    lambda message=message: self._github_publish_failed(message)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _github_publish_done(
+        self, owner: str, name: str, profile: GameProfile, total: int
+    ) -> None:
+        self._remote_operation_active = False
+        self._end_background_mutation("publish")
+        self.publish_button.configure(state="normal", text="发布到 Release")
+        self.adopt_remote_button.configure(state="normal")
+        self.publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.upload_status.configure(text=f"GitHub 发布完成 · {total} 个文件")
+        self.upload_progress.set(1)
+        summary = f"已发布到 GitHub {owner}/{name} · {profile.release_tag}"
+        self._log(summary)
+        messagebox.showinfo("发布完成", summary)
+
+    def _github_publish_failed(self, message: str) -> None:
+        self._remote_operation_active = False
+        self._end_background_mutation("publish")
+        self.publish_button.configure(state="normal", text="发布到 Release")
+        self.adopt_remote_button.configure(state="normal")
+        self.publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.upload_status.configure(text="GitHub 发布失败")
+        self._log(f"GitHub 发布失败：{message}")
+        messagebox.showerror("GitHub 发布失败", message)
 
     def _start_publish(
         self,

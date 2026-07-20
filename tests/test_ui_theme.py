@@ -86,10 +86,14 @@ def test_all_dropdowns_use_bordered_combo_box_factory() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "CTkOptionMenu(" not in source
-    assert source.count("= _combo_box(") == 3
+    assert source.count("= _combo_box(") == 4
     assert '"border_width": 1' in source
     assert 'self.catalog_filter.set("全部状态")' in source
     assert 'self.log_level_filter.set("全部")' in source
+    assert 'text="下载源"' in source
+    assert "self.download_source_menu" in source
+    assert "speed_test_url(self.user_settings.download_source)" in source
+    assert "repository_home_url(self.user_settings.download_source)" in source
 
 
 def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
@@ -344,7 +348,7 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert 'text="网络测速"' in source
     assert 'text="开始测速"' in source
     assert "measure_download_speed(url)" in source
-    assert "releases/download/test/test.bin" in source
+    assert "speed_test_url(self.user_settings.download_source)" in source
     assert 'text="一键移除补丁"' in source
     assert 'text="恢复游戏原版"' in source
     assert 'text="卸载全部 DLC"' in source
@@ -364,6 +368,8 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert 'text="下载容错"' in source
     assert 'text="永不因连接读取超时而中断"' in source
     assert "self.resilience_card" in source
+    assert 'text="下载源"' in source
+    assert "self.source_card" in source
     assert "self.download_manager.configure_timeout" in source
     assert '"关于"' not in source
     assert "bandwidth_entry" not in source

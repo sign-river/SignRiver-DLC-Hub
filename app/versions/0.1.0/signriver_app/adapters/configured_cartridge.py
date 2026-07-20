@@ -11,7 +11,8 @@ from types import MappingProxyType
 from ..application.dlc_catalog import ReleaseCatalogService
 from ..domain import PatchBundle, PatchProfile, ReleaseAsset, resolve_game_directory
 from ..infrastructure.catalog import (
-    GitLinkReleaseSource, GitLinkSourceConfig,
+    create_release_source,
+    resolve_repository,
 )
 from ..infrastructure.installs import DirectoryInstallEngine
 from .common import (
@@ -31,7 +32,9 @@ class ConfiguredSteamCartridge:
         executable_relative_path: str,
         patch_profile: PatchProfile,
         package_inspector,
-        repository: GitLinkSourceConfig | None = None,
+        repository_owner: str = "signriver",
+        repository_name: str = "signriver-dlc-assets",
+        repositories: dict[str, dict[str, str]] | None = None,
         install_directory_from_slug: bool = False,
     ) -> None:
         self.cartridge_id = f"{game_id}.steam"
@@ -42,9 +45,9 @@ class ConfiguredSteamCartridge:
         self.dlc_relative_dir = dlc_relative_dir
         self.executable_name = executable_relative_path
         self.patch_profile = patch_profile
-        self.repository = repository or GitLinkSourceConfig(
-            "signriver", "signriver-dlc-assets"
-        )
+        self.repository_owner = repository_owner
+        self.repository_name = repository_name
+        self.repositories = dict(repositories or {})
         self.package_inspector = package_inspector
         self.install_directory_from_slug = install_directory_from_slug
         self._installed_paths: dict[str, Path] = {}
@@ -73,9 +76,15 @@ class ConfiguredSteamCartridge:
             revision = hashlib.sha256(asset.download_url.encode("utf-8")).hexdigest()[:16]
         return f"{self.cartridge_id}-patch-{role}-{revision}"
 
-    def create_catalog(self) -> ReleaseCatalogService:
+    def create_catalog(self, *, download_source: str = "gitlink") -> ReleaseCatalogService:
+        owner, repository = resolve_repository(
+            download_source,  # type: ignore[arg-type]
+            owner=self.repository_owner,
+            repository=self.repository_name,
+            repositories=self.repositories,
+        )
         return ReleaseCatalogService(
-            GitLinkReleaseSource(self.repository),
+            create_release_source(download_source, owner, repository),  # type: ignore[arg-type]
             release_tag=self.release_tag,
             patch_profile=self.patch_profile,
         )

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ..domain import CartridgeDocument, PatchProfile, PatchTemplate
 from ..infrastructure.catalog import (
-    GitLinkSourceConfig,
     inspect_directory_package,
     inspect_stellaris_package,
 )
@@ -39,9 +38,9 @@ def build_cartridge_from_document(document: CartridgeDocument) -> ConfiguredStea
             ),
         ),
         package_inspector=inspector,
-        repository=GitLinkSourceConfig(
-            document.repository_owner, document.repository_name,
-        ),
+        repository_owner=document.repository_owner,
+        repository_name=document.repository_name,
+        repositories=dict(document.repositories),
         install_directory_from_slug=document.install_directory_from_slug,
     )
 

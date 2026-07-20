@@ -31,6 +31,11 @@ from .signriver_app.domain import (
     UserSettings,
 )
 from .signriver_app.infrastructure.cache import CacheMaintenance
+from .signriver_app.infrastructure.catalog import (
+    provider_display_name,
+    repository_home_url,
+    speed_test_url,
+)
 from .signriver_app.infrastructure.downloads import DownloadManager
 from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
 from .signriver_app.infrastructure.installs import (
@@ -126,6 +131,7 @@ class DlcHubApplication:
         self.cartridge_catalog = CartridgeCatalogService(
             self.context.paths.data / "cartridges",
             bootstrap_dir=self.context.paths.root / "config" / "cartridges",
+            download_source="gitlink",
         )
         self.cartridge_loading = False
         self.cartridges: dict[str, object] = {}
@@ -256,12 +262,21 @@ class DlcHubApplication:
                 bandwidth_limit_kib=None,
                 onboarding_completed=stored_settings.onboarding_completed,
                 download_never_timeout=stored_settings.download_never_timeout,
+                download_source=stored_settings.download_source,
             )
             if (
                 stored_settings.download_concurrency != 1
                 or stored_settings.bandwidth_limit_kib is not None
             ):
                 self.settings_repository.save(self.user_settings)
+            if self.user_settings.download_source != self.cartridge_catalog.download_source:
+                self.cartridge_catalog.set_download_source(
+                    self.user_settings.download_source
+                )
+                loaded = self.cartridge_catalog.load_default_cartridge(
+                    allow_network=False
+                )
+                self._activate_loaded_cartridge(loaded, rebuild_services=False)
             self.download_manager = DownloadManager(self.context.paths.cache)
             self.download_manager.configure_timeout(
                 None if self.user_settings.download_never_timeout else 30
@@ -381,9 +396,7 @@ class DlcHubApplication:
         ).pack(side="left", padx=3)
         ctk.CTkButton(
             profile_group, text="资源仓库", width=78,
-            command=lambda: self._open_external_link(
-                "https://www.gitlink.org.cn/signriver/signriver-dlc-assets"
-            ),
+            command=self._open_resource_repository,
         ).pack(side="left", padx=3)
         ctk.CTkButton(
             profile_group, text="B站", width=52,
@@ -499,7 +512,10 @@ class DlcHubApplication:
         self.advanced_view_button.pack(side="right", padx=(0, 8))
         self.catalog_status = ctk.CTkLabel(
             catalog_card,
-            text=f"等待读取 GitLink · {self.cartridge.release_tag} Release",
+            text=(
+                f"等待读取 {provider_display_name(self.user_settings.download_source)}"
+                f" · {self.cartridge.release_tag} Release"
+            ),
             anchor="w",
         )
         self.catalog_status.pack(fill="x", padx=24)
@@ -653,7 +669,7 @@ class DlcHubApplication:
         self.speed_test_button.pack(side="right")
         ctk.CTkLabel(
             speed_test_card,
-            text="从 GitLink 下载测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
+            text="从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
             text_color=UI["text_secondary"], anchor="w",
         ).pack(fill="x", padx=24)
         self.speed_test_status = ctk.CTkLabel(
@@ -687,6 +703,34 @@ class DlcHubApplication:
                 "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
                 "主动断网或服务器拒绝连接仍会按正常重试规则处理。连接完全卡住时，"
                 "暂停或取消也可能要等网络恢复后才会生效。"
+            ),
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=24, pady=(0, 18))
+
+        source_card = _card(self.page_host)
+        self.source_card = source_card
+        source_header = ctk.CTkFrame(source_card, fg_color="transparent")
+        source_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            source_header, text="下载源", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        self.download_source_menu = _combo_box(
+            source_header,
+            values=["GitLink", "GitHub"],
+            width=140,
+            command=self._on_download_source_selected,
+        )
+        self.download_source_menu.set(
+            provider_display_name(self.user_settings.download_source)
+        )
+        self.download_source_menu.pack(side="right")
+        ctk.CTkLabel(
+            source_card,
+            text=(
+                "默认使用 GitLink。若当前线路不稳定，可切换到 GitHub；"
+                "两边的 Release 标签与资源文件名保持一致。切换后会重新读取"
+                "游戏列表与当前游戏目录。"
             ),
             text_color=UI["text_secondary"], anchor="w",
         ).pack(fill="x", padx=24, pady=(0, 18))
@@ -851,7 +895,7 @@ class DlcHubApplication:
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
             "设置": (
-                self.speed_test_card, self.resilience_card,
+                self.speed_test_card, self.resilience_card, self.source_card,
                 self.cache_card, self.update_card,
             ),
         }
@@ -1001,7 +1045,9 @@ class DlcHubApplication:
             self.adapter_registry.register(cartridge.adapter)
         self.cartridge = cartridge
         self.patch_profile = cartridge.patch_profile
-        self.catalog = cartridge.create_catalog()
+        self.catalog = cartridge.create_catalog(
+            download_source=self.user_settings.download_source,
+        )
         self.patch_engine = PatchEngine(
             cartridge.patch_profile, self.context.paths.data,
         )
@@ -1164,7 +1210,9 @@ class DlcHubApplication:
             self.game_selection_generation += 1
             self.cartridge = cartridge
             self.patch_profile = cartridge.patch_profile
-            self.catalog = cartridge.create_catalog()
+            self.catalog = cartridge.create_catalog(
+            download_source=self.user_settings.download_source,
+        )
             self.patch_engine = PatchEngine(
                 cartridge.patch_profile, self.context.paths.data,
             )
@@ -1763,6 +1811,7 @@ class DlcHubApplication:
             bandwidth_limit_kib=None,
             onboarding_completed=previous.onboarding_completed,
             download_never_timeout=enabled,
+            download_source=previous.download_source,
         )
         try:
             if self.settings_repository is not None:
@@ -1780,13 +1829,103 @@ class DlcHubApplication:
         self.user_settings = updated
         self._notify("下载永不超时已开启" if enabled else "已恢复默认下载超时")
 
+    def _open_resource_repository(self) -> None:
+        self._open_external_link(
+            repository_home_url(self.user_settings.download_source)
+        )
+
+    def _on_download_source_selected(self, display_name: str) -> None:
+        selected = "github" if display_name == "GitHub" else "gitlink"
+        if selected == self.user_settings.download_source:
+            return
+        if self._content_work_is_active() or self.cartridge_loading:
+            self.download_source_menu.set(
+                provider_display_name(self.user_settings.download_source)
+            )
+            self._notify("请先结束当前下载/安装任务，再切换下载源", error=True)
+            return
+        previous = self.user_settings
+        updated = UserSettings(
+            download_concurrency=1,
+            bandwidth_limit_kib=None,
+            onboarding_completed=previous.onboarding_completed,
+            download_never_timeout=previous.download_never_timeout,
+            download_source=selected,
+        )
+        try:
+            if self.settings_repository is not None:
+                self.settings_repository.save(updated)
+        except Exception as error:
+            self.context.logger.exception("Unable to save download source")
+            self.download_source_menu.set(
+                provider_display_name(previous.download_source)
+            )
+            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            return
+        self.user_settings = updated
+        self.cartridge_catalog.set_download_source(selected)
+        self.cartridges.clear()
+        self.catalog_preview.configure(
+            text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
+        )
+        self._notify(f"下载源已切换为 {provider_display_name(selected)}")
+
+        def worker() -> None:
+            try:
+                self.cartridge_catalog.refresh_index(allow_network=True)
+                loaded = self.cartridge_catalog.load_default_cartridge(
+                    allow_network=True,
+                )
+                self._post_ui(
+                    lambda loaded=loaded: self._on_download_source_ready(loaded)
+                )
+            except Exception as error:
+                try:
+                    self.cartridge_catalog.refresh_index(allow_network=False)
+                    loaded = self.cartridge_catalog.load_default_cartridge(
+                        allow_network=False,
+                    )
+                    message = str(error)
+
+                    def finish(loaded=loaded, message=message) -> None:
+                        self._on_download_source_ready(loaded)
+                        self._notify(
+                            f"远程主表不可用，已使用本地缓存（{message}）",
+                            error=True,
+                        )
+
+                    self._post_ui(finish)
+                except Exception as fatal:
+                    message = str(fatal) or "切换下载源失败"
+                    self._post_ui(
+                        lambda message=message: messagebox.showerror(
+                            "切换下载源失败", message, parent=self.window,
+                        )
+                    )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_download_source_ready(self, loaded) -> None:
+        self._activate_loaded_cartridge(loaded, rebuild_services=True)
+        self._sync_game_selector_values()
+        self.game_selector.set(self.selected_game_name)
+        self.platform_status.configure(
+            text=(
+                f"{self.cartridge.platform_name} · App "
+                f"{self.cartridge.store_app_id}"
+            )
+        )
+        self._scan_games()
+        self._refresh_catalog()
+
     def _run_speed_test(self) -> None:
         if self.speed_test_running:
             return
         self.speed_test_running = True
         self.speed_test_button.configure(state="disabled", text="正在测速……")
-        self.speed_test_status.configure(text="正在从 GitLink 下载测速文件……")
-        url = "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/test/test.bin"
+        provider = provider_display_name(self.user_settings.download_source)
+        self.speed_test_status.configure(text=f"正在从 {provider} 下载测速文件……")
+        url = speed_test_url(self.user_settings.download_source)
 
         def worker() -> None:
             try:
@@ -1834,6 +1973,7 @@ class DlcHubApplication:
             bandwidth_limit_kib=None,
             onboarding_completed=True,
             download_never_timeout=self.user_settings.download_never_timeout,
+            download_source=self.user_settings.download_source,
         )
         if self.settings_repository is not None:
             try:
@@ -2072,7 +2212,10 @@ class DlcHubApplication:
         catalog = self.catalog
         self.catalog_refresh_button.configure(state="disabled")
         self.catalog_status.configure(
-            text=f"正在读取 GitLink · {self.cartridge.release_tag} Release……"
+            text=(
+                f"正在读取 {provider_display_name(self.user_settings.download_source)}"
+                f" · {self.cartridge.release_tag} Release……"
+            )
         )
 
         def worker() -> None:

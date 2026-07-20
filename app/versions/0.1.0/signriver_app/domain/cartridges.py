@@ -8,7 +8,7 @@ user selects that game (or when it is the configured default).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -186,6 +186,7 @@ class CartridgeDocument:
     install_directory_from_slug: bool = False
     repository_owner: str = "signriver"
     repository_name: str = "signriver-dlc-assets"
+    repositories: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.schema_version != CARTRIDGE_DOCUMENT_SCHEMA:
@@ -211,6 +212,26 @@ class CartridgeDocument:
         if isinstance(repository, dict):
             owner = str(repository.get("owner") or owner)
             name = str(repository.get("repository") or name)
+        repositories: dict[str, dict[str, str]] = {}
+        raw_repositories = value.get("repositories")
+        if isinstance(raw_repositories, dict):
+            for provider, coords in raw_repositories.items():
+                if not isinstance(coords, dict):
+                    continue
+                provider_owner = str(coords.get("owner") or "").strip()
+                provider_repo = str(coords.get("repository") or "").strip()
+                if provider_owner and provider_repo:
+                    repositories[str(provider)] = {
+                        "owner": provider_owner,
+                        "repository": provider_repo,
+                    }
+        if "gitlink" not in repositories:
+            repositories["gitlink"] = {"owner": owner, "repository": name}
+        if "github" not in repositories:
+            repositories["github"] = {
+                "owner": "sign-river",
+                "repository": name,
+            }
         patch = value.get("patch")
         if not isinstance(patch, dict):
             raise ValueError("patch object is required")
@@ -258,6 +279,7 @@ class CartridgeDocument:
             ),
             repository_owner=owner,
             repository_name=name,
+            repositories=repositories,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -276,6 +298,7 @@ class CartridgeDocument:
                 "owner": self.repository_owner,
                 "repository": self.repository_name,
             },
+            "repositories": self.repositories,
             "patch": {
                 "unlocker_dll_name": self.unlocker_dll_name,
                 "original_backup_dll_name": self.original_backup_dll_name,

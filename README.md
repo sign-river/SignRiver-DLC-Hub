@@ -26,7 +26,7 @@ SignRiver-DLC-Hub/
 
 ## 客户端主要功能
 
-游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。
+游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。设置页可在 GitLink 与 GitHub 之间切换下载源，两边保持相同的 Release 标签与资源文件名。
 
 DLC 库页面提供“一键解锁 / 一键修复 / 一键移除补丁 / 恢复游戏原版”等核心操作：
 

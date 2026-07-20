@@ -19,7 +19,10 @@ from ..domain import (
     CartridgeIndex,
     CartridgeIndexEntry,
 )
-from ..infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig
+from ..infrastructure.catalog import (
+    create_hub_release_source,
+    normalize_download_source,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -50,20 +53,31 @@ class CartridgeCatalogService:
         cache_dir: Path,
         *,
         bootstrap_dir: Path | None = None,
-        source: GitLinkReleaseSource | None = None,
+        download_source: str = "gitlink",
+        source=None,
         opener: Callable[[str, float], bytes] | None = None,
         timeout: float = 20,
     ) -> None:
         self.cache_dir = Path(cache_dir)
         self.bootstrap_dir = Path(bootstrap_dir) if bootstrap_dir else None
-        self.source = source or GitLinkReleaseSource(
-            GitLinkSourceConfig("signriver", "signriver-dlc-assets")
-        )
+        self.download_source = normalize_download_source(download_source)
+        self.source = source or create_hub_release_source(self.download_source)
         self._open = opener or self._download_bytes
         self.timeout = timeout
         self.index: CartridgeIndex | None = None
         self.index_source: str | None = None
         self._loaded: dict[str, LoadedCartridge] = {}
+
+    def set_download_source(self, download_source: str) -> None:
+        """Switch hub provider and drop in-memory cartridges from the old host."""
+        normalized = normalize_download_source(download_source)
+        if normalized == self.download_source:
+            return
+        self.download_source = normalized
+        self.source = create_hub_release_source(normalized)
+        self.index = None
+        self.index_source = None
+        self._loaded.clear()
 
     @property
     def loaded_cartridges(self) -> dict[str, object]:

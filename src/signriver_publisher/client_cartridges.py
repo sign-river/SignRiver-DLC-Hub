@@ -39,6 +39,16 @@ def build_client_cartridge_document(profile: PublisherCartridge) -> dict[str, ob
             "owner": "signriver",
             "repository": "signriver-dlc-assets",
         },
+        "repositories": {
+            "gitlink": {
+                "owner": "signriver",
+                "repository": "signriver-dlc-assets",
+            },
+            "github": {
+                "owner": "sign-river",
+                "repository": "signriver-dlc-assets",
+            },
+        },
         "patch": {
             "unlocker_dll_name": profile.patch_unlocker_name,
             "original_backup_dll_name": profile.patch_original_backup_name,

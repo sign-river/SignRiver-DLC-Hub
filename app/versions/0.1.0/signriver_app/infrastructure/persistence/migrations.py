@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 8
+LATEST_SCHEMA_VERSION = 9
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -129,6 +129,12 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
         """
         ALTER TABLE user_settings ADD COLUMN download_never_timeout INTEGER NOT NULL
         DEFAULT 0 CHECK (download_never_timeout IN (0, 1))
+        """,
+    ),
+    9: (
+        """
+        ALTER TABLE user_settings ADD COLUMN download_source TEXT NOT NULL
+        DEFAULT 'gitlink' CHECK (download_source IN ('gitlink', 'github'))
         """,
     ),
 }
