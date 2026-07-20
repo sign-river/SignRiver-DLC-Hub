@@ -374,6 +374,9 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "def _refresh_announcement" in source
     assert "def _show_announcement_dialog" in source
     assert "_show_onboarding" not in source
+    assert "def _help_label" in source
+    assert "self.settings_help_labels" in source
+    assert "wraplength=wraplength" in source
     assert 'text="下载源"' in source
     assert "self.source_card" in source
     assert "self.download_manager.configure_timeout" in source

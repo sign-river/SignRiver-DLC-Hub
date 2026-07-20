@@ -94,6 +94,20 @@ def _card(parent, **kwargs):
     )
 
 
+def _help_label(parent, text: str, *, wraplength: int = 760, **pack_kwargs):
+    """Secondary body copy that wraps inside card width instead of clipping."""
+    label = ctk.CTkLabel(
+        parent,
+        text=text,
+        text_color=UI["text_secondary"],
+        anchor="w",
+        justify="left",
+        wraplength=wraplength,
+    )
+    label.pack(fill="x", padx=24, **pack_kwargs)
+    return label
+
+
 def _combo_box(parent, *, values, width, command=None):
     options = {
         "values": values,
@@ -691,11 +705,12 @@ class DlcHubApplication:
             command=self._run_speed_test, width=110,
         )
         self.speed_test_button.pack(side="right")
-        ctk.CTkLabel(
-            speed_test_card,
-            text="从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24)
+        self.settings_help_labels = [
+            _help_label(
+                speed_test_card,
+                "从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
+            )
+        ]
         self.speed_test_status = ctk.CTkLabel(
             speed_test_card, text="尚未测速", text_color=UI["muted"], anchor="w"
         )
@@ -721,15 +736,17 @@ class DlcHubApplication:
             command=self._toggle_download_never_timeout,
         )
         self.download_never_timeout_switch.pack(side="right")
-        ctk.CTkLabel(
-            resilience_card,
-            text=(
-                "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
-                "主动断网或服务器拒绝连接仍会按正常重试规则处理。连接完全卡住时，"
-                "暂停或取消也可能要等网络恢复后才会生效。"
-            ),
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24, pady=(0, 18))
+        self.settings_help_labels.append(
+            _help_label(
+                resilience_card,
+                (
+                    "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
+                    "主动断网或服务器拒绝连接仍会按正常重试规则处理。连接完全卡住时，"
+                    "暂停或取消也可能要等网络恢复后才会生效。"
+                ),
+                pady=(0, 18),
+            )
+        )
 
         announcement_card = _card(self.page_host)
         self.announcement_card = announcement_card
@@ -751,14 +768,16 @@ class DlcHubApplication:
             command=self._toggle_announcement_mute,
         )
         self.announcement_mute_switch.pack(side="right")
-        ctk.CTkLabel(
-            announcement_card,
-            text=(
-                "启动时自动读取远程公告。开启后，当前公告关闭后不再弹出；"
-                "远程更换公告 id 后会再次显示。也可在公告窗口中一键开启。"
-            ),
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24, pady=(0, 18))
+        self.settings_help_labels.append(
+            _help_label(
+                announcement_card,
+                (
+                    "启动时自动读取远程公告。开启后，当前公告关闭后不再弹出；"
+                    "远程更换公告 id 后会再次显示。也可在公告窗口中一键开启。"
+                ),
+                pady=(0, 18),
+            )
+        )
 
         source_card = _card(self.page_host)
         self.source_card = source_card
@@ -778,15 +797,17 @@ class DlcHubApplication:
             provider_display_name(self.user_settings.download_source)
         )
         self.download_source_menu.pack(side="right")
-        ctk.CTkLabel(
-            source_card,
-            text=(
-                "默认使用 GitLink。若当前线路不稳定，可切换到 GitHub；"
-                "两边的 Release 标签与资源文件名保持一致。切换后会重新读取"
-                "游戏列表与当前游戏目录。"
-            ),
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24, pady=(0, 18))
+        self.settings_help_labels.append(
+            _help_label(
+                source_card,
+                (
+                    "默认使用 GitLink。若当前线路不稳定，可切换到 GitHub；"
+                    "两边的 Release 标签与资源文件名保持一致。切换后会重新读取"
+                    "游戏列表与当前游戏目录。"
+                ),
+                pady=(0, 18),
+            )
+        )
 
         cache_card = _card(self.page_host)
         self.cache_card = cache_card
@@ -805,14 +826,15 @@ class DlcHubApplication:
             command=self._cleanup_cache, width=110,
         )
         self.cache_cleanup_button.pack(side="right", padx=(0, 8))
-        ctk.CTkLabel(
-            cache_card,
-            text=(
-                "packages 保存已校验资源（哈希目录名用于防止串包）；downloads 保存下载半包；"
-                "quarantine 隔离坏包。请使用“分析并清理”，无需手动进入这些目录。"
-            ),
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24)
+        self.settings_help_labels.append(
+            _help_label(
+                cache_card,
+                (
+                    "packages 保存已校验资源（哈希目录名用于防止串包）；downloads 保存下载半包；"
+                    "quarantine 隔离坏包。请使用“分析并清理”，无需手动进入这些目录。"
+                ),
+            )
+        )
         self.cache_status = ctk.CTkLabel(
             cache_card, text="缓存用量将在后台统计", text_color=UI["muted"], anchor="w"
         )
@@ -830,14 +852,16 @@ class DlcHubApplication:
             update_header, text="检查更新", command=self._check_update, width=110,
         )
         self.update_button.pack(side="right")
-        ctk.CTkLabel(
-            update_card,
-            text=(
-                f"应用模块 v{self.context.app_version}  ·  "
-                f"启动器 v{self.context.launcher_version}  ·  API {self.context.api_version}"
-            ),
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=24)
+        self.settings_help_labels.append(
+            _help_label(
+                update_card,
+                (
+                    f"应用模块 v{self.context.app_version}  ·  "
+                    f"启动器 v{self.context.launcher_version}  ·  "
+                    f"API {self.context.api_version}"
+                ),
+            )
+        )
         self.progress = ctk.CTkProgressBar(update_card, mode="determinate")
         self.progress.set(0)
         self.progress.pack(fill="x", padx=24, pady=(12, 6))
@@ -963,6 +987,11 @@ class DlcHubApplication:
         columns = 4 if compact else 5
         layout_changed = compact != self.compact_layout
         columns_changed = columns != self.simple_catalog_columns
+        available = max(560, event.width - (210 if compact else 260))
+        self.game_path.configure(wraplength=available)
+        self.catalog_status.configure(wraplength=available)
+        for label in getattr(self, "settings_help_labels", ()):
+            label.configure(wraplength=available)
         if layout_changed:
             self.compact_layout = compact
             self.sidebar.configure(width=150 if compact else 174)
@@ -970,9 +999,6 @@ class DlcHubApplication:
                 padx=20 if compact else 30,
                 pady=18 if compact else 24,
             )
-            available = max(560, event.width - (210 if compact else 260))
-            self.game_path.configure(wraplength=available)
-            self.catalog_status.configure(wraplength=available)
         if columns_changed:
             self.simple_catalog_columns = columns
             if self.catalog_entries and self.catalog_view_mode == "simple":
