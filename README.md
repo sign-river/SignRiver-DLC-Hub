@@ -4,11 +4,11 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 
 ## 核心设计
 
-发布包中的 `SignRiver-DLC-Hub.exe` 是稳定启动器；真正的界面和业务代码位于 `app/versions/<version>/`。常规更新会下载一个模块包，校验 SHA-256 后解压到新的版本目录，再通过原子写入 `app/state.json` 切换版本。旧版本会保留，以便新模块启动失败时自动回滚。
+发布包中的启动器 EXE（发行名为「星河DLC一键解锁.exe」）是稳定宿主；真正的界面和业务代码位于 `app/versions/<version>/`。常规更新会下载一个模块包，校验 SHA-256 后解压到新的版本目录，再通过原子写入 `app/state.json` 切换版本。旧版本会保留，以便新模块启动失败时自动回滚。
 
 ```text
-SignRiver-DLC-Hub/
-├── SignRiver-DLC-Hub.exe
+星河DLC一键解锁/
+├── 星河DLC一键解锁.exe
 ├── app/
 │   ├── state.json
 │   └── versions/
@@ -65,4 +65,4 @@ python tools/build_release.py
 python tools/build_module.py app/versions/0.1.0
 ```
 
-`build_release.py` 生成首次发布用的完整压缩包；`build_module.py` 生成后续小版本使用的模块更新包和清单片段。
+`build_release.py` 生成首次发布用的完整压缩包（外层 ZIP 仍为 ASCII 文件名便于分发；解压后的文件夹与启动 EXE 为「星河DLC一键解锁」）；`build_module.py` 生成后续小版本使用的模块更新包和清单片段。程序通过 `sys.executable` 定位安装目录，支持含中文的安装路径。

@@ -7,6 +7,7 @@ import pytest
 
 from signriver_publisher import AcceptanceError, AcceptanceManager, PublisherWorkspace
 from signriver_publisher.acceptance import FAILED, PASSED
+from signriver_launcher.product import RELEASE_EXE_NAME
 
 
 def manager_for(tmp_path: Path) -> tuple[PublisherWorkspace, AcceptanceManager]:
@@ -39,7 +40,7 @@ def test_acceptance_fingerprint_binds_client_cartridge_and_publish_assets(
     workspace, manager = manager_for(tmp_path)
     profile = profile_by_id(workspace, "stellaris")
     client_root = tmp_path / "client"
-    client = client_root / "SignRiver-DLC-Hub.exe"
+    client = client_root / RELEASE_EXE_NAME
     module = client_root / "app" / "versions" / "0.1.0" / "app_entry.py"
     module.parent.mkdir(parents=True)
     client.write_bytes(b"launcher")
@@ -116,7 +117,7 @@ def test_environment_inspection_is_read_only_and_collects_evidence(
     workspace, manager = manager_for(tmp_path)
     profile = profile_by_id(workspace, "stellaris")
     client_root = tmp_path / "client"
-    client = client_root / "SignRiver-DLC-Hub.exe"
+    client = client_root / RELEASE_EXE_NAME
     log = client_root / "data" / "logs" / "launcher.log"
     log.parent.mkdir(parents=True)
     client.write_bytes(b"client")

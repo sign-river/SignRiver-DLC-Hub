@@ -229,11 +229,20 @@ class AcceptanceManager:
         return patch_dir
 
     def find_default_client(self) -> Path | None:
+        from signriver_launcher.product import (
+            BUILD_EXE_BASENAME,
+            RELEASE_DIR_NAME,
+            RELEASE_EXE_NAME,
+        )
+
         candidates = (
-            self.project_root / "dist" / "SignRiver-DLC-Hub" / "SignRiver-DLC-Hub.exe",
-            self.project_root / "dist" / "SignRiver-DLC-Hub.exe",
-            self.project_root / "dist" / "bin" / "SignRiver-DLC-Hub.exe",
-            self.project_root / "SignRiver-DLC-Hub.exe",
+            self.project_root / "dist" / RELEASE_DIR_NAME / RELEASE_EXE_NAME,
+            self.project_root / "dist" / "SignRiver-DLC-Hub" / f"{BUILD_EXE_BASENAME}.exe",
+            self.project_root / "dist" / RELEASE_EXE_NAME,
+            self.project_root / "dist" / f"{BUILD_EXE_BASENAME}.exe",
+            self.project_root / "dist" / "bin" / f"{BUILD_EXE_BASENAME}.exe",
+            self.project_root / RELEASE_EXE_NAME,
+            self.project_root / f"{BUILD_EXE_BASENAME}.exe",
         )
         return next((path.resolve() for path in candidates if path.is_file()), None)
 

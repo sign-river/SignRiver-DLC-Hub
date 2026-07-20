@@ -11,6 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from signriver_launcher.constants import LAUNCHER_VERSION  # noqa: E402
+from signriver_launcher.product import (  # noqa: E402
+    BUILD_EXE_BASENAME,
+    PRODUCT_DISPLAY_NAME,
+    RELEASE_DIR_NAME,
+    RELEASE_EXE_NAME,
+    RELEASE_ZIP_STEM,
+)
 
 VERSION = LAUNCHER_VERSION
 
@@ -34,12 +41,15 @@ def main() -> int:
 
     dist = ROOT / "dist"
     work = ROOT / "build"
-    release = dist / "SignRiver-DLC-Hub"
+    release = dist / RELEASE_DIR_NAME
     hidden_import_args = [
         argument
         for module in application_hidden_imports()
         for argument in ("--hidden-import", module)
     ]
+    # Build with an ASCII PyInstaller name first, then rename for distribution.
+    # This avoids historic Unicode issues in the compiler while still shipping
+    # a Chinese folder/EXE for domestic users.
     subprocess.run(
         [
             sys.executable,
@@ -50,7 +60,7 @@ def main() -> int:
             "--onefile",
             "--windowed",
             "--name",
-            "SignRiver-DLC-Hub",
+            BUILD_EXE_BASENAME,
             "--paths",
             str(ROOT / "src"),
             "--paths",
@@ -70,10 +80,16 @@ def main() -> int:
         check=True,
     )
 
-    if release.exists():
-        shutil.rmtree(release)
+    built_exe = dist / "bin" / f"{BUILD_EXE_BASENAME}.exe"
+    if not built_exe.is_file():
+        raise SystemExit(f"PyInstaller did not produce {built_exe}")
+
+    # Drop both the previous Chinese release and any leftover English folder.
+    for stale in (release, dist / "SignRiver-DLC-Hub"):
+        if stale.exists():
+            shutil.rmtree(stale)
     release.mkdir(parents=True)
-    shutil.copy2(dist / "bin" / "SignRiver-DLC-Hub.exe", release / "SignRiver-DLC-Hub.exe")
+    shutil.copy2(built_exe, release / RELEASE_EXE_NAME)
     shutil.copytree(
         ROOT / "app",
         release / "app",
@@ -84,19 +100,23 @@ def main() -> int:
     (release / "data").mkdir()
 
     instructions = (
-        "SignRiver DLC Hub\n\n"
-        "运行 SignRiver-DLC-Hub.exe 启动程序。\n"
-        "请完整解压后使用，不要只把 EXE 单独移出目录。\n"
+        f"{PRODUCT_DISPLAY_NAME}\n"
+        f"（SignRiver DLC Hub）\n\n"
+        f"双击「{RELEASE_EXE_NAME}」启动程序。\n"
+        "请完整解压整个文件夹后再使用，不要只把 EXE 单独移出目录。\n"
+        "文件夹可放到含中文的路径下；请保持本目录内的 app、config 完整。\n"
     )
     (release / "使用说明.txt").write_text(instructions, encoding="utf-8")
 
-    archive = dist / f"SignRiver-DLC-Hub-v{VERSION}-windows-x64.zip"
+    archive = dist / f"{RELEASE_ZIP_STEM}-v{VERSION}-windows-x64.zip"
     archive.unlink(missing_ok=True)
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as package:
         for path in sorted(release.rglob("*")):
             if path.is_file():
                 package.write(path, Path(release.name) / path.relative_to(release))
     print(f"Release package: {archive}")
+    print(f"Release folder:  {release}")
+    print(f"Launcher EXE:    {release / RELEASE_EXE_NAME}")
     return 0
 
 
