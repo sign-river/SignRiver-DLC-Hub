@@ -45,13 +45,31 @@ class PublisherCartridge:
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "PublisherCartridge":
         game_id = str(value["game_id"])
-        legacy_steam_ids = {"stellaris": "281990"}
-        builtin_naming_modes = {"civilization_6": "auto_prefix"}
-        builtin_layout_modes = {"civilization_6": "children_if_root"}
+        auto_prefix_games = {"civilization_6", "cities_skylines", "rimworld"}
+        legacy_steam_ids = {
+            "stellaris": "281990",
+            "civilization_6": "289070",
+            "hearts_of_iron_4": "394360",
+            "cities_skylines": "255710",
+            "rimworld": "294100",
+        }
+        builtin_naming_modes = {gid: "auto_prefix" for gid in auto_prefix_games}
+        builtin_layout_modes = {gid: "children_if_root" for gid in auto_prefix_games}
+        builtin_archive_modes = {gid: "strip_id_prefix" for gid in auto_prefix_games}
+        builtin_dlc_dirs = {
+            "civilization_6": "DLC",
+            "cities_skylines": "Files",
+            "rimworld": "Data",
+        }
+        builtin_patch_dirs = {
+            "civilization_6": "Base/Binaries/Win64Steam",
+        }
         builtin_executables = {
             "stellaris": "stellaris.exe",
             "civilization_6": "Base/Binaries/Win64Steam/CivilizationVI.exe",
             "hearts_of_iron_4": "hoi4.exe",
+            "cities_skylines": "Cities.exe",
+            "rimworld": "RimWorldWin64.exe",
         }
         builtin_inspectors = {"stellaris": "stellaris_zip"}
         return cls(
@@ -64,9 +82,16 @@ class PublisherCartridge:
             patch_original_backup_name=str(
                 value.get("patch_original_backup_name") or "steam_api64_o.dll"
             ),
-            dlc_relative_dir=str(value.get("dlc_relative_dir") or "dlc"),
-            patch_relative_dir=str(value.get("patch_relative_dir") or "."),
-            dlc_archive_root_mode=str(value.get("dlc_archive_root_mode") or "source"),
+            dlc_relative_dir=str(
+                value.get("dlc_relative_dir") or builtin_dlc_dirs.get(game_id, "dlc")
+            ),
+            patch_relative_dir=str(
+                value.get("patch_relative_dir") or builtin_patch_dirs.get(game_id, ".")
+            ),
+            dlc_archive_root_mode=str(
+                value.get("dlc_archive_root_mode")
+                or builtin_archive_modes.get(game_id, "source")
+            ),
             dlc_import_naming_mode=str(
                 value.get("dlc_import_naming_mode")
                 or builtin_naming_modes.get(game_id, "manual_prefixed")
@@ -86,7 +111,7 @@ class PublisherCartridge:
             install_directory_from_slug=bool(
                 value.get(
                     "install_directory_from_slug",
-                    game_id == "civilization_6",
+                    game_id in auto_prefix_games,
                 )
             ),
             ini_target_name=str(value.get("ini_target_name") or "cream_api.ini"),

@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .cream import SteamAppInfo, SteamDlc
+from .net_errors import describe_network_error
 
 
 class SteamApiError(RuntimeError):
@@ -98,8 +99,6 @@ class SteamStoreClient:
 
     @staticmethod
     def _fetch_json(url: str, timeout: float, limit: int) -> bytes:
-        from .net_errors import describe_network_error
-
         request = Request(url, headers={"Accept": "application/json", "User-Agent": "SignRiver-Publisher/0.1"})
         try:
             with urlopen(request, timeout=timeout) as response:
@@ -107,6 +106,8 @@ class SteamStoreClient:
                 if final.scheme != "https" or final.hostname != "store.steampowered.com":
                     raise SteamApiError("Steam API 重定向到了不受信任的地址")
                 data = response.read(limit + 1)
+        except SteamApiError:
+            raise
         except (OSError, TimeoutError) as error:
             raise OSError(
                 describe_network_error(error, url=url, action="访问 Steam API")

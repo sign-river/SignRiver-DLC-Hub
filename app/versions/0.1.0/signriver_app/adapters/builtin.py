@@ -1,8 +1,8 @@
 """Compatibility helpers that materialise cartridges from bootstrap documents.
 
 Production startup no longer hard-codes game cartridges in Python.  Tests and
-offline smoke paths can still build the three known games from the packaged
-``config/cartridges`` documents.
+offline smoke paths can still build every game listed in the packaged
+``config/cartridges`` index.
 """
 
 from __future__ import annotations

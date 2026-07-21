@@ -23,6 +23,7 @@ from ..infrastructure.catalog import (
     create_hub_release_source,
     normalize_download_source,
 )
+from ..infrastructure.net_errors import describe_network_error
 
 LOGGER = logging.getLogger(__name__)
 
@@ -291,11 +292,9 @@ class CartridgeCatalogService:
 
     @staticmethod
     def _download_bytes(url: str, timeout: float) -> bytes:
-        from ..infrastructure.net_errors import describe_network_error
-
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.netloc:
-            raise CartridgeCatalogError("cartridge downloads must use HTTPS")
+            raise CartridgeCatalogError("卡带下载必须使用 HTTPS")
         request = Request(
             url,
             headers={
@@ -307,7 +306,7 @@ class CartridgeCatalogService:
             with urlopen(request, timeout=timeout) as response:
                 return response.read()
         except (OSError, TimeoutError) as error:
-            raise OSError(
+            raise CartridgeCatalogError(
                 describe_network_error(error, url=url, action="下载卡带资源")
             ) from error
 

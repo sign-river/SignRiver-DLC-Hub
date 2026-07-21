@@ -9,7 +9,20 @@
   "dlc_relative_dir": "DLC",
   "package_inspector": "directory",
   "install_directory_from_slug": true,
-  "repository": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+  "repository": {
+    "owner": "signriver",
+    "repository": "signriver-dlc-assets"
+  },
+  "repositories": {
+    "gitlink": {
+      "owner": "signriver",
+      "repository": "signriver-dlc-assets"
+    },
+    "github": {
+      "owner": "sign-river",
+      "repository": "signriver-dlc-assets"
+    }
+  },
   "patch": {
     "unlocker_dll_name": "steam_api64.dll",
     "original_backup_dll_name": "steam_api64_o.dll",

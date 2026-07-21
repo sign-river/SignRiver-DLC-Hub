@@ -131,7 +131,7 @@ def test_never_replaces_damaged_active_version_directory(tmp_path: Path) -> None
     marker = active / "keep.txt"
     marker.write_text("untouched", encoding="utf-8")
 
-    with pytest.raises(PackageError, match="active application module is damaged"):
+    with pytest.raises(PackageError, match="应用模块已损坏"):
         client.install_archive(archive, release_for(archive, version="0.1.0"))
 
     assert store.load().active_version == "0.1.0"

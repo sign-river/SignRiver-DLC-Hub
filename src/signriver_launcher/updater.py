@@ -125,7 +125,7 @@ class UpdateClient:
                 response_size = response.headers.get("Content-Length")
                 total = int(response_size) if response_size and response_size.isdigit() else release.size
                 if release.size is not None and total is not None and total != release.size:
-                    raise IntegrityError("The server-reported package size does not match the manifest")
+                    raise IntegrityError("服务器报告的更新包大小与清单不一致")
                 digest = hashlib.sha256()
                 downloaded = 0
                 while True:
@@ -141,10 +141,10 @@ class UpdateClient:
                 os.fsync(output.fileno())
             if release.size is not None and downloaded != release.size:
                 raise IntegrityError(
-                    f"Package size mismatch: expected {release.size}, downloaded {downloaded}"
+                    f"更新包大小不匹配：期望 {release.size}，实际下载 {downloaded}"
                 )
             if digest.hexdigest() != release.sha256:
-                raise IntegrityError("Package SHA-256 does not match the update manifest")
+                raise IntegrityError("更新包 SHA-256 与清单不一致")
             final_path = target.with_suffix("")
             os.replace(target, final_path)
             return final_path
@@ -158,9 +158,9 @@ class UpdateClient:
     def install_archive(self, archive: Path, release: ReleaseInfo) -> None:
         actual_digest = self._sha256(archive)
         if actual_digest != release.sha256:
-            raise IntegrityError("Local package SHA-256 does not match the update manifest")
+            raise IntegrityError("本地更新包 SHA-256 与清单不一致")
         if release.size is not None and archive.stat().st_size != release.size:
-            raise IntegrityError("Local package size does not match the update manifest")
+            raise IntegrityError("本地更新包大小与清单不一致")
 
         self.paths.staging_dir.mkdir(parents=True, exist_ok=True)
         stage = self.paths.staging_dir / f"{release.version}-{uuid.uuid4().hex}"
@@ -173,8 +173,7 @@ class UpdateClient:
                 state = self.state_store.load()
                 if state.active_version == release.version:
                     raise PackageError(
-                        "The active application module is damaged; refusing to "
-                        "replace files while that version is running"
+                        "当前正在运行的应用模块已损坏；拒绝在运行期间替换该版本文件"
                     )
                 replace_invalid_destination = True
             else:
@@ -207,7 +206,7 @@ class UpdateClient:
                     os.replace(displaced, destination)
                 raise
         except (zipfile.BadZipFile, OSError, RuntimeError, ValueError) as error:
-            raise PackageError(f"Unable to install module package: {error}") from error
+            raise PackageError(f"无法安装应用模块：{error}") from error
         finally:
             if stage.exists():
                 shutil.rmtree(stage, ignore_errors=True)
@@ -230,35 +229,35 @@ class UpdateClient:
                 describe_network_error(error, url=url, action="获取更新清单")
             ) from error
         if len(raw) > MAX_MANIFEST_BYTES:
-            raise ManifestError("Update manifest is too large")
+            raise ManifestError("更新清单过大")
         try:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ManifestError(f"Update manifest is not valid UTF-8 JSON: {error}") from error
+            raise ManifestError(f"更新清单不是有效的 UTF-8 JSON：{error}") from error
         if not isinstance(value, dict):
-            raise ManifestError("Update manifest root must be an object")
+            raise ManifestError("更新清单根节点必须是对象")
         return UpdateManifest.from_dict(value)
 
     def _safe_extract(self, archive: Path, destination: Path) -> None:
         with zipfile.ZipFile(archive) as package:
             entries = package.infolist()
             if len(entries) > MAX_ARCHIVE_FILES:
-                raise PackageError("Module package contains too many files")
+                raise PackageError("更新包包含的文件数量过多")
             total_size = sum(entry.file_size for entry in entries)
             if total_size > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
-                raise PackageError("Module package expands beyond the safety limit")
+                raise PackageError("更新包解压后体积超过安全上限")
             for entry in entries:
                 normalized_name = entry.filename.replace("\\", "/")
                 member = PurePosixPath(normalized_name)
                 if member.is_absolute() or ".." in member.parts or not member.parts:
-                    raise PackageError(f"Unsafe archive path: {entry.filename}")
+                    raise PackageError(f"不安全的压缩包路径：{entry.filename}")
                 mode = entry.external_attr >> 16
                 if stat.S_ISLNK(mode):
-                    raise PackageError(f"Symbolic links are not allowed: {entry.filename}")
+                    raise PackageError(f"不允许包含符号链接：{entry.filename}")
                 target = destination.joinpath(*member.parts)
                 resolved_target = target.resolve()
                 if destination.resolve() not in resolved_target.parents and resolved_target != destination.resolve():
-                    raise PackageError(f"Archive entry escapes staging directory: {entry.filename}")
+                    raise PackageError(f"压缩包条目越出了临时目录：{entry.filename}")
                 if entry.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -271,15 +270,15 @@ class UpdateClient:
         try:
             metadata = ModuleMetadata.from_dict(read_json(directory / "module.json"))
         except (FileNotFoundError, OSError, ValueError) as error:
-            raise PackageError(f"Invalid module metadata: {error}") from error
+            raise PackageError(f"模块元数据无效：{error}") from error
         if metadata.version != expected_version:
             raise PackageError(
-                f"Module version {metadata.version} does not match release {expected_version}"
+                f"模块版本 {metadata.version} 与发布版本 {expected_version} 不一致"
             )
         entry_path, _ = metadata.entrypoint.rsplit(":", 1)
         candidate = (directory / entry_path).resolve()
         if directory.resolve() not in candidate.parents or not candidate.is_file():
-            raise PackageError(f"Module entrypoint does not exist: {entry_path}")
+            raise PackageError(f"模块入口不存在：{entry_path}")
         return metadata
 
     def _resolve_url(self, package_url: str) -> str:

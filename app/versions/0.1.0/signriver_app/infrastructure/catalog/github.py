@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from ...domain import NormalizedRelease, ReleaseAsset
+from ..net_errors import describe_network_error
 from .gitlink import ReleaseSourceError
 
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -64,6 +65,8 @@ class GitHubReleaseSource:
             payload = json.loads(
                 self._fetch(self.releases_url, self.timeout, self.max_response_bytes)
             )
+        except ReleaseSourceError:
+            raise
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             raise ReleaseSourceError(f"无法读取 GitHub Release 列表：{error}") from error
         if not isinstance(payload, list):
@@ -76,9 +79,19 @@ class GitHubReleaseSource:
         url = f"{self.releases_url}/tags/{tag}"
         try:
             payload = json.loads(self._fetch(url, self.timeout, self.max_response_bytes))
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+        except ReleaseSourceError as error:
             # Fall back to scanning the list so mirrors that omit the tags
             # endpoint still work with the same layout as GitLink.
+            try:
+                for release in self.list_releases():
+                    if release.tag == tag:
+                        return release
+            except ReleaseSourceError:
+                pass
+            raise ReleaseSourceError(
+                f"无法读取 GitHub Release 标签 {tag}：{error}"
+            ) from error
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             try:
                 for release in self.list_releases():
                     if release.tag == tag:
@@ -94,7 +107,7 @@ class GitHubReleaseSource:
 
     def _normalize_release(self, value: object) -> NormalizedRelease:
         if not isinstance(value, dict):
-            raise ReleaseSourceError("GitHub returned a malformed release")
+            raise ReleaseSourceError("GitHub 返回了格式错误的 Release")
         assets: list[ReleaseAsset] = []
         for raw_asset in value.get("assets", []):
             if not isinstance(raw_asset, dict):
@@ -111,7 +124,7 @@ class GitHubReleaseSource:
                 "release-assets.githubusercontent.com",
             }
             if parsed.scheme != "https" or parsed.netloc not in allowed:
-                raise ReleaseSourceError("GitHub asset URL escaped the allowed hosts")
+                raise ReleaseSourceError("GitHub 资源链接超出了允许的主机范围")
             size = raw_asset.get("size")
             size_bytes = int(size) if isinstance(size, int) and size >= 0 else None
             assets.append(
@@ -133,8 +146,6 @@ class GitHubReleaseSource:
 
     @staticmethod
     def _fetch_json(url: str, timeout: float, limit: int) -> bytes:
-        from ..net_errors import describe_network_error
-
         request = Request(
             url,
             headers={
@@ -147,14 +158,16 @@ class GitHubReleaseSource:
             with urlopen(request, timeout=timeout) as response:
                 final = urlparse(response.geturl())
                 if final.scheme != "https":
-                    raise ReleaseSourceError("GitHub redirected to a non-HTTPS endpoint")
+                    raise ReleaseSourceError("GitHub 重定向到了非 HTTPS 地址")
                 data = response.read(limit + 1)
+        except ReleaseSourceError:
+            raise
         except (OSError, TimeoutError) as error:
-            raise OSError(
+            raise ReleaseSourceError(
                 describe_network_error(error, url=url, action="访问 GitHub")
             ) from error
         if len(data) > limit:
-            raise ReleaseSourceError("GitHub release response is too large")
+            raise ReleaseSourceError("GitHub Release 响应过大")
         return data
 
 

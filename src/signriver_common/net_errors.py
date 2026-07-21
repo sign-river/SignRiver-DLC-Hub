@@ -1,10 +1,7 @@
-"""Lightweight, allocation-only helpers for user-facing network errors.
+"""Shared, allocation-only helpers for user-facing network errors.
 
-Kept inside the versioned app module so the packaged app does not depend on
-host packages. Keep this logic aligned with ``signriver_common.net_errors``.
-
-These helpers must stay free of locks, logging side effects, and I/O so they
-remain safe on download and UI threads.
+Must stay free of locks, logging side effects, and I/O so callers can use it
+on download and UI threads without contention.
 """
 
 from __future__ import annotations
