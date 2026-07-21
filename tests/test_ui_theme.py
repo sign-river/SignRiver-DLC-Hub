@@ -105,7 +105,7 @@ def test_all_dropdowns_use_bordered_combo_box_factory() -> None:
     assert '"border_width": 1' in source
     assert 'self.catalog_filter.set("全部状态")' in source
     assert 'self.log_level_filter.set("全部")' in source
-    assert 'text="下载源"' in source
+    assert '_settings_header(source_card, "下载源")' in source
     assert "self.download_source_menu" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
     assert "repository_home_url(self.user_settings.download_source)" in source
@@ -362,7 +362,7 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "self.download_queue.clear_all()" in source
     assert 'self._set_batch_download_state("idle")' in source
     assert "_apply_batch_download_button" not in source
-    assert 'text="网络测速"' in source
+    assert '_settings_header(speed_test_card, "网络测速")' in source
     assert 'text="开始测速"' in source
     assert "measure_download_speed(url)" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
@@ -379,13 +379,13 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
 def test_settings_separates_speed_cache_and_update_without_duplicate_about_page() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
-    assert 'text="网络测速"' in source
-    assert 'text="缓存管理"' in source
-    assert 'text="程序与更新"' in source
-    assert 'text="超时控制"' in source
+    assert '_settings_header(speed_test_card, "网络测速")' in source
+    assert '_settings_header(cache_card, "缓存管理")' in source
+    assert '_settings_header(update_card, "程序与更新")' in source
+    assert '_settings_header(resilience_card, "超时控制")' in source
     assert 'text="关闭超时检测"' in source
     assert "self.resilience_card" in source
-    assert 'text="公告"' in source
+    assert '_settings_header(announcement_card, "公告")' in source
     assert 'text="下次公告更新前不再显示"' in source
     assert "self.announcement_card" in source
     assert "def _refresh_announcement" in source
@@ -395,11 +395,13 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "self.settings_description_boxes" in source
     assert "spacing2=6" in source
     assert "def _blue_switch" in source
-    assert "self.settings_grid" in source
-    assert 'if page_name == "设置":' in source
-    assert "self.window.update_idletasks()" in source
-    assert "self.window.after_idle(self._sync_help_wraplengths)" in source
-    assert 'text="下载源"' in source
+    assert "def _settings_header" in source
+    assert 'uniform="settings-action"' in source
+    assert "self.settings_list" in source
+    assert '"设置": (self.settings_list,)' in source
+    assert "card.pack(" in source
+    assert "columnspan=2" in source
+    assert '_settings_header(source_card, "下载源")' in source
     assert "self.source_card" in source
     assert "self.download_manager.configure_timeout" in source
     assert '"关于"' not in source

@@ -100,7 +100,7 @@ def _card(parent, **kwargs):
 
 
 def _settings_description(
-    parent, text: str, *, height: int = 64, **pack_kwargs
+    parent, text: str, *, height: int = 56, **pack_kwargs
 ):
     """Read-only card copy with real word-wrap and comfortable line spacing."""
     textbox = ctk.CTkTextbox(
@@ -147,6 +147,24 @@ def _blue_switch(parent, **kwargs):
         font=ctk.CTkFont(size=13, weight="bold"),
         **kwargs,
     )
+
+
+def _settings_header(parent, title: str):
+    """Full-width title row with a three-slot action grid on the right."""
+    header = ctk.CTkFrame(parent, fg_color="transparent")
+    header.pack(fill="x", padx=24, pady=(18, 8))
+    header.grid_columnconfigure(0, weight=1)
+    for column in range(1, 4):
+        header.grid_columnconfigure(
+            column, weight=0, minsize=118, uniform="settings-action"
+        )
+    ctk.CTkLabel(
+        header,
+        text=title,
+        text_color=UI["primary"],
+        font=ctk.CTkFont(size=18, weight="bold"),
+    ).grid(row=0, column=0, sticky="w")
+    return header
 
 
 def _combo_box(parent, *, values, width, command=None):
@@ -868,35 +886,28 @@ class DlcHubApplication:
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
 
-        settings_grid = ctk.CTkFrame(
-            self.page_host, fg_color="transparent", corner_radius=0
+        settings_list = ctk.CTkScrollableFrame(
+            self.page_host,
+            fg_color=UI["page"],
+            corner_radius=0,
+            scrollbar_button_color=UI["input_border"],
+            scrollbar_button_hover_color=UI["muted"],
         )
-        self.settings_grid = settings_grid
-        for column in range(3):
-            settings_grid.grid_columnconfigure(
-                column, weight=1, uniform="settings-column"
-            )
-        for row in range(3):
-            settings_grid.grid_rowconfigure(row, weight=1)
+        self.settings_list = settings_list
 
-        speed_test_card = _card(settings_grid)
+        speed_test_card = _card(settings_list)
         self.speed_test_card = speed_test_card
-        speed_header = ctk.CTkFrame(speed_test_card, fg_color="transparent")
-        speed_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            speed_header, text="网络测速", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        speed_header = _settings_header(speed_test_card, "网络测速")
         self.speed_test_button = ctk.CTkButton(
             speed_header, text="开始测速",
-            command=self._run_speed_test, width=110,
+            command=self._run_speed_test,
         )
-        self.speed_test_button.pack(side="right")
+        self.speed_test_button.grid(row=0, column=3, sticky="ew")
         self.settings_description_boxes = [
             _settings_description(
                 speed_test_card,
                 "从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
-                height=50,
+                height=44,
             )
         ]
         self.speed_test_status = ctk.CTkLabel(
@@ -904,16 +915,9 @@ class DlcHubApplication:
         )
         self.speed_test_status.pack(fill="x", padx=24, pady=(8, 18))
 
-        resilience_card = _card(settings_grid)
+        resilience_card = _card(settings_list)
         self.resilience_card = resilience_card
-        resilience_header = ctk.CTkFrame(
-            resilience_card, fg_color="transparent"
-        )
-        resilience_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            resilience_header, text="超时控制", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        resilience_header = _settings_header(resilience_card, "超时控制")
         self.download_never_timeout_var = BooleanVar(
             value=self.user_settings.download_never_timeout
         )
@@ -923,7 +927,9 @@ class DlcHubApplication:
             variable=self.download_never_timeout_var,
             command=self._toggle_download_never_timeout,
         )
-        self.download_never_timeout_switch.pack(side="right")
+        self.download_never_timeout_switch.grid(
+            row=0, column=2, columnspan=2, sticky="e"
+        )
         self.settings_description_boxes.append(
             _settings_description(
                 resilience_card,
@@ -936,16 +942,9 @@ class DlcHubApplication:
             )
         )
 
-        announcement_card = _card(settings_grid)
+        announcement_card = _card(settings_list)
         self.announcement_card = announcement_card
-        announcement_header = ctk.CTkFrame(
-            announcement_card, fg_color="transparent"
-        )
-        announcement_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            announcement_header, text="公告", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        announcement_header = _settings_header(announcement_card, "公告")
         self.announcement_mute_var = BooleanVar(
             value=self.user_settings.announcement_mute_until_update
         )
@@ -955,7 +954,9 @@ class DlcHubApplication:
             variable=self.announcement_mute_var,
             command=self._toggle_announcement_mute,
         )
-        self.announcement_mute_switch.pack(side="right")
+        self.announcement_mute_switch.grid(
+            row=0, column=2, columnspan=2, sticky="e"
+        )
         self.settings_description_boxes.append(
             _settings_description(
                 announcement_card,
@@ -967,14 +968,9 @@ class DlcHubApplication:
             )
         )
 
-        source_card = _card(settings_grid)
+        source_card = _card(settings_list)
         self.source_card = source_card
-        source_header = ctk.CTkFrame(source_card, fg_color="transparent")
-        source_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            source_header, text="下载源", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        source_header = _settings_header(source_card, "下载源")
         self.download_source_menu = _combo_box(
             source_header,
             values=["GitLink", "GitHub"],
@@ -984,7 +980,7 @@ class DlcHubApplication:
         self.download_source_menu.set(
             provider_display_name(self.user_settings.download_source)
         )
-        self.download_source_menu.pack(side="right")
+        self.download_source_menu.grid(row=0, column=3, sticky="ew")
         self.settings_description_boxes.append(
             _settings_description(
                 source_card,
@@ -997,23 +993,19 @@ class DlcHubApplication:
             )
         )
 
-        cache_card = _card(settings_grid)
+        cache_card = _card(settings_list)
         self.cache_card = cache_card
-        cache_header = ctk.CTkFrame(cache_card, fg_color="transparent")
-        cache_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            cache_header, text="缓存管理", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        cache_header = _settings_header(cache_card, "缓存管理")
         ctk.CTkButton(
             cache_header, text="打开缓存目录",
-            command=lambda: self._open_path(self.context.paths.cache), width=110,
-        ).pack(side="right")
+            command=lambda: self._open_path(self.context.paths.cache),
+        ).grid(row=0, column=3, sticky="ew")
         self.cache_cleanup_button = ctk.CTkButton(
-            cache_header, text="分析并清理",
-            command=self._cleanup_cache, width=110,
+            cache_header, text="分析并清理", command=self._cleanup_cache,
         )
-        self.cache_cleanup_button.pack(side="right", padx=(0, 8))
+        self.cache_cleanup_button.grid(
+            row=0, column=2, sticky="ew", padx=(0, 8)
+        )
         self.settings_description_boxes.append(
             _settings_description(
                 cache_card,
@@ -1028,18 +1020,13 @@ class DlcHubApplication:
         )
         self.cache_status.pack(fill="x", padx=24, pady=(8, 18))
 
-        update_card = _card(settings_grid)
+        update_card = _card(settings_list)
         self.update_card = update_card
-        update_header = ctk.CTkFrame(update_card, fg_color="transparent")
-        update_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(
-            update_header, text="程序与更新", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(side="left")
+        update_header = _settings_header(update_card, "程序与更新")
         self.update_button = ctk.CTkButton(
-            update_header, text="检查更新", command=self._check_update, width=110,
+            update_header, text="检查更新", command=self._check_update,
         )
-        self.update_button.pack(side="right")
+        self.update_button.grid(row=0, column=3, sticky="ew")
         self.settings_description_boxes.append(
             _settings_description(
                 update_card,
@@ -1048,6 +1035,7 @@ class DlcHubApplication:
                     f"启动器 v{self.context.launcher_version}  ·  "
                     f"API {self.context.api_version}"
                 ),
+                height=44,
             )
         )
         self.progress = ctk.CTkProgressBar(update_card, mode="determinate")
@@ -1058,27 +1046,22 @@ class DlcHubApplication:
         )
         self.status.pack(fill="x", padx=24, pady=(0, 18))
 
-        # Three-column settings rhythm: every card occupies one or two cells,
-        # controls stay in the header, and copy is centered in a fixed body.
-        self.speed_test_card.grid(
-            row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6)
+        # Settings remain one full-width card per row. Only each header's
+        # action area uses a normalized three-slot grid.
+        setting_cards = (
+            self.speed_test_card,
+            self.resilience_card,
+            self.announcement_card,
+            self.source_card,
+            self.cache_card,
+            self.update_card,
         )
-        self.resilience_card.grid(
-            row=0, column=1, columnspan=2, sticky="nsew",
-            padx=(6, 0), pady=(0, 6),
-        )
-        self.announcement_card.grid(
-            row=1, column=0, columnspan=2, sticky="nsew", padx=(0, 6), pady=6
-        )
-        self.source_card.grid(
-            row=1, column=2, sticky="nsew", padx=(6, 0), pady=6
-        )
-        self.cache_card.grid(
-            row=2, column=0, columnspan=2, sticky="nsew", padx=(0, 6), pady=(6, 0)
-        )
-        self.update_card.grid(
-            row=2, column=2, sticky="nsew", padx=(6, 0), pady=(6, 0)
-        )
+        for index, card in enumerate(setting_cards):
+            card.pack(
+                fill="x",
+                padx=(0, 8),
+                pady=(0, 14 if index < len(setting_cards) - 1 else 0),
+            )
 
         self.task_card = _card(self.page_host)
         task_header = ctk.CTkFrame(self.task_card, fg_color="transparent")
@@ -1181,7 +1164,7 @@ class DlcHubApplication:
             "DLC 库": (self.game_card, self.catalog_card),
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
-            "设置": (self.settings_grid,),
+            "设置": (self.settings_list,),
         }
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
@@ -1621,14 +1604,6 @@ class DlcHubApplication:
                 text_color=UI["on_blue"] if name == page_name else UI["text_secondary"],
                 hover_color=UI["primary_hover"] if name == page_name else "#EAF3FB",
             )
-        if page_name == "设置":
-            # Hidden cards report a stale/1px width.  Measure only after the
-            # settings cards have been packed, then repeat after Tk finishes
-            # geometry propagation so first display matches a manual resize.
-            self.window.update_idletasks()
-            self._sync_help_wraplengths()
-            self.window.after_idle(self._sync_help_wraplengths)
-            self.window.after(80, self._sync_help_wraplengths)
         if page_name == "下载任务":
             self._refresh_task_page()
         elif page_name == "日志":
