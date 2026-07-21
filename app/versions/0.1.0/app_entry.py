@@ -83,7 +83,7 @@ UI = {
 }
 
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
-PRODUCT_TITLE_ZH = "星河DLC一键解锁"
+PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
 
@@ -99,7 +99,7 @@ def _card(parent, **kwargs):
     )
 
 
-def _help_label(parent, text: str, *, wraplength: int = 760, **pack_kwargs):
+def _help_label(parent, text: str, *, wraplength: int = 480, **pack_kwargs):
     """Secondary body copy that wraps inside card width instead of clipping."""
     label = ctk.CTkLabel(
         parent,
@@ -137,6 +137,7 @@ def _combo_box(parent, *, values, width, command=None):
 class DlcHubApplication:
     def __init__(self, context) -> None:
         self.context = context
+        self._configure_windows_app_identity()
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
         self.window = ctk.CTk()
@@ -358,44 +359,98 @@ class DlcHubApplication:
         if self.context.updates.enabled and self.context.updates.check_on_startup:
             self.window.after(800, self._check_update)
 
+    @staticmethod
+    def _configure_windows_app_identity() -> None:
+        """Pin a stable AppUserModelID so the taskbar can use our icon."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "SignRiver.DLCHub.1"
+            )
+        except Exception:
+            pass
+
     def _apply_window_icon(self) -> None:
         icon = Path(self.context.paths.root) / "config" / "app.ico"
         if not icon.is_file():
             return
         resolved = str(icon.resolve())
+        applied = False
         try:
             self.window.iconbitmap(default=resolved)
             self.window.iconbitmap(resolved)
+            applied = True
         except TclError:
-            png = icon.with_suffix(".png")
-            if not png.is_file():
-                return
+            pass
+        png = icon.with_suffix(".png")
+        if png.is_file():
+            try:
+                from tkinter import PhotoImage
+
+                self._window_icon_image = PhotoImage(file=str(png.resolve()))
+                self.window.iconphoto(True, self._window_icon_image)
+                applied = True
+            except TclError:
+                self.context.logger.debug("Unable to apply PNG window icon", exc_info=True)
+        if applied:
+            # Re-apply after the HWND exists so the taskbar picks up the icon
+            # when launching via python.exe as well as the frozen EXE.
+            self.window.after(80, lambda: self._reapply_window_icon(resolved, png))
+
+    def _reapply_window_icon(self, ico_path: str, png: Path) -> None:
+        try:
+            self.window.iconbitmap(default=ico_path)
+            self.window.iconbitmap(ico_path)
+        except TclError:
+            pass
+        if getattr(self, "_window_icon_image", None) is not None:
+            try:
+                self.window.iconphoto(True, self._window_icon_image)
+            except TclError:
+                pass
+        elif png.is_file():
             try:
                 from tkinter import PhotoImage
 
                 self._window_icon_image = PhotoImage(file=str(png.resolve()))
                 self.window.iconphoto(True, self._window_icon_image)
             except TclError:
-                self.context.logger.debug("Unable to apply window icon", exc_info=True)
+                pass
+
+    def _content_wraplength(self, window_width: int | None = None) -> int:
+        """Compute CTkLabel wraplength that fits the content column under DPI scaling."""
+        width = int(window_width or self.window.winfo_width() or 1120)
+        compact = width < 1080
+        usable = max(360, width - (220 if compact else 280))
+        try:
+            scaling = float(self.window._get_window_scaling())
+        except Exception:
+            scaling = 1.0
+        # CTk multiplies wraplength by scaling again; undo that so text wraps
+        # inside the visible card instead of clipping at the right edge.
+        return max(240, int(usable / max(scaling, 1.0)) - 32)
 
     def _build_ui(self) -> None:
         shell = ctk.CTkFrame(self.window, fg_color=UI["page"])
         shell.pack(fill="both", expand=True)
         sidebar = ctk.CTkFrame(
-            shell, width=174, corner_radius=0, fg_color=UI["card"],
+            shell, width=188, corner_radius=0, fg_color=UI["card"],
             border_width=0,
         )
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
         self.sidebar = sidebar
         ctk.CTkLabel(
-            sidebar, text="星河DLC", text_color=UI["primary"],
-            font=ctk.CTkFont(size=23, weight="bold")
-        ).pack(anchor="w", padx=22, pady=(30, 4))
+            sidebar, text="唏嘘南溪DLC", text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold")
+        ).pack(anchor="w", padx=18, pady=(30, 4))
         ctk.CTkLabel(
             sidebar, text="一键解锁", text_color=UI["muted"],
             font=ctk.CTkFont(size=11, weight="bold"),
-        ).pack(anchor="w", padx=23, pady=(0, 24))
+        ).pack(anchor="w", padx=19, pady=(0, 24))
         self.navigation_buttons = {}
         for page_name in ("DLC 库", "下载任务", "日志", "设置"):
             button = ctk.CTkButton(
@@ -458,7 +513,7 @@ class DlcHubApplication:
         ).pack(anchor="e")
         ctk.CTkLabel(
             author_group, text=AUTHOR_CN, text_color="#E8F2FA",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(anchor="e")
         ctk.CTkButton(
             profile_group, text="GitHub", width=68,
@@ -1022,6 +1077,18 @@ class DlcHubApplication:
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
         self.window.bind("<Configure>", self._on_window_resize, add="+")
+        self.window.after(120, self._sync_help_wraplengths)
+
+    def _sync_help_wraplengths(self, window_width: int | None = None) -> None:
+        wrap = self._content_wraplength(window_width)
+        for label in getattr(self, "settings_help_labels", ()):
+            label.configure(wraplength=wrap)
+        if hasattr(self, "game_path"):
+            self.game_path.configure(wraplength=wrap)
+        if hasattr(self, "catalog_status"):
+            self.catalog_status.configure(wraplength=wrap)
+        if hasattr(self, "catalog_freshness"):
+            self.catalog_freshness.configure(wraplength=wrap)
 
     def _on_window_resize(self, event) -> None:
         if event.widget is not self.window:
@@ -1030,16 +1097,10 @@ class DlcHubApplication:
         columns = 4 if compact else 5
         layout_changed = compact != self.compact_layout
         columns_changed = columns != self.simple_catalog_columns
-        available = max(560, event.width - (210 if compact else 260))
-        self.game_path.configure(wraplength=available)
-        self.catalog_status.configure(wraplength=available)
-        if hasattr(self, "catalog_freshness"):
-            self.catalog_freshness.configure(wraplength=available)
-        for label in getattr(self, "settings_help_labels", ()):
-            label.configure(wraplength=available)
+        self._sync_help_wraplengths(event.width)
         if layout_changed:
             self.compact_layout = compact
-            self.sidebar.configure(width=150 if compact else 174)
+            self.sidebar.configure(width=164 if compact else 188)
             self.content_container.pack_configure(
                 padx=20 if compact else 30,
                 pady=18 if compact else 24,

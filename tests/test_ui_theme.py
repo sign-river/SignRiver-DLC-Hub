@@ -62,7 +62,7 @@ def test_pages_use_fixed_responsive_host_instead_of_outer_scroll() -> None:
     assert 'self.page_host.pack(fill="both", expand=True)' in source
     assert 'self.dlc_list_frame.pack(fill="both", expand=True' in source
     assert 'compact = event.width < 1080' in source
-    assert 'self.sidebar.configure(width=150 if compact else 174)' in source
+    assert 'self.sidebar.configure(width=164 if compact else 188)' in source
 
 
 def test_game_selector_has_visible_border_and_home_uses_github() -> None:
@@ -86,9 +86,12 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'text=AUTHOR_EN' in source
     assert 'text=AUTHOR_CN' in source
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
-    assert 'text="星河DLC"' in source
+    assert 'text="唏嘘南溪DLC"' in source
     assert 'text="一键解锁"' in source
     assert "def _apply_window_icon" in source
+    assert "SetCurrentProcessExplicitAppUserModelID" in source
+    assert "def _content_wraplength" in source
+    assert "def _sync_help_wraplengths" in source
     assert "app.ico" in source
 
 

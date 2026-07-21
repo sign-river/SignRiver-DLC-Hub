@@ -10,16 +10,17 @@ from __future__ import annotations
 # Stable ASCII name used only while compiling the onefile launcher.
 BUILD_EXE_BASENAME = "SignRiver-DLC-Hub"
 
-# Names shown to end users after unzipping the release package.
-PRODUCT_DISPLAY_NAME = "星河DLC一键解锁"
-RELEASE_DIR_NAME = "星河DLC一键解锁"
-RELEASE_EXE_NAME = "星河DLC一键解锁.exe"
+# Names shown to end users after unpacking the release package.
+PRODUCT_DISPLAY_NAME = "唏嘘南溪DLC一键解锁工具"
+RELEASE_DIR_NAME = "唏嘘南溪DLC一键解锁工具"
+RELEASE_EXE_NAME = "唏嘘南溪DLC一键解锁工具.exe"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
-WINDOW_TITLE = PRODUCT_DISPLAY_NAME
+WINDOW_TITLE = "唏嘘南溪DLC一键解锁"
 
-# Outer ZIP keeps an ASCII stem so mirrors/CDN tooling stay boring.
-RELEASE_ZIP_STEM = "SignRiver-DLC-Hub"
+# Outer archive / SFX stem uses the same Chinese product name.
+RELEASE_ZIP_STEM = "唏嘘南溪DLC一键解锁工具"
+RELEASE_SFX_NAME = "唏嘘南溪DLC一键解锁工具-自解压.exe"
 
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "RELEASE_DIR_NAME",
     "RELEASE_EXE_NAME",
     "RELEASE_ZIP_STEM",
+    "RELEASE_SFX_NAME",
     "AUTHOR_EN",
     "AUTHOR_CN",
     "WINDOW_TITLE",

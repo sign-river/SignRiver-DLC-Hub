@@ -58,12 +58,21 @@ def _show_fatal_error(message: str) -> None:
     try:
         from tkinter import messagebox
 
-        messagebox.showerror("SignRiver DLC Hub", message)
+        messagebox.showerror("唏嘘南溪DLC一键解锁", message)
     except Exception:
         print(message, file=sys.stderr)
 
 
 def main() -> int:
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "SignRiver.DLCHub.1"
+            )
+        except Exception:
+            pass
     paths = RuntimePaths.discover()
     paths.ensure()
     logger = _configure_logging(paths.log_dir)

@@ -9,24 +9,28 @@ from signriver_launcher.product import (
     PRODUCT_DISPLAY_NAME,
     RELEASE_DIR_NAME,
     RELEASE_EXE_NAME,
+    RELEASE_SFX_NAME,
+    RELEASE_ZIP_STEM,
     WINDOW_TITLE,
 )
 
 
 def test_release_product_names_are_chinese_and_path_safe() -> None:
-    assert PRODUCT_DISPLAY_NAME == "星河DLC一键解锁"
-    assert WINDOW_TITLE == PRODUCT_DISPLAY_NAME
+    assert PRODUCT_DISPLAY_NAME == "唏嘘南溪DLC一键解锁工具"
+    assert WINDOW_TITLE == "唏嘘南溪DLC一键解锁"
     assert AUTHOR_EN == "SignRiver"
     assert AUTHOR_CN == "唏嘘南溪"
     assert RELEASE_DIR_NAME == PRODUCT_DISPLAY_NAME
     assert RELEASE_EXE_NAME == f"{PRODUCT_DISPLAY_NAME}.exe"
-    for name in (RELEASE_DIR_NAME, RELEASE_EXE_NAME):
+    assert RELEASE_ZIP_STEM == PRODUCT_DISPLAY_NAME
+    assert RELEASE_SFX_NAME == f"{PRODUCT_DISPLAY_NAME}-自解压.exe"
+    for name in (RELEASE_DIR_NAME, RELEASE_EXE_NAME, RELEASE_ZIP_STEM):
         assert all(ch not in name for ch in '\\/:*?"<>|')
         assert " " not in name
 
 
 def test_runtime_paths_support_chinese_install_root(tmp_path: Path) -> None:
-    root = tmp_path / "工具" / "星河DLC一键解锁"
+    root = tmp_path / "工具" / "唏嘘南溪DLC一键解锁工具"
     paths = RuntimePaths(root)
     paths.ensure()
     assert paths.root == root
@@ -48,3 +52,4 @@ def test_packaged_app_icon_exists_with_multiple_sizes() -> None:
     assert (16, 16) in sizes
     assert (256, 256) in sizes
     assert (Path(__file__).parents[1] / "config" / "app.png").is_file()
+    assert (Path(__file__).parents[1] / "config" / "app-icon-source.png").is_file()
