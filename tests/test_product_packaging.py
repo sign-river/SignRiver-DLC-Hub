@@ -50,7 +50,11 @@ def test_packaged_app_icon_exists_with_multiple_sizes() -> None:
     with Image.open(icon) as image:
         sizes = sorted(image.ico.sizes()) if image.ico is not None else []
     assert (16, 16) in sizes
+    assert (20, 20) in sizes
     assert (32, 32) in sizes
+    assert (40, 40) in sizes
     assert (256, 256) in sizes
-    assert (Path(__file__).parents[1] / "config" / "app.png").is_file()
-    assert (Path(__file__).parents[1] / "config" / "app-icon-source.png").is_file()
+    source = Path(__file__).parents[1] / "config" / "app.png"
+    backup = Path(__file__).parents[1] / "config" / "app-icon-source.png"
+    assert source.is_file()
+    assert backup.read_bytes() == source.read_bytes()
