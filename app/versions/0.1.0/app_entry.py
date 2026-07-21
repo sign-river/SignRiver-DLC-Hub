@@ -166,6 +166,9 @@ class DlcHubApplication:
         self.cartridge_loading = False
         self.cartridges: dict[str, object] = {}
         self.supported_games: dict[str, dict[str, str]] = {}
+        # Defaults must exist before bootstrap cartridge activation; persisted
+        # settings are loaded a few lines later and may re-activate if needed.
+        self.user_settings = UserSettings()
         try:
             # Prefer packaged/cached documents so the first paint is not blocked
             # on GitLink.  A background refresh then replaces the hub index and
@@ -173,12 +176,12 @@ class DlcHubApplication:
             self.cartridge_catalog.refresh_index(allow_network=False)
             loaded = self.cartridge_catalog.load_default_cartridge(allow_network=False)
             self._activate_loaded_cartridge(loaded, rebuild_services=False)
-        except Exception:
+        except CartridgeCatalogError as error:
             self.context.logger.exception("Unable to load bootstrap game cartridges")
             raise RuntimeError(
                 "没有可用的游戏卡带。请确认安装包包含 config/cartridges，"
                 "或检查网络后重新启动。"
-            ) from None
+            ) from error
         self.patch_bundle: PatchBundle | None = None
         self.patch_workflow_state = "idle"
         self.patch_task_ids: tuple[str, ...] = ()
@@ -192,7 +195,6 @@ class DlcHubApplication:
         # include each GitLink attachment ID so stale generations cannot be
         # mistaken for the latest patch after an update.
         self.patch_task_roles: dict[str, str] = {}
-        self.user_settings = UserSettings()
         self.settings_repository = None
         self.download_manager = DownloadManager(self.context.paths.cache)
         self.cache_maintenance = CacheMaintenance(self.context.paths.cache)
