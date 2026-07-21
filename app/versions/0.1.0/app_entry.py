@@ -99,7 +99,7 @@ def _card(parent, **kwargs):
     )
 
 
-def _help_label(parent, text: str, *, wraplength: int = 480, **pack_kwargs):
+def _help_label(parent, text: str, *, wraplength: int = 420, **pack_kwargs):
     """Secondary body copy that wraps inside card width instead of clipping."""
     label = ctk.CTkLabel(
         parent,
@@ -109,6 +109,8 @@ def _help_label(parent, text: str, *, wraplength: int = 480, **pack_kwargs):
         justify="left",
         wraplength=wraplength,
     )
+    # Keep the label inside the card's content box; wraplength is synced later
+    # from the real parent width so DPI scaling cannot push glyphs past the edge.
     label.pack(fill="x", padx=24, **pack_kwargs)
     return label
 
@@ -378,60 +380,101 @@ class DlcHubApplication:
         if not icon.is_file():
             return
         resolved = str(icon.resolve())
-        applied = False
         try:
+            # Use the multi-size ICO only. Feeding a 256px PNG through
+            # iconphoto makes Windows taskbar downscale it into a blurry glyph.
             self.window.iconbitmap(default=resolved)
             self.window.iconbitmap(resolved)
-            applied = True
         except TclError:
-            pass
-        png = icon.with_suffix(".png")
-        if png.is_file():
-            try:
-                from tkinter import PhotoImage
+            self.context.logger.debug("Unable to apply ICO window icon", exc_info=True)
+            return
+        self.window.after(40, lambda: self._apply_native_windows_icons(resolved))
+        self.window.after(200, lambda: self._apply_native_windows_icons(resolved))
 
-                self._window_icon_image = PhotoImage(file=str(png.resolve()))
-                self.window.iconphoto(True, self._window_icon_image)
-                applied = True
-            except TclError:
-                self.context.logger.debug("Unable to apply PNG window icon", exc_info=True)
-        if applied:
-            # Re-apply after the HWND exists so the taskbar picks up the icon
-            # when launching via python.exe as well as the frozen EXE.
-            self.window.after(80, lambda: self._reapply_window_icon(resolved, png))
-
-    def _reapply_window_icon(self, ico_path: str, png: Path) -> None:
+    def _apply_native_windows_icons(self, ico_path: str) -> None:
+        """Set ICON_SMALL / ICON_BIG via Win32 so the taskbar stays sharp."""
+        if os.name != "nt":
+            return
         try:
-            self.window.iconbitmap(default=ico_path)
-            self.window.iconbitmap(ico_path)
-        except TclError:
-            pass
-        if getattr(self, "_window_icon_image", None) is not None:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x00000010
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+
+            hwnd = int(self.window.winfo_id())
             try:
-                self.window.iconphoto(True, self._window_icon_image)
+                frame = self.window.wm_frame()
+                if frame:
+                    hwnd = int(frame, 16)
+            except (TclError, ValueError, TypeError):
+                pass
+
+            dpi = 96
+            if hasattr(user32, "GetDpiForWindow"):
+                try:
+                    dpi = int(user32.GetDpiForWindow(hwnd)) or 96
+                except Exception:
+                    dpi = 96
+            scale = max(dpi / 96.0, 1.0)
+            # Prefer sizes that exist in app.ico.
+            small = 16 if scale < 1.25 else 20 if scale < 1.75 else 24 if scale < 2.25 else 32
+            big = 32 if scale < 1.25 else 40 if scale < 1.75 else 48 if scale < 2.25 else 64
+
+            user32.LoadImageW.argtypes = [
+                wintypes.HINSTANCE,
+                wintypes.LPCWSTR,
+                wintypes.UINT,
+                ctypes.c_int,
+                ctypes.c_int,
+                wintypes.UINT,
+            ]
+            user32.LoadImageW.restype = wintypes.HANDLE
+
+            h_small = user32.LoadImageW(
+                None, ico_path, IMAGE_ICON, small, small, LR_LOADFROMFILE
+            )
+            h_big = user32.LoadImageW(
+                None, ico_path, IMAGE_ICON, big, big, LR_LOADFROMFILE
+            )
+            if h_small:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_small)
+                self._native_icon_small = h_small
+            if h_big:
+                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_big)
+                self._native_icon_big = h_big
+            try:
+                self.window.iconbitmap(default=ico_path)
+                self.window.iconbitmap(ico_path)
             except TclError:
                 pass
-        elif png.is_file():
+        except Exception:
+            self.context.logger.debug("Unable to apply native Windows icons", exc_info=True)
+
+    def _content_wraplength_for(self, widget, *, fallback: int = 420) -> int:
+        """Wrap to the widget's real content box, undoing CTk's DPI multiply."""
+        try:
+            widget.update_idletasks()
+            width = int(widget.winfo_width())
+        except Exception:
+            width = 0
+        if width <= 1:
             try:
-                from tkinter import PhotoImage
-
-                self._window_icon_image = PhotoImage(file=str(png.resolve()))
-                self.window.iconphoto(True, self._window_icon_image)
-            except TclError:
-                pass
-
-    def _content_wraplength(self, window_width: int | None = None) -> int:
-        """Compute CTkLabel wraplength that fits the content column under DPI scaling."""
-        width = int(window_width or self.window.winfo_width() or 1120)
-        compact = width < 1080
-        usable = max(360, width - (220 if compact else 280))
+                width = int(self.window.winfo_width()) - 280
+            except Exception:
+                width = fallback + 48
+        # padx=24 on each side of help labels.
+        usable = max(200, width - 48)
         try:
             scaling = float(self.window._get_window_scaling())
         except Exception:
             scaling = 1.0
-        # CTk multiplies wraplength by scaling again; undo that so text wraps
-        # inside the visible card instead of clipping at the right edge.
-        return max(240, int(usable / max(scaling, 1.0)) - 32)
+        # Extra margin: CJK glyphs are wide and CTk rounds wraplength up.
+        return max(180, int(usable / max(scaling, 1.0)) - 24)
 
     def _build_ui(self) -> None:
         shell = ctk.CTkFrame(self.window, fg_color=UI["page"])
@@ -1077,18 +1120,22 @@ class DlcHubApplication:
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
         self.window.bind("<Configure>", self._on_window_resize, add="+")
-        self.window.after(120, self._sync_help_wraplengths)
+        self.window.after(80, self._sync_help_wraplengths)
+        self.window.after(250, self._sync_help_wraplengths)
 
     def _sync_help_wraplengths(self, window_width: int | None = None) -> None:
-        wrap = self._content_wraplength(window_width)
+        del window_width  # measured from each card; kept for call-site compat
         for label in getattr(self, "settings_help_labels", ()):
-            label.configure(wraplength=wrap)
-        if hasattr(self, "game_path"):
-            self.game_path.configure(wraplength=wrap)
-        if hasattr(self, "catalog_status"):
-            self.catalog_status.configure(wraplength=wrap)
-        if hasattr(self, "catalog_freshness"):
-            self.catalog_freshness.configure(wraplength=wrap)
+            parent = getattr(label, "master", None)
+            if parent is None:
+                continue
+            label.configure(wraplength=self._content_wraplength_for(parent))
+        for name in ("game_path", "catalog_status", "catalog_freshness"):
+            widget = getattr(self, name, None)
+            if widget is None:
+                continue
+            parent = getattr(widget, "master", None) or self.window
+            widget.configure(wraplength=self._content_wraplength_for(parent))
 
     def _on_window_resize(self, event) -> None:
         if event.widget is not self.window:
@@ -1097,7 +1144,7 @@ class DlcHubApplication:
         columns = 4 if compact else 5
         layout_changed = compact != self.compact_layout
         columns_changed = columns != self.simple_catalog_columns
-        self._sync_help_wraplengths(event.width)
+        self.window.after_idle(self._sync_help_wraplengths)
         if layout_changed:
             self.compact_layout = compact
             self.sidebar.configure(width=164 if compact else 188)

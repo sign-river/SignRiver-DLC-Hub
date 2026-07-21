@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "config" / "app-icon-source.png"
 OUTPUT_ICO = ROOT / "config" / "app.ico"
 OUTPUT_PNG = ROOT / "config" / "app.png"
-SIZES = (16, 24, 32, 48, 64, 128, 256)
+# Include Win10/11 taskbar sizes (20/40) so DPI scaling stays sharp.
+SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 
 
 def _square_cover(image: Image.Image, size: int) -> Image.Image:
@@ -22,7 +23,15 @@ def _square_cover(image: Image.Image, size: int) -> Image.Image:
     left = (width - side) // 2
     top = (height - side) // 2
     cropped = rgba.crop((left, top, left + side, top + side))
-    return cropped.resize((size, size), Image.Resampling.LANCZOS)
+    # Downscale in steps so 16–48px taskbar glyphs stay crisp.
+    current = cropped
+    while current.width > size * 2:
+        nxt = max(size, current.width // 2)
+        current = current.resize((nxt, nxt), Image.Resampling.LANCZOS)
+    resized = current.resize((size, size), Image.Resampling.LANCZOS)
+    if size <= 48:
+        resized = resized.filter(ImageFilter.UnsharpMask(radius=0.6, percent=120, threshold=2))
+    return resized
 
 
 def main() -> int:
@@ -40,13 +49,16 @@ def main() -> int:
     )
     with Image.open(OUTPUT_ICO) as probe:
         embedded = sorted(probe.ico.sizes()) if probe.ico is not None else []
-    if len(embedded) < len(SIZES):
+    missing = [size for size in SIZES if (size, size) not in embedded]
+    if missing:
         frames[-1].save(
             OUTPUT_ICO,
             format="ICO",
             sizes=[(size, size) for size in SIZES],
         )
-    print(f"Wrote {OUTPUT_ICO}")
+        with Image.open(OUTPUT_ICO) as probe:
+            embedded = sorted(probe.ico.sizes()) if probe.ico is not None else []
+    print(f"Wrote {OUTPUT_ICO} sizes={embedded}")
     print(f"Wrote {OUTPUT_PNG}")
     return 0
 

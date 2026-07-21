@@ -90,8 +90,10 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'text="一键解锁"' in source
     assert "def _apply_window_icon" in source
     assert "SetCurrentProcessExplicitAppUserModelID" in source
-    assert "def _content_wraplength" in source
+    assert "def _apply_native_windows_icons" in source
+    assert "def _content_wraplength_for" in source
     assert "def _sync_help_wraplengths" in source
+    assert "iconphoto(" not in source
     assert "app.ico" in source
 
 
