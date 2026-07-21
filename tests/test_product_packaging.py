@@ -17,7 +17,7 @@ from signriver_launcher.product import (
 
 def test_release_product_names_are_chinese_and_path_safe() -> None:
     assert PRODUCT_DISPLAY_NAME == "唏嘘南溪DLC一键解锁工具"
-    assert WINDOW_TITLE == "唏嘘南溪DLC一键解锁"
+    assert WINDOW_TITLE == "唏嘘南溪DLC一键解锁工具"
     assert AUTHOR_EN == "SignRiver"
     assert AUTHOR_CN == "唏嘘南溪"
     assert RELEASE_DIR_NAME == PRODUCT_DISPLAY_NAME

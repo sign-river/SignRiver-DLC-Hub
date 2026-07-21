@@ -87,7 +87,7 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'text=AUTHOR_CN' in source
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
     assert 'text="唏嘘南溪DLC"' in source
-    assert 'text="一键解锁"' in source
+    assert 'text="一键解锁工具"' in source
     assert "def _apply_window_icon" in source
     assert "SetCurrentProcessExplicitAppUserModelID" in source
     assert "def _apply_native_windows_icons" in source
@@ -116,7 +116,7 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
 
     assert 'self.catalog_view_mode = "simple"' in source
     assert 'text="切换高级视图"' in source
-    assert 'text="一键解锁"' in source
+    assert 'text="一键解锁工具"' in source
     assert "def _render_simple_catalog_rows" in source
     assert "def _render_advanced_catalog_rows" in source
     assert "def _simple_entry_status" in source
@@ -391,10 +391,11 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "def _refresh_announcement" in source
     assert "def _show_announcement_dialog" in source
     assert "_show_onboarding" not in source
-    assert "def _help_label" in source
-    assert "self.settings_help_labels" in source
-    assert "font=ctk.CTkFont(size=13)" in source
-    assert "wraplength=wraplength" in source
+    assert "def _settings_description" in source
+    assert "self.settings_description_boxes" in source
+    assert "spacing2=6" in source
+    assert "def _blue_switch" in source
+    assert "self.settings_grid" in source
     assert 'if page_name == "设置":' in source
     assert "self.window.update_idletasks()" in source
     assert "self.window.after_idle(self._sync_help_wraplengths)" in source
@@ -415,7 +416,7 @@ def test_multi_game_async_results_are_scoped_and_file_changes_require_game_stopp
     assert "generation != self.game_selection_generation" in source
     assert "cartridge_id != self.cartridge.cartridge_id" in source
     assert "def _require_game_stopped" in source
-    assert 'self._require_game_stopped("一键解锁")' in source
+    assert 'self._require_game_stopped("一键解锁工具")' in source
     assert 'self._require_game_stopped("卸载全部 DLC")' in source
     assert 'self._require_game_stopped("移除补丁")' in source
     assert 'self._require_game_stopped("一键修复")' in source
@@ -801,7 +802,7 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     # that was already tested in earlier releases.
     assert "self._start_dlc_batch(selected_entries)" in source
     assert "def _maybe_finish_unlock_workflow" in source
-    assert 'messagebox.showinfo("一键解锁成功"' in source
+    assert 'messagebox.showinfo("一键解锁工具执行成功"' in source
     assert "self.unlock_workflow_active" in source
     finish_method = source.split("def _maybe_finish_unlock_workflow", 1)[1].split(
         "def _show_install_state", 1

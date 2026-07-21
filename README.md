@@ -29,10 +29,10 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 
 游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。启动公告同样来自 `hub` Release 的 `announcement.json`（本地出厂文件为 `config/announcement.json`）；设置页可开关“下次公告更新前不再显示”，也可在 GitLink 与 GitHub 之间切换下载源，两边保持相同的 Release 标签与资源文件名。
 
-DLC 库页面提供“一键解锁 / 一键修复 / 一键移除补丁 / 恢复游戏原版”等核心操作：
+DLC 库页面提供“一键解锁工具 / 一键修复 / 一键移除补丁 / 恢复游戏原版”等核心操作：
 
-- **一键解锁**：先审计并按需下载 `steam_api64.dll`、`steam_api64_o.dll`、`<game>_appinfo.json`，事务化替换补丁并原子写入 `cream_api.ini`，再依次下载并安装勾选的 DLC。已健康的补丁会被跳过。
-- **一键修复**：在弹窗确认后清空全部 DLC、下载缓存与补丁三件套，然后重新执行一键解锁，用于处理残缺文件或异常补丁。
+- **一键解锁工具**：先审计并按需下载 `steam_api64.dll`、`steam_api64_o.dll`、`<game>_appinfo.json`，事务化替换补丁并原子写入 `cream_api.ini`，再依次下载并安装勾选的 DLC。已健康的补丁会被跳过。
+- **一键修复**：在弹窗确认后清空全部 DLC、下载缓存与补丁三件套，然后重新执行一键解锁工具，用于处理残缺文件或异常补丁。
 - **一键移除补丁**：反向操作，删除补丁 DLL 与 `cream_api.ini`，并把 `steam_api64_o.dll` 还原为 `steam_api64.dll`。
 - **恢复游戏原版**：先检查游戏进程、下载任务与原版 DLL 备份，再选择“仅撤销本程序安装”或“移除检测到的全部 DLC”；缓存默认保留，也可在确认时一并清理。
 

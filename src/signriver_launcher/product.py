@@ -16,7 +16,7 @@ RELEASE_DIR_NAME = "唏嘘南溪DLC一键解锁工具"
 RELEASE_EXE_NAME = "唏嘘南溪DLC一键解锁工具.exe"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
-WINDOW_TITLE = "唏嘘南溪DLC一键解锁"
+WINDOW_TITLE = "唏嘘南溪DLC一键解锁工具"
 
 # Outer archive / SFX stem uses the same Chinese product name.
 RELEASE_ZIP_STEM = "唏嘘南溪DLC一键解锁工具"

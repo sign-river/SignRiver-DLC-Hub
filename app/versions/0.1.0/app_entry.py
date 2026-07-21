@@ -83,7 +83,7 @@ UI = {
 }
 
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
-PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁"
+PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
 
@@ -99,21 +99,54 @@ def _card(parent, **kwargs):
     )
 
 
-def _help_label(parent, text: str, *, wraplength: int = 420, **pack_kwargs):
-    """Secondary body copy that wraps inside card width instead of clipping."""
-    label = ctk.CTkLabel(
+def _settings_description(
+    parent, text: str, *, height: int = 64, **pack_kwargs
+):
+    """Read-only card copy with real word-wrap and comfortable line spacing."""
+    textbox = ctk.CTkTextbox(
         parent,
-        text=text,
+        height=height,
+        fg_color="transparent",
+        border_width=0,
+        border_spacing=0,
         text_color=UI["text_secondary"],
         font=ctk.CTkFont(size=13),
-        anchor="w",
-        justify="left",
-        wraplength=wraplength,
+        wrap="word",
+        activate_scrollbars=False,
     )
-    # Keep the label inside the card's content box; wraplength is synced later
-    # from the real parent width so DPI scaling cannot push glyphs past the edge.
-    label.pack(fill="x", padx=24, **pack_kwargs)
-    return label
+    textbox.insert("1.0", text)
+    textbox.tag_add("description", "1.0", "end")
+    textbox.tag_config(
+        "description",
+        justify="center",
+        spacing1=3,
+        spacing2=6,
+        spacing3=3,
+    )
+    textbox.configure(state="disabled")
+    textbox.pack(fill="x", padx=20, **pack_kwargs)
+    return textbox
+
+
+def _blue_switch(parent, **kwargs):
+    """Blue-white pill switch shared by binary settings."""
+    return ctk.CTkSwitch(
+        parent,
+        width=154,
+        height=30,
+        switch_width=48,
+        switch_height=26,
+        corner_radius=13,
+        border_width=1,
+        fg_color=UI["primary_surface"],
+        border_color=UI["primary_border"],
+        progress_color=UI["primary"],
+        button_color=UI["card"],
+        button_hover_color="#F5FAFF",
+        text_color=UI["text_secondary"],
+        font=ctk.CTkFont(size=13, weight="bold"),
+        **kwargs,
+    )
 
 
 def _combo_box(parent, *, values, width, command=None):
@@ -493,7 +526,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=20, weight="bold")
         ).pack(anchor="w", padx=18, pady=(30, 4))
         ctk.CTkLabel(
-            sidebar, text="一键解锁", text_color=UI["muted"],
+            sidebar, text="一键解锁工具", text_color=UI["muted"],
             font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(anchor="w", padx=19, pady=(0, 24))
         self.navigation_buttons = {}
@@ -812,7 +845,7 @@ class DlcHubApplication:
         )
         self.download_selected_button = ctk.CTkButton(
             primary_action_panel,
-            text="一键解锁",
+            text="一键解锁工具",
             command=self._one_click_unlock,
             width=176,
             height=50,
@@ -835,7 +868,18 @@ class DlcHubApplication:
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
 
-        speed_test_card = _card(self.page_host)
+        settings_grid = ctk.CTkFrame(
+            self.page_host, fg_color="transparent", corner_radius=0
+        )
+        self.settings_grid = settings_grid
+        for column in range(3):
+            settings_grid.grid_columnconfigure(
+                column, weight=1, uniform="settings-column"
+            )
+        for row in range(3):
+            settings_grid.grid_rowconfigure(row, weight=1)
+
+        speed_test_card = _card(settings_grid)
         self.speed_test_card = speed_test_card
         speed_header = ctk.CTkFrame(speed_test_card, fg_color="transparent")
         speed_header.pack(fill="x", padx=24, pady=(18, 8))
@@ -848,10 +892,11 @@ class DlcHubApplication:
             command=self._run_speed_test, width=110,
         )
         self.speed_test_button.pack(side="right")
-        self.settings_help_labels = [
-            _help_label(
+        self.settings_description_boxes = [
+            _settings_description(
                 speed_test_card,
                 "从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
+                height=50,
             )
         ]
         self.speed_test_status = ctk.CTkLabel(
@@ -859,7 +904,7 @@ class DlcHubApplication:
         )
         self.speed_test_status.pack(fill="x", padx=24, pady=(8, 18))
 
-        resilience_card = _card(self.page_host)
+        resilience_card = _card(settings_grid)
         self.resilience_card = resilience_card
         resilience_header = ctk.CTkFrame(
             resilience_card, fg_color="transparent"
@@ -872,15 +917,15 @@ class DlcHubApplication:
         self.download_never_timeout_var = BooleanVar(
             value=self.user_settings.download_never_timeout
         )
-        self.download_never_timeout_switch = ctk.CTkSwitch(
+        self.download_never_timeout_switch = _blue_switch(
             resilience_header,
             text="关闭超时检测",
             variable=self.download_never_timeout_var,
             command=self._toggle_download_never_timeout,
         )
         self.download_never_timeout_switch.pack(side="right")
-        self.settings_help_labels.append(
-            _help_label(
+        self.settings_description_boxes.append(
+            _settings_description(
                 resilience_card,
                 (
                     "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
@@ -891,7 +936,7 @@ class DlcHubApplication:
             )
         )
 
-        announcement_card = _card(self.page_host)
+        announcement_card = _card(settings_grid)
         self.announcement_card = announcement_card
         announcement_header = ctk.CTkFrame(
             announcement_card, fg_color="transparent"
@@ -904,15 +949,15 @@ class DlcHubApplication:
         self.announcement_mute_var = BooleanVar(
             value=self.user_settings.announcement_mute_until_update
         )
-        self.announcement_mute_switch = ctk.CTkSwitch(
+        self.announcement_mute_switch = _blue_switch(
             announcement_header,
             text="下次公告更新前不再显示",
             variable=self.announcement_mute_var,
             command=self._toggle_announcement_mute,
         )
         self.announcement_mute_switch.pack(side="right")
-        self.settings_help_labels.append(
-            _help_label(
+        self.settings_description_boxes.append(
+            _settings_description(
                 announcement_card,
                 (
                     "启动时自动读取远程公告。开启后，当前公告关闭后不再弹出；"
@@ -922,7 +967,7 @@ class DlcHubApplication:
             )
         )
 
-        source_card = _card(self.page_host)
+        source_card = _card(settings_grid)
         self.source_card = source_card
         source_header = ctk.CTkFrame(source_card, fg_color="transparent")
         source_header.pack(fill="x", padx=24, pady=(18, 8))
@@ -940,8 +985,8 @@ class DlcHubApplication:
             provider_display_name(self.user_settings.download_source)
         )
         self.download_source_menu.pack(side="right")
-        self.settings_help_labels.append(
-            _help_label(
+        self.settings_description_boxes.append(
+            _settings_description(
                 source_card,
                 (
                     "默认使用 GitLink。若当前线路不稳定，可切换到 GitHub；"
@@ -952,7 +997,7 @@ class DlcHubApplication:
             )
         )
 
-        cache_card = _card(self.page_host)
+        cache_card = _card(settings_grid)
         self.cache_card = cache_card
         cache_header = ctk.CTkFrame(cache_card, fg_color="transparent")
         cache_header.pack(fill="x", padx=24, pady=(18, 8))
@@ -969,8 +1014,8 @@ class DlcHubApplication:
             command=self._cleanup_cache, width=110,
         )
         self.cache_cleanup_button.pack(side="right", padx=(0, 8))
-        self.settings_help_labels.append(
-            _help_label(
+        self.settings_description_boxes.append(
+            _settings_description(
                 cache_card,
                 (
                     "packages 保存已校验资源（哈希目录名用于防止串包）；downloads 保存下载半包；"
@@ -983,7 +1028,7 @@ class DlcHubApplication:
         )
         self.cache_status.pack(fill="x", padx=24, pady=(8, 18))
 
-        update_card = _card(self.page_host)
+        update_card = _card(settings_grid)
         self.update_card = update_card
         update_header = ctk.CTkFrame(update_card, fg_color="transparent")
         update_header.pack(fill="x", padx=24, pady=(18, 8))
@@ -995,8 +1040,8 @@ class DlcHubApplication:
             update_header, text="检查更新", command=self._check_update, width=110,
         )
         self.update_button.pack(side="right")
-        self.settings_help_labels.append(
-            _help_label(
+        self.settings_description_boxes.append(
+            _settings_description(
                 update_card,
                 (
                     f"应用模块 v{self.context.app_version}  ·  "
@@ -1012,6 +1057,28 @@ class DlcHubApplication:
             update_card, text="尚未检查更新", text_color=UI["muted"], anchor="w"
         )
         self.status.pack(fill="x", padx=24, pady=(0, 18))
+
+        # Three-column settings rhythm: every card occupies one or two cells,
+        # controls stay in the header, and copy is centered in a fixed body.
+        self.speed_test_card.grid(
+            row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6)
+        )
+        self.resilience_card.grid(
+            row=0, column=1, columnspan=2, sticky="nsew",
+            padx=(6, 0), pady=(0, 6),
+        )
+        self.announcement_card.grid(
+            row=1, column=0, columnspan=2, sticky="nsew", padx=(0, 6), pady=6
+        )
+        self.source_card.grid(
+            row=1, column=2, sticky="nsew", padx=(6, 0), pady=6
+        )
+        self.cache_card.grid(
+            row=2, column=0, columnspan=2, sticky="nsew", padx=(0, 6), pady=(6, 0)
+        )
+        self.update_card.grid(
+            row=2, column=2, sticky="nsew", padx=(6, 0), pady=(6, 0)
+        )
 
         self.task_card = _card(self.page_host)
         task_header = ctk.CTkFrame(self.task_card, fg_color="transparent")
@@ -1114,10 +1181,7 @@ class DlcHubApplication:
             "DLC 库": (self.game_card, self.catalog_card),
             "下载任务": (self.task_card,),
             "日志": (self.log_card,),
-            "设置": (
-                self.speed_test_card, self.resilience_card, self.announcement_card,
-                self.source_card, self.cache_card, self.update_card,
-            ),
+            "设置": (self.settings_grid,),
         }
         self._apply_visual_theme(shell)
         self._show_page("DLC 库")
@@ -1127,11 +1191,6 @@ class DlcHubApplication:
 
     def _sync_help_wraplengths(self, window_width: int | None = None) -> None:
         del window_width  # measured from each card; kept for call-site compat
-        for label in getattr(self, "settings_help_labels", ()):
-            parent = getattr(label, "master", None)
-            if parent is None:
-                continue
-            label.configure(wraplength=self._content_wraplength_for(parent))
         for name in ("game_path", "catalog_status", "catalog_freshness"):
             widget = getattr(self, name, None)
             if widget is None:
@@ -1210,7 +1269,7 @@ class DlcHubApplication:
                 )
                 return
             elif text in {
-                "下载所选", "一键下载所选", "一键解锁", "一键修复",
+                "下载所选", "一键下载所选", "一键解锁工具", "一键修复",
                 "启动游戏", "保存设置", "检查更新", "安装",
             }:
                 colors = (UI["primary"], UI["primary_hover"])
@@ -1551,7 +1610,7 @@ class DlcHubApplication:
         for index, section in enumerate(sections):
             if page_name == "DLC 库" and section is self.catalog_card:
                 section.pack(fill="both", expand=True)
-            elif page_name in {"下载任务", "日志"}:
+            elif page_name in {"下载任务", "日志", "设置"}:
                 section.pack(fill="both", expand=True)
             else:
                 bottom = 18 if index < len(sections) - 1 else 0
@@ -2701,11 +2760,11 @@ class DlcHubApplication:
         self._set_batch_download_state(self.batch_download_state)
         if snapshot.patch_bundle is None:
             self.catalog_preview.configure(
-                text="补丁资源缺失，一键解锁暂不可用；请稍后刷新目录"
+                text="补丁资源缺失，一键解锁工具暂不可用；请稍后刷新目录"
             )
         else:
             self.catalog_preview.configure(
-                text="勾选需要的 DLC 后点击一键解锁：先打补丁，再逐个下载并安装"
+                text="勾选需要的 DLC 后点击一键解锁工具：先打补丁，再逐个下载并安装"
             )
         self._render_catalog_rows()
         self._reconcile_catalog_cache()
@@ -3421,7 +3480,7 @@ class DlcHubApplication:
         """Kick off the patch phase; DLC downloads begin once patching succeeds."""
         if self.cache_cleanup_running:
             self.catalog_preview.configure(
-                text="缓存正在维护，请等待完成后再执行一键解锁"
+                text="缓存正在维护，请等待完成后再执行一键解锁工具"
             )
             return
         if self.download_queue is None:
@@ -3430,11 +3489,11 @@ class DlcHubApplication:
         if self.current_installation is None:
             messagebox.showwarning(
                 "尚未检测游戏",
-                "请先选择或识别当前游戏的有效目录，再进行一键解锁。",
+                "请先选择或识别当前游戏的有效目录，再使用一键解锁工具。",
                 parent=self.window,
             )
             return
-        if not self._require_game_stopped("一键解锁"):
+        if not self._require_game_stopped("一键解锁工具"):
             return
         if self.patch_bundle is None:
             missing = ", ".join(self.catalog_missing_patch_assets) or "全部补丁资源"
@@ -3555,7 +3614,7 @@ class DlcHubApplication:
     def _set_batch_download_state(self, state: str) -> None:
         self.batch_download_state = state
         text, enabled = {
-            "idle": ("一键解锁", True),
+            "idle": ("一键解锁工具", True),
             "running": ("暂停下载", True),
             "installing": ("正在安装…", False),
             "pausing": ("继续下载", True),
@@ -4363,13 +4422,13 @@ class DlcHubApplication:
             self.unlock_failed_dlc_ids.clear()
             detail = (
                 "DLC 已安装完成，但补丁在流程结束前被删除、隔离或修改，"
-                "因此一键解锁尚未完成。请检查安全软件后重新点击一键解锁。"
+                "因此一键解锁工具尚未完成。请检查安全软件后重新点击一键解锁工具。"
                 f"{affected_text}"
             )
             self.catalog_preview.configure(text="DLC 已安装，但补丁复检失败")
             self._notify("补丁复检失败", error=True)
             messagebox.showwarning(
-                "一键解锁未完成", detail, parent=self.window
+                "一键解锁工具未完成", detail, parent=self.window
             )
             return
 
@@ -4385,9 +4444,9 @@ class DlcHubApplication:
             )
         else:
             detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
-        self.catalog_preview.configure(text=f"一键解锁成功：{detail}")
-        self._notify("一键解锁成功")
-        messagebox.showinfo("一键解锁成功", detail, parent=self.window)
+        self.catalog_preview.configure(text=f"一键解锁工具执行成功：{detail}")
+        self._notify("一键解锁工具执行成功")
+        messagebox.showinfo("一键解锁工具执行成功", detail, parent=self.window)
 
     def _show_install_state(self, entry, snapshot=None) -> None:
         task_id = self._dlc_task_id(entry.dlc_id)
@@ -4711,7 +4770,7 @@ class DlcHubApplication:
                 detail += f"\n……另有 {len(failures) - 8} 项"
         messagebox.showinfo(title, detail, parent=self.window)
 
-    # ---- Patch workflow (一键解锁 / 一键修复 / 一键移除补丁) ----------------
+    # ---- Patch workflow (一键解锁工具 / 一键修复 / 一键移除补丁) ------------
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
         """Materialize the three patch download specs when the bundle is known."""
@@ -5007,9 +5066,9 @@ class DlcHubApplication:
         self.unlock_failed_dlc_ids.clear()
         if self.repair_workflow_active:
             self.repair_workflow_active = False
-        self.catalog_preview.configure(text=f"一键解锁失败：{message}")
-        self._notify(f"一键解锁失败：{message}", error=True)
-        messagebox.showerror("一键解锁失败", message, parent=self.window)
+        self.catalog_preview.configure(text=f"一键解锁工具执行失败：{message}")
+        self._notify(f"一键解锁工具执行失败：{message}", error=True)
+        messagebox.showerror("一键解锁工具执行失败", message, parent=self.window)
 
     def _restore_original_state(self) -> None:
         """Restore original patch files and roll back receipt-backed DLC."""

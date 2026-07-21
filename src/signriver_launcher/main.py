@@ -58,7 +58,7 @@ def _show_fatal_error(message: str) -> None:
     try:
         from tkinter import messagebox
 
-        messagebox.showerror("唏嘘南溪DLC一键解锁", message)
+        messagebox.showerror("唏嘘南溪DLC一键解锁工具", message)
     except Exception:
         print(message, file=sys.stderr)
 
