@@ -105,6 +105,7 @@ def _help_label(parent, text: str, *, wraplength: int = 420, **pack_kwargs):
         parent,
         text=text,
         text_color=UI["text_secondary"],
+        font=ctk.CTkFont(size=13),
         anchor="w",
         justify="left",
         wraplength=wraplength,
@@ -464,7 +465,8 @@ class DlcHubApplication:
             width = 0
         if width <= 1:
             try:
-                width = int(self.window.winfo_width()) - 280
+                self.page_host.update_idletasks()
+                width = int(self.page_host.winfo_width())
             except Exception:
                 width = fallback + 48
         # padx=24 on each side of help labels.
@@ -1560,6 +1562,14 @@ class DlcHubApplication:
                 text_color=UI["on_blue"] if name == page_name else UI["text_secondary"],
                 hover_color=UI["primary_hover"] if name == page_name else "#EAF3FB",
             )
+        if page_name == "设置":
+            # Hidden cards report a stale/1px width.  Measure only after the
+            # settings cards have been packed, then repeat after Tk finishes
+            # geometry propagation so first display matches a manual resize.
+            self.window.update_idletasks()
+            self._sync_help_wraplengths()
+            self.window.after_idle(self._sync_help_wraplengths)
+            self.window.after(80, self._sync_help_wraplengths)
         if page_name == "下载任务":
             self._refresh_task_page()
         elif page_name == "日志":

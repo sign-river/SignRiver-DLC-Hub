@@ -393,7 +393,11 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "_show_onboarding" not in source
     assert "def _help_label" in source
     assert "self.settings_help_labels" in source
+    assert "font=ctk.CTkFont(size=13)" in source
     assert "wraplength=wraplength" in source
+    assert 'if page_name == "设置":' in source
+    assert "self.window.update_idletasks()" in source
+    assert "self.window.after_idle(self._sync_help_wraplengths)" in source
     assert 'text="下载源"' in source
     assert "self.source_card" in source
     assert "self.download_manager.configure_timeout" in source
