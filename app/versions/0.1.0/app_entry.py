@@ -866,7 +866,7 @@ class DlcHubApplication:
         )
         resilience_header.pack(fill="x", padx=24, pady=(18, 8))
         ctk.CTkLabel(
-            resilience_header, text="下载容错", text_color=UI["primary"],
+            resilience_header, text="超时控制", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(side="left")
         self.download_never_timeout_var = BooleanVar(
@@ -874,7 +874,7 @@ class DlcHubApplication:
         )
         self.download_never_timeout_switch = ctk.CTkSwitch(
             resilience_header,
-            text="永不因连接读取超时而中断",
+            text="关闭超时检测",
             variable=self.download_never_timeout_var,
             command=self._toggle_download_never_timeout,
         )

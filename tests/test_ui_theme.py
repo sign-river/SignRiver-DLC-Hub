@@ -382,8 +382,8 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert 'text="网络测速"' in source
     assert 'text="缓存管理"' in source
     assert 'text="程序与更新"' in source
-    assert 'text="下载容错"' in source
-    assert 'text="永不因连接读取超时而中断"' in source
+    assert 'text="超时控制"' in source
+    assert 'text="关闭超时检测"' in source
     assert "self.resilience_card" in source
     assert 'text="公告"' in source
     assert 'text="下次公告更新前不再显示"' in source
