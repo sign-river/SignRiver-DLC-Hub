@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from ...domain import DownloadSnapshot, DownloadSpec, DownloadState
+from ..net_errors import describe_network_error
 
 _SAFE_FILENAME = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]+$")
 
@@ -128,9 +129,11 @@ class DownloadManager:
             cancelled = False
             paused = False
             started_at = self._clock()
+            active_url = ""
             try:
                 with part.open("wb") as output:
                     for part_url in spec.urls:
+                        active_url = part_url
                         with closing(self._opener(part_url, self.policy.timeout)) as response:
                             while True:
                                 if control.cancel_requested:
@@ -283,8 +286,20 @@ class DownloadManager:
                         eta_seconds=None,
                     ), notify)
                 if attempt == self.policy.attempts:
-                    return self._emit(snapshot.evolve(state=DownloadState.FAILED, bytes_downloaded=downloaded, error=str(error)), notify)
-                snapshot = self._emit(snapshot.evolve(state=DownloadState.RETRYING, bytes_downloaded=downloaded, error=str(error)), notify)
+                    return self._emit(snapshot.evolve(
+                        state=DownloadState.FAILED,
+                        bytes_downloaded=downloaded,
+                        error=describe_network_error(
+                            error, url=active_url, action="下载资源",
+                        ),
+                    ), notify)
+                snapshot = self._emit(snapshot.evolve(
+                    state=DownloadState.RETRYING,
+                    bytes_downloaded=downloaded,
+                    error=describe_network_error(
+                        error, url=active_url, action="下载资源，准备重试",
+                    ),
+                ), notify)
                 self._sleep(self.policy.retry_delay * attempt)
         raise AssertionError("unreachable")
 

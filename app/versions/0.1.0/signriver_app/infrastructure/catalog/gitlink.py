@@ -74,7 +74,7 @@ class GitLinkReleaseSource:
                 self._fetch(self.releases_url, self.timeout, self.max_response_bytes)
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-            raise ReleaseSourceError(f"unable to read GitLink releases: {error}") from error
+            raise ReleaseSourceError(f"无法读取 GitLink Release 列表：{error}") from error
         if not isinstance(payload, dict) or not isinstance(payload.get("releases"), list):
             raise ReleaseSourceError("GitLink returned an unexpected release response")
         return tuple(self._normalize_release(item) for item in payload["releases"])
@@ -123,12 +123,19 @@ class GitLinkReleaseSource:
 
     @staticmethod
     def _fetch_json(url: str, timeout: float, limit: int) -> bytes:
+        from ..net_errors import describe_network_error
+
         request = Request(url, headers={"Accept": "application/json", "User-Agent": "SignRiver-DLC-Hub/0.1"})
-        with urlopen(request, timeout=timeout) as response:
-            final = urlparse(response.geturl())
-            if final.scheme != "https":
-                raise ReleaseSourceError("GitLink redirected to a non-HTTPS endpoint")
-            data = response.read(limit + 1)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                final = urlparse(response.geturl())
+                if final.scheme != "https":
+                    raise ReleaseSourceError("GitLink redirected to a non-HTTPS endpoint")
+                data = response.read(limit + 1)
+        except (OSError, TimeoutError) as error:
+            raise OSError(
+                describe_network_error(error, url=url, action="访问 GitLink")
+            ) from error
         if len(data) > limit:
             raise ReleaseSourceError("GitLink release response is too large")
         return data

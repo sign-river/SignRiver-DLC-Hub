@@ -106,13 +106,15 @@ stellaris_appinfo.json
 
 客户端的安装、已安装扫描、卸载和修复会统一读取这两个字段。服务端的“游戏卡带配置”页面也保存相同字段，便于新增游戏时完整记录发布协议。两者都拒绝绝对路径和包含 `..` 的越界路径。
 
-当前预置三张 Steam 卡带：
+当前预置五张 Steam 卡带：
 
 | 游戏 | Steam App ID | Release 标签 | DLC 安装目录 | 补丁安装目录 | AppInfo |
 | --- | ---: | --- | --- | --- | --- |
 | Stellaris | `281990` | `stellaris` | `dlc` | `.` | `stellaris_appinfo.json` |
 | Civilization VI | `289070` | `civilization_6` | `DLC` | `Base/Binaries/Win64Steam` | `civilization_6_appinfo.json` |
 | Hearts of Iron IV | `394360` | `hearts_of_iron_4` | `dlc` | `.` | `hearts_of_iron_4_appinfo.json` |
+| 城市天际线 | `255710` | `cities_skylines` | `Files` | `.` | `cities_skylines_appinfo.json` |
+| 边缘世界 | `294100` | `rimworld` | `Data` | `.` | `rimworld_appinfo.json` |
 
 首次启动新版服务端管理器时，会为缺失的内置卡带自动创建本地工作区，不覆盖已有游戏配置。为新游戏准备资源时：
 
@@ -121,7 +123,7 @@ stellaris_appinfo.json
 3. 点击构建，让服务端从 Steam 获取并生成该卡带对应的 `xxx_appinfo.json`。
 4. 在 GitLink 仓库创建与表格一致的 Release 标签，再执行发布。
 
-文明 6 与钢铁雄心 4 使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。文明 6 卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始 `Expansion1`，也可选择游戏的整个 `DLC` 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_Expansion1` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为 `Expansion1`。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
+文明 6、城市天际线与边缘世界使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。这些卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始目录，也可选择游戏的整个 DLC 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_...` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为原始文件夹名。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
 
 ## GitLink 仓库
 
@@ -188,7 +190,9 @@ publisher-workspace/
    │  ├─ history/
    │  └─ evidence/
    ├─ civilization_6/
-   └─ hearts_of_iron_4/
+   ├─ hearts_of_iron_4/
+   ├─ cities_skylines/
+   └─ rimworld/
 ```
 
 `settings.json` 只记录本机待测客户端和游戏目录；`current.json` 保存当前轮次；`history` 保存旧轮次；`evidence` 保存环境快照和复制出的日志。整个 `publisher-workspace` 已被 Git 忽略，不会把本机路径、测试记录或日志提交到公开仓库。

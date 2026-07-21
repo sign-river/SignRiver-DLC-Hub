@@ -235,6 +235,8 @@ def test_builtin_adapter_set_contains_all_prepared_game_cartridges() -> None:
         "stellaris.steam",
         "civilization_6.steam",
         "hearts_of_iron_4.steam",
+        "cities_skylines.steam",
+        "rimworld.steam",
     }
 
 

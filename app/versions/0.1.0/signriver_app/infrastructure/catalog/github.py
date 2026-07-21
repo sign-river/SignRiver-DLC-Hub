@@ -65,9 +65,9 @@ class GitHubReleaseSource:
                 self._fetch(self.releases_url, self.timeout, self.max_response_bytes)
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-            raise ReleaseSourceError(f"unable to read GitHub releases: {error}") from error
+            raise ReleaseSourceError(f"无法读取 GitHub Release 列表：{error}") from error
         if not isinstance(payload, list):
-            raise ReleaseSourceError("GitHub returned an unexpected release response")
+            raise ReleaseSourceError("GitHub 返回了意外的 Release 响应")
         return tuple(self._normalize_release(item) for item in payload)
 
     def get_release_by_tag(self, tag: str) -> NormalizedRelease:
@@ -86,10 +86,10 @@ class GitHubReleaseSource:
             except ReleaseSourceError:
                 pass
             raise ReleaseSourceError(
-                f"unable to read GitHub release tag {tag}: {error}"
+                f"无法读取 GitHub Release 标签 {tag}：{error}"
             ) from error
         if not isinstance(payload, dict):
-            raise ReleaseSourceError("GitHub returned a malformed tagged release")
+            raise ReleaseSourceError("GitHub 返回了格式错误的标签 Release")
         return self._normalize_release(payload)
 
     def _normalize_release(self, value: object) -> NormalizedRelease:
@@ -133,6 +133,8 @@ class GitHubReleaseSource:
 
     @staticmethod
     def _fetch_json(url: str, timeout: float, limit: int) -> bytes:
+        from ..net_errors import describe_network_error
+
         request = Request(
             url,
             headers={
@@ -141,11 +143,16 @@ class GitHubReleaseSource:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urlopen(request, timeout=timeout) as response:
-            final = urlparse(response.geturl())
-            if final.scheme != "https":
-                raise ReleaseSourceError("GitHub redirected to a non-HTTPS endpoint")
-            data = response.read(limit + 1)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                final = urlparse(response.geturl())
+                if final.scheme != "https":
+                    raise ReleaseSourceError("GitHub redirected to a non-HTTPS endpoint")
+                data = response.read(limit + 1)
+        except (OSError, TimeoutError) as error:
+            raise OSError(
+                describe_network_error(error, url=url, action="访问 GitHub")
+            ) from error
         if len(data) > limit:
             raise ReleaseSourceError("GitHub release response is too large")
         return data

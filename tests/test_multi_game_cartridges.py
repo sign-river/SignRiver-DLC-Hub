@@ -33,10 +33,16 @@ def test_directory_inspector_accepts_trusted_existing_digest(tmp_path: Path) -> 
     assert metadata.package_sha256 == known
 
 
-def test_client_registry_contains_three_independent_cartridges() -> None:
+def test_client_registry_contains_independent_cartridges() -> None:
     cartridges = {item.adapter.descriptor.game_id: item for item in create_builtin_cartridges()}
 
-    assert set(cartridges) == {"stellaris", "civilization_6", "hearts_of_iron_4"}
+    assert set(cartridges) == {
+        "stellaris",
+        "civilization_6",
+        "hearts_of_iron_4",
+        "cities_skylines",
+        "rimworld",
+    }
     civ = cartridges["civilization_6"]
     assert civ.store_app_id == "289070"
     assert civ.release_tag == "civilization_6"
@@ -49,6 +55,14 @@ def test_client_registry_contains_three_independent_cartridges() -> None:
     assert hoi.dlc_relative_dir == "dlc"
     assert hoi.patch_profile.install_relative_dir == "."
     assert hoi.patch_profile.appinfo_asset_name == "hearts_of_iron_4_appinfo.json"
+    cities = cartridges["cities_skylines"]
+    assert cities.store_app_id == "255710"
+    assert cities.dlc_relative_dir == "Files"
+    assert cities.patch_profile.appinfo_asset_name == "cities_skylines_appinfo.json"
+    rim = cartridges["rimworld"]
+    assert rim.store_app_id == "294100"
+    assert rim.dlc_relative_dir == "Data"
+    assert rim.patch_profile.appinfo_asset_name == "rimworld_appinfo.json"
 
 
 def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> None:
@@ -64,6 +78,18 @@ def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> N
     (hoi_root / "hoi4.exe").write_bytes(b"exe")
     (hoi_root / "dlc").mkdir()
     assert cartridges["hearts_of_iron_4"].adapter.validate(hoi_root).valid
+
+    cities_root = tmp_path / "Cities Skylines"
+    cities_root.mkdir()
+    (cities_root / "Cities.exe").write_bytes(b"exe")
+    (cities_root / "Files").mkdir()
+    assert cartridges["cities_skylines"].adapter.validate(cities_root).valid
+
+    rim_root = tmp_path / "RimWorld"
+    rim_root.mkdir()
+    (rim_root / "RimWorldWin64.exe").write_bytes(b"exe")
+    (rim_root / "Data").mkdir()
+    assert cartridges["rimworld"].adapter.validate(rim_root).valid
 
 
 def test_configured_process_check_has_a_clear_five_second_timeout(
@@ -126,10 +152,18 @@ def test_publisher_seeds_all_game_cartridges_without_overwriting_existing(tmp_pa
     profiles = {item.game_id: item for item in workspace.list_games()}
 
     assert selected.game_id == "stellaris"
-    assert set(profiles) == {"stellaris", "civilization_6", "hearts_of_iron_4"}
+    assert set(profiles) == {
+        "stellaris",
+        "civilization_6",
+        "hearts_of_iron_4",
+        "cities_skylines",
+        "rimworld",
+    }
     assert profiles["civilization_6"].patch_relative_dir == "Base/Binaries/Win64Steam"
     assert profiles["hearts_of_iron_4"].steam_app_id == "394360"
-    assert len(publisher_cartridges()) == 3
+    assert profiles["cities_skylines"].steam_app_id == "255710"
+    assert profiles["rimworld"].dlc_relative_dir == "Data"
+    assert len(publisher_cartridges()) == 5
 
 
 def test_civilization_publisher_keeps_asset_id_but_strips_install_prefix(tmp_path: Path) -> None:

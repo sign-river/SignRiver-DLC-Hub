@@ -124,6 +124,24 @@ def test_network_failure_retries_then_succeeds(tmp_path: Path) -> None:
     assert states.count(DownloadState.RETRYING) == 2
 
 
+def test_timeout_failure_records_url_in_error(tmp_path: Path) -> None:
+    url = "https://www.gitlink.org.cn/slow.zip"
+
+    def boom(*_args):
+        raise TimeoutError("The read operation timed out")
+
+    manager = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(attempts=1, retry_delay=0),
+        opener=boom,
+    )
+    result = manager.run(spec(url=url))
+    assert result.state is DownloadState.FAILED
+    assert result.error is not None
+    assert "连接超时" in result.error
+    assert url in result.error
+
+
 def test_pre_requested_pause_does_not_open_network(tmp_path: Path) -> None:
     control = DownloadControl()
     control.pause()

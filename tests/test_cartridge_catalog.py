@@ -30,7 +30,11 @@ def test_bootstrap_index_and_documents_round_trip() -> None:
     )
     assert index.default_game_id == "stellaris"
     assert {item.game_id for item in index.cartridges} == {
-        "stellaris", "civilization_6", "hearts_of_iron_4",
+        "stellaris",
+        "civilization_6",
+        "hearts_of_iron_4",
+        "cities_skylines",
+        "rimworld",
     }
     for entry in index.cartridges:
         payload = (BOOTSTRAP / entry.asset_name).read_bytes()
@@ -47,6 +51,8 @@ def test_builtin_cartridges_are_built_from_bootstrap_documents() -> None:
     assert cartridges["stellaris"].release_tag == "stellaris"
     assert cartridges["civilization_6"].dlc_relative_dir == "DLC"
     assert cartridges["hearts_of_iron_4"].store_app_id == "394360"
+    assert cartridges["cities_skylines"].store_app_id == "255710"
+    assert cartridges["rimworld"].dlc_relative_dir == "Data"
 
 
 def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) -> None:

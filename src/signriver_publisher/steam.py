@@ -98,12 +98,19 @@ class SteamStoreClient:
 
     @staticmethod
     def _fetch_json(url: str, timeout: float, limit: int) -> bytes:
+        from .net_errors import describe_network_error
+
         request = Request(url, headers={"Accept": "application/json", "User-Agent": "SignRiver-Publisher/0.1"})
-        with urlopen(request, timeout=timeout) as response:
-            final = urlparse(response.geturl())
-            if final.scheme != "https" or final.hostname != "store.steampowered.com":
-                raise SteamApiError("Steam API 重定向到了不受信任的地址")
-            data = response.read(limit + 1)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                final = urlparse(response.geturl())
+                if final.scheme != "https" or final.hostname != "store.steampowered.com":
+                    raise SteamApiError("Steam API 重定向到了不受信任的地址")
+                data = response.read(limit + 1)
+        except (OSError, TimeoutError) as error:
+            raise OSError(
+                describe_network_error(error, url=url, action="访问 Steam API")
+            ) from error
         if len(data) > limit:
             raise SteamApiError("Steam API 响应过大")
         return data

@@ -123,6 +123,8 @@ class AnnouncementService:
 
     @staticmethod
     def _download_bytes(url: str, timeout: float) -> bytes:
+        from ..infrastructure.net_errors import describe_network_error
+
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.netloc:
             raise AnnouncementError("announcement downloads must use HTTPS")
@@ -133,8 +135,13 @@ class AnnouncementService:
                 "User-Agent": "SignRiver-DLC-Hub/0.1",
             },
         )
-        with urlopen(request, timeout=timeout) as response:
-            return response.read()
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (OSError, TimeoutError) as error:
+            raise OSError(
+                describe_network_error(error, url=url, action="下载公告")
+            ) from error
 
 
 __all__ = ["AnnouncementError", "AnnouncementService"]

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "engine": "steam_configured_v1",
+  "game_id": "cities_skylines",
+  "display_name": "城市天际线",
+  "store_app_id": "255710",
+  "release_tag": "cities_skylines",
+  "executable_relative_path": "Cities.exe",
+  "dlc_relative_dir": "Files",
+  "package_inspector": "directory",
+  "install_directory_from_slug": true,
+  "repository": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+  "repositories": {
+    "gitlink": {"owner": "signriver", "repository": "signriver-dlc-assets"},
+    "github": {"owner": "sign-river", "repository": "signriver-dlc-assets"}
+  },
+  "patch": {
+    "unlocker_dll_name": "steam_api64.dll",
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "appinfo_asset_name": "cities_skylines_appinfo.json",
+    "install_relative_dir": ".",
+    "ini_target_name": "cream_api.ini",
+    "language": "schinese",
+    "unlock_all": true,
+    "extra_protection": false,
+    "force_offline": false
+  }
+}

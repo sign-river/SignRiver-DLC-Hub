@@ -24,6 +24,7 @@ from .constants import (
 from .errors import DownloadError, FullUpdateRequired, IntegrityError, ManifestError, PackageError
 from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest
+from .net_errors import describe_network_error
 from .paths import RuntimePaths
 from .state import StateStore
 from .versioning import Version
@@ -148,7 +149,9 @@ class UpdateClient:
             os.replace(target, final_path)
             return final_path
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise DownloadError(f"Unable to download update: {error}") from error
+            raise DownloadError(
+                describe_network_error(error, url=url, action="下载更新包")
+            ) from error
         finally:
             target.unlink(missing_ok=True)
 
@@ -223,7 +226,9 @@ class UpdateClient:
                 self._validate_remote_url(response.geturl())
                 raw = response.read(MAX_MANIFEST_BYTES + 1)
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise DownloadError(f"Unable to fetch update manifest: {error}") from error
+            raise DownloadError(
+                describe_network_error(error, url=url, action="获取更新清单")
+            ) from error
         if len(raw) > MAX_MANIFEST_BYTES:
             raise ManifestError("Update manifest is too large")
         try:
