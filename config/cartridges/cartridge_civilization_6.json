@@ -2,7 +2,7 @@
   "schema_version": 1,
   "engine": "steam_configured_v1",
   "game_id": "civilization_6",
-  "display_name": "Civilization VI",
+  "display_name": "文明6 (Civilization VI)",
   "store_app_id": "289070",
   "release_tag": "civilization_6",
   "executable_relative_path": "Base/Binaries/Win64Steam/CivilizationVI.exe",

@@ -54,7 +54,7 @@ class CartridgeIndexEntry:
 
     @property
     def selection_name(self) -> str:
-        return f"{self.display_name} · Steam"
+        return self.display_name
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "CartridgeIndexEntry":
@@ -163,57 +163,35 @@ class CartridgeIndex:
 
 @dataclass(frozen=True, slots=True)
 class CartridgeFreshness:
-    """Publisher-authored snapshot of Steam vs packaged DLC completeness."""
+    """Publisher-authored snapshot of when packaged resources were last updated."""
 
-    status: str
-    checked_at: str
-    steam_game_name: str = ""
-    steam_dlc_count: int = 0
+    resources_updated_at: str
     package_count: int = 0
-    gap_count: int = 0
-    appinfo_update_time: str = ""
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "CartridgeFreshness":
-        status = str(value.get("status") or "unknown").strip().lower()
-        if status not in {"current", "behind", "unknown"}:
-            status = "unknown"
+        stamp = str(
+            value.get("resources_updated_at") or value.get("checked_at") or ""
+        ).strip()
         return cls(
-            status=status,
-            checked_at=str(value.get("checked_at") or "").strip(),
-            steam_game_name=str(value.get("steam_game_name") or "").strip(),
-            steam_dlc_count=max(0, int(value.get("steam_dlc_count") or 0)),
-            package_count=max(0, int(value.get("package_count") or 0)),
-            gap_count=max(0, int(value.get("gap_count") or 0)),
-            appinfo_update_time=str(value.get("appinfo_update_time") or "").strip(),
+            resources_updated_at=stamp,
+            package_count=max(
+                0,
+                int(value.get("package_count") or value.get("local_package_count") or 0),
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "status": self.status,
-            "checked_at": self.checked_at,
-            "steam_game_name": self.steam_game_name,
-            "steam_dlc_count": self.steam_dlc_count,
+            "resources_updated_at": self.resources_updated_at,
             "package_count": self.package_count,
-            "gap_count": self.gap_count,
-            "appinfo_update_time": self.appinfo_update_time,
         }
 
     def client_summary(self) -> str:
-        game = self.steam_game_name or "当前游戏"
-        checked = self.checked_at or "未知时间"
-        if self.status == "current":
-            return (
-                f"完整度：当前 DLC 包已是最新（{game} · Steam {self.steam_dlc_count} 项）"
-                f" · 检测于 {checked}"
-            )
-        if self.status == "behind":
-            return (
-                f"完整度：当前不是最新（{game} · Steam {self.steam_dlc_count} / "
-                f"已收录 {self.package_count}，约落后 {self.gap_count}）"
-                f" · 检测于 {checked}"
-            )
-        return f"完整度：尚未确认是否最新 · 检测于 {checked}"
+        if not self.resources_updated_at:
+            return "资源提交时间：未知"
+        extra = f" · 收录 {self.package_count} 个包" if self.package_count else ""
+        return f"资源提交于 {self.resources_updated_at}{extra}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,7 +236,7 @@ class CartridgeDocument:
 
     @property
     def selection_name(self) -> str:
-        return f"{self.display_name} · Steam"
+        return self.display_name
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "CartridgeDocument":

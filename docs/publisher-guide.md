@@ -8,7 +8,7 @@
 
 客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。启动公告来自同一 Release 的 `announcement.json`；发布器工作区根目录若存在该文件，导出客户端卡带主表时会一并写入 `output/hub`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。发布器“导出客户端卡带主表”会把当前全部卡带写成可上传文件，并可通过发布目标选择 GitLink 或 GitHub。
 
-本地构建页提供「检测最新 DLC」：向 Steam Store 拉取官方 DLC 列表，与当前卡带 `dlc/` 包数量对比，标注“已是最新 / 可能不是最新”，并写入 `games/<id>/freshness.json`。导出客户端卡带时会附带完整度摘要；客户端在 DLC 列表上方展示该状态与检测时间。注意 Steam 列表可能含音乐包/外观等条目，数量差仅作提示，仍需人工核对后导入。
+本地构建页会显示当前卡带的「资源提交时间」：取本地 `dlc/` 包与发布输出中最新修改时间，构建完成或导出客户端卡带主表时自动刷新，并写入 `games/<id>/freshness.json`。客户端在 DLC 列表上方展示该时间戳，不再与 Steam 官方清单做对比。
 
 发布验收中的补丁目录同样读取当前卡带的 `patch_relative_dir`，不会固定为 Stellaris 或文明 6 的目录。选择实际游戏目录时必须与顶部当前卡带一致；若目录不存在，提示会同时显示当前卡带与它配置的目标路径。
 
@@ -108,13 +108,13 @@ stellaris_appinfo.json
 
 当前预置五张 Steam 卡带：
 
-| 游戏 | Steam App ID | Release 标签 | DLC 安装目录 | 补丁安装目录 | AppInfo |
-| --- | ---: | --- | --- | --- | --- |
-| Stellaris | `281990` | `stellaris` | `dlc` | `.` | `stellaris_appinfo.json` |
-| Civilization VI | `289070` | `civilization_6` | `DLC` | `Base/Binaries/Win64Steam` | `civilization_6_appinfo.json` |
-| Hearts of Iron IV | `394360` | `hearts_of_iron_4` | `dlc` | `.` | `hearts_of_iron_4_appinfo.json` |
-| 城市天际线 | `255710` | `cities_skylines` | `Files` | `.` | `cities_skylines_appinfo.json` |
-| 边缘世界 | `294100` | `rimworld` | `Data` | `.` | `rimworld_appinfo.json` |
+| 游戏              | Steam App ID | Release 标签       | DLC 安装目录 | 补丁安装目录               | AppInfo                         |
+| ----------------- | -----------: | ------------------ | ------------ | -------------------------- | ------------------------------- |
+| Stellaris         |     `281990` | `stellaris`        | `dlc`        | `.`                        | `stellaris_appinfo.json`        |
+| Civilization VI   |     `289070` | `civilization_6`   | `DLC`        | `Base/Binaries/Win64Steam` | `civilization_6_appinfo.json`   |
+| Hearts of Iron IV |     `394360` | `hearts_of_iron_4` | `dlc`        | `.`                        | `hearts_of_iron_4_appinfo.json` |
+| 都市天际线        |     `255710` | `cities_skylines`  | `Files`      | `.`                        | `cities_skylines_appinfo.json`  |
+| 边缘世界          |     `294100` | `rimworld`         | `Data`       | `.`                        | `rimworld_appinfo.json`         |
 
 首次启动新版服务端管理器时，会为缺失的内置卡带自动创建本地工作区，不覆盖已有游戏配置。为新游戏准备资源时：
 
@@ -123,7 +123,7 @@ stellaris_appinfo.json
 3. 点击构建，让服务端从 Steam 获取并生成该卡带对应的 `xxx_appinfo.json`。
 4. 在 GitLink 仓库创建与表格一致的 Release 标签，再执行发布。
 
-文明 6、城市天际线与边缘世界使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。这些卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始目录，也可选择游戏的整个 DLC 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_...` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为原始文件夹名。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
+文明 6、都市天际线与边缘世界使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。这些卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始目录，也可选择游戏的整个 DLC 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_...` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为原始文件夹名。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
 
 ## GitLink 仓库
 

@@ -7,7 +7,7 @@ class Civilization6GameCartridge(ConfiguredSteamCartridge):
     def __init__(self) -> None:
         super().__init__(
             game_id="civilization_6",
-            display_name="Civilization VI",
+            display_name="文明6 (Civilization VI)",
             store_app_id="289070",
             release_tag="civilization_6",
             dlc_relative_dir="DLC",

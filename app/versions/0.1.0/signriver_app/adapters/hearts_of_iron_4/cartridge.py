@@ -7,7 +7,7 @@ class HeartsOfIron4GameCartridge(ConfiguredSteamCartridge):
     def __init__(self) -> None:
         super().__init__(
             game_id="hearts_of_iron_4",
-            display_name="Hearts of Iron IV",
+            display_name="钢铁雄心4 (Hearts of Iron IV)",
             store_app_id="394360",
             release_tag="hearts_of_iron_4",
             dlc_relative_dir="dlc",

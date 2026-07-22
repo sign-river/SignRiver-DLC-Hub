@@ -76,7 +76,7 @@ class StellarisSteamAdapter:
         adapter_id="stellaris.steam",
         adapter_version="1.0.0",
         game_id="stellaris",
-        display_name="Stellaris",
+        display_name="群星 (Stellaris)",
         platforms=("windows",),
         stores=("steam",),
         capabilities=frozenset(

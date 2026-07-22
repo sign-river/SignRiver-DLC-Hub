@@ -2,7 +2,7 @@
   "schema_version": 1,
   "engine": "steam_configured_v1",
   "game_id": "hearts_of_iron_4",
-  "display_name": "Hearts of Iron IV",
+  "display_name": "钢铁雄心4 (Hearts of Iron IV)",
   "store_app_id": "394360",
   "release_tag": "hearts_of_iron_4",
   "executable_relative_path": "hoi4.exe",

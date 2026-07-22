@@ -2,7 +2,7 @@
   "schema_version": 1,
   "engine": "steam_configured_v1",
   "game_id": "stellaris",
-  "display_name": "Stellaris",
+  "display_name": "群星 (Stellaris)",
   "store_app_id": "281990",
   "release_tag": "stellaris",
   "executable_relative_path": "stellaris.exe",

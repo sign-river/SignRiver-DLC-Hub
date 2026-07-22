@@ -2,7 +2,7 @@
   "schema_version": 1,
   "engine": "steam_configured_v1",
   "game_id": "rimworld",
-  "display_name": "边缘世界",
+  "display_name": "边缘世界 (RimWorld)",
   "store_app_id": "294100",
   "release_tag": "rimworld",
   "executable_relative_path": "RimWorldWin64.exe",

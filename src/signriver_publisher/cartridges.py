@@ -13,7 +13,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
     return (
         PublisherCartridge(
             game_id="stellaris",
-            display_name="Stellaris",
+            display_name="群星 (Stellaris)",
             release_tag="stellaris",
             appinfo_name="stellaris_appinfo.json",
             steam_app_id="281990",
@@ -24,7 +24,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
         ),
         PublisherCartridge(
             game_id="civilization_6",
-            display_name="Civilization VI",
+            display_name="文明6 (Civilization VI)",
             release_tag="civilization_6",
             appinfo_name="civilization_6_appinfo.json",
             steam_app_id="289070",
@@ -39,7 +39,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
         ),
         PublisherCartridge(
             game_id="hearts_of_iron_4",
-            display_name="Hearts of Iron IV",
+            display_name="钢铁雄心4 (Hearts of Iron IV)",
             release_tag="hearts_of_iron_4",
             appinfo_name="hearts_of_iron_4_appinfo.json",
             steam_app_id="394360",
@@ -51,7 +51,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
         ),
         PublisherCartridge(
             game_id="cities_skylines",
-            display_name="城市天际线",
+            display_name="都市天际线 (Cities: Skylines)",
             release_tag="cities_skylines",
             appinfo_name="cities_skylines_appinfo.json",
             steam_app_id="255710",
@@ -66,7 +66,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
         ),
         PublisherCartridge(
             game_id="rimworld",
-            display_name="边缘世界",
+            display_name="边缘世界 (RimWorld)",
             release_tag="rimworld",
             appinfo_name="rimworld_appinfo.json",
             steam_app_id="294100",

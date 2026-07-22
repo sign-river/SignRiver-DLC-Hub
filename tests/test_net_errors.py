@@ -51,7 +51,7 @@ def test_host_and_app_helpers_stay_aligned() -> None:
 
 def test_publisher_from_dict_restores_new_cartridge_defaults() -> None:
     for game_id, display, dlc_dir, exe in (
-        ("cities_skylines", "城市天际线", "Files", "Cities.exe"),
+        ("cities_skylines", "都市天际线", "Files", "Cities.exe"),
         ("rimworld", "边缘世界", "Data", "RimWorldWin64.exe"),
     ):
         profile = PublisherCartridge.from_dict(

@@ -9,38 +9,38 @@
   "cartridges": [
     {
       "game_id": "stellaris",
-      "display_name": "Stellaris",
+      "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "0e0af567fb355ba49f70be1bfd71f89c6f06fce452c750956702414a733c7291",
-      "size_bytes": 1023
+      "sha256": "9c30594ee8e21b71ca6e10e70924c5fc02057c6ec2843f9be811b444e7e3b306",
+      "size_bytes": 1032
     },
     {
       "game_id": "civilization_6",
-      "display_name": "Civilization VI",
+      "display_name": "文明6 (Civilization VI)",
       "asset_name": "cartridge_civilization_6.json",
-      "sha256": "4713959b2df34ae58d983953eb3aeccd1885fde4e3d05bde46530cea285cff24",
-      "size_bytes": 1092
+      "sha256": "ea5c086321fd3c43404b63447b146044fc46151cdcbb1ea501e6c5770d153b3c",
+      "size_bytes": 1102
     },
     {
       "game_id": "hearts_of_iron_4",
-      "display_name": "Hearts of Iron IV",
+      "display_name": "钢铁雄心4 (Hearts of Iron IV)",
       "asset_name": "cartridge_hearts_of_iron_4.json",
-      "sha256": "bfe7ded9871c4eb90b79f14c4fcb449198ceb201f65b6a179ba502b8fa210205",
-      "size_bytes": 1043
+      "sha256": "68a78fdc01d5b6af46aa93fc0fe0d758d3e29ab05a10aacbc76813d58913575f",
+      "size_bytes": 1059
     },
     {
       "game_id": "cities_skylines",
-      "display_name": "城市天际线",
+      "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "1b4bf6d018daee03ace7c7c00d377e3da1c277764983e16f1a796a90ffbb7cec",
-      "size_bytes": 1041
+      "sha256": "098962f76ba93b1c66be9ac3290b6145d1ec55c4263cb90a6049594ed52cc5bd",
+      "size_bytes": 1060
     },
     {
       "game_id": "rimworld",
-      "display_name": "边缘世界",
+      "display_name": "边缘世界 (RimWorld)",
       "asset_name": "cartridge_rimworld.json",
-      "sha256": "f5495355dec4d378ea8b2496a7a0b9382db943d6d6ebb9e05c2a70b2c1b5d633",
-      "size_bytes": 1023
+      "sha256": "e3d4e7cf4c84284ab4b9cb2f5a542e7e309d89c90ed9d880e11e341057fd457b",
+      "size_bytes": 1034
     }
   ]
 }

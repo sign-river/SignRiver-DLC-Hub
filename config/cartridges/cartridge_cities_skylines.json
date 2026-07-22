@@ -2,7 +2,7 @@
   "schema_version": 1,
   "engine": "steam_configured_v1",
   "game_id": "cities_skylines",
-  "display_name": "城市天际线",
+  "display_name": "都市天际线 (Cities: Skylines)",
   "store_app_id": "255710",
   "release_tag": "cities_skylines",
   "executable_relative_path": "Cities.exe",

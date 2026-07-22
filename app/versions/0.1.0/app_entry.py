@@ -84,6 +84,7 @@ UI = {
 
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
 PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
+PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
 
@@ -118,7 +119,7 @@ def _settings_description(
     textbox.tag_add("description", "1.0", "end")
     textbox.tag_config(
         "description",
-        justify="center",
+        justify="left",
         spacing1=3,
         spacing2=6,
         spacing3=3,
@@ -128,9 +129,58 @@ def _settings_description(
     return textbox
 
 
+class _OutlinedSwitch(ctk.CTkSwitch):
+    """CTk switch with a crisp ring around its white thumb."""
+
+    def __init__(
+        self,
+        *args,
+        thumb_color,
+        thumb_border_color,
+        thumb_border_width=2,
+        **kwargs,
+    ):
+        self._thumb_fill_color = thumb_color
+        self._thumb_ring_width = thumb_border_width
+        super().__init__(
+            *args,
+            button_length=0,
+            button_color=thumb_border_color,
+            button_hover_color=thumb_border_color,
+            **kwargs,
+        )
+
+    def _draw(self, no_color_updates=False):
+        super()._draw(no_color_updates)
+        if not self._canvas.find_withtag("outlined_thumb_fill"):
+            self._canvas.create_aa_circle(
+                0,
+                0,
+                0,
+                tags=("outlined_thumb_fill",),
+            )
+
+        width = self._apply_widget_scaling(self._switch_width)
+        height = self._apply_widget_scaling(self._switch_height)
+        ring_width = self._apply_widget_scaling(self._thumb_ring_width)
+        radius = max(1, round((height / 2) - ring_width))
+        center_x = (height / 2) + (width - height) * int(self._check_state)
+        self._canvas.coords(
+            "outlined_thumb_fill",
+            round(center_x),
+            round(height / 2),
+            radius,
+        )
+        self._canvas.itemconfig(
+            "outlined_thumb_fill",
+            fill=self._apply_appearance_mode(self._thumb_fill_color),
+        )
+        self._canvas.tag_raise("outlined_thumb_fill")
+
+
 def _blue_switch(parent, **kwargs):
     """Blue-white pill switch shared by binary settings."""
-    return ctk.CTkSwitch(
+    return _OutlinedSwitch(
         parent,
         width=154,
         height=30,
@@ -139,10 +189,11 @@ def _blue_switch(parent, **kwargs):
         corner_radius=13,
         border_width=1,
         fg_color=UI["primary_surface"],
-        border_color=UI["primary_border"],
+        border_color=UI["primary"],
         progress_color=UI["primary"],
-        button_color=UI["card"],
-        button_hover_color="#F5FAFF",
+        thumb_color=UI["card"],
+        thumb_border_color=UI["primary"],
+        thumb_border_width=1,
         text_color=UI["text_secondary"],
         font=ctk.CTkFont(size=13, weight="bold"),
         **kwargs,
@@ -578,7 +629,7 @@ class DlcHubApplication:
         title_group = ctk.CTkFrame(topbar, fg_color="transparent")
         title_group.pack(side="left", padx=24, pady=20)
         ctk.CTkLabel(
-            title_group, text=PRODUCT_TITLE_ZH,
+            title_group, text=PRODUCT_HEADER_TITLE_ZH,
             text_color=UI["on_blue"],
             font=ctk.CTkFont(size=28, weight="bold"),
         ).pack(anchor="w")
@@ -1049,12 +1100,12 @@ class DlcHubApplication:
         # Settings remain one full-width card per row. Only each header's
         # action area uses a normalized three-slot grid.
         setting_cards = (
-            self.speed_test_card,
-            self.resilience_card,
-            self.announcement_card,
             self.source_card,
-            self.cache_card,
+            self.speed_test_card,
             self.update_card,
+            self.cache_card,
+            self.announcement_card,
+            self.resilience_card,
         )
         for index, card in enumerate(setting_cards):
             card.pack(
@@ -2627,30 +2678,21 @@ class DlcHubApplication:
     def _freshness_status_text(self, *, catalog_count: int | None = None) -> str:
         freshness = getattr(self.cartridge, "freshness", None)
         if freshness is None:
-            return "完整度：发布端尚未提供检测结果（导出卡带主表前请先“检测最新 DLC”）"
+            return "资源提交时间：卡带未附带时间戳"
         summary = freshness.client_summary()
         if catalog_count is not None and freshness.package_count:
             if catalog_count != freshness.package_count:
                 summary += (
                     f" · 当前目录 {catalog_count} 项"
-                    f"（检测时收录 {freshness.package_count}）"
+                    f"（记录时收录 {freshness.package_count}）"
                 )
         return summary
 
     def _refresh_catalog_freshness_label(self, *, catalog_count: int | None = None) -> None:
         if not hasattr(self, "catalog_freshness"):
             return
-        freshness = getattr(self.cartridge, "freshness", None)
         text = self._freshness_status_text(catalog_count=catalog_count)
-        if freshness is None:
-            color = UI["muted"]
-        elif freshness.status == "current":
-            color = UI["success"]
-        elif freshness.status == "behind":
-            color = UI["danger"]
-        else:
-            color = UI["muted"]
-        self.catalog_freshness.configure(text=text, text_color=color)
+        self.catalog_freshness.configure(text=text, text_color=UI["muted"])
 
     def _refresh_catalog(self) -> None:
         generation = self.game_selection_generation

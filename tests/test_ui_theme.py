@@ -82,7 +82,8 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'title_status_row.pack(anchor="w", pady=(3, 0))' in source
     assert "PRODUCT_TITLE_ZH" in source
     assert 'self.window.title(PRODUCT_TITLE_ZH)' in source
-    assert 'text=PRODUCT_TITLE_ZH' in source
+    assert 'PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"' in source
+    assert 'text=PRODUCT_HEADER_TITLE_ZH' in source
     assert 'text=AUTHOR_EN' in source
     assert 'text=AUTHOR_CN' in source
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
@@ -393,13 +394,24 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "_show_onboarding" not in source
     assert "def _settings_description" in source
     assert "self.settings_description_boxes" in source
+    assert 'justify="left"' in source
     assert "spacing2=6" in source
     assert "def _blue_switch" in source
+    assert 'border_color=UI["primary"]' in source
+    assert "thumb_border_width=1" in source
     assert "def _settings_header" in source
     assert 'uniform="settings-action"' in source
     assert "self.settings_list" in source
     assert '"设置": (self.settings_list,)' in source
     assert "card.pack(" in source
+    assert """setting_cards = (
+            self.source_card,
+            self.speed_test_card,
+            self.update_card,
+            self.cache_card,
+            self.announcement_card,
+            self.resilience_card,
+        )""" in source
     assert "columnspan=2" in source
     assert '_settings_header(source_card, "下载源")' in source
     assert "self.source_card" in source

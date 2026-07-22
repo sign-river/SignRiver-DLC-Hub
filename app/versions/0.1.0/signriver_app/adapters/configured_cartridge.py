@@ -39,7 +39,7 @@ class ConfiguredSteamCartridge:
         freshness=None,
     ) -> None:
         self.cartridge_id = f"{game_id}.steam"
-        self.selection_name = f"{display_name} · Steam"
+        self.selection_name = display_name
         self.platform_name = "Steam"
         self.store_app_id = store_app_id
         self.release_tag = release_tag

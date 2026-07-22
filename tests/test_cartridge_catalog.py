@@ -66,7 +66,7 @@ def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) ->
     assert index.default_game_id == "stellaris"
     assert loaded.document.game_id == "stellaris"
     assert loaded.source in {"bootstrap", "cache"}
-    assert "Stellaris · Steam" in service.loaded_cartridges
+    assert "群星 (Stellaris)" in service.loaded_cartridges
 
 
 def test_catalog_lazy_loads_other_games_from_bootstrap(tmp_path: Path) -> None:
@@ -78,7 +78,7 @@ def test_catalog_lazy_loads_other_games_from_bootstrap(tmp_path: Path) -> None:
     service.refresh_index(allow_network=False)
     service.load_default_cartridge(allow_network=False)
     loaded = service.load_cartridge("civilization_6", allow_network=False)
-    assert loaded.document.display_name == "Civilization VI"
+    assert loaded.document.display_name == "文明6 (Civilization VI)"
     assert loaded.cartridge.patch_profile.install_relative_dir == (
         "Base/Binaries/Win64Steam"
     )

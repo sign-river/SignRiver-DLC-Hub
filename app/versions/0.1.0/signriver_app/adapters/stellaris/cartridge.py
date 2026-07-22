@@ -28,7 +28,7 @@ class StellarisGameCartridge:
     """Wire Stellaris-specific services without leaking them into the shell."""
 
     cartridge_id = "stellaris.steam"
-    selection_name = "Stellaris · Steam"
+    selection_name = "群星 (Stellaris)"
     platform_name = "Steam"
     store_app_id = STELLARIS_STEAM_APP_ID
     release_tag = "stellaris"

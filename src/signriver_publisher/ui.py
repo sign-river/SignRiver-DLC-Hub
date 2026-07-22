@@ -86,6 +86,7 @@ class PublisherApplication(ctk.CTk):
         self._acceptance_paths = AcceptancePaths(None, None)
         self._acceptance_cases: tuple[AcceptanceCase, ...] = ()
         self._acceptance_case_id = ""
+        self._acceptance_case_buttons: dict[str, ctk.CTkButton] = {}
         self._acceptance_variant_by_label: dict[str, str] = {}
         self.gitlink = GitLinkCli()
         self.repository = GitLinkRepository(
@@ -368,14 +369,6 @@ class PublisherApplication(ctk.CTk):
             command=self.refresh_steam_data,
         )
         self.steam_button.pack(side="left", padx=4)
-        self.freshness_button = ctk.CTkButton(
-            actions,
-            text="检测最新 DLC",
-            width=140,
-            fg_color=LIGHT_BLUE,
-            command=self.detect_dlc_freshness,
-        )
-        self.freshness_button.pack(side="left", padx=4)
         ctk.CTkButton(
             actions,
             text="打开输出目录",
@@ -394,7 +387,7 @@ class PublisherApplication(ctk.CTk):
         self.build_summary.pack(side="left", padx=18)
         self.freshness_summary = ctk.CTkLabel(
             build_card,
-            text="完整度：尚未检测（点击“检测最新 DLC”对比 Steam 官方列表）",
+            text="资源提交时间：切换卡带或构建后自动读取本地包修改时间",
             text_color=MUTED,
             anchor="w",
             justify="left",
@@ -635,7 +628,7 @@ class PublisherApplication(ctk.CTk):
 
         path_area = ctk.CTkFrame(summary, fg_color="transparent")
         self.acceptance_path_area = path_area
-        path_area.grid(row=1, column=0, padx=18, pady=(2, 6), sticky="ew")
+        path_area.grid(row=1, column=0, padx=18, pady=(2, 14), sticky="ew")
         path_area.grid_columnconfigure(1, weight=1)
         path_area.grid_columnconfigure(
             (2, 3, 4, 5), weight=0, minsize=112, uniform="acceptance_paths"
@@ -704,8 +697,56 @@ class PublisherApplication(ctk.CTk):
             command=self.open_acceptance_patch,
         ).grid(row=1, column=5, padx=4, pady=3, sticky="ew")
 
-        environment = ctk.CTkFrame(summary, fg_color="#F7FAFD", corner_radius=10)
-        environment.grid(row=2, column=0, padx=18, pady=(2, 14), sticky="ew")
+        body = ctk.CTkFrame(
+            self.acceptance_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        body.grid(row=1, column=0, padx=8, pady=(4, 8), sticky="nsew")
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+        self.acceptance_case_list = ctk.CTkScrollableFrame(
+            body,
+            width=330,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+        )
+        self.acceptance_case_list.grid(
+            row=0, column=0, padx=(14, 7), pady=14, sticky="nsew"
+        )
+        detail = ctk.CTkFrame(body, fg_color="transparent")
+        detail.grid(row=0, column=1, padx=(7, 14), pady=14, sticky="nsew")
+        detail.grid_columnconfigure(0, weight=1)
+        detail.grid_rowconfigure(2, weight=1)
+        self.acceptance_case_title = ctk.CTkLabel(
+            detail,
+            text="选择一个验收项目",
+            font=("Microsoft YaHei UI", 19, "bold"),
+            text_color=BLUE,
+            anchor="w",
+        )
+        self.acceptance_case_title.grid(row=0, column=0, sticky="ew")
+        self.acceptance_case_meta = ctk.CTkLabel(
+            detail, text="", text_color=MUTED, anchor="w"
+        )
+        self.acceptance_case_meta.grid(row=1, column=0, pady=(2, 6), sticky="ew")
+        self.acceptance_instructions = ctk.CTkTextbox(
+            detail,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+            text_color=TEXT,
+            wrap="word",
+        )
+        self.acceptance_instructions.grid(row=2, column=0, sticky="nsew")
+        self.acceptance_instructions.configure(state="disabled")
+
+        environment = ctk.CTkFrame(detail, fg_color="#F7FAFD", corner_radius=10)
+        self.acceptance_environment = environment
+        environment.grid(row=3, column=0, pady=(8, 0), sticky="ew")
         environment.grid_columnconfigure(0, weight=1)
         self.acceptance_environment_status = ctk.CTkLabel(
             environment,
@@ -760,7 +801,7 @@ class PublisherApplication(ctk.CTk):
             text_color=MUTED,
             anchor="w",
             justify="left",
-            wraplength=980,
+            wraplength=620,
         ).grid(row=2, column=0, padx=12, pady=(2, 2), sticky="ew")
         self.acceptance_scenario_list = ctk.CTkScrollableFrame(
             environment,
@@ -789,55 +830,10 @@ class PublisherApplication(ctk.CTk):
         self.acceptance_apply_button = ctk.CTkButton(
             environment, text="执行环境准备", state="disabled"
         )
+        environment.grid_remove()
 
-        body = ctk.CTkFrame(
-            self.acceptance_tab,
-            fg_color=CARD,
-            border_width=1,
-            border_color="#D8DEE6",
-            corner_radius=14,
-        )
-        body.grid(row=1, column=0, padx=8, pady=(4, 8), sticky="nsew")
-        body.grid_columnconfigure(1, weight=1)
-        body.grid_rowconfigure(0, weight=1)
-        self.acceptance_case_list = ctk.CTkScrollableFrame(
-            body,
-            width=330,
-            fg_color="#FAFAFA",
-            border_width=1,
-            border_color="#E0E0E0",
-        )
-        self.acceptance_case_list.grid(
-            row=0, column=0, padx=(14, 7), pady=14, sticky="nsew"
-        )
-        detail = ctk.CTkFrame(body, fg_color="transparent")
-        detail.grid(row=0, column=1, padx=(7, 14), pady=14, sticky="nsew")
-        detail.grid_columnconfigure(0, weight=1)
-        detail.grid_rowconfigure(2, weight=1)
-        self.acceptance_case_title = ctk.CTkLabel(
-            detail,
-            text="选择一个验收项目",
-            font=("Microsoft YaHei UI", 19, "bold"),
-            text_color=BLUE,
-            anchor="w",
-        )
-        self.acceptance_case_title.grid(row=0, column=0, sticky="ew")
-        self.acceptance_case_meta = ctk.CTkLabel(
-            detail, text="", text_color=MUTED, anchor="w"
-        )
-        self.acceptance_case_meta.grid(row=1, column=0, pady=(2, 6), sticky="ew")
-        self.acceptance_instructions = ctk.CTkTextbox(
-            detail,
-            fg_color="#FAFAFA",
-            border_width=1,
-            border_color="#E0E0E0",
-            text_color=TEXT,
-            wrap="word",
-        )
-        self.acceptance_instructions.grid(row=2, column=0, sticky="nsew")
-        self.acceptance_instructions.configure(state="disabled")
         ctk.CTkLabel(detail, text="结果备注（可选）", text_color=MUTED).grid(
-            row=3, column=0, pady=(8, 2), sticky="w"
+            row=4, column=0, pady=(8, 2), sticky="w"
         )
         self.acceptance_note = ctk.CTkTextbox(
             detail,
@@ -848,9 +844,9 @@ class PublisherApplication(ctk.CTk):
             text_color=TEXT,
             wrap="word",
         )
-        self.acceptance_note.grid(row=4, column=0, sticky="ew")
+        self.acceptance_note.grid(row=5, column=0, sticky="ew")
         result_bar = ctk.CTkFrame(detail, fg_color="transparent")
-        result_bar.grid(row=5, column=0, pady=(8, 0), sticky="ew")
+        result_bar.grid(row=6, column=0, pady=(8, 0), sticky="ew")
         result_bar.grid_columnconfigure(
             (0, 1, 2, 3), weight=1, uniform="acceptance_results"
         )
@@ -886,7 +882,15 @@ class PublisherApplication(ctk.CTk):
         ).grid(row=0, column=3, padx=4, sticky="ew")
 
     def _build_games_tab(self) -> None:
-        card = self._card(self.games_tab, 0, "游戏卡带配置")
+        self.games_tab.grid_rowconfigure(0, weight=1)
+        self.games_tab.grid_columnconfigure(0, weight=1)
+        self.games_scroll = ctk.CTkScrollableFrame(
+            self.games_tab,
+            fg_color=PAGE,
+            corner_radius=0,
+        )
+        self.games_scroll.grid(row=0, column=0, sticky="nsew")
+        card = self._card(self.games_scroll, 0, "游戏卡带配置")
         form = ctk.CTkFrame(card, fg_color="transparent")
         form.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
         form.grid_columnconfigure(1, weight=1)
@@ -934,10 +938,10 @@ class PublisherApplication(ctk.CTk):
 
     def refresh(self) -> None:
         games = self.workspace.list_games()
-        labels = [f"{item.display_name} ({item.game_id})" for item in games]
-        self.game_menu.configure(values=labels)
-        selected = f"{self.profile.display_name} ({self.profile.game_id})"
-        self.game_menu.set(selected)
+        self._game_label_ids = {item.display_name: item.game_id for item in games}
+        labels = [item.display_name for item in games]
+        self.game_menu.configure(values=labels or ["尚未配置游戏"])
+        self.game_menu.set(self.profile.display_name)
         dlcs, patches = self.workspace.scan_sources(self.profile)
         self._fill_resources(self.dlc_list, dlcs, "dlc")
         self._fill_resources(self.patch_list, patches, "patches")
@@ -965,23 +969,19 @@ class PublisherApplication(ctk.CTk):
     def _update_freshness_summary(self) -> None:
         if not hasattr(self, "freshness_summary"):
             return
-        report = self.workspace.load_freshness(self.profile)
-        if report is None:
+        try:
+            report = self.workspace.refresh_resource_freshness(self.profile)
+        except Exception:
+            report = self.workspace.load_freshness(self.profile)
+        if report is None or not report.resources_updated_at:
             self.freshness_summary.configure(
-                text="完整度：尚未检测（点击“检测最新 DLC”对比 Steam 官方列表）",
+                text="资源提交时间：尚未读取到本地 DLC 包",
                 text_color=MUTED,
             )
             return
-        color = BLUE if report.status == "current" else RED
-        if report.status == "unknown":
-            color = MUTED
         self.freshness_summary.configure(
-            text=(
-                f"完整度：{report.summary} "
-                f"（Steam {report.steam_dlc_count} / 本地 {report.local_package_count} · "
-                f"检测于 {report.checked_at}）"
-            ),
-            text_color=color,
+            text=report.summary,
+            text_color=TEXT,
         )
 
     def refresh_acceptance(self) -> None:
@@ -1053,6 +1053,7 @@ class PublisherApplication(ctk.CTk):
     def _fill_acceptance_cases(self) -> None:
         for child in self.acceptance_case_list.winfo_children():
             child.destroy()
+        self._acceptance_case_buttons: dict[str, ctk.CTkButton] = {}
         session = self._acceptance_session
         fingerprint = self._acceptance_fingerprint
         stale = bool(
@@ -1091,6 +1092,7 @@ class PublisherApplication(ctk.CTk):
                 command=lambda value=case.case_id: self.select_acceptance_case(value),
             )
             row.pack(fill="x", padx=4, pady=3)
+            self._acceptance_case_buttons[case.case_id] = row
         self._schedule_scrollable_reset(self.acceptance_case_list)
         counts = {PASSED: 0, FAILED: 0, SKIPPED: 0}
         if session:
@@ -1179,8 +1181,17 @@ class PublisherApplication(ctk.CTk):
             self._acceptance_scenario_buttons[scenario.scenario_id] = button
 
     def select_acceptance_case(self, case_id: str) -> None:
+        if case_id == self._acceptance_case_id:
+            return
+        if case_id not in {case.case_id for case in self._acceptance_cases}:
+            return
         self._acceptance_case_id = case_id
-        self._fill_acceptance_cases()
+        for item_id, button in self._acceptance_case_buttons.items():
+            selected = item_id == case_id
+            button.configure(
+                fg_color="#E3F2FD" if selected else CARD,
+                border_color=BLUE if selected else "#E0E0E0",
+            )
         self._render_acceptance_case()
 
     def _render_acceptance_case(self) -> None:
@@ -1207,6 +1218,10 @@ class PublisherApplication(ctk.CTk):
         self.acceptance_note.delete("1.0", "end")
         if result and result.note:
             self.acceptance_note.insert("1.0", result.note)
+        if case.case_id == "patch.test-environment":
+            self.acceptance_environment.grid()
+        else:
+            self.acceptance_environment.grid_remove()
         self._update_acceptance_environment_controls()
 
     def _update_acceptance_environment_controls(self) -> None:
@@ -1326,9 +1341,7 @@ class PublisherApplication(ctk.CTk):
             except (AcceptanceError, OSError) as error:
                 messagebox.showerror("记录补丁基线失败", str(error))
                 return
-        self._acceptance_case_id = scenario.case_id
-        self._fill_acceptance_cases()
-        self._render_acceptance_case()
+        self.select_acceptance_case(scenario.case_id)
         try:
             preview = self.acceptance.preview_preparation(
                 self.profile,
@@ -1753,7 +1766,10 @@ class PublisherApplication(ctk.CTk):
         self._schedule_scrollable_reset(parent)
 
     def _select_game(self, label: str) -> None:
-        game_id = label.rsplit("(", 1)[-1].rstrip(")")
+        game_id = getattr(self, "_game_label_ids", {}).get(label)
+        if not game_id:
+            # Backward-compatible fallback for older "Name (game_id)" labels.
+            game_id = label.rsplit("(", 1)[-1].rstrip(")")
         self.profile = next(
             item for item in self.workspace.list_games() if item.game_id == game_id
         )
@@ -2110,8 +2126,6 @@ class PublisherApplication(ctk.CTk):
             return
         self.build_button.configure(state="disabled", text="正在构建…")
         self.steam_button.configure(state="disabled")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="disabled")
         self.publish_button.configure(state="disabled")
         self.adopt_remote_button.configure(state="disabled")
         self.game_menu.configure(state="disabled")
@@ -2171,8 +2185,6 @@ class PublisherApplication(ctk.CTk):
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="normal")
         self.publish_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -2181,6 +2193,7 @@ class PublisherApplication(ctk.CTk):
         )
         self._log(f"本地构建完成：{game_id}，共 {files} 个发布文件。")
         self._fill_local_outputs()
+        self._update_freshness_summary()
         self.refresh_acceptance()
 
     def _build_failed(self, message: str) -> None:
@@ -2189,8 +2202,6 @@ class PublisherApplication(ctk.CTk):
         self._poll_build_progress()
         self.build_button.configure(state="normal", text="生成全部发布文件")
         self.steam_button.configure(state="normal")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="normal")
         self.publish_button.configure(state="normal")
         self.adopt_remote_button.configure(state="normal")
         self.game_menu.configure(state="normal")
@@ -2203,8 +2214,6 @@ class PublisherApplication(ctk.CTk):
         ):
             return
         self.steam_button.configure(state="disabled", text="正在查询…")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="disabled")
         profile = self.profile
 
         def work() -> None:
@@ -2222,68 +2231,13 @@ class PublisherApplication(ctk.CTk):
     def _steam_refresh_done(self, name: str, count: int) -> None:
         self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="normal")
         self._log(f"Steam 数据已更新：{name}，{count} 个 DLC。")
         messagebox.showinfo("更新完成", f"已生成 Steam AppInfo，共 {count} 个 DLC。")
 
     def _steam_refresh_failed(self, message: str) -> None:
         self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
-        if hasattr(self, "freshness_button"):
-            self.freshness_button.configure(state="normal")
         messagebox.showerror("Steam 数据更新失败", message)
-
-    def detect_dlc_freshness(self) -> None:
-        if not self._begin_background_mutation(
-            "dlc-freshness", "正在检测最新 DLC"
-        ):
-            return
-        self.freshness_button.configure(state="disabled", text="正在检测…")
-        if hasattr(self, "steam_button"):
-            self.steam_button.configure(state="disabled")
-        profile = self.profile
-
-        def work() -> None:
-            try:
-                report = self.workspace.detect_dlc_freshness(profile)
-                self._post_ui(lambda report=report: self._freshness_done(report))
-            except Exception as error:
-                message = str(error)
-                self._post_ui(lambda value=message: self._freshness_failed(value))
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def _freshness_done(self, report) -> None:
-        self._end_background_mutation("dlc-freshness")
-        self.freshness_button.configure(state="normal", text="检测最新 DLC")
-        if hasattr(self, "steam_button"):
-            self.steam_button.configure(state="normal")
-        self._update_freshness_summary()
-        title = "已是最新" if report.status == "current" else "可能不是最新"
-        detail = report.summary
-        if report.unmatched_steam_names and report.status == "behind":
-            detail += "\n\n名称未匹配到本地包的 Steam DLC：\n- " + "\n- ".join(
-                report.unmatched_steam_names[:12]
-            )
-            if len(report.unmatched_steam_names) > 12:
-                detail += f"\n…共 {len(report.unmatched_steam_names)} 项"
-        detail += (
-            "\n\n说明：Steam 列表含音乐包/外观等条目，本地可能刻意不收录；"
-            "请人工核对后再导入。导出客户端卡带主表时会写入完整度摘要。"
-        )
-        self._log(
-            f"DLC 完整度检测：{report.status} · Steam {report.steam_dlc_count} / "
-            f"本地 {report.local_package_count}"
-        )
-        messagebox.showinfo(title, detail)
-
-    def _freshness_failed(self, message: str) -> None:
-        self._end_background_mutation("dlc-freshness")
-        self.freshness_button.configure(state="normal", text="检测最新 DLC")
-        if hasattr(self, "steam_button"):
-            self.steam_button.configure(state="normal")
-        messagebox.showerror("DLC 完整度检测失败", message)
 
     def refresh_remote_resources(self) -> None:
         if not self._begin_remote_operation("正在读取远程资源…"):

@@ -1,6 +1,6 @@
 # SignRiver DLC Hub
 
-SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项目首先实现了可独立演进的模块化更新框架。出厂卡带目前覆盖群星、文明 6、钢铁雄心 4、城市天际线与边缘世界；完整列表以 `config/cartridges/cartridges_index.json` 为准。
+SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项目首先实现了可独立演进的模块化更新框架。出厂卡带目前覆盖群星、文明 6、钢铁雄心 4、都市天际线与边缘世界；完整列表以 `config/cartridges/cartridges_index.json` 为准。
 
 ## 核心设计
 

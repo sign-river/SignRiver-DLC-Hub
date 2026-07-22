@@ -10,6 +10,7 @@ import time
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from .cream import SteamAppInfo
@@ -25,7 +26,7 @@ from .dlc_naming import (
 from .client_cartridges import export_hub_cartridges
 from .freshness import (
     DlcFreshnessReport,
-    compare_steam_and_local,
+    build_resource_freshness,
     load_freshness_report,
     save_freshness_report,
 )
@@ -62,13 +63,21 @@ class PublisherWorkspace:
     def initialize(self) -> GameProfile:
         self.games_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        current = self.list_games()
-        existing = {profile.game_id for profile in current}
+        initial = self.list_games()
+        existing = {profile.game_id: profile for profile in initial}
         builtins = create_builtin_cartridges()
         for profile in builtins:
-            if profile.game_id not in existing:
+            current_profile = existing.get(profile.game_id)
+            if current_profile is None:
                 self.save_game(profile)
-        return current[0] if current else builtins[0]
+                continue
+            if current_profile.display_name != profile.display_name:
+                updated = replace(current_profile, display_name=profile.display_name)
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+        if initial:
+            return existing[initial[0].game_id]
+        return builtins[0]
 
     def list_games(self) -> tuple[GameProfile, ...]:
         profiles: list[GameProfile] = []
@@ -668,37 +677,40 @@ class PublisherWorkspace:
             return None
 
     def detect_dlc_freshness(self, profile: GameProfile) -> DlcFreshnessReport:
-        """Fetch Steam's official DLC list and compare it with local packages."""
-        appinfo = self.refresh_appinfo(profile)
+        """Refresh the local resource timestamp stamp (no Steam comparison)."""
+        return self.refresh_resource_freshness(profile)
+
+    def refresh_resource_freshness(self, profile: GameProfile) -> DlcFreshnessReport:
+        """Record the newest local package / publish-output modification time."""
         dlcs, _patches = self.scan_sources(profile)
-        published = self._published_dlc_package_count(profile)
-        report = compare_steam_and_local(
-            appinfo,
+        published_paths = self._published_dlc_paths(profile)
+        report = build_resource_freshness(
             local_folders=dlcs,
-            published_package_count=published,
+            published_paths=published_paths,
+            published_package_count=len(published_paths),
         )
         save_freshness_report(self.freshness_path(profile), report)
         return report
 
-    def _published_dlc_package_count(self, profile: GameProfile) -> int:
+    def _published_dlc_paths(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id
         if not target.is_dir():
-            return 0
-        zip_names = {
-            path.name.casefold()
-            for path in target.iterdir()
-            if path.is_file()
-            and path.suffix.casefold() == ".zip"
-            and _DLC_DIR.fullmatch(path.stem) is not None
-        }
-        part_bases = {
-            match.group("base").casefold()
-            for path in target.iterdir()
-            if path.is_file()
-            for match in [_RELEASE_PART.fullmatch(path.name)]
-            if match is not None
-        }
-        return len(zip_names | part_bases)
+            return ()
+        paths: list[Path] = []
+        for path in target.iterdir():
+            if not path.is_file():
+                continue
+            name = path.name
+            stem = path.stem
+            if path.suffix.casefold() == ".zip" and _DLC_DIR.fullmatch(stem):
+                paths.append(path)
+                continue
+            if _RELEASE_PART.fullmatch(name):
+                paths.append(path)
+        return tuple(sorted(paths, key=lambda item: item.name.casefold()))
+
+    def _published_dlc_package_count(self, profile: GameProfile) -> int:
+        return len(self._published_dlc_paths(profile))
 
     def publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         return tuple(asset.path for asset in self._validated_publish_assets(profile))
@@ -713,10 +725,8 @@ class PublisherWorkspace:
             raise WorkspaceError("没有可导出的游戏卡带")
         announcement = self.root / "announcement.json"
         freshness = {
-            profile.game_id: report.to_client_dict()
+            profile.game_id: self.refresh_resource_freshness(profile).to_client_dict()
             for profile in profiles
-            for report in [self.load_freshness(profile)]
-            if report is not None
         }
         return export_hub_cartridges(
             profiles,
@@ -792,6 +802,7 @@ class PublisherWorkspace:
             ],
         }
         self._atomic_json(self._build_complete_path(profile), payload)
+        self.refresh_resource_freshness(profile)
 
     def _validated_publish_assets(
         self, profile: GameProfile

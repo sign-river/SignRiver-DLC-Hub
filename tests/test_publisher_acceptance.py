@@ -397,7 +397,7 @@ def test_patch_directory_rejects_escape_and_names_active_cartridge(
     root = tmp_path / "wrong-game"
     root.mkdir()
 
-    with pytest.raises(AcceptanceError, match="Civilization VI 卡带配置"):
+    with pytest.raises(AcceptanceError, match=r"Civilization VI.*卡带配置"):
         manager.patch_directory(profile, root, require_exists=True)
 
     unsafe = type(profile)(
@@ -422,6 +422,13 @@ def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     assert "启动客户端" in source
     assert "记录补丁基线" in source
     assert "构建该环境" in source
+    assert 'environment = ctk.CTkFrame(detail, fg_color="#F7FAFD"' in source
+    assert 'case.case_id == "patch.test-environment"' in source
+    select_method = source.split(
+        "    def select_acceptance_case", 1
+    )[1].split("    def _render_acceptance_case", 1)[0]
+    assert "_fill_acceptance_cases()" not in select_method
+    assert "self._acceptance_case_buttons.items()" in select_method
     assert "def build_acceptance_failure_environment" in source
     assert "acceptance_scenario_list" in source
     assert "恢复测试环境" in source
