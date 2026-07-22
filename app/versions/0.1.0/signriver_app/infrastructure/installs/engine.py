@@ -71,6 +71,7 @@ class StellarisInstallEngine:
         disk_usage: Callable[[Path], object] = shutil.disk_usage,
         space_margin_bytes: int = 64 * 1024 * 1024,
         volume_key: Callable[[Path], object] | None = None,
+        overlay_allowed_roots: tuple[str, ...] = (),
     ) -> None:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
@@ -97,6 +98,10 @@ class StellarisInstallEngine:
             raise ValueError("space margin cannot be negative")
         self._space_margin_bytes = int(space_margin_bytes)
         self._volume_key_override = volume_key
+        self._overlay_allowed_roots = tuple(
+            game_relative_path(value, field_name="overlay allowed root")
+            for value in overlay_allowed_roots
+        )
         self._last_recovery_warnings: tuple[str, ...] = ()
 
     @property
@@ -122,6 +127,9 @@ class StellarisInstallEngine:
         metadata = self.package_inspector(
             package_path, known_sha256=actual
         )
+        install_mode = str(getattr(metadata, "install_mode", "directory"))
+        if install_mode not in {"directory", "overlay"}:
+            raise InstallError("package requested an unsupported install mode")
         dlc_root = self._dlc_root(game_root)
         if not (game_root / self._executable_relative_path).is_file() or not dlc_root.is_dir():
             raise InstallError("目标目录不是当前卡带已验证的游戏安装目录")
@@ -146,10 +154,15 @@ class StellarisInstallEngine:
             package_path=package_path,
             package_sha256=actual,
             game_root=game_root,
-            relative_target=self._dlc_relative_path / top_level,
+            relative_target=(
+                self._dlc_relative_path
+                if install_mode == "overlay"
+                else self._dlc_relative_path / top_level
+            ),
             staging_root=transaction_root / "staging",
             backup_root=self.data_root / "backups" / transaction_id,
             journal_path=transaction_root / "journal.json",
+            install_mode=install_mode,
         )
 
     def install(
@@ -158,6 +171,10 @@ class StellarisInstallEngine:
         *,
         previous_transaction_id: str | None = None,
     ) -> InstallReceipt:
+        if plan.install_mode == "overlay":
+            return self._install_overlay(
+                plan, previous_transaction_id=previous_transaction_id
+            )
         target = self._contained(plan.game_root, plan.target_path)
         staged = plan.staging_root / plan.relative_target.name
         backup = plan.backup_root / plan.relative_target.name
@@ -206,6 +223,7 @@ class StellarisInstallEngine:
                 installed_tree_sha256=installed_tree_sha256,
                 owned_files=owned_files,
                 previous_transaction_id=previous_transaction_id,
+                install_mode="directory",
             )
             self._write_journal(
                 plan,
@@ -230,6 +248,307 @@ class StellarisInstallEngine:
                 raise
             raise InstallError(f"installation failed and was rolled back: {error}") from error
         return receipt
+
+    def _install_overlay(
+        self,
+        plan: InstallPlan,
+        *,
+        previous_transaction_id: str | None,
+    ) -> InstallReceipt:
+        """Overlay one logical DLC across several safe relative paths.
+
+        Existing files are copied into the transaction backup before any
+        replacement. Newly created files and displaced predecessors are both
+        recorded, so an exception can restore the exact pre-install state.
+        """
+        target_root = self._dlc_root(plan.game_root)
+        package_root = self._package_root(plan.package_path)
+        staged = plan.staging_root / package_root
+        backup = plan.backup_root / "overlay"
+        self.ensure_disk_space(plan, replaced_existing=False)
+        self._write_journal(plan, InstallPhase.PLANNED, False)
+        applied: list[str] = []
+        try:
+            self._stage_overlay(plan, staged)
+            self._write_journal(plan, InstallPhase.STAGED, False)
+            _, staged_files = self._installed_snapshot(staged)
+            if not staged_files:
+                raise InstallError("grouped package contains no files")
+            replaced_existing = False
+            for record in staged_files:
+                relative = PurePosixPath(record.relative_path)
+                destination = target_root.joinpath(*relative.parts)
+                self._contained(target_root, destination)
+                self._reject_linked_parents(target_root, destination.parent)
+                if destination.exists():
+                    if destination.is_symlink() or not destination.is_file():
+                        raise InstallConflictError(
+                            f"grouped DLC target is not a regular file: {destination}"
+                        )
+                    predecessor = backup.joinpath(*relative.parts)
+                    predecessor.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(destination, predecessor)
+                    replaced_existing = True
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                temporary = destination.with_name(
+                    destination.name + f".signriver-{plan.transaction_id}.tmp"
+                )
+                shutil.copy2(staged.joinpath(*relative.parts), temporary)
+                os.replace(temporary, destination)
+                applied.append(record.relative_path)
+            self._write_journal(
+                plan, InstallPhase.COMMITTING, replaced_existing
+            )
+            owned_files = tuple(
+                OwnedFile(
+                    item.relative_path,
+                    target_root.joinpath(
+                        *PurePosixPath(item.relative_path).parts
+                    ).stat().st_size,
+                    self._sha256(target_root.joinpath(
+                        *PurePosixPath(item.relative_path).parts
+                    )),
+                )
+                for item in staged_files
+            )
+            installed_tree_sha256 = self._owned_records_sha256(owned_files)
+            receipt = InstallReceipt(
+                transaction_id=plan.transaction_id,
+                game_id=plan.game_id,
+                dlc_id=plan.dlc_id,
+                target_path=target_root,
+                package_sha256=plan.package_sha256,
+                replaced_existing=replaced_existing,
+                backup_path=backup if replaced_existing else None,
+                installed_tree_sha256=installed_tree_sha256,
+                owned_files=owned_files,
+                previous_transaction_id=previous_transaction_id,
+                install_mode="overlay",
+            )
+            self._write_journal(
+                plan, InstallPhase.COMMITTED, replaced_existing, receipt=receipt
+            )
+            return receipt
+        except Exception as error:
+            try:
+                self._rollback_overlay(
+                    target_root, staged, backup, tuple(applied)
+                )
+                self._write_journal(plan, InstallPhase.ROLLED_BACK, backup.exists())
+            except Exception as rollback_error:
+                raise InstallError(
+                    f"grouped installation rollback failed: {rollback_error}"
+                ) from rollback_error
+            if isinstance(error, InstallError):
+                raise
+            raise InstallError(
+                f"grouped installation failed and was rolled back: {error}"
+            ) from error
+
+    def _stage_overlay(self, plan: InstallPlan, staged: Path) -> None:
+        if plan.staging_root.exists():
+            shutil.rmtree(plan.staging_root)
+        plan.staging_root.mkdir(parents=True)
+        package_root = self._package_root(plan.package_path).casefold()
+        with zipfile.ZipFile(plan.package_path) as archive:
+            for info in archive.infolist():
+                member = PurePosixPath(info.filename.replace("\\", "/"))
+                if member.is_absolute() or ".." in member.parts or not member.parts:
+                    raise InstallError(f"unsafe package member: {info.filename}")
+                mode = info.external_attr >> 16
+                if mode and stat.S_ISLNK(mode):
+                    raise InstallError("package symbolic links are not allowed")
+                if member.parts[0].casefold() != package_root:
+                    raise InstallError("grouped package contains files outside its root")
+                if len(member.parts) == 1:
+                    continue
+                relative = PurePosixPath(*member.parts[1:])
+                if not self._overlay_member_allowed(relative):
+                    raise InstallError(
+                        f"grouped package path is outside cartridge roots: {relative}"
+                    )
+                destination = staged.joinpath(*relative.parts)
+                self._contained(staged, destination)
+                if info.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                else:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(info) as source, destination.open("xb") as output:
+                        shutil.copyfileobj(source, output, 1024 * 1024)
+        if not staged.is_dir():
+            raise InstallError("grouped package did not produce a payload tree")
+
+    def _overlay_member_allowed(self, relative: PurePosixPath) -> bool:
+        if not self._overlay_allowed_roots:
+            return False
+        candidate = tuple(part.casefold() for part in relative.parts)
+        return any(
+            candidate[:len(root.parts)] == tuple(
+                part.casefold() for part in root.parts
+            )
+            for root in self._overlay_allowed_roots
+        )
+
+    def _rollback_overlay(
+        self,
+        target_root: Path,
+        staged: Path,
+        backup: Path,
+        applied: tuple[str, ...],
+    ) -> None:
+        for relative_text in reversed(applied):
+            relative = PurePosixPath(relative_text)
+            destination = target_root.joinpath(*relative.parts)
+            predecessor = backup.joinpath(*relative.parts)
+            staged_file = staged.joinpath(*relative.parts)
+            if predecessor.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(predecessor, destination)
+            elif destination.is_file():
+                if staged_file.is_file() and self._sha256(destination) != self._sha256(staged_file):
+                    raise InstallConflictError(
+                        f"grouped DLC target changed during rollback: {destination}"
+                    )
+                destination.unlink()
+            self._remove_empty_parents(destination.parent, target_root)
+
+    def _uninstall_overlay(
+        self, receipt: InstallReceipt, allowed_game_root: Path
+    ) -> None:
+        target_root = self._trusted_receipt_target(receipt, allowed_game_root)
+        audit = self.audit(receipt, allowed_game_root)
+        if audit.health is not InstallHealth.HEALTHY:
+            raise InstallError(
+                "grouped DLC files were modified or missing; refusing unsafe uninstall"
+            )
+        backup = receipt.backup_path
+        if backup is not None:
+            backup = self._contained(self.data_root / "backups", backup)
+        removed = (
+            self.data_root / "transactions" /
+            f"uninstall-{receipt.transaction_id}" / "removed-overlay"
+        )
+        journal = removed.parent / "overlay-journal.json"
+        if removed.exists():
+            if self._recover_interrupted_overlay_uninstall(
+                receipt, target_root, removed, journal
+            ):
+                return
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        moved: list[str] = []
+        try:
+            self._write_json_atomic(journal, {
+                "schema_version": 1,
+                "operation": "overlay_uninstall",
+                "phase": "removing",
+                "transaction_id": receipt.transaction_id,
+                "target_path": str(target_root),
+            })
+            for record in receipt.owned_files:
+                relative = PurePosixPath(record.relative_path)
+                destination = target_root.joinpath(*relative.parts)
+                retained = removed.joinpath(*relative.parts)
+                retained.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(destination, retained)
+                destination.unlink()
+                moved.append(record.relative_path)
+                predecessor = (
+                    backup.joinpath(*relative.parts) if backup is not None else None
+                )
+                if predecessor is not None and predecessor.is_file():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(predecessor, destination)
+                else:
+                    self._remove_empty_parents(destination.parent, target_root)
+            self._write_json_atomic(journal, {
+                "schema_version": 1,
+                "operation": "overlay_uninstall",
+                "phase": "committed",
+                "transaction_id": receipt.transaction_id,
+                "target_path": str(target_root),
+            })
+        except Exception as error:
+            for relative_text in reversed(moved):
+                relative = PurePosixPath(relative_text)
+                destination = target_root.joinpath(*relative.parts)
+                retained = removed.joinpath(*relative.parts)
+                if destination.is_file():
+                    destination.unlink()
+                if retained.is_file():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(retained, destination)
+            raise InstallError(
+                f"grouped uninstall failed and was rolled back: {error}"
+            ) from error
+        self._cleanup_uninstall_tree_best_effort(removed)
+
+    def _recover_interrupted_overlay_uninstall(
+        self,
+        receipt: InstallReceipt,
+        target_root: Path,
+        removed: Path,
+        journal: Path,
+    ) -> bool:
+        try:
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            raise InstallConflictError(
+                "grouped uninstall has untrusted temporary data"
+            ) from error
+        if (
+            payload.get("operation") != "overlay_uninstall"
+            or payload.get("transaction_id") != receipt.transaction_id
+        ):
+            raise InstallConflictError("grouped uninstall journal does not match")
+        if payload.get("phase") == "committed":
+            return True
+        if payload.get("phase") != "removing":
+            raise InstallConflictError("grouped uninstall phase is invalid")
+        for retained in sorted(
+            (item for item in removed.rglob("*") if item.is_file()),
+            reverse=True,
+        ):
+            relative = retained.relative_to(removed)
+            destination = target_root / relative
+            if destination.exists() and not destination.is_file():
+                raise InstallConflictError(
+                    f"grouped uninstall target changed: {destination}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(retained, destination)
+        self._cleanup_uninstall_tree_best_effort(removed)
+        return False
+
+    @staticmethod
+    def _remove_empty_parents(path: Path, stop: Path) -> None:
+        stop = stop.resolve(strict=False)
+        current = path
+        while current.resolve(strict=False) != stop:
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent
+
+    @classmethod
+    def _owned_records_sha256(cls, records: tuple[OwnedFile, ...]) -> str:
+        digest = hashlib.sha256()
+        for record in sorted(records, key=lambda item: item.relative_path.casefold()):
+            digest.update(record.relative_path.encode("utf-8"))
+            digest.update(record.size.to_bytes(8, "big"))
+            digest.update(record.sha256.encode("ascii"))
+        return digest.hexdigest()
+
+    @classmethod
+    def _reject_linked_parents(cls, root: Path, parent: Path) -> None:
+        root = root.resolve(strict=False)
+        current = parent
+        while current.resolve(strict=False) != root:
+            if current.exists() and cls._is_link(current):
+                raise InstallConflictError(
+                    f"grouped DLC destination contains a link or junction: {current}"
+                )
+            current = current.parent
 
     def estimate_disk_space(
         self,
@@ -335,10 +654,17 @@ class StellarisInstallEngine:
                 missing=tuple(item.relative_path for item in receipt.owned_files),
             )
         expected = {item.relative_path: item for item in receipt.owned_files}
-        actual_paths = {
-            path.relative_to(target).as_posix(): path
-            for path in target.rglob("*") if path.is_file()
-        }
+        if receipt.install_mode == "overlay":
+            actual_paths = {
+                relative: target.joinpath(*PurePosixPath(relative).parts)
+                for relative in expected
+                if target.joinpath(*PurePosixPath(relative).parts).is_file()
+            }
+        else:
+            actual_paths = {
+                path.relative_to(target).as_posix(): path
+                for path in target.rglob("*") if path.is_file()
+            }
         missing = tuple(sorted(set(expected) - set(actual_paths)))
         unknown = tuple(sorted(set(actual_paths) - set(expected)))
         modified = []
@@ -370,7 +696,7 @@ class StellarisInstallEngine:
         if not before.missing:
             return before
         target.mkdir(parents=True, exist_ok=True)
-        root_name = target.name
+        root_name = self._package_root(package_path)
         wanted = set(before.missing)
         restored = set()
         with zipfile.ZipFile(package_path) as archive:
@@ -399,6 +725,9 @@ class StellarisInstallEngine:
 
     def uninstall(self, receipt: InstallReceipt, allowed_game_root: Path) -> None:
         """Remove exactly the recorded tree, restoring a displaced predecessor."""
+        if receipt.install_mode == "overlay":
+            self._uninstall_overlay(receipt, allowed_game_root)
+            return
         target = self._trusted_receipt_target(receipt, allowed_game_root)
         if not target.is_dir():
             raise InstallError("installed DLC directory is missing")
@@ -469,6 +798,25 @@ class StellarisInstallEngine:
             self._cleanup_uninstall_tree_best_effort(backup)
 
     def uninstall_committed(self, receipt: InstallReceipt) -> bool:
+        if receipt.install_mode == "overlay":
+            journal = (
+                self.data_root / "transactions" /
+                f"uninstall-{receipt.transaction_id}" / "overlay-journal.json"
+            )
+            try:
+                payload = json.loads(journal.read_text(encoding="utf-8"))
+            except (OSError, ValueError, json.JSONDecodeError):
+                return False
+            committed = (
+                payload.get("operation") == "overlay_uninstall"
+                and payload.get("phase") == "committed"
+                and payload.get("transaction_id") == receipt.transaction_id
+            )
+            if committed:
+                self._cleanup_uninstall_tree_best_effort(
+                    journal.parent / "removed-overlay"
+                )
+            return committed
         journal = (
             self.data_root / "transactions" /
             f"uninstall-{receipt.transaction_id}" / "journal.json"
@@ -584,6 +932,8 @@ class StellarisInstallEngine:
             return None
         if str(payload["game_id"]) != self.game_id:
             raise InstallRecoveryConflict("已完成安装的游戏编号与当前卡带不匹配")
+        if payload.get("install_mode", "directory") == "overlay":
+            return self._pending_overlay_receipt(payload, game_root)
         relative_target = Path(payload["target"])
         if (
             relative_target.is_absolute()
@@ -639,6 +989,63 @@ class StellarisInstallEngine:
             installed_tree_sha256=actual_tree,
             owned_files=owned_files,
             previous_transaction_id=previous,
+        )
+
+    def _pending_overlay_receipt(
+        self, payload: dict, game_root: Path
+    ) -> InstallReceipt:
+        transaction_id = str(payload["transaction_id"])
+        target = self._dlc_root(game_root)
+        if Path(payload["target"]) != self._dlc_relative_path:
+            raise InstallRecoveryConflict("grouped committed target is invalid")
+        receipt_payload = payload.get("receipt")
+        if not isinstance(receipt_payload, dict):
+            raise InstallRecoveryConflict("grouped committed receipt is missing")
+        raw_files = receipt_payload.get("owned_files")
+        if not isinstance(raw_files, list) or not raw_files:
+            raise InstallRecoveryConflict("grouped committed owned files are missing")
+        owned_files = tuple(
+            OwnedFile(
+                str(item["relative_path"]), int(item["size"]), str(item["sha256"])
+            )
+            for item in raw_files if isinstance(item, dict)
+        )
+        if len(owned_files) != len(raw_files):
+            raise InstallRecoveryConflict("grouped committed owned files are invalid")
+        for item in owned_files:
+            relative = PurePosixPath(item.relative_path)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise InstallRecoveryConflict("grouped committed path is unsafe")
+            path = target.joinpath(*relative.parts)
+            if (
+                not path.is_file()
+                or path.stat().st_size != item.size
+                or self._sha256(path) != item.sha256
+            ):
+                raise InstallRecoveryConflict(
+                    f"grouped committed file changed before persistence: {path}"
+                )
+        expected_tree = str(receipt_payload["installed_tree_sha256"])
+        actual_tree = self._owned_records_sha256(owned_files)
+        if actual_tree.casefold() != expected_tree.casefold():
+            raise InstallRecoveryConflict("grouped committed digest is invalid")
+        replaced = bool(payload.get("replaced_existing"))
+        backup = self.data_root / "backups" / transaction_id / "overlay"
+        if replaced and not backup.is_dir():
+            raise InstallRecoveryConflict("grouped committed backup is missing")
+        previous = receipt_payload.get("previous_transaction_id")
+        return InstallReceipt(
+            transaction_id=transaction_id,
+            game_id=self.game_id,
+            dlc_id=str(payload["dlc_id"]),
+            target_path=target,
+            package_sha256=str(payload["package_sha256"]),
+            replaced_existing=replaced,
+            backup_path=backup if replaced else None,
+            installed_tree_sha256=actual_tree,
+            owned_files=owned_files,
+            previous_transaction_id=str(previous) if previous is not None else None,
+            install_mode="overlay",
         )
 
     def _update_committed_install_journal(
@@ -754,6 +1161,11 @@ class StellarisInstallEngine:
         if game_root not in allowed_game_roots:
             return None
 
+        if payload.get("install_mode", "directory") == "overlay":
+            return self._recover_overlay_journal(
+                journal_path, payload, game_root
+            )
+
         try:
             if str(payload["game_id"]) != self.game_id:
                 raise InstallRecoveryConflict("日志游戏编号与当前卡带不匹配")
@@ -838,6 +1250,53 @@ class StellarisInstallEngine:
             raise
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise InstallRecoveryConflict(str(error)) from error
+
+    def _recover_overlay_journal(
+        self, journal_path: Path, payload: dict, game_root: Path
+    ) -> str | None:
+        transaction_id = str(payload["transaction_id"])
+        if (
+            journal_path.parent.name != transaction_id
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", transaction_id)
+        ):
+            raise InstallRecoveryConflict("grouped install transaction ID is invalid")
+        if str(payload.get("game_id")) != self.game_id:
+            raise InstallRecoveryConflict("grouped install cartridge does not match")
+        phase = InstallPhase(payload["phase"])
+        if phase in {InstallPhase.COMMITTED, InstallPhase.ROLLED_BACK}:
+            return None
+        relative_target = Path(payload["target"])
+        if relative_target != self._dlc_relative_path:
+            raise InstallRecoveryConflict("grouped install target is not the DLC root")
+        target_root = self._dlc_root(game_root)
+        package_path = Path(payload["package_path"])
+        package_root = self._package_root(package_path)
+        staged = journal_path.parent / "staging" / package_root
+        backup = self.data_root / "backups" / transaction_id / "overlay"
+        if not staged.is_dir():
+            payload = dict(payload)
+            payload["phase"] = InstallPhase.ROLLED_BACK.value
+            self._write_json_atomic(journal_path, payload)
+            return transaction_id
+        _, staged_files = self._installed_snapshot(staged)
+        for record in reversed(staged_files):
+            relative = PurePosixPath(record.relative_path)
+            destination = target_root.joinpath(*relative.parts)
+            predecessor = backup.joinpath(*relative.parts)
+            if predecessor.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(predecessor, destination)
+            elif destination.is_file():
+                if self._sha256(destination) != record.sha256:
+                    raise InstallRecoveryConflict(
+                        f"grouped install target changed: {destination}"
+                    )
+                destination.unlink()
+                self._remove_empty_parents(destination.parent, target_root)
+        payload = dict(payload)
+        payload["phase"] = InstallPhase.ROLLED_BACK.value
+        self._write_json_atomic(journal_path, payload)
+        return transaction_id
 
     def _recover_uninstall_journal(
         self, journal_path: Path, payload: dict,
@@ -1553,11 +2012,20 @@ class StellarisInstallEngine:
             "game_root": str(plan.game_root),
             "target": plan.relative_target.as_posix(),
             "replaced_existing": replaced_existing,
+            "install_mode": plan.install_mode,
         }
         if receipt is not None:
             payload["receipt"] = {
                 "installed_tree_sha256": receipt.installed_tree_sha256,
                 "previous_transaction_id": receipt.previous_transaction_id,
+                "owned_files": [
+                    {
+                        "relative_path": item.relative_path,
+                        "size": item.size,
+                        "sha256": item.sha256,
+                    }
+                    for item in receipt.owned_files
+                ],
             }
             payload["receipt_persisted"] = False
         self._write_json_atomic(plan.journal_path, payload)
@@ -1599,6 +2067,10 @@ class StellarisInstallEngine:
         game_root = Path(allowed_game_root).resolve(strict=True)
         dlc_root = self._dlc_root(game_root)
         target = self._contained(dlc_root, receipt.target_path)
+        if receipt.install_mode == "overlay":
+            if target != dlc_root:
+                raise InstallError("overlay receipt target is not the configured DLC root")
+            return target
         if target.parent != dlc_root:
             raise InstallError("receipt target is not a direct configured DLC directory")
         return target

@@ -8,7 +8,10 @@ AUTO_PREFIX = "auto_prefix"
 VALID_DLC_IMPORT_NAMING_MODES = frozenset({MANUAL_PREFIXED, AUTO_PREFIX})
 SINGLE_DIRECTORY = "single_directory"
 CHILDREN_IF_ROOT = "children_if_root"
-VALID_DLC_IMPORT_LAYOUT_MODES = frozenset({SINGLE_DIRECTORY, CHILDREN_IF_ROOT})
+GROUPED_LEAF_PATHS = "grouped_leaf_paths"
+VALID_DLC_IMPORT_LAYOUT_MODES = frozenset(
+    {SINGLE_DIRECTORY, CHILDREN_IF_ROOT, GROUPED_LEAF_PATHS}
+)
 
 _MANAGED_FOLDER = re.compile(
     r"^(dlc(?P<number>\d{3,}))_(?P<install_name>[A-Za-z0-9][A-Za-z0-9_-]*)$",
@@ -43,6 +46,7 @@ def auto_managed_folder(source_name: str, number: int) -> str:
 __all__ = [
     "AUTO_PREFIX",
     "CHILDREN_IF_ROOT",
+    "GROUPED_LEAF_PATHS",
     "MANUAL_PREFIXED",
     "SINGLE_DIRECTORY",
     "VALID_DLC_IMPORT_LAYOUT_MODES",

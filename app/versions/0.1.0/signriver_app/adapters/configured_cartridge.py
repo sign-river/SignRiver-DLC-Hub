@@ -36,6 +36,7 @@ class ConfiguredSteamCartridge:
         repository_name: str = "signriver-dlc-assets",
         repositories: dict[str, dict[str, str]] | None = None,
         install_directory_from_slug: bool = False,
+        dlc_group_search_roots: tuple[str, ...] = (),
         freshness=None,
     ) -> None:
         self.cartridge_id = f"{game_id}.steam"
@@ -51,6 +52,7 @@ class ConfiguredSteamCartridge:
         self.repositories = dict(repositories or {})
         self.package_inspector = package_inspector
         self.install_directory_from_slug = install_directory_from_slug
+        self.dlc_group_search_roots = tuple(dlc_group_search_roots)
         self.freshness = freshness
         self._installed_paths: dict[str, Path] = {}
         self._adapter = ConfiguredSteamAdapter(
@@ -98,6 +100,7 @@ class ConfiguredSteamCartridge:
             executable_name=self.executable_name,
             game_id=self.adapter.descriptor.game_id,
             package_inspector=self.package_inspector,
+            overlay_allowed_roots=self.dlc_group_search_roots,
         )
 
     def inspect_package(
@@ -129,11 +132,49 @@ class ConfiguredSteamCartridge:
                 path = children.get(entry.slug.casefold())
                 if path is not None:
                     installed[entry.dlc_id.casefold()] = path
+        elif self.dlc_group_search_roots:
+            try:
+                dlc_root = resolve_game_directory(
+                    game_root, self.dlc_relative_dir,
+                    field_name="DLC install directory",
+                )
+            except (OSError, ValueError):
+                dlc_root = None
+            if dlc_root is not None:
+                for entry in catalog_entries:
+                    slug = entry.slug.casefold()
+                    matches = []
+                    for configured in self.dlc_group_search_roots:
+                        search_root = dlc_root.joinpath(
+                            *Path(configured.replace("\\", "/")).parts
+                        )
+                        try:
+                            branches = tuple(search_root.iterdir())
+                        except OSError:
+                            continue
+                        for branch in branches:
+                            if not branch.is_dir():
+                                continue
+                            try:
+                                children = tuple(branch.iterdir())
+                            except OSError:
+                                continue
+                            match = next(
+                                (child for child in children
+                                 if child.is_dir() and child.name.casefold() == slug),
+                                None,
+                            )
+                            if match is not None:
+                                matches.append(match)
+                    if matches:
+                        installed[entry.dlc_id.casefold()] = matches[0]
         self._installed_paths = dict(installed)
         return installed
 
     def remove_installed_dlc(self, game_root: Path, dlc_id: str) -> Path:
         target = self._installed_paths.get(dlc_id.casefold())
+        if target is not None and self.dlc_group_search_roots:
+            return self._remove_grouped_installed_dlc(game_root, target.name)
         if target is None or re.match(r"^dlc\d{3,}_", target.name, re.I):
             return remove_numbered_dlc(game_root, dlc_id, self.dlc_relative_dir)
         dlc_root = resolve_game_directory(
@@ -145,6 +186,36 @@ class ConfiguredSteamCartridge:
         shutil.rmtree(resolved)
         self._installed_paths.pop(dlc_id.casefold(), None)
         return resolved
+
+    def _remove_grouped_installed_dlc(self, game_root: Path, install_name: str) -> Path:
+        dlc_root = resolve_game_directory(
+            game_root, self.dlc_relative_dir, field_name="DLC install directory"
+        ).resolve(strict=True)
+        removed: list[Path] = []
+        for configured in self.dlc_group_search_roots:
+            search_root = dlc_root.joinpath(*Path(configured.replace("\\", "/")).parts)
+            try:
+                branches = tuple(search_root.iterdir())
+            except OSError:
+                continue
+            for branch in branches:
+                candidate = branch / install_name
+                if not candidate.is_dir() or candidate.is_symlink():
+                    continue
+                resolved = candidate.resolve(strict=True)
+                try:
+                    resolved.relative_to(dlc_root)
+                except ValueError as error:
+                    raise ValueError("refusing to remove an unsafe grouped DLC path") from error
+                shutil.rmtree(resolved)
+                removed.append(resolved)
+        if not removed:
+            raise FileNotFoundError(f"installed grouped DLC not found: {install_name}")
+        self._installed_paths = {
+            key: value for key, value in self._installed_paths.items()
+            if value.name.casefold() != install_name.casefold()
+        }
+        return removed[0]
 
 
 __all__ = ["ConfiguredSteamCartridge"]

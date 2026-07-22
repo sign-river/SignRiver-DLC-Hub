@@ -18,6 +18,7 @@ from .cartridges import create_builtin_cartridges
 from .dlc_naming import (
     AUTO_PREFIX,
     CHILDREN_IF_ROOT,
+    GROUPED_LEAF_PATHS,
     VALID_DLC_IMPORT_LAYOUT_MODES,
     VALID_DLC_IMPORT_NAMING_MODES,
     auto_managed_folder,
@@ -73,6 +74,22 @@ class PublisherWorkspace:
                 continue
             if current_profile.display_name != profile.display_name:
                 updated = replace(current_profile, display_name=profile.display_name)
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "cities_skylines"
+                and current_profile.dlc_import_layout_mode == CHILDREN_IF_ROOT
+                and current_profile.package_inspector == "directory"
+                and not current_profile.dlc_group_search_roots
+            ):
+                updated = replace(
+                    current_profile,
+                    dlc_import_layout_mode=profile.dlc_import_layout_mode,
+                    dlc_group_search_roots=profile.dlc_group_search_roots,
+                    package_inspector=profile.package_inspector,
+                    install_directory_from_slug=False,
+                )
                 self.save_game(updated)
                 existing[profile.game_id] = updated
         if initial:
@@ -150,7 +167,7 @@ class PublisherWorkspace:
             profile.dlc_relative_dir.replace("\\", "/")
         ).name
         return (
-            profile.dlc_import_layout_mode == CHILDREN_IF_ROOT
+            profile.dlc_import_layout_mode in {CHILDREN_IF_ROOT, GROUPED_LEAF_PATHS}
             and source.is_dir()
             and source.name.casefold() == configured_root.casefold()
             and any(path.is_dir() and not path.is_symlink() for path in source.iterdir())
@@ -162,6 +179,10 @@ class PublisherWorkspace:
         source = source.resolve()
         if not self.is_dlc_collection(profile, source):
             raise WorkspaceError("所选目录不是当前卡带配置的 DLC 根目录")
+        if profile.dlc_import_layout_mode == GROUPED_LEAF_PATHS:
+            return self._import_grouped_leaf_collection(
+                profile, source, progress=progress
+            )
         children = tuple(
             sorted(
                 (
@@ -223,6 +244,91 @@ class PublisherWorkspace:
         )
         self._invalidate_build_complete(profile)
         return tuple(destination for _, destination in planned)
+
+    def _import_grouped_leaf_collection(
+        self, profile: GameProfile, source: Path, *, progress=None
+    ) -> tuple[Path, ...]:
+        """Group same-named DLC leaves across declared parallel branches.
+
+        A managed source keeps every path relative to the selected DLC root.
+        For example ``Radio/Blurb/AlpineTunes`` and
+        ``Radio/Music/AlpineTunes`` become one managed DLC while retaining both
+        paths for the client overlay installer.
+        """
+        groups: dict[str, list[Path]] = {}
+        display_names: dict[str, str] = {}
+        for configured in profile.dlc_group_search_roots:
+            self._validate_relative_directory(configured, "DLC 聚合扫描目录")
+            group_root = source.joinpath(*PurePosixPath(configured.replace("\\", "/")).parts)
+            if not group_root.is_dir() or group_root.is_symlink():
+                raise WorkspaceError(f"DLC 聚合扫描目录不存在：{configured}")
+            for branch in sorted(group_root.iterdir(), key=lambda item: item.name.casefold()):
+                if not branch.is_dir() or branch.is_symlink():
+                    continue
+                for leaf in sorted(branch.iterdir(), key=lambda item: item.name.casefold()):
+                    if not leaf.is_dir() or leaf.is_symlink():
+                        continue
+                    key = leaf.name.casefold()
+                    groups.setdefault(key, []).append(leaf)
+                    display_names.setdefault(key, leaf.name)
+        if not groups:
+            raise WorkspaceError("声明的聚合扫描目录中没有找到 DLC 子目录")
+
+        dlc_root = self.game_dir(profile.game_id) / "dlc"
+        existing_names = {
+            parsed[1].casefold()
+            for path in dlc_root.iterdir() if path.is_dir()
+            for parsed in [parse_managed_folder(path.name)] if parsed is not None
+        }
+        ordered = sorted(groups, key=lambda item: display_names[item].casefold())
+        first_number = self._next_dlc_import_number(profile)
+        planned: list[tuple[str, list[Path], Path]] = []
+        for offset, key in enumerate(ordered):
+            name = display_names[key]
+            if key in existing_names:
+                raise WorkspaceError(f"DLC 已存在：{name}")
+            try:
+                managed_name = auto_managed_folder(name, first_number + offset)
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            destination = dlc_root / managed_name
+            if destination.exists():
+                raise WorkspaceError(f"DLC 已存在：{managed_name}")
+            planned.append((name, groups[key], destination))
+
+        staging_root = self._import_staging_root(profile)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        batch = staging_root / uuid.uuid4().hex[:8]
+        batch.mkdir()
+        committed: list[tuple[Path, Path]] = []
+        current_name = source.name
+        try:
+            for index, (name, leaves, destination) in enumerate(planned, start=1):
+                current_name = name
+                if progress is not None:
+                    progress(index, len(planned), name)
+                staged_dlc = batch / destination.name
+                for leaf in leaves:
+                    relative = leaf.relative_to(source)
+                    self._copy_directory(leaf, staged_dlc / relative)
+            for _, _, destination in planned:
+                staged = batch / destination.name
+                staged.replace(destination)
+                committed.append((destination, staged))
+        except (OSError, shutil.Error) as error:
+            for destination, staged in reversed(committed):
+                if destination.exists():
+                    destination.replace(staged)
+            raise self._copy_workspace_error(current_name, error) from error
+        finally:
+            if batch.exists():
+                self._remove_tree(batch, ignore_errors=True)
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": first_number + len(planned)},
+        )
+        self._invalidate_build_complete(profile)
+        return tuple(destination for _, _, destination in planned)
 
     def interrupted_collection_import(
         self, profile: GameProfile, source: Path
@@ -944,8 +1050,15 @@ class PublisherWorkspace:
             )
         if profile.dlc_import_layout_mode not in VALID_DLC_IMPORT_LAYOUT_MODES:
             raise WorkspaceError(
-                "DLC 导入布局模式只能是 single_directory 或 children_if_root"
+                "DLC 导入布局模式只能是 single_directory、children_if_root 或 grouped_leaf_paths"
             )
+        if profile.dlc_import_layout_mode == GROUPED_LEAF_PATHS:
+            if not profile.dlc_group_search_roots:
+                raise WorkspaceError("多路径聚合模式至少需要一个聚合扫描目录")
+            for value in profile.dlc_group_search_roots:
+                PublisherWorkspace._validate_relative_directory(
+                    value, "DLC 聚合扫描目录"
+                )
 
     def _next_dlc_import_number(self, profile: GameProfile) -> int:
         state_path = self.game_dir(profile.game_id) / ".dlc-import-state.json"

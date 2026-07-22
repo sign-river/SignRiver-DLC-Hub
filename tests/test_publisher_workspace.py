@@ -603,6 +603,49 @@ def test_civilization_root_import_splits_immediate_children(tmp_path: Path) -> N
     assert progress[-1] == (3, 3, "KublaiKhan_Vietnam")
 
 
+def test_grouped_leaf_import_merges_same_dlc_across_declared_branches(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    workspace.initialize()
+    profile = next(
+        item for item in workspace.list_games()
+        if item.game_id == "cities_skylines"
+    )
+    source = tmp_path / "Files"
+    for branch in ("Blurb", "Music", "Talk"):
+        leaf = source / "Radio" / branch / "AlpineTunes"
+        leaf.mkdir(parents=True)
+        (leaf / f"{branch}.bank").write_text(branch, encoding="utf-8")
+    christmas = source / "Radio" / "Music" / "Christmas"
+    christmas.mkdir(parents=True)
+    (christmas / "music.bank").write_bytes(b"christmas")
+
+    imported = workspace.import_dlc_collection(profile, source)
+
+    assert [item.name for item in imported] == [
+        "dlc001_AlpineTunes", "dlc002_Christmas",
+    ]
+    alpine = imported[0]
+    assert (alpine / "Radio" / "Blurb" / "AlpineTunes" / "Blurb.bank").is_file()
+    assert (alpine / "Radio" / "Music" / "AlpineTunes" / "Music.bank").is_file()
+    assert (alpine / "Radio" / "Talk" / "AlpineTunes" / "Talk.bank").is_file()
+    assert not (alpine / "Radio" / "Music" / "Christmas").exists()
+
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"new")
+    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    workspace.build(profile)
+    package = workspace.output_dir / profile.game_id / "dlc001_AlpineTunes.zip"
+    with zipfile.ZipFile(package) as archive:
+        names = set(archive.namelist())
+    assert "AlpineTunes/Radio/Blurb/AlpineTunes/Blurb.bank" in names
+    assert "AlpineTunes/Radio/Music/AlpineTunes/Music.bank" in names
+    assert "AlpineTunes/Radio/Talk/AlpineTunes/Talk.bank" in names
+
+
 def test_collection_copy_failure_rolls_back_files_and_number_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -50,6 +50,7 @@ class InstallPlan:
     staging_root: Path
     backup_root: Path
     journal_path: Path
+    install_mode: str = "directory"
 
     @property
     def target_path(self) -> Path:
@@ -68,6 +69,7 @@ class InstallReceipt:
     installed_tree_sha256: str
     owned_files: tuple[OwnedFile, ...] = ()
     previous_transaction_id: str | None = None
+    install_mode: str = "directory"
 
 
 @dataclass(frozen=True, slots=True)

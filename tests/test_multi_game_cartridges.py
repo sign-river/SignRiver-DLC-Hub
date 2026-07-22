@@ -10,7 +10,10 @@ import pytest
 
 from signriver_app.adapters.builtin import create_builtin_cartridges
 from signriver_app.adapters.common import configured_steam
-from signriver_app.infrastructure.catalog import inspect_directory_package
+from signriver_app.infrastructure.catalog import (
+    inspect_directory_package,
+    inspect_grouped_directory_package,
+)
 from signriver_publisher import (
     PublisherWorkspace, SteamAppInfo,
     create_builtin_cartridges as publisher_cartridges,
@@ -130,6 +133,73 @@ def test_generic_package_installs_to_each_cartridge_dlc_directory(tmp_path: Path
     assert installed["dlc001"] == receipt.target_path
     civ.remove_installed_dlc(game, "dlc001")
     assert not receipt.target_path.exists()
+
+
+def test_grouped_package_overlays_multiple_paths_and_uninstall_restores_predecessor(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "dlc001_alpinetunes.zip"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr(
+            "AlpineTunes/Radio/Blurb/AlpineTunes/intro.bank", b"intro"
+        )
+        archive.writestr(
+            "AlpineTunes/Radio/Music/AlpineTunes/music.bank", b"new-music"
+        )
+        archive.writestr(
+            "AlpineTunes/Radio/Talk/AlpineTunes/talk.bank", b"talk"
+        )
+    digest = hashlib.sha256(package.read_bytes()).hexdigest()
+    metadata = inspect_grouped_directory_package(package)
+    assert metadata.install_mode == "overlay"
+
+    cities = {
+        item.adapter.descriptor.game_id: item for item in create_builtin_cartridges()
+    }["cities_skylines"]
+    game = tmp_path / "Cities"
+    game.mkdir()
+    (game / "Cities.exe").write_bytes(b"exe")
+    old = game / "Files" / "Radio" / "Music" / "AlpineTunes" / "music.bank"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"original-music")
+
+    engine = cities.create_install_engine(tmp_path / "data")
+    plan = engine.plan(package, game, expected_sha256=digest)
+    receipt = engine.install(plan)
+
+    assert receipt.install_mode == "overlay"
+    assert receipt.target_path == (game / "Files").resolve()
+    assert old.read_bytes() == b"new-music"
+    assert (game / "Files" / "Radio" / "Talk" / "AlpineTunes" / "talk.bank").is_file()
+    assert engine.verify(receipt, game)
+
+    engine.uninstall(receipt, game)
+
+    assert old.read_bytes() == b"original-music"
+    assert not (game / "Files" / "Radio" / "Talk" / "AlpineTunes").exists()
+    assert engine.uninstall_committed(receipt)
+
+
+def test_grouped_cartridge_discovers_and_removes_all_matching_branches(
+    tmp_path: Path,
+) -> None:
+    cities = {
+        item.adapter.descriptor.game_id: item for item in create_builtin_cartridges()
+    }["cities_skylines"]
+    game = tmp_path / "Cities"
+    game.mkdir()
+    (game / "Cities.exe").write_bytes(b"exe")
+    for branch in ("Blurb", "Music", "Talk"):
+        leaf = game / "Files" / "Radio" / branch / "AlpineTunes"
+        leaf.mkdir(parents=True)
+        (leaf / "payload.bank").write_bytes(branch.encode())
+    entry = SimpleNamespace(dlc_id="dlc001", slug="alpinetunes")
+
+    installed = cities.discover_installed_dlc(game, (entry,))
+    assert "dlc001" in installed
+
+    cities.remove_installed_dlc(game, "dlc001")
+    assert not tuple((game / "Files" / "Radio").glob("*/AlpineTunes"))
 
 
 def test_generic_package_verifies_temporary_download_name_with_asset_name(

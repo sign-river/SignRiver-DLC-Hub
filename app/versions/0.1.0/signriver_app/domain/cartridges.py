@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SUPPORTED_ENGINES = frozenset({"steam_configured_v1"})
-_SUPPORTED_INSPECTORS = frozenset({"directory", "stellaris_zip"})
+_SUPPORTED_INSPECTORS = frozenset(
+    {"directory", "grouped_directory", "stellaris_zip"}
+)
 CARTRIDGE_INDEX_SCHEMA = 1
 CARTRIDGE_DOCUMENT_SCHEMA = 1
 HUB_RELEASE_TAG = "hub"
@@ -217,6 +219,7 @@ class CartridgeDocument:
     extra_protection: bool = False
     force_offline: bool = False
     install_directory_from_slug: bool = False
+    dlc_group_search_roots: tuple[str, ...] = ()
     repository_owner: str = "signriver"
     repository_name: str = "signriver-dlc-assets"
     repositories: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -315,6 +318,10 @@ class CartridgeDocument:
             install_directory_from_slug=bool(
                 value.get("install_directory_from_slug", False)
             ),
+            dlc_group_search_roots=tuple(
+                _require_nonempty(item, field="dlc_group_search_roots item")
+                for item in value.get("dlc_group_search_roots", ())
+            ) if isinstance(value.get("dlc_group_search_roots", ()), (list, tuple)) else (),
             repository_owner=owner,
             repository_name=name,
             repositories=repositories,
@@ -333,6 +340,7 @@ class CartridgeDocument:
             "dlc_relative_dir": self.dlc_relative_dir,
             "package_inspector": self.package_inspector,
             "install_directory_from_slug": self.install_directory_from_slug,
+            "dlc_group_search_roots": list(self.dlc_group_search_roots),
             "repository": {
                 "owner": self.repository_owner,
                 "repository": self.repository_name,

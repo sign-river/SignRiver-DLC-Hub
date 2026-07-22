@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..domain import CartridgeDocument, PatchProfile, PatchTemplate
 from ..infrastructure.catalog import (
     inspect_directory_package,
+    inspect_grouped_directory_package,
     inspect_stellaris_package,
 )
 from .configured_cartridge import ConfiguredSteamCartridge
@@ -12,11 +13,12 @@ from .configured_cartridge import ConfiguredSteamCartridge
 
 def build_cartridge_from_document(document: CartridgeDocument) -> ConfiguredSteamCartridge:
     """Instantiate the shared Steam cartridge engine from a remote document."""
-    inspector = (
-        inspect_stellaris_package
-        if document.package_inspector == "stellaris_zip"
-        else inspect_directory_package
-    )
+    inspectors = {
+        "stellaris_zip": inspect_stellaris_package,
+        "directory": inspect_directory_package,
+        "grouped_directory": inspect_grouped_directory_package,
+    }
+    inspector = inspectors[document.package_inspector]
     return ConfiguredSteamCartridge(
         game_id=document.game_id,
         display_name=document.display_name,
@@ -42,6 +44,7 @@ def build_cartridge_from_document(document: CartridgeDocument) -> ConfiguredStea
         repository_name=document.repository_name,
         repositories=dict(document.repositories),
         install_directory_from_slug=document.install_directory_from_slug,
+        dlc_group_search_roots=document.dlc_group_search_roots,
         freshness=document.freshness,
     )
 

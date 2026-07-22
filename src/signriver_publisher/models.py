@@ -20,6 +20,10 @@ class PublisherCartridge:
     dlc_archive_root_mode: str = "source"
     dlc_import_naming_mode: str = "manual_prefixed"
     dlc_import_layout_mode: str = "single_directory"
+    # For games where one logical DLC is spread across several parallel
+    # directory branches. Each value is relative to ``dlc_relative_dir`` and
+    # contains category directories whose immediate children are DLC names.
+    dlc_group_search_roots: tuple[str, ...] = ()
     # Client-facing fields exported into the remote hub cartridge documents.
     executable_relative_path: str = ""
     package_inspector: str = "directory"
@@ -40,7 +44,9 @@ class PublisherCartridge:
         return self.patch_unlocker_name, self.patch_original_backup_name
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["dlc_group_search_roots"] = list(self.dlc_group_search_roots)
+        return payload
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "PublisherCartridge":
@@ -99,6 +105,15 @@ class PublisherCartridge:
             dlc_import_layout_mode=str(
                 value.get("dlc_import_layout_mode")
                 or builtin_layout_modes.get(game_id, "single_directory")
+            ),
+            dlc_group_search_roots=tuple(
+                str(item).strip()
+                for item in value.get("dlc_group_search_roots", ())
+                if str(item).strip()
+            ) if isinstance(value.get("dlc_group_search_roots", ()), (list, tuple)) else tuple(
+                item.strip()
+                for item in str(value.get("dlc_group_search_roots") or "").split(";")
+                if item.strip()
             ),
             executable_relative_path=str(
                 value.get("executable_relative_path")

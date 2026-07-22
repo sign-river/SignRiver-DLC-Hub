@@ -58,10 +58,12 @@ PROFILE_OPTION_LABELS = {
         "auto_prefix": "自动分配管理编号",
     },
     "dlc_import_layout_mode": {
+        "grouped_leaf_paths": "跨分支按同名 DLC 目录合并",
         "single_directory": "每次导入一个 DLC 目录",
         "children_if_root": "选择 DLC 根目录时批量拆分",
     },
     "package_inspector": {
+        "grouped_directory": "多路径聚合目录包",
         "directory": "通用目录包",
         "stellaris_zip": "Stellaris ZIP 描述包",
     },
@@ -909,6 +911,7 @@ class PublisherApplication(ctk.CTk):
             ("压缩包目录结构", "dlc_archive_root_mode"),
             ("导入编号方式", "dlc_import_naming_mode"),
             ("批量导入方式", "dlc_import_layout_mode"),
+            ("聚合扫描目录", "dlc_group_search_roots"),
         )
         self.profile_entries: dict[str, object] = {}
         for row, (label, key) in enumerate(labels):
@@ -953,7 +956,10 @@ class PublisherApplication(ctk.CTk):
             if key == "appinfo_name":
                 entry.configure(state="normal")
             entry.delete(0, "end")
-            entry.insert(0, getattr(self.profile, key))
+            value = getattr(self.profile, key)
+            if key == "dlc_group_search_roots":
+                value = "; ".join(value)
+            entry.insert(0, value)
             if key == "appinfo_name":
                 entry.configure(state="disabled")
         if hasattr(self, "local_output_list"):
@@ -2069,6 +2075,11 @@ class PublisherApplication(ctk.CTk):
                     displayed,
                 )
             values["appinfo_name"] = f"{values['game_id']}_appinfo.json"
+            values["dlc_group_search_roots"] = [
+                item.strip()
+                for item in values.get("dlc_group_search_roots", "").split(";")
+                if item.strip()
+            ]
             merged = {**self.profile.to_dict(), **values}
             profile = GameProfile.from_dict(merged)
             if profile.game_id != self.profile.game_id:

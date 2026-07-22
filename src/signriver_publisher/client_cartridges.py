@@ -39,6 +39,7 @@ def build_client_cartridge_document(
         "dlc_relative_dir": profile.dlc_relative_dir,
         "package_inspector": inspector,
         "install_directory_from_slug": bool(profile.install_directory_from_slug),
+        "dlc_group_search_roots": list(profile.dlc_group_search_roots),
         "repository": {
             "owner": "signriver",
             "repository": "signriver-dlc-assets",

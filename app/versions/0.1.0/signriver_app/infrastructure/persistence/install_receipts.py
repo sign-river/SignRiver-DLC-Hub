@@ -32,8 +32,8 @@ class InstallReceiptRepository:
                         transaction_id, game_id, dlc_id, target_path,
                         package_sha256, replaced_existing, backup_path,
                         installed_tree_sha256, status, created_at, updated_at,
-                        previous_transaction_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?, ?, ?)
+                        previous_transaction_id, install_mode
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'installed', ?, ?, ?, ?)
                     ON CONFLICT(transaction_id) DO UPDATE SET
                         target_path=excluded.target_path,
                         package_sha256=excluded.package_sha256,
@@ -41,14 +41,15 @@ class InstallReceiptRepository:
                         backup_path=excluded.backup_path,
                         installed_tree_sha256=excluded.installed_tree_sha256,
                         status='installed', updated_at=excluded.updated_at,
-                        previous_transaction_id=excluded.previous_transaction_id""",
+                        previous_transaction_id=excluded.previous_transaction_id,
+                        install_mode=excluded.install_mode""",
                     (
                         receipt.transaction_id, receipt.game_id, receipt.dlc_id,
                         str(receipt.target_path), receipt.package_sha256,
                         int(receipt.replaced_existing),
                         str(receipt.backup_path) if receipt.backup_path else None,
                         receipt.installed_tree_sha256, now, now,
-                        receipt.previous_transaction_id,
+                        receipt.previous_transaction_id, receipt.install_mode,
                     ),
                 )
                 connection.execute(
@@ -242,4 +243,5 @@ class InstallReceiptRepository:
                 for item in files
             ),
             previous_transaction_id=row["previous_transaction_id"],
+            install_mode=row["install_mode"],
         )

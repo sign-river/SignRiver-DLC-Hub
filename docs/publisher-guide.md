@@ -123,7 +123,11 @@ stellaris_appinfo.json
 3. 点击构建，让服务端从 Steam 获取并生成该卡带对应的 `xxx_appinfo.json`。
 4. 在 GitLink 仓库创建与表格一致的 Release 标签，再执行发布。
 
-文明 6、都市天际线与边缘世界使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。这些卡带启用 `auto_prefix + children_if_root`：通过“导入 DLC”既可选择单个原始目录，也可选择游戏的整个 DLC 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_...` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为原始文件夹名。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用 `manual_prefixed + single_directory`，适合自带编号或需要人工保持固定编号的资源。
+文明 6 与边缘世界使用通用目录包检查器，目录内部不要求 Stellaris 的 `.dlc + 内层 ZIP` 结构。这些卡带启用“自动编号 + 选择根目录时拆分一级子目录”：通过“导入 DLC”既可选择单个原始目录，也可选择游戏的整个 DLC 根目录；选择根目录时会把每个一级子文件夹分别导入为 `dlc001_...` 等独立资源。附件叫 `dlc001_Expansion1.zip`，但 ZIP 顶层及客户端最终安装目录仍为原始文件夹名。导入在后台进行，并先复制到临时区后再落位，避免窗口卡死或留下半份资源。编号计数单独持久化，删除旧资源后不会随意复用编号。钢铁雄心 4 和 Stellaris 默认使用“沿用自带编号或手动编号 + 每次导入一个 DLC”，适合自带编号或需要人工保持固定编号的资源。
+
+都市天际线启用“跨分支按同名 DLC 目录合并”。选择游戏的 `Files` 目录后，发布器只在卡带 `dlc_group_search_roots` 声明的聚合根中扫描“类别目录 → DLC 目录”；当前预置值为 `Radio`。例如 `Radio/Blurb/AlpineTunes`、`Radio/Music/AlpineTunes` 与 `Radio/Talk/AlpineTunes` 会合并为一个 `dlc001_AlpineTunes` 管理资源，压缩时仍保留三条完整相对路径。客户端使用多路径聚合包检查器，将这些路径作为一个事务覆盖到 `Files` 下：逐文件备份、安装、校验和回滚，不会整体替换 `Files`、`Radio` 或类别公共目录。检测游戏原有 DLC 时会在声明的聚合根下匹配同名叶目录；卸载则只移除该 DLC 的匹配叶目录或安装收据拥有的文件。
+
+不要把整个 `Radio` 作为单个 DLC，也不要对 `Files` 下任意层级的同名目录做无边界递归合并。新增类似游戏时，应在卡带中显式配置聚合扫描根，并使用 `grouped_leaf_paths` 导入方式和 `grouped_directory` 包检查器。
 
 ## GitLink 仓库
 

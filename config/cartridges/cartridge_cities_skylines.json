@@ -7,8 +7,11 @@
   "release_tag": "cities_skylines",
   "executable_relative_path": "Cities.exe",
   "dlc_relative_dir": "Files",
-  "package_inspector": "directory",
-  "install_directory_from_slug": true,
+  "package_inspector": "grouped_directory",
+  "install_directory_from_slug": false,
+  "dlc_group_search_roots": [
+    "Radio"
+  ],
   "repository": {
     "owner": "signriver",
     "repository": "signriver-dlc-assets"

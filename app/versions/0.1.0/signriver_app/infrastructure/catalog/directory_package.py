@@ -23,6 +23,7 @@ class DirectoryPackageMetadata:
     package_sha256: str
     payload_entries: int
     install_directory: str
+    install_mode: str = "directory"
 
 
 def inspect_directory_package(
@@ -96,4 +97,38 @@ def inspect_directory_package(
     )
 
 
-__all__ = ["DirectoryPackageMetadata", "inspect_directory_package"]
+def inspect_grouped_directory_package(
+    path: Path,
+    *,
+    asset_name: str | None = None,
+    known_sha256: str | None = None,
+) -> DirectoryPackageMetadata:
+    """Inspect a logical DLC whose payload overlays several relative paths."""
+    metadata = inspect_directory_package(
+        path, asset_name=asset_name, known_sha256=known_sha256
+    )
+    root = metadata.install_directory.casefold()
+    payload_roots: set[str] = set()
+    with zipfile.ZipFile(path) as package:
+        for info in package.infolist():
+            member = PurePosixPath(info.filename.replace("\\", "/"))
+            if len(member.parts) >= 2 and member.parts[0].casefold() == root:
+                payload_roots.add(member.parts[1].casefold())
+    if not payload_roots:
+        raise PackageInspectionError("grouped package has no relative payload paths")
+    return DirectoryPackageMetadata(
+        dlc_id=metadata.dlc_id,
+        display_name=metadata.display_name,
+        package_size=metadata.package_size,
+        package_sha256=metadata.package_sha256,
+        payload_entries=metadata.payload_entries,
+        install_directory=metadata.install_directory,
+        install_mode="overlay",
+    )
+
+
+__all__ = [
+    "DirectoryPackageMetadata",
+    "inspect_directory_package",
+    "inspect_grouped_directory_package",
+]

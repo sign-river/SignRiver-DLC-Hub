@@ -20,7 +20,11 @@ from .stellaris_package import (
     StellarisPackageMetadata,
     inspect_stellaris_package,
 )
-from .directory_package import DirectoryPackageMetadata, inspect_directory_package
+from .directory_package import (
+    DirectoryPackageMetadata,
+    inspect_directory_package,
+    inspect_grouped_directory_package,
+)
 
 __all__ = [
     "DEFAULT_ASSET_REPOS",
@@ -38,6 +42,7 @@ __all__ = [
     "create_release_source",
     "default_repository_for",
     "inspect_directory_package",
+    "inspect_grouped_directory_package",
     "inspect_stellaris_package",
     "normalize_download_source",
     "provider_display_name",

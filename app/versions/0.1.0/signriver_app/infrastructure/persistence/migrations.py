@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 10
+LATEST_SCHEMA_VERSION = 11
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -145,6 +145,12 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
         """
         ALTER TABLE user_settings ADD COLUMN announcement_muted_id TEXT NOT NULL
         DEFAULT ''
+        """,
+    ),
+    11: (
+        """
+        ALTER TABLE install_receipts ADD COLUMN install_mode TEXT NOT NULL
+        DEFAULT 'directory' CHECK (install_mode IN ('directory', 'overlay'))
         """,
     ),
 }
