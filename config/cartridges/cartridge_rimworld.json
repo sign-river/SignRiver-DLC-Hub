@@ -27,7 +27,7 @@
     "unlocker_dll_name": "steam_api64.dll",
     "original_backup_dll_name": "steam_api64_o.dll",
     "appinfo_asset_name": "rimworld_appinfo.json",
-    "install_relative_dir": ".",
+    "install_relative_dir": "RimWorldWin64_Data/Plugins/x86_64",
     "ini_target_name": "cream_api.ini",
     "language": "schinese",
     "unlock_all": true,

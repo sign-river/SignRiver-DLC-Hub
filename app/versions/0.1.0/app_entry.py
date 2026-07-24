@@ -293,6 +293,13 @@ class DlcHubApplication:
         self.patch_task_ids: tuple[str, ...] = ()
         self.pending_dlc_batch_task_ids: tuple[str, ...] = ()
         self.repair_workflow_active = False
+        self.repair_phase = "idle"
+        self.repair_prepare_task_ids: tuple[str, ...] = ()
+        self.repair_requested_dlc_ids: tuple[str, ...] = ()
+        self.repair_cleanup_errors: tuple[str, ...] = ()
+        self.repair_game_selection_generation = -1
+        self.repair_cartridge_id = ""
+        self.repair_game_root: Path | None = None
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids: tuple[str, ...] = ()
         self.unlock_failed_dlc_ids: set[str] = set()
@@ -855,7 +862,7 @@ class DlcHubApplication:
             catalog_secondary_actions, fg_color="transparent"
         )
         catalog_management_tools.grid(row=1, column=0, sticky="ew")
-        for column in range(5):
+        for column in range(4):
             catalog_management_tools.grid_columnconfigure(
                 column, weight=1, uniform="catalog-management"
             )
@@ -866,23 +873,16 @@ class DlcHubApplication:
         self.cancel_all_downloads_button.grid(
             row=0, column=0, sticky="ew", padx=(0, 4)
         )
-        self.uninstall_all_button = ctk.CTkButton(
-            catalog_management_tools, text="卸载全部 DLC",
-            command=self._uninstall_all_dlc, width=112,
-        )
-        self.uninstall_all_button.grid(
-            row=0, column=1, sticky="ew", padx=4
-        )
         self.remove_patch_button = ctk.CTkButton(
             catalog_management_tools, text="一键移除补丁",
             command=self._remove_patch, width=112,
         )
         self.remove_patch_button.grid(
-            row=0, column=2, sticky="ew", padx=4
+            row=0, column=1, sticky="ew", padx=4
         )
         self.restore_original_button = ctk.CTkButton(
             catalog_management_tools,
-            text="恢复游戏原版",
+            text="移除本程序安装内容",
             command=self._restore_original_state,
             width=120,
             fg_color=UI["primary_surface"],
@@ -892,14 +892,14 @@ class DlcHubApplication:
             border_color=UI["primary_border"],
         )
         self.restore_original_button.grid(
-            row=0, column=3, sticky="ew", padx=4
+            row=0, column=2, sticky="ew", padx=4
         )
         self.repair_button = ctk.CTkButton(
             catalog_management_tools, text="一键修复",
             command=self._one_click_repair, width=112,
         )
         self.repair_button.grid(
-            row=0, column=4, sticky="ew", padx=(4, 0)
+            row=0, column=3, sticky="ew", padx=(4, 0)
         )
 
         primary_action_panel = ctk.CTkFrame(
@@ -3674,7 +3674,6 @@ class DlcHubApplication:
         repair_button = getattr(self, "repair_button", None)
         remove_patch_button = getattr(self, "remove_patch_button", None)
         restore_original_button = getattr(self, "restore_original_button", None)
-        uninstall_all_button = getattr(self, "uninstall_all_button", None)
         if repair_button is not None:
             repair_button.configure(
                 state="normal" if state == "idle" else "disabled"
@@ -3685,10 +3684,6 @@ class DlcHubApplication:
             )
         if restore_original_button is not None:
             restore_original_button.configure(
-                state="normal" if state == "idle" else "disabled"
-            )
-        if uninstall_all_button is not None:
-            uninstall_all_button.configure(
                 state="normal" if state == "idle" else "disabled"
             )
 
@@ -4387,6 +4382,7 @@ class DlcHubApplication:
             self._set_batch_download_state("idle")
         if not self.auto_install_worker_running and not self._content_work_is_active():
             self._refresh_installed_dlc_paths()
+        self._maybe_finish_repair_workflow()
         self._maybe_finish_unlock_workflow()
 
     def _maybe_finish_unlock_workflow(self) -> None:
@@ -4679,39 +4675,6 @@ class DlcHubApplication:
             return
         self._start_dlc_removal({entry.dlc_id: entry.display_name}, "卸载 DLC")
 
-    def _uninstall_all_dlc(self) -> None:
-        if self.current_installation is None:
-            messagebox.showwarning(
-                "尚未检测游戏",
-                f"请先选择有效的{self.cartridge.adapter.descriptor.display_name}目录。",
-                parent=self.window,
-            )
-            return
-        if not self._require_game_stopped("卸载全部 DLC"):
-            return
-        self._refresh_installed_dlc_paths()
-        installed = dict(self.installed_dlc_paths)
-        if not installed:
-            self.catalog_preview.configure(text="当前游戏目录中没有检测到可卸载的 DLC")
-            return
-        names = {
-            entry.dlc_id: entry.display_name for entry in self.catalog_entries
-        }
-        if not messagebox.askyesno(
-            "卸载全部 DLC",
-            f"检测到 {len(installed)} 个 DLC 目录。\n"
-            f"将移除当前{self.cartridge.adapter.descriptor.display_name}卡带能够确认的全部 DLC，"
-            "无论它们由本程序还是其他方式安装。\n"
-            "无法由当前资源目录和卡带规则确认的文件夹不会被盲目删除。\n"
-            "此操作不可撤销，请先关闭游戏。是否继续？",
-            parent=self.window,
-        ):
-            return
-        targets = {
-            dlc_id: names.get(dlc_id, dlc_id.upper()) for dlc_id in installed
-        }
-        self._start_dlc_removal(targets, "卸载全部 DLC")
-
     def _start_dlc_removal(self, targets: dict[str, str], title: str) -> None:
         game_root = self.current_installation.root
         repository = self.install_repository
@@ -4761,24 +4724,9 @@ class DlcHubApplication:
         if not current:
             return
         self._refresh_installed_dlc_paths()
-        if title == "卸载全部 DLC":
-            # A bulk uninstall is normally followed by a reinstall. Select all
-            # entries that are now absent so the primary action works without
-            # another easy-to-miss selection step.
-            self.selected_dlc_ids = {
-                entry.dlc_id for entry in self.catalog_entries
-                if not self._is_entry_installed(entry)
-            }
-            self.catalog_selection_initialized = True
         self._render_catalog_rows()
         self.catalog_preview.configure(
-            text=(
-                f"已移除 {len(removed)} 个 DLC；失败 {len(failures)} 个"
-                + (
-                    "；已自动全选可重新安装的 DLC"
-                    if title == "卸载全部 DLC" else ""
-                )
-            )
+            text=f"已移除 {len(removed)} 个 DLC；失败 {len(failures)} 个"
         )
         detail = f"成功移除 {len(removed)} 个 DLC。"
         if failures:
@@ -5074,6 +5022,9 @@ class DlcHubApplication:
         self._start_dlc_batch(selected_entries)
 
     def _on_patch_workflow_failed(self, message: str) -> None:
+        if self.repair_workflow_active:
+            self._on_repair_failed(message)
+            return
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
         self.pending_dlc_batch_task_ids = ()
@@ -5081,14 +5032,12 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
-        if self.repair_workflow_active:
-            self.repair_workflow_active = False
         self.catalog_preview.configure(text=f"一键解锁工具执行失败：{message}")
         self._notify(f"一键解锁工具执行失败：{message}", error=True)
         messagebox.showerror("一键解锁工具执行失败", message, parent=self.window)
 
     def _restore_original_state(self) -> None:
-        """Restore original patch files and roll back receipt-backed DLC."""
+        """Remove only receipt-backed DLC and the patch managed by this app."""
         if self.current_installation is None:
             messagebox.showwarning(
                 "尚未检测游戏",
@@ -5099,22 +5048,22 @@ class DlcHubApplication:
         if self.batch_download_state != "idle":
             messagebox.showwarning(
                 "当前操作尚未结束",
-                "请先等待当前操作完成，或取消全部下载后再恢复游戏原版。",
+                "请先等待当前操作完成，或取消全部下载后再移除本程序安装内容。",
                 parent=self.window,
             )
             return
         if self.auto_install_worker_running:
             messagebox.showwarning(
                 "正在安装 DLC",
-                "请等待当前 DLC 安装完成后再恢复游戏原版。",
+                "请等待当前 DLC 安装完成后再移除本程序安装内容。",
                 parent=self.window,
             )
             return
-        if not self._require_game_stopped("恢复游戏原版"):
+        if not self._require_game_stopped("移除本程序安装内容"):
             return
         if self.install_service is None or self.install_repository is None:
             messagebox.showerror(
-                "恢复功能不可用",
+                "移除功能不可用",
                 "安装记录服务尚未初始化，请重启程序后重试。",
                 parent=self.window,
             )
@@ -5132,7 +5081,7 @@ class DlcHubApplication:
         ):
             messagebox.showwarning(
                 "仍有下载任务",
-                "恢复前请先取消全部下载任务。暂停的任务也需要取消，避免恢复后又自动安装。",
+                "移除前请先取消全部下载任务。暂停的任务也需要取消，避免移除后又自动安装。",
                 parent=self.window,
             )
             return
@@ -5149,12 +5098,12 @@ class DlcHubApplication:
         except Exception as error:
             self.context.logger.exception("Unable to preview original-state restore")
             messagebox.showerror(
-                "恢复检查失败", str(error) or "无法检查当前游戏文件", parent=self.window,
+                "移除检查失败", str(error) or "无法检查当前游戏文件", parent=self.window,
             )
             return
         if not preview.patch_ready:
             messagebox.showerror(
-                "无法安全恢复补丁",
+                "无法安全移除补丁",
                 preview.patch_reason
                 or "未找到可信的原版备份。请先通过游戏平台验证游戏文件完整性。",
                 parent=self.window,
@@ -5162,18 +5111,18 @@ class DlcHubApplication:
             return
 
         if not messagebox.askyesno(
-            "恢复游戏原版",
-            "恢复会执行以下操作：\n\n"
+            "移除本程序安装内容",
+            "本操作只撤销由本程序管理的内容：\n\n"
             f"· 撤销本程序记录的 {preview.dlc_count} 个 DLC 安装；\n"
             "· 恢复安装前被替换的同名 DLC 内容；\n"
             "· 移除本程序补丁并还原可信的原版 DLL。\n\n"
-            "游戏原有 DLC 和其他来源的内容不会被删除。是否继续？",
+            "游戏原有 DLC、其他来源的内容和下载缓存都不会被删除。是否继续？",
             parent=self.window,
         ):
             return
         self.auto_install_requested_task_ids.clear()
         self._set_batch_download_state("restoring")
-        self.catalog_preview.configure(text="正在恢复游戏原版，请勿启动游戏……")
+        self.catalog_preview.configure(text="正在移除本程序安装内容，请勿启动游戏……")
 
         def worker() -> None:
             try:
@@ -5187,7 +5136,7 @@ class DlcHubApplication:
                 )
             except Exception as error:
                 self.context.logger.exception("Original-state restore failed")
-                message = str(error) or "恢复游戏原版失败"
+                message = str(error) or "移除本程序安装内容失败"
                 self._post_ui(
                     lambda message=message: self._on_original_restore_failed(message)
                 )
@@ -5198,7 +5147,7 @@ class DlcHubApplication:
         self._set_batch_download_state("idle")
         self._refresh_installed_dlc_paths()
         self._render_catalog_rows()
-        mode = "安全恢复"
+        mode = "安全移除"
         failures = list(result.failures)
         cache_detail = "下载缓存已保留"
         self.catalog_preview.configure(
@@ -5217,20 +5166,20 @@ class DlcHubApplication:
             detail += "\n\n未完成项目：\n" + "\n".join(failures[:8])
             if len(failures) > 8:
                 detail += f"\n……另有 {len(failures) - 8} 项"
-            self._notify("恢复游戏原版时有部分项目未完成", error=True)
+            self._notify("移除本程序安装内容时有部分项目未完成", error=True)
             messagebox.showwarning(
                 "恢复完成，但有未完成项目", detail, parent=self.window
             )
             return
-        self._notify("游戏已恢复原版状态")
-        messagebox.showinfo("恢复游戏原版完成", detail, parent=self.window)
+        self._notify("本程序安装内容已移除")
+        messagebox.showinfo("移除完成", detail, parent=self.window)
 
     def _on_original_restore_failed(self, message: str) -> None:
         self._set_batch_download_state("idle")
-        self.catalog_preview.configure(text=f"恢复游戏原版失败：{message}")
-        self._notify(f"恢复游戏原版失败：{message}", error=True)
+        self.catalog_preview.configure(text=f"移除本程序安装内容失败：{message}")
+        self._notify(f"移除本程序安装内容失败：{message}", error=True)
         messagebox.showerror(
-            "恢复游戏原版失败", message, parent=self.window
+            "移除本程序安装内容失败", message, parent=self.window
         )
 
     def _remove_patch(self) -> None:
@@ -5315,17 +5264,20 @@ class DlcHubApplication:
         if self.download_queue is None:
             self._show_catalog_error("下载队列初始化失败，请查看日志")
             return
-        # Repair replaces game files but keeps verified local packages whenever
-        # possible. Missing or externally removed cache entries are downloaded.
+        catalog_error = self._repair_catalog_error()
+        if catalog_error:
+            self._show_catalog_error(catalog_error)
+            return
         patch_paths = "、".join(self.patch_profile.patch_file_paths)
         if not messagebox.askyesno(
             "确认一键修复",
             "一键修复会执行以下操作：\n\n"
-            "1. 移除当前游戏卡带能够确认的全部 DLC；\n"
-            f"2. 删除现有补丁文件（{patch_paths}）；\n"
-            "3. 优先复用已校验缓存，缓存缺失时才重新下载；\n"
-            "4. 应用补丁并重新安装全部 DLC。\n\n"
-            "如果本地缓存不完整，过程仍可能下载大量数据。请先关闭游戏并保证网络稳定。是否继续？",
+            "1. 先准备并校验补丁与全部 DLC，缓存缺失时才下载；\n"
+            "2. 确认资源完整且磁盘空间充足后，才移除旧 DLC；\n"
+            f"3. 重置现有补丁文件（{patch_paths}）；\n"
+            "4. 立即从已校验缓存应用补丁并重新安装全部 DLC；\n"
+            "5. 最后复检 DLC 与补丁状态。\n\n"
+            "准备阶段失败不会改动当前游戏文件。此过程可能下载大量数据，是否继续？",
             parent=self.window,
         ):
             return
@@ -5334,59 +5286,274 @@ class DlcHubApplication:
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
         self.repair_workflow_active = True
-        self._set_batch_download_state("repairing")
-        self.catalog_preview.configure(text="一键修复：正在清理现有 DLC 和补丁……")
+        self.repair_phase = "preparing"
+        self.repair_requested_dlc_ids = tuple(
+            entry.dlc_id for entry in self.catalog_entries
+        )
+        self.repair_cleanup_errors = ()
+        self.repair_game_selection_generation = self.game_selection_generation
+        self.repair_cartridge_id = self.cartridge.cartridge_id
+        self.repair_game_root = self.current_installation.root
+        self.game_selector.configure(state="disabled")
+        self._start_repair_preparation()
 
-        game_root = self.current_installation.root
-        patch_engine = self.patch_engine
-
-        def worker() -> None:
-            errors: list[str] = []
-            try:
-                installed = self.cartridge.discover_installed_dlc(
-                    game_root, self.catalog_entries
-                )
-                for dlc_id in installed:
-                    try:
-                        self.cartridge.remove_installed_dlc(game_root, dlc_id)
-                        if self.install_repository is not None:
-                            receipt = self.install_repository.find_active(
-                                self.cartridge.adapter.descriptor.game_id, dlc_id
-                            )
-                            if receipt is not None:
-                                self.install_repository.mark_uninstalled(
-                                    receipt.transaction_id, restore_previous=False
-                                )
-                    except Exception as error:
-                        self.context.logger.exception(
-                            "Repair failed to remove installed DLC: %s", dlc_id
-                        )
-                        errors.append(f"DLC {dlc_id}: {error}")
-                try:
-                    patch_engine.reset(game_root)
-                except Exception as error:
-                    self.context.logger.exception("Repair failed to reset patch files")
-                    errors.append(f"补丁清理：{error}")
-            except Exception as error:
-                self.context.logger.exception("Repair pre-cleanup crashed")
-                errors.append(str(error) or "预清理失败")
-            self._post_ui(
-                lambda errors=errors: self._start_repair_re_download(errors)
+    def _repair_catalog_error(self) -> str | None:
+        if not self.catalog_entries:
+            return "当前资源目录没有 DLC，无法执行一键修复；尚未改动游戏文件"
+        normalized = [entry.dlc_id.casefold() for entry in self.catalog_entries]
+        if len(normalized) != len(set(normalized)):
+            return "当前资源目录包含重复 DLC 编号，无法安全修复；尚未改动游戏文件"
+        try:
+            missing = [
+                entry.display_name for entry in self.catalog_entries
+                if not entry.download_assets
+            ]
+        except Exception as error:
+            return f"无法读取完整 DLC 资源列表：{error}；尚未改动游戏文件"
+        if missing:
+            return (
+                "以下 DLC 缺少下载资源，无法安全修复："
+                + "、".join(missing[:5])
+                + "；尚未改动游戏文件"
             )
+        return None
 
-        threading.Thread(target=worker, daemon=True).start()
+    def _start_repair_preparation(self) -> None:
+        if self.download_queue is None:
+            self._on_repair_failed("下载队列不可用；尚未改动游戏文件")
+            return
+        specs = list(self._patch_download_specs())
+        specs.extend(
+            self._download_spec_for_entry(entry) for entry in self.catalog_entries
+        )
+        self.patch_task_ids = tuple(self.patch_task_roles)
+        self.repair_prepare_task_ids = tuple(spec.task_id for spec in specs)
+        active_task_ids: list[str] = []
+        active_states = {
+            DownloadState.QUEUED,
+            DownloadState.DOWNLOADING,
+            DownloadState.PAUSING,
+            DownloadState.RETRYING,
+            DownloadState.VERIFYING,
+        }
+        snapshots = {
+            item.spec.task_id: item for item in self.download_queue.snapshots()
+        }
+        try:
+            for spec in specs:
+                snapshot = snapshots.get(spec.task_id)
+                ready = (
+                    snapshot is not None
+                    and snapshot.state is DownloadState.READY
+                    and snapshot.result_path is not None
+                    and snapshot.result_path.is_file()
+                    and snapshot.sha256 is not None
+                )
+                if ready:
+                    continue
+                self.auto_install_requested_task_ids.discard(spec.task_id)
+                if snapshot is not None and snapshot.state in active_states:
+                    active_task_ids.append(spec.task_id)
+                    continue
+                if snapshot is not None and snapshot.state in {
+                    DownloadState.PAUSED, DownloadState.FAILED,
+                }:
+                    future = self.download_queue.resume(spec.task_id)
+                else:
+                    future = self.download_queue.enqueue(spec)
+                future.add_done_callback(self._download_finished)
+                active_task_ids.append(spec.task_id)
+        except Exception as error:
+            self.context.logger.exception("Unable to prepare repair resources")
+            self._on_repair_failed(
+                f"资源准备任务创建失败：{error}；尚未改动游戏文件"
+            )
+            return
+        self.batch_download_task_ids = tuple(dict.fromkeys(active_task_ids))
+        if self.batch_download_task_ids:
+            self._set_batch_download_state("running")
+        else:
+            self._set_batch_download_state("repairing")
+        self.catalog_preview.configure(
+            text=f"一键修复：正在准备并校验 {len(specs)} 个资源，尚未改动游戏文件"
+        )
+        self.window.after(100, self._poll_repair_preparation)
 
-    def _start_repair_re_download(self, cleanup_errors: list[str]) -> None:
-        if self.current_installation is None:
+    def _repair_context_is_current(self) -> bool:
+        installation = self.current_installation
+        return (
+            installation is not None
+            and self.game_selection_generation
+            == self.repair_game_selection_generation
+            and self.cartridge.cartridge_id == self.repair_cartridge_id
+            and installation.root == self.repair_game_root
+        )
+
+    def _poll_repair_preparation(self) -> None:
+        if not self.repair_workflow_active or self.repair_phase != "preparing":
+            return
+        if not self._repair_context_is_current():
+            self._on_repair_failed(
+                "修复期间游戏或目录发生切换；尚未改动游戏文件"
+            )
+            return
+        if self.download_queue is None:
+            self._on_repair_failed("下载队列不可用；尚未改动游戏文件")
+            return
+        snapshots = {
+            item.spec.task_id: item for item in self.download_queue.snapshots()
+        }
+        failed_states = {
+            DownloadState.FAILED,
+            DownloadState.CANCELLED,
+            DownloadState.CORRUPT,
+        }
+        for task_id in self.repair_prepare_task_ids:
+            snapshot = snapshots.get(task_id)
+            if snapshot is not None and snapshot.state in failed_states:
+                detail = f"：{snapshot.error}" if snapshot.error else ""
+                self._on_repair_failed(
+                    f"资源 {snapshot.spec.filename} 准备失败{detail}；尚未改动游戏文件"
+                )
+                return
+        ready = [
+            snapshots.get(task_id) for task_id in self.repair_prepare_task_ids
+        ]
+        complete = all(
+            snapshot is not None
+            and snapshot.state is DownloadState.READY
+            and snapshot.result_path is not None
+            and snapshot.result_path.is_file()
+            and snapshot.sha256 is not None
+            for snapshot in ready
+        )
+        if not complete:
+            ready_count = sum(
+                snapshot is not None and snapshot.state is DownloadState.READY
+                for snapshot in ready
+            )
+            self.catalog_preview.configure(
+                text=(
+                    f"一键修复：资源准备 {ready_count}/{len(ready)}，"
+                    "尚未改动游戏文件"
+                )
+            )
+            self.window.after(250, self._poll_repair_preparation)
+            return
+        self.repair_phase = "preflight"
+        self.batch_download_task_ids = ()
+        self._set_batch_download_state("repairing")
+        self.catalog_preview.configure(
+            text="一键修复：资源已下载，正在做最终校验和磁盘空间检查……"
+        )
+        threading.Thread(
+            target=self._preflight_and_clean_repair,
+            daemon=True,
+            name="repair-preflight",
+        ).start()
+
+    def _preflight_and_clean_repair(self) -> None:
+        installation = self.current_installation
+        queue = self.download_queue
+        service = self.install_service
+        if installation is None or queue is None or service is None:
+            self._post_ui(
+                lambda: self._on_repair_failed(
+                    "安装环境在资源准备期间失效；尚未改动游戏文件"
+                )
+            )
+            return
+        game_root = installation.root
+        entries = tuple(self.catalog_entries)
+        cartridge = self.cartridge
+        snapshots = {
+            item.spec.task_id: item for item in queue.snapshots()
+        }
+        try:
+            game_state = self.cartridge.adapter.inspect(installation)
+            if game_state.running:
+                raise RuntimeError("游戏在资源准备期间被启动，请关闭游戏后重试")
+            total = len(entries)
+            for index, entry in enumerate(entries, start=1):
+                snapshot = snapshots[self._dlc_task_id(entry.dlc_id)]
+                self._post_ui(
+                    lambda index=index, total=total, entry=entry:
+                    self.catalog_preview.configure(
+                        text=(
+                            f"一键修复：预检 {index}/{total}："
+                            f"{entry.display_name}，尚未改动游戏文件"
+                        )
+                    )
+                )
+                plan = service.engine.plan(
+                    snapshot.result_path,
+                    game_root,
+                    expected_sha256=snapshot.sha256,
+                )
+                service.engine.ensure_disk_space(plan, replaced_existing=False)
+        except Exception as error:
+            self.context.logger.exception("Repair resource preflight failed")
+            message = str(error) or "资源预检失败"
+            self._post_ui(
+                lambda message=message: self._on_repair_failed(
+                    f"{message}；尚未改动游戏文件"
+                )
+            )
+            return
+
+        if not self._repair_context_is_current():
+            self._post_ui(
+                lambda: self._on_repair_failed(
+                    "修复期间游戏或目录发生切换；尚未改动游戏文件"
+                )
+            )
+            return
+        self.repair_phase = "cleaning"
+        errors: list[str] = []
+        try:
+            installed = cartridge.discover_installed_dlc(
+                game_root, entries
+            )
+            for dlc_id in installed:
+                try:
+                    cartridge.remove_installed_dlc(game_root, dlc_id)
+                    if self.install_repository is not None:
+                        receipt = self.install_repository.find_active(
+                            cartridge.adapter.descriptor.game_id, dlc_id
+                        )
+                        if receipt is not None:
+                            self.install_repository.mark_uninstalled(
+                                receipt.transaction_id, restore_previous=False
+                            )
+                except Exception as error:
+                    self.context.logger.exception(
+                        "Repair failed to remove installed DLC: %s", dlc_id
+                    )
+                    errors.append(f"DLC {dlc_id}: {error}")
+            try:
+                self.patch_engine.reset(game_root)
+            except Exception as error:
+                self.context.logger.exception("Repair failed to reset patch files")
+                errors.append(f"补丁清理：{error}")
+        except Exception as error:
+            self.context.logger.exception("Repair cleanup crashed")
+            errors.append(str(error) or "清理失败")
+        self._post_ui(
+            lambda errors=errors: self._start_repair_reinstall(errors)
+        )
+
+    def _start_repair_reinstall(self, cleanup_errors: list[str]) -> None:
+        if not self._repair_context_is_current():
             self._on_repair_failed("游戏目录已不可用")
             return
         self._refresh_installed_dlc_paths()
         self._render_catalog_rows()
+        self.repair_cleanup_errors = tuple(cleanup_errors)
         if cleanup_errors:
             self.catalog_preview.configure(
                 text=(
                     "一键修复：清理阶段发生 "
-                    f"{len(cleanup_errors)} 个问题，但会继续尝试重新下载……"
+                    f"{len(cleanup_errors)} 个问题，将继续从已校验缓存尝试恢复……"
                 )
             )
         # A prior successful unlock marks each task as already installed. The
@@ -5402,11 +5569,11 @@ class DlcHubApplication:
         self.pending_dlc_batch_task_ids = tuple(
             self._dlc_task_id(entry.dlc_id) for entry in self.catalog_entries
         )
+        self.repair_phase = "patching"
         self._start_patch_downloads()
 
     def _continue_repair_after_patch(self) -> None:
         # Runs on the UI thread after _on_patch_applied handed off the repair.
-        self.repair_workflow_active = False
         pending_ids = self.pending_dlc_batch_task_ids
         selected_entries = [
             entry for entry in self.catalog_entries
@@ -5418,16 +5585,91 @@ class DlcHubApplication:
             self.catalog_preview.configure(
                 text="一键修复：补丁已就绪，没有需要下载或重新安装的 DLC"
             )
+            self.repair_phase = "installing"
+            self._maybe_finish_repair_workflow()
             return
         # Start the DLC batch; auto-install is already wired into the queue's
         # completion callback, so nothing more to do here.
+        self.repair_phase = "installing"
         self._start_dlc_batch(selected_entries)
         self.catalog_preview.configure(
             text=f"一键修复：补丁已应用，正在复用缓存或下载并安装 {len(selected_entries)} 个 DLC"
         )
 
-    def _on_repair_failed(self, message: str) -> None:
+    def _maybe_finish_repair_workflow(self) -> None:
+        if (
+            not self.repair_workflow_active
+            or self.repair_phase != "installing"
+            or self.patch_workflow_state != "idle"
+            or self.batch_download_state != "idle"
+            or self.auto_install_worker_running
+        ):
+            return
+        installation = self.current_installation
+        requested = self.repair_requested_dlc_ids
+        self._refresh_installed_dlc_paths()
+        missing = tuple(
+            dlc_id for dlc_id in requested
+            if self._installed_dlc_path(dlc_id) is None
+        )
+        patch_healthy = False
+        if installation is not None:
+            try:
+                audit = self.patch_engine.audit_recorded(installation.root)
+                patch_healthy = audit.health is PatchHealth.HEALTHY
+            except Exception:
+                self.context.logger.exception("Final repair patch audit failed")
         self.repair_workflow_active = False
+        self.repair_phase = "idle"
+        self.repair_prepare_task_ids = ()
+        self.repair_requested_dlc_ids = ()
+        cleanup_errors = self.repair_cleanup_errors
+        self.repair_cleanup_errors = ()
+        self.repair_game_selection_generation = -1
+        self.repair_cartridge_id = ""
+        self.repair_game_root = None
+        self.game_selector.configure(state="normal")
+        if missing or not patch_healthy or cleanup_errors:
+            problems = []
+            if missing:
+                problems.append(f"仍缺少 {len(missing)} 个 DLC")
+            if not patch_healthy:
+                problems.append("补丁复检未通过")
+            if cleanup_errors:
+                problems.append(f"清理阶段有 {len(cleanup_errors)} 项未完成")
+            detail = "；".join(problems)
+            self.catalog_preview.configure(text=f"一键修复未完整完成：{detail}")
+            self._notify("一键修复未完整完成", error=True)
+            messagebox.showwarning(
+                "一键修复未完整完成",
+                detail + "。请查看下载任务和运行日志后重试。",
+                parent=self.window,
+            )
+            return
+        detail = f"补丁健康，{len(requested)} 个 DLC 均已安装并通过最终识别。"
+        self.catalog_preview.configure(text=f"一键修复完成：{detail}")
+        self._notify("一键修复完成")
+        messagebox.showinfo("一键修复完成", detail, parent=self.window)
+
+    def _on_repair_failed(self, message: str) -> None:
+        if self.download_queue is not None and self.repair_prepare_task_ids:
+            try:
+                self.download_queue.cancel_many(self.repair_prepare_task_ids)
+            except Exception:
+                self.context.logger.exception("Unable to cancel failed repair preparation")
+        self.repair_workflow_active = False
+        self.repair_phase = "idle"
+        self.repair_prepare_task_ids = ()
+        self.repair_requested_dlc_ids = ()
+        self.repair_cleanup_errors = ()
+        self.repair_game_selection_generation = -1
+        self.repair_cartridge_id = ""
+        self.repair_game_root = None
+        self.game_selector.configure(state="normal")
+        self.patch_workflow_state = "idle"
+        self.patch_task_ids = ()
+        self.pending_dlc_batch_task_ids = ()
+        self.batch_download_task_ids = ()
         self._set_batch_download_state("idle")
         self.catalog_preview.configure(text=f"一键修复失败：{message}")
         self._notify(f"一键修复失败：{message}", error=True)

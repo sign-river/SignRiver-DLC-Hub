@@ -72,7 +72,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
             appinfo_name="rimworld_appinfo.json",
             steam_app_id="294100",
             dlc_relative_dir="Data",
-            patch_relative_dir=".",
+            patch_relative_dir="RimWorldWin64_Data/Plugins/x86_64",
             dlc_archive_root_mode="strip_id_prefix",
             dlc_import_naming_mode="auto_prefix",
             dlc_import_layout_mode="children_if_root",

@@ -53,6 +53,9 @@ def test_builtin_cartridges_are_built_from_bootstrap_documents() -> None:
     assert cartridges["hearts_of_iron_4"].store_app_id == "394360"
     assert cartridges["cities_skylines"].store_app_id == "255710"
     assert cartridges["rimworld"].dlc_relative_dir == "Data"
+    assert cartridges["rimworld"].patch_profile.install_relative_dir == (
+        "RimWorldWin64_Data/Plugins/x86_64"
+    )
 
 
 def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) -> None:
@@ -161,12 +164,61 @@ def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
     assert exported["id"] == "export-test"
 
 
+def test_publisher_snapshots_complete_hub_as_publish_assets(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path)
+    workspace.initialize()
+
+    assets = workspace.hub_publish_assets(default_game_id="stellaris")
+
+    assert assets
+    assert {asset.name for asset in assets} == {
+        path.name
+        for path in workspace.export_client_hub(default_game_id="stellaris")
+    }
+    for asset in assets:
+        assert asset.path.parent == tmp_path / "output" / "hub"
+        assert asset.size_bytes == asset.path.stat().st_size
+        assert asset.sha256 == hashlib.sha256(asset.path.read_bytes()).hexdigest()
+
+
+def test_hub_publish_state_is_isolated_from_game_cartridges(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path)
+    workspace.initialize()
+    profile = workspace.hub_release_profile()
+    state = {
+        "version": 1,
+        "owner": "signriver",
+        "repository": "assets",
+        "release_tag": "hub",
+        "assets": {},
+    }
+
+    workspace.save_publish_state(profile, state)
+
+    assert workspace.load_publish_state(profile, "signriver", "assets") == state
+    assert profile.game_id == "hub"
+    assert profile.release_tag == "hub"
+    assert {item.game_id for item in workspace.list_games()}.isdisjoint({"hub"})
+
+
 def test_export_hub_cartridges_helper_writes_digest_index(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path)
     profiles = workspace.initialize() and workspace.list_games()
-    written = export_hub_cartridges(profiles, tmp_path / "hub")
+    output = tmp_path / "hub"
+    output.mkdir()
+    stale_cartridge = output / "cartridge_removed_game.json"
+    stale_announcement = output / "announcement.json"
+    unrelated = output / "notes.txt"
+    stale_cartridge.write_text("{}", encoding="utf-8")
+    stale_announcement.write_text("{}", encoding="utf-8")
+    unrelated.write_text("keep", encoding="utf-8")
+
+    written = export_hub_cartridges(profiles, output)
     index_path = next(path for path in written if path.name == INDEX_ASSET_NAME)
     index = CartridgeIndex.from_dict(json.loads(index_path.read_text(encoding="utf-8")))
     for entry in index.cartridges:
         digest = hashlib.sha256((tmp_path / "hub" / entry.asset_name).read_bytes()).hexdigest()
         assert digest == entry.sha256
+    assert not stale_cartridge.exists()
+    assert not stale_announcement.exists()
+    assert unrelated.read_text(encoding="utf-8") == "keep"

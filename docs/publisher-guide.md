@@ -6,9 +6,13 @@
 
 发布器相当于服务端“制卡机”，`publisher-workspace/games` 下的每个游戏目录都是一张独立卡带。卡带的 `game.json` 声明游戏 ID、Steam App ID、Release 标签、AppInfo 文件名以及该游戏使用的两个补丁 DLL 文件名；构建、增量发布和远程资源管理始终只操作当前卡带。
 
-客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。启动公告来自同一 Release 的 `announcement.json`；发布器工作区根目录若存在该文件，导出客户端卡带主表时会一并写入 `output/hub`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。发布器“导出客户端卡带主表”会把当前全部卡带写成可上传文件，并可通过发布目标选择 GitLink 或 GitHub。
+客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。启动公告来自同一 Release 的 `announcement.json`；发布器工作区根目录若存在该文件，生成卡带中心时会一并写入 `output/hub`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。
 
-本地构建页会显示当前卡带的「资源提交时间」：取本地 `dlc/` 包与发布输出中最新修改时间，构建完成或导出客户端卡带主表时自动刷新，并写入 `games/<id>/freshness.json`。客户端在 DLC 列表上方展示该时间戳，不再与 Steam 官方清单做对比。
+发布器的“卡带配置”仍只编辑当前游戏；“卡带管理”则把全部游戏卡带放在同一列表中统一查看、生成和发布。点击“发布 hub Release”会先重建完整主表，再使用“构建与发布”页当前选择的发布目标、仓库和令牌自动上传，不需要手动搬运文件。GitLink 发布会逐项比较本地摘要与发布状态，只上传新增或变化的卡带文档，并复用已确认的远程附件；`cartridges_index.json` 始终与全部卡带一起重新生成，避免客户端读到半套目录。
+
+“卡带管理 → 管理公告”用于维护客户端启动公告：填写公告版本 ID、标题、日期和正文，可先预览再保存。启用后，下一次“重新生成全部”或“发布 hub Release”会自动把 `announcement.json` 放入 hub；停用后保留本地 `announcement-draft.json` 草稿，并在下一次发布时从 hub Release 移除公告附件。公告版本 ID 是客户端“本版本不再提示”的判断依据：正文需要重新提醒所有用户时，应同时换一个新的版本 ID。
+
+本地构建页会显示当前卡带的「资源提交时间」：取本地 `dlc/` 包与发布输出中最新修改时间，构建完成或生成卡带中心时自动刷新，并写入 `games/<id>/freshness.json`。客户端在 DLC 列表上方展示该时间戳，不再与 Steam 官方清单做对比。
 
 发布验收中的补丁目录同样读取当前卡带的 `patch_relative_dir`，不会固定为 Stellaris 或文明 6 的目录。选择实际游戏目录时必须与顶部当前卡带一致；若目录不存在，提示会同时显示当前卡带与它配置的目标路径。
 
@@ -93,7 +97,7 @@ stellaris_appinfo.json
 客户端主入口是简洁视图上的三枚按钮：
 
 - **一键解锁**：先做补丁审计，若不健康就把三件补丁下载到内容寻址缓存并顺序应用（下载补丁 → 应用补丁 → 依次下载安装勾选的 DLC）；补丁已健康则直接跳到 DLC 下载/安装阶段。按钮文本会随阶段变成“正在下载补丁… / 正在应用补丁…”，并阻塞其他破坏性操作。
-- **一键修复**：二次确认后卸载全部已安装 DLC、清空下载记录与内容缓存、`patch_engine.reset(game_root)` 抹掉补丁三件套，然后重新走一次一键解锁流程；提示用户会下载大量数据。
+- **一键修复**：二次确认后先把补丁与全部 DLC 准备到内容寻址缓存，逐包校验并预检磁盘空间；只有全部资源就绪后才清理卡带确认的旧 DLC、重置补丁并立即从缓存重装，最后复检补丁与 DLC。准备失败不会先改动游戏文件。
 - **缓存复用**：卸载游戏不会删除客户端缓存，重新安装游戏后，同一 DLC 可直接从内容寻址缓存恢复并安装。补丁 DLL 和 AppInfo 使用 Release 附件 ID 作为缓存版本；服务端重新发布附件后客户端会下载新版本，不会把旧的同名补丁当作当前版本。
 - **一键移除补丁**：只做卸载：删除补丁 DLL 与 `cream_api.ini`，把 `steam_api64_o.dll` 恢复为 `steam_api64.dll`。任一步骤失败都回滚到操作前状态。
 
@@ -114,7 +118,7 @@ stellaris_appinfo.json
 | Civilization VI   |     `289070` | `civilization_6`   | `DLC`        | `Base/Binaries/Win64Steam` | `civilization_6_appinfo.json`   |
 | Hearts of Iron IV |     `394360` | `hearts_of_iron_4` | `dlc`        | `.`                        | `hearts_of_iron_4_appinfo.json` |
 | 都市天际线        |     `255710` | `cities_skylines`  | `Files`      | `.`                        | `cities_skylines_appinfo.json`  |
-| 边缘世界          |     `294100` | `rimworld`         | `Data`       | `.`                        | `rimworld_appinfo.json`         |
+| 边缘世界          |     `294100` | `rimworld`         | `Data`       | `RimWorldWin64_Data/Plugins/x86_64` | `rimworld_appinfo.json`         |
 
 首次启动新版服务端管理器时，会为缺失的内置卡带自动创建本地工作区，不覆盖已有游戏配置。为新游戏准备资源时：
 
@@ -171,7 +175,7 @@ GitLink 更新 Release 时必须使用 `version_id`，不能使用列表中的�
 
 ## 发布验收
 
-“发布验收”页面用于在正式发布前组织人工测试，不会一键修改游戏文件或自动判定客户端是否成功。验收清单由通用项目和卡带专属项目组成：所有游戏都有路径与卡带切换、DLC 识别、下载控制、补丁异常、安全恢复、一键修复和界面刷新等检查；使用“去掉管理编号”目录结构的卡带还会自动增加编号附件与实际游戏目录映射检查。
+“发布验收”页面用于在正式发布前组织人工测试，不会一键修改游戏文件或自动判定客户端是否成功。验收清单由通用项目和卡带专属项目组成：所有游戏都有路径与卡带切换、DLC 识别、刷新后默认全选、下载控制、GitLink/GitHub 切换、不超时模式、补丁异常与最终复检、安全恢复、一键修复、远程公告和界面刷新等检查；使用“去掉管理编号”目录结构的卡带会自动增加编号附件与实际游戏目录映射检查，声明了聚合分支的卡带还会增加多路径安装、识别、移除和修复检查。
 
 使用顺序：
 

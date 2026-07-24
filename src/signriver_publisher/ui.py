@@ -11,6 +11,7 @@ from tkinter import TclError, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
+from .announcements import AnnouncementDraft, AnnouncementValidationError
 from .acceptance import (
     FAILED,
     PASSED,
@@ -114,6 +115,7 @@ class PublisherApplication(ctk.CTk):
             tuple[GitLinkRepository, GameProfile, tuple[PublishAsset, ...], str | None]
             | None
         ) = None
+        self._active_publish_scope = "game"
         self._upload_sample: tuple[str, int, float] | None = None
         self._upload_speed = 0.0
         self._current_remote_release: RemoteRelease | None = None
@@ -164,11 +166,13 @@ class PublisherApplication(ctk.CTk):
         self.sources_tab = self.tabs.add("资源管理")
         self.build_tab = self.tabs.add("构建与发布")
         self.remote_tab = self.tabs.add("远程资源")
-        self.acceptance_tab = self.tabs.add("发布验收")
         self.games_tab = self.tabs.add("卡带配置")
+        self.acceptance_tab = self.tabs.add("发布验收")
+        self.cartridges_tab = self.tabs.add("卡带管理")
         self._build_sources_tab()
         self._build_publish_tab()
         self._build_remote_tab()
+        self._build_cartridge_management_tab()
         self._build_acceptance_tab()
         self._build_games_tab()
 
@@ -380,10 +384,10 @@ class PublisherApplication(ctk.CTk):
         ).pack(side="left", padx=4)
         ctk.CTkButton(
             actions,
-            text="导出客户端卡带主表",
+            text="打开卡带管理",
             width=180,
             fg_color=LIGHT_BLUE,
-            command=self.export_client_hub,
+            command=lambda: self.tabs.set("卡带管理"),
         ).pack(side="left", padx=4)
         self.build_summary = ctk.CTkLabel(actions, text="尚未构建", text_color=MUTED)
         self.build_summary.pack(side="left", padx=18)
@@ -583,6 +587,110 @@ class PublisherApplication(ctk.CTk):
         )
         self.remote_asset_list.grid(
             row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
+        )
+
+    def _build_cartridge_management_tab(self) -> None:
+        self.cartridges_tab.grid_rowconfigure(1, weight=1)
+        self.cartridges_tab.grid_columnconfigure(0, weight=1)
+
+        toolbar = self._card(self.cartridges_tab, 0, "卡带统一管理")
+        toolbar.grid_rowconfigure(3, weight=0)
+        self.hub_summary = ctk.CTkLabel(
+            toolbar,
+            text="正在读取卡带…",
+            text_color=TEXT,
+            anchor="w",
+            justify="left",
+        )
+        self.hub_summary.grid(row=1, column=0, padx=22, pady=(0, 4), sticky="ew")
+        self.hub_hint = ctk.CTkLabel(
+            toolbar,
+            text=(
+                "完整主表会统一生成；GitLink 发布时按卡带逐项比较，"
+                "只上传新增或发生变化的文档。"
+            ),
+            text_color=MUTED,
+            anchor="w",
+        )
+        self.hub_hint.grid(row=2, column=0, padx=22, pady=(0, 10), sticky="ew")
+
+        actions = ctk.CTkFrame(toolbar, fg_color="transparent")
+        actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
+        for column in range(5):
+            actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
+        self.hub_refresh_button = ctk.CTkButton(
+            actions,
+            text="刷新卡带",
+            fg_color=LIGHT_BLUE,
+            command=self.refresh_cartridge_management,
+        )
+        self.hub_refresh_button.grid(row=0, column=0, padx=4, sticky="ew")
+        self.announcement_manage_button = ctk.CTkButton(
+            actions,
+            text="管理公告",
+            fg_color=LIGHT_BLUE,
+            command=self.open_announcement_manager,
+        )
+        self.announcement_manage_button.grid(
+            row=0, column=1, padx=4, sticky="ew"
+        )
+        self.hub_generate_button = ctk.CTkButton(
+            actions,
+            text="重新生成全部",
+            fg_color=LIGHT_BLUE,
+            command=self.generate_client_hub,
+        )
+        self.hub_generate_button.grid(row=0, column=2, padx=4, sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="打开 hub 目录",
+            fg_color=LIGHT_BLUE,
+            command=self.open_hub_output_folder,
+        ).grid(row=0, column=3, padx=4, sticky="ew")
+        self.hub_publish_button = ctk.CTkButton(
+            actions,
+            text="发布 hub Release",
+            fg_color=BLUE,
+            command=self.publish_cartridge_hub,
+        )
+        self.hub_publish_button.grid(row=0, column=4, padx=4, sticky="ew")
+
+        transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
+        transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
+        transfer.grid_columnconfigure(1, weight=1)
+        self.hub_upload_status = ctk.CTkLabel(
+            transfer,
+            text="等待发布",
+            width=235,
+            anchor="w",
+            text_color=MUTED,
+        )
+        self.hub_upload_status.grid(row=0, column=0, padx=(0, 12), sticky="w")
+        self.hub_upload_progress = ctk.CTkProgressBar(
+            transfer, height=14, progress_color=BLUE
+        )
+        self.hub_upload_progress.grid(row=0, column=1, padx=8, sticky="ew")
+        self.hub_upload_progress.set(0)
+        self.hub_publish_pause_button = ctk.CTkButton(
+            transfer,
+            text="暂停发布",
+            width=110,
+            fg_color=LIGHT_BLUE,
+            state="disabled",
+            command=self.toggle_publish_pause,
+        )
+        self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
+
+        list_card = self._card(self.cartridges_tab, 1, "全部游戏卡带")
+        list_card.grid_rowconfigure(1, weight=1)
+        self.cartridge_list = ctk.CTkScrollableFrame(
+            list_card,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
+        )
+        self.cartridge_list.grid(
+            row=1, column=0, padx=16, pady=(2, 16), sticky="nsew"
         )
 
     def _build_acceptance_tab(self) -> None:
@@ -971,6 +1079,283 @@ class PublisherApplication(ctk.CTk):
             except TclError:
                 pass
         self._update_freshness_summary()
+        if hasattr(self, "cartridge_list"):
+            self.refresh_cartridge_management()
+
+    def refresh_cartridge_management(self) -> None:
+        profiles = self.workspace.list_games()
+        hub_dir = self.workspace.output_dir / "hub"
+        for child in self.cartridge_list.winfo_children():
+            child.destroy()
+        generated = 0
+        for profile in profiles:
+            document = hub_dir / f"cartridge_{profile.game_id}.json"
+            if document.is_file():
+                generated += 1
+            row = ctk.CTkFrame(
+                self.cartridge_list,
+                fg_color=CARD,
+                border_width=1,
+                border_color="#E0E0E0",
+                corner_radius=8,
+            )
+            row.pack(fill="x", padx=4, pady=4)
+            row.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(
+                row,
+                text=profile.display_name,
+                width=190,
+                anchor="w",
+                font=("Microsoft YaHei UI", 14, "bold"),
+                text_color=TEXT,
+            ).grid(row=0, column=0, padx=(14, 8), pady=10, sticky="w")
+            ctk.CTkLabel(
+                row,
+                text=f"{profile.game_id}  ·  Release {profile.release_tag}",
+                anchor="w",
+                text_color=MUTED,
+            ).grid(row=0, column=1, padx=8, pady=10, sticky="ew")
+            ctk.CTkLabel(
+                row,
+                text="已生成" if document.is_file() else "待生成",
+                width=72,
+                text_color="#2E7D32" if document.is_file() else MUTED,
+            ).grid(row=0, column=2, padx=8, pady=10)
+            ctk.CTkButton(
+                row,
+                text="编辑卡带",
+                width=92,
+                fg_color=LIGHT_BLUE,
+                command=lambda game_id=profile.game_id: self.open_cartridge_config(
+                    game_id
+                ),
+            ).grid(row=0, column=3, padx=(8, 12), pady=7)
+        if not profiles:
+            ctk.CTkLabel(
+                self.cartridge_list, text="尚未配置游戏卡带", text_color=MUTED
+            ).pack(pady=24)
+        target = (
+            f"{self.owner_entry.get().strip()}/{self.repo_entry.get().strip()}"
+            if hasattr(self, "owner_entry")
+            else "尚未配置仓库"
+        )
+        self.hub_summary.configure(
+            text=(
+                f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张 · "
+                f"公告 {self.workspace.announcement_status()} · "
+                f"发布目标 {target} / hub"
+            )
+        )
+        self._schedule_scrollable_reset(self.cartridge_list)
+
+    def open_announcement_manager(self) -> None:
+        existing = getattr(self, "announcement_manager_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+        try:
+            draft = self.workspace.load_announcement_draft()
+        except AnnouncementValidationError as error:
+            messagebox.showerror("公告配置异常", str(error))
+            return
+
+        window = ctk.CTkToplevel(self)
+        self.announcement_manager_window = window
+        window.title("管理启动公告")
+        window.geometry("720x610")
+        window.minsize(620, 540)
+        window.configure(fg_color=PAGE)
+        window.transient(self)
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(0, weight=1)
+
+        card = ctk.CTkFrame(
+            window,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        card.grid(row=0, column=0, padx=18, pady=18, sticky="nsew")
+        card.grid_columnconfigure(1, weight=1)
+        card.grid_rowconfigure(6, weight=1)
+        ctk.CTkLabel(
+            card,
+            text="客户端启动公告",
+            font=("Microsoft YaHei UI", 22, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, columnspan=2, padx=22, pady=(20, 4), sticky="w")
+        ctk.CTkLabel(
+            card,
+            text="保存后会在下一次生成或发布 hub 时生效；停用会保留草稿并停止远端发布。",
+            text_color=MUTED,
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, padx=22, pady=(0, 12), sticky="ew")
+
+        self.announcement_enabled = ctk.CTkCheckBox(
+            card,
+            text="启用并随 hub 发布",
+            fg_color=BLUE,
+            hover_color=BRAND,
+        )
+        self.announcement_enabled.grid(
+            row=2, column=0, columnspan=2, padx=22, pady=(0, 12), sticky="w"
+        )
+        if draft.enabled:
+            self.announcement_enabled.select()
+
+        ctk.CTkLabel(card, text="公告版本 ID", text_color=TEXT).grid(
+            row=3, column=0, padx=(22, 12), pady=6, sticky="w"
+        )
+        self.announcement_id_entry = ctk.CTkEntry(
+            card, border_width=2, border_color="#BDBDBD"
+        )
+        self.announcement_id_entry.grid(
+            row=3, column=1, padx=(0, 22), pady=6, sticky="ew"
+        )
+        self.announcement_id_entry.insert(0, draft.announcement_id)
+
+        ctk.CTkLabel(card, text="公告标题", text_color=TEXT).grid(
+            row=4, column=0, padx=(22, 12), pady=6, sticky="w"
+        )
+        self.announcement_title_entry = ctk.CTkEntry(
+            card, border_width=2, border_color="#BDBDBD"
+        )
+        self.announcement_title_entry.grid(
+            row=4, column=1, padx=(0, 22), pady=6, sticky="ew"
+        )
+        self.announcement_title_entry.insert(0, draft.title)
+
+        date_row = ctk.CTkFrame(card, fg_color="transparent")
+        date_row.grid(row=5, column=0, columnspan=2, padx=22, pady=6, sticky="ew")
+        date_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(date_row, text="更新日期", text_color=TEXT).grid(
+            row=0, column=0, padx=(0, 12), sticky="w"
+        )
+        self.announcement_date_entry = ctk.CTkEntry(
+            date_row, width=170, border_width=2, border_color="#BDBDBD"
+        )
+        self.announcement_date_entry.grid(row=0, column=1, sticky="w")
+        self.announcement_date_entry.insert(0, draft.updated_at)
+        ctk.CTkLabel(
+            date_row,
+            text="版本 ID 改变后，已选择“不再提示”的客户端也会重新显示公告。",
+            text_color=MUTED,
+            anchor="e",
+        ).grid(row=0, column=2, padx=(14, 0), sticky="e")
+
+        body_frame = ctk.CTkFrame(card, fg_color="transparent")
+        body_frame.grid(
+            row=6, column=0, columnspan=2, padx=22, pady=(8, 10), sticky="nsew"
+        )
+        body_frame.grid_columnconfigure(0, weight=1)
+        body_frame.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(body_frame, text="公告正文", text_color=TEXT).grid(
+            row=0, column=0, pady=(0, 6), sticky="w"
+        )
+        self.announcement_body = ctk.CTkTextbox(
+            body_frame,
+            fg_color="#FAFAFA",
+            border_width=2,
+            border_color="#BDBDBD",
+            wrap="word",
+        )
+        self.announcement_body.grid(row=1, column=0, sticky="nsew")
+        self.announcement_body.insert("1.0", draft.body)
+
+        actions = ctk.CTkFrame(card, fg_color="transparent")
+        actions.grid(
+            row=7, column=0, columnspan=2, padx=22, pady=(4, 20), sticky="ew"
+        )
+        for column in range(3):
+            actions.grid_columnconfigure(column, weight=1, uniform="announcement")
+        ctk.CTkButton(
+            actions,
+            text="预览公告",
+            fg_color=LIGHT_BLUE,
+            command=self.preview_announcement,
+        ).grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="保存公告",
+            fg_color=BLUE,
+            command=self.save_announcement,
+        ).grid(row=0, column=1, padx=5, sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="关闭",
+            fg_color="#9E9E9E",
+            command=window.destroy,
+        ).grid(row=0, column=2, padx=(5, 0), sticky="ew")
+        window.grab_set()
+        window.focus_force()
+
+    def _announcement_editor_value(self) -> AnnouncementDraft:
+        return AnnouncementDraft(
+            announcement_id=self.announcement_id_entry.get(),
+            title=self.announcement_title_entry.get(),
+            updated_at=self.announcement_date_entry.get(),
+            body=self.announcement_body.get("1.0", "end"),
+            enabled=bool(self.announcement_enabled.get()),
+        )
+
+    def preview_announcement(self) -> None:
+        try:
+            draft = self._announcement_editor_value().validate()
+        except AnnouncementValidationError as error:
+            messagebox.showerror("无法预览公告", str(error))
+            return
+        messagebox.showinfo(
+            "公告预览",
+            f"{draft.title}\n{draft.updated_at}\n\n{draft.body}",
+            parent=self.announcement_manager_window,
+        )
+
+    def save_announcement(self) -> None:
+        draft = self._announcement_editor_value()
+        if draft.enabled:
+            try:
+                draft = draft.validate()
+            except AnnouncementValidationError as error:
+                messagebox.showerror("无法启用公告", str(error))
+                return
+        elif self.workspace.announcement_path.is_file() and not messagebox.askyesno(
+            "确认停用公告",
+            "停用后会保留当前草稿；下一次发布 hub 时将从 Release 移除 announcement.json。是否继续？",
+            parent=self.announcement_manager_window,
+        ):
+            return
+        if not self._begin_background_mutation(
+            "announcement-save", "正在保存客户端启动公告"
+        ):
+            return
+        try:
+            self.workspace.save_announcement_draft(draft)
+            self.refresh_cartridge_management()
+            state = "已启用" if draft.enabled else "已保存为停用草稿"
+            self._log(f"客户端启动公告{state}：{draft.announcement_id or '未填写版本 ID'}")
+            messagebox.showinfo(
+                "公告已保存",
+                f"公告{state}。下一次生成或发布 hub 时会自动同步。",
+                parent=self.announcement_manager_window,
+            )
+        except (AnnouncementValidationError, OSError) as error:
+            messagebox.showerror("公告保存失败", str(error))
+        finally:
+            self._end_background_mutation("announcement-save")
+
+    def open_cartridge_config(self, game_id: str) -> None:
+        profile = next(
+            (item for item in self.workspace.list_games() if item.game_id == game_id),
+            None,
+        )
+        if profile is None:
+            messagebox.showerror("卡带不存在", f"找不到游戏卡带：{game_id}")
+            return
+        self.profile = profile
+        self.refresh()
+        self.tabs.set("卡带配置")
 
     def _update_freshness_summary(self) -> None:
         if not hasattr(self, "freshness_summary"):
@@ -2665,6 +3050,7 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("采用远程附件失败", message)
 
     def publish_release(self) -> None:
+        self._active_publish_scope = "game"
         if self._publish_target() == "github":
             self._publish_release_github()
             return
@@ -2694,6 +3080,26 @@ class PublisherApplication(ctk.CTk):
             self._publish_resume_context = None
             self._end_background_mutation("publish")
 
+    def _publish_scope_controls(self):
+        if self._active_publish_scope == "hub":
+            return (
+                self.hub_publish_button,
+                self.hub_publish_pause_button,
+                self.hub_upload_status,
+                self.hub_upload_progress,
+            )
+        return (
+            self.publish_button,
+            self.publish_pause_button,
+            self.upload_status,
+            self.upload_progress,
+        )
+
+    def _set_publish_buttons_available(self, available: bool) -> None:
+        state = "normal" if available else "disabled"
+        self.publish_button.configure(state=state, text="发布到 Release")
+        self.hub_publish_button.configure(state=state, text="发布 hub Release")
+
     def _publish_target(self) -> str:
         return "github" if self.publish_target_menu.get() == "GitHub" else "gitlink"
 
@@ -2714,6 +3120,8 @@ class PublisherApplication(ctk.CTk):
             f"发布目标已切换为 {display_name}："
             f"{self.settings.active_owner}/{self.settings.active_repository}"
         )
+        if hasattr(self, "cartridge_list"):
+            self.refresh_cartridge_management()
 
     def _publish_release_github(self) -> None:
         if not self._begin_background_mutation(
@@ -2745,11 +3153,25 @@ class PublisherApplication(ctk.CTk):
         ):
             self._end_background_mutation("publish")
             return
-        self.publish_button.configure(state="disabled", text="正在发布…")
+        self._start_github_publish(owner, name, token, self.profile, assets)
+
+    def _start_github_publish(
+        self,
+        owner: str,
+        name: str,
+        token: str,
+        profile: GameProfile,
+        assets: tuple[PublishAsset, ...],
+    ) -> None:
+        publish_button, pause_button, status_label, progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(False)
+        publish_button.configure(state="disabled", text="正在发布…")
         self.adopt_remote_button.configure(state="disabled")
-        self.upload_status.configure(text="正在准备 GitHub 上传…")
-        self.upload_progress.set(0)
-        profile = self.profile
+        pause_button.configure(state="disabled", text="GitHub 暂不支持暂停")
+        status_label.configure(text="正在准备 GitHub 上传…")
+        progress_bar.set(0)
 
         def worker() -> None:
             try:
@@ -2782,22 +3204,30 @@ class PublisherApplication(ctk.CTk):
     ) -> None:
         self._remote_operation_active = False
         self._end_background_mutation("publish")
-        self.publish_button.configure(state="normal", text="发布到 Release")
+        _publish_button, pause_button, status_label, progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(True)
         self.adopt_remote_button.configure(state="normal")
-        self.publish_pause_button.configure(state="disabled", text="暂停发布")
-        self.upload_status.configure(text=f"GitHub 发布完成 · {total} 个文件")
-        self.upload_progress.set(1)
+        pause_button.configure(state="disabled", text="暂停发布")
+        status_label.configure(text=f"GitHub 发布完成 · {total} 个文件")
+        progress_bar.set(1)
         summary = f"已发布到 GitHub {owner}/{name} · {profile.release_tag}"
         self._log(summary)
+        if self._active_publish_scope == "hub":
+            self.refresh_cartridge_management()
         messagebox.showinfo("发布完成", summary)
 
     def _github_publish_failed(self, message: str) -> None:
         self._remote_operation_active = False
         self._end_background_mutation("publish")
-        self.publish_button.configure(state="normal", text="发布到 Release")
+        _publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(True)
         self.adopt_remote_button.configure(state="normal")
-        self.publish_pause_button.configure(state="disabled", text="暂停发布")
-        self.upload_status.configure(text="GitHub 发布失败")
+        pause_button.configure(state="disabled", text="暂停发布")
+        status_label.configure(text="GitHub 发布失败")
         self._log(f"GitHub 发布失败：{message}")
         messagebox.showerror("GitHub 发布失败", message)
 
@@ -2820,11 +3250,15 @@ class PublisherApplication(ctk.CTk):
             self._pending_upload_progress = None
         self._upload_sample = None
         self._upload_speed = 0.0
-        self.publish_button.configure(state="disabled", text="正在发布…")
+        publish_button, pause_button, status_label, progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(False)
+        publish_button.configure(state="disabled", text="正在发布…")
         self.adopt_remote_button.configure(state="disabled")
-        self.publish_pause_button.configure(state="normal", text="暂停发布")
-        self.upload_status.configure(text="正在准备上传…")
-        self.upload_progress.set(0)
+        pause_button.configure(state="normal", text="暂停发布")
+        status_label.configure(text="正在准备上传…")
+        progress_bar.set(0)
         self._log(
             f"开始单文件确认发布 {profile.display_name}：共 {len(assets)} 个文件。"
         )
@@ -2910,17 +3344,22 @@ class PublisherApplication(ctk.CTk):
         self._end_background_mutation("publish")
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
-        self.publish_button.configure(state="normal", text="发布到 Release")
+        _publish_button, pause_button, status_label, progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(True)
         self.adopt_remote_button.configure(state="normal")
-        self.publish_pause_button.configure(state="disabled", text="暂停发布")
-        self.upload_progress.set(1)
-        self.upload_status.configure(text="发布完成")
+        pause_button.configure(state="disabled", text="暂停发布")
+        progress_bar.set(1)
+        status_label.configure(text="发布完成")
         self._publish_resume_context = None
         self._upload_control = None
         if not self.settings.token:
             self.token_entry.delete(0, "end")
         summary = f"Release {action}完成：上传 {uploaded}，复用 {reused}，清理旧附件 {removed}。"
         self._log(summary)
+        if self._active_publish_scope == "hub":
+            self.refresh_cartridge_management()
         if warnings:
             messagebox.showwarning(
                 "发布完成但有警告", f"{summary}\n\n" + "\n".join(warnings)
@@ -2935,10 +3374,13 @@ class PublisherApplication(ctk.CTk):
         self._end_background_mutation("publish")
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
-        self.publish_button.configure(state="normal", text="发布到 Release")
+        _publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(True)
         self.adopt_remote_button.configure(state="normal")
-        self.publish_pause_button.configure(state="disabled", text="暂停发布")
-        self.upload_status.configure(text="发布中断；已确认文件已保留")
+        pause_button.configure(state="disabled", text="暂停发布")
+        status_label.configure(text="发布中断；已确认文件已保留")
         self._publish_resume_context = None
         self._upload_control = None
         self._log(
@@ -2951,10 +3393,13 @@ class PublisherApplication(ctk.CTk):
 
     def toggle_publish_pause(self) -> None:
         control = self._upload_control
+        _publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
         if control is not None:
             control.request_pause()
-            self.publish_pause_button.configure(state="disabled", text="正在暂停…")
-            self.upload_status.configure(text="正在中止当前文件上传…")
+            pause_button.configure(state="disabled", text="正在暂停…")
+            status_label.configure(text="正在中止当前文件上传…")
             return
         context = self._publish_resume_context
         if context is None:
@@ -2974,10 +3419,14 @@ class PublisherApplication(ctk.CTk):
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
         self._upload_control = None
-        self.publish_button.configure(state="disabled", text="发布已暂停")
+        publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(False)
+        publish_button.configure(state="disabled", text="发布已暂停")
         self.adopt_remote_button.configure(state="disabled")
-        self.publish_pause_button.configure(state="normal", text="继续发布")
-        self.upload_status.configure(text="已暂停；继续时当前文件从头上传")
+        pause_button.configure(state="normal", text="继续发布")
+        status_label.configure(text="已暂停；继续时当前文件从头上传")
         self._log(f"{message}。已确认文件已保存；继续时当前文件会从头上传。")
 
     def _show_upload_progress(
@@ -2999,8 +3448,11 @@ class PublisherApplication(ctk.CTk):
                 )
             self._upload_sample = (name, sent, now)
         ratio = min(1.0, sent / size) if size else 0.0
-        self.upload_progress.set(ratio)
-        self.upload_status.configure(
+        _publish_button, _pause_button, status_label, progress_bar = (
+            self._publish_scope_controls()
+        )
+        progress_bar.set(ratio)
+        status_label.configure(
             text=(
                 f"[{index}/{total}] {name} · {ratio * 100:.1f}% · "
                 f"{self._format_transfer_size(sent)}/{self._format_transfer_size(size)} · "
@@ -3062,27 +3514,149 @@ class PublisherApplication(ctk.CTk):
     def open_patch_folder(self) -> None:
         self._open(self.workspace.game_dir(self.profile.game_id) / "patches")
 
+    def generate_client_hub(self) -> None:
+        if not self._begin_background_mutation(
+            "hub-generate", "正在生成客户端卡带中心"
+        ):
+            return
+        self.hub_generate_button.configure(state="disabled", text="正在生成…")
+        self.hub_publish_button.configure(state="disabled")
+        default_game_id = self.profile.game_id
+
+        def worker() -> None:
+            try:
+                assets = self.workspace.hub_publish_assets(
+                    default_game_id=default_game_id
+                )
+                self._post_ui(lambda: self._hub_generation_done(assets))
+            except Exception as error:
+                self._post_ui(
+                    lambda value=str(error): self._hub_generation_failed(value)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _hub_generation_done(self, assets: tuple[PublishAsset, ...]) -> None:
+        self._end_background_mutation("hub-generate")
+        self.hub_generate_button.configure(state="normal", text="重新生成全部")
+        self.hub_publish_button.configure(state="normal")
+        self.refresh_cartridge_management()
+        hub_dir = self.workspace.output_dir / "hub"
+        self._log(
+            f"客户端卡带中心已生成到 {hub_dir}："
+            + "、".join(asset.name for asset in assets)
+        )
+        messagebox.showinfo(
+            "生成完成",
+            f"已生成 {len(assets)} 个 hub 文件。\n\n"
+            "可直接点击“发布 hub Release”，无需手动上传。",
+        )
+
+    def _hub_generation_failed(self, message: str) -> None:
+        self._end_background_mutation("hub-generate")
+        self.hub_generate_button.configure(state="normal", text="重新生成全部")
+        self.hub_publish_button.configure(state="normal")
+        self.hub_upload_status.configure(text="生成失败")
+        self._log(f"客户端卡带中心生成失败：{message}")
+        messagebox.showerror("生成失败", message)
+
+    def publish_cartridge_hub(self) -> None:
+        profiles = self.workspace.list_games()
+        if not profiles:
+            messagebox.showerror("无法发布", "尚未配置任何游戏卡带")
+            return
+        owner = self.owner_entry.get().strip()
+        repository_name = self.repo_entry.get().strip()
+        if not owner or not repository_name:
+            messagebox.showerror("无法发布", "请先在“构建与发布”中填写仓库信息")
+            return
+        target_name = "GitHub" if self._publish_target() == "github" else "GitLink"
+        sync_note = (
+            "GitHub 会按同名附件更新完整卡带中心。"
+            if self._publish_target() == "github"
+            else "未变化的卡带会直接复用；新增、修改和已删除的卡带会按主表同步。"
+        )
+        if not messagebox.askyesno(
+            "确认发布卡带中心",
+            f"重新生成 {len(profiles)} 张客户端卡带并同步到\n"
+            f"{target_name} {owner}/{repository_name} · hub\n\n"
+            f"{sync_note}是否继续？",
+        ):
+            return
+        if not self._begin_background_mutation(
+            "publish", "正在生成并上传 hub Release"
+        ):
+            return
+        self._active_publish_scope = "hub"
+        self._set_publish_buttons_available(False)
+        self.hub_generate_button.configure(state="disabled")
+        self.hub_upload_status.configure(text="正在生成完整卡带主表…")
+        self.hub_upload_progress.set(0)
+        token = self.token_entry.get().strip() or None
+        profile = self.workspace.hub_release_profile()
+        repo = GitLinkRepository(owner, repository_name)
+        default_game_id = self.profile.game_id
+
+        def worker() -> None:
+            try:
+                assets = self.workspace.hub_publish_assets(
+                    default_game_id=default_game_id
+                )
+                previous_state = self.workspace.load_publish_state(
+                    profile, owner, repository_name
+                )
+                self._post_ui(
+                    lambda: self._hub_publish_prepared(
+                        repo, profile, assets, previous_state, token
+                    )
+                )
+            except Exception as error:
+                self._post_ui(
+                    lambda value=str(error): self._hub_publish_prepare_failed(value)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _hub_publish_prepared(
+        self,
+        repo: GitLinkRepository,
+        profile: GameProfile,
+        assets: tuple[PublishAsset, ...],
+        previous_state: dict[str, object],
+        token: str | None,
+    ) -> None:
+        self.hub_generate_button.configure(state="normal")
+        self.refresh_cartridge_management()
+        if self._publish_target() == "github":
+            if not token:
+                self._hub_publish_prepare_failed("请填写 GitHub token")
+                return
+            self._start_github_publish(
+                repo.owner, repo.name, token, profile, assets
+            )
+            return
+        self._publish_resume_context = (repo, profile, assets, token)
+        if not self._start_publish(repo, profile, assets, previous_state, token):
+            self._publish_resume_context = None
+            self._hub_publish_prepare_failed("无法启动 hub Release 发布")
+
+    def _hub_publish_prepare_failed(self, message: str) -> None:
+        self._end_background_mutation("publish")
+        self._set_publish_buttons_available(True)
+        self.hub_generate_button.configure(state="normal")
+        self.hub_publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.hub_upload_status.configure(text="发布准备失败")
+        self._log(f"hub Release 发布准备失败：{message}")
+        messagebox.showerror("无法发布卡带中心", message)
+
     def export_client_hub(self) -> None:
-        try:
-            written = self.workspace.export_client_hub(
-                default_game_id=self.profile.game_id,
-            )
-            hub_dir = self.workspace.output_dir / "hub"
-            self._log(
-                f"已导出客户端卡带主表到 {hub_dir}："
-                + "、".join(path.name for path in written)
-            )
-            messagebox.showinfo(
-                "导出完成",
-                "已生成客户端卡带主表与各游戏卡带文档。\n\n"
-                f"目录：{hub_dir}\n\n"
-                "请将这些文件上传到资源仓库的 hub Release"
-                "（cartridges_index.json、cartridge_*.json，"
-                "以及可选的 announcement.json）。",
-            )
-            self._open(hub_dir)
-        except (WorkspaceError, OSError, ValueError) as error:
-            messagebox.showerror("导出失败", str(error))
+        self.tabs.set("卡带管理")
+        self.generate_client_hub()
+
+    def open_hub_output_folder(self) -> None:
+        path = self.workspace.output_dir / "hub"
+        path.mkdir(parents=True, exist_ok=True)
+        self._open(path)
 
     def open_output_folder(self) -> None:
         path = self.workspace.output_dir / self.profile.game_id

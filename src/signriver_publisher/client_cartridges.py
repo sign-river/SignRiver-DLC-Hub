@@ -157,6 +157,19 @@ def export_hub_cartridges(
             encoding="utf-8",
         )
         written.append(target)
+    expected = {path.name.casefold() for path in written}
+    for stale in output_dir.iterdir():
+        folded = stale.name.casefold()
+        managed_document = folded.startswith("cartridge_") and folded.endswith(
+            ".json"
+        )
+        managed_announcement = folded == "announcement.json"
+        if (
+            stale.is_file()
+            and folded not in expected
+            and (managed_document or managed_announcement)
+        ):
+            stale.unlink()
     return tuple(written)
 
 

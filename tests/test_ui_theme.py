@@ -368,13 +368,12 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "measure_download_speed(url)" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
     assert 'text="一键移除补丁"' in source
-    assert 'text="恢复游戏原版"' in source
-    assert 'text="卸载全部 DLC"' in source
-    assert "def _uninstall_all_dlc" in source
+    assert 'text="移除本程序安装内容"' in source
+    assert 'text="卸载全部 DLC"' not in source
+    assert "def _uninstall_all_dlc" not in source
     assert "remove_installed_dlc(game_root, dlc_id)" in source
     assert "uninstall.configure(state=\"normal\")" in source
     assert "符合 dlcNNN_<名称> 规则" not in source
-    assert "当前资源目录和卡带规则确认" in source
 
 
 def test_settings_separates_speed_cache_and_update_without_duplicate_about_page() -> None:
@@ -431,7 +430,7 @@ def test_multi_game_async_results_are_scoped_and_file_changes_require_game_stopp
     assert "cartridge_id != self.cartridge.cartridge_id" in source
     assert "def _require_game_stopped" in source
     assert 'self._require_game_stopped("一键解锁工具")' in source
-    assert 'self._require_game_stopped("卸载全部 DLC")' in source
+    assert 'self._require_game_stopped("移除本程序安装内容")' in source
     assert 'self._require_game_stopped("移除补丁")' in source
     assert 'self._require_game_stopped("一键修复")' in source
     assert "game_state.running" in source
@@ -596,17 +595,13 @@ def test_client_refuses_to_close_during_destructive_background_work() -> None:
     assert close_method.index("return") < close_method.index("self.window.destroy()")
 
 
-def test_bulk_uninstall_selects_every_absent_catalog_entry_for_reinstall() -> None:
+def test_dangerous_bulk_uninstall_is_not_exposed() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
-    finish_method = source.split("def _finish_dlc_removal", 1)[1].split(
-        "# ---- Patch workflow", 1
-    )[0]
 
-    assert 'title == "卸载全部 DLC"' in finish_method
-    assert "self.selected_dlc_ids = {" in finish_method
-    assert "if not self._is_entry_installed(entry)" in finish_method
-    assert "self.catalog_selection_initialized = True" in finish_method
-    assert "已自动全选可重新安装的 DLC" in finish_method
+    assert 'text="卸载全部 DLC"' not in source
+    assert "def _uninstall_all_dlc" not in source
+    assert 'text="移除本程序安装内容"' in source
+    assert "游戏原有 DLC、其他来源的内容和下载缓存都不会被删除" in source
 
 
 def test_download_task_rows_are_compact_and_do_not_create_empty_action_frames() -> None:
@@ -868,20 +863,27 @@ def test_catalog_assigns_entries_before_scanning_slug_based_installs() -> None:
     assert assign < scan
 
 
-def test_repair_button_wipes_dlc_and_patch_and_requires_confirmation() -> None:
+def test_repair_prepares_every_resource_before_destructive_cleanup() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'command=self._one_click_repair' in source
     assert "def _one_click_repair" in source
     assert 'self._set_batch_download_state("repairing")' in source
-    assert "优先复用已校验缓存，缓存缺失时才重新下载" in source
-    assert "patch_engine.reset(game_root)" in source
+    assert "先准备并校验补丁与全部 DLC" in source
+    assert "确认资源完整且磁盘空间充足后，才移除旧 DLC" in source
+    assert "def _poll_repair_preparation" in source
+    assert "service.engine.ensure_disk_space(plan, replaced_existing=False)" in source
+    assert "self.patch_engine.reset(game_root)" in source
     repair_method = source.split("def _one_click_repair", 1)[1].split(
         "def _continue_repair_after_patch", 1
     )[0]
     assert "delete_cached_packages=True" not in repair_method
     assert "self.auto_install_attempted.discard" in repair_method
+    assert repair_method.index("service.engine.ensure_disk_space") < repair_method.index(
+        "cartridge.remove_installed_dlc"
+    )
     assert "def _continue_repair_after_patch" in source
+    assert "def _maybe_finish_repair_workflow" in source
 
 
 def test_download_and_install_form_a_single_worker_pipeline_without_duplicate_install() -> None:
@@ -911,7 +913,7 @@ def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
     assert "OriginalStateRestoreService(" in source
     assert "RestoreScope" not in source
     assert "彻底恢复" not in source
-    assert "游戏原有 DLC 和其他来源的内容不会被删除" in source
+    assert "游戏原有 DLC、其他来源的内容和下载缓存都不会被删除" in source
     # The old placeholder message must be gone entirely so users never see the
     # "按钮已预留" copy after an update.
     assert "按钮已预留" not in source

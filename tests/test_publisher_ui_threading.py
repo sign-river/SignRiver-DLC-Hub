@@ -124,6 +124,31 @@ def test_publisher_pause_keeps_single_writer_reservation() -> None:
     assert '_end_background_mutation("publish")' in failed_source
 
 
+def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None:
+    source = inspect.getsource(PublisherApplication)
+
+    assert 'self.tabs.add("卡带管理")' in source
+    assert 'text="管理公告"' in source
+    assert "def open_announcement_manager" in source
+    assert "def preview_announcement" in source
+    assert "def save_announcement" in source
+    assert 'text="发布 hub Release"' in source
+    assert "def publish_cartridge_hub" in source
+    assert "hub_publish_assets" in source
+    assert "self._publish_resume_context = (repo, profile, assets, token)" in source
+    assert "无需手动上传" in source
+    assert "请将这些文件上传到资源仓库" not in source
+
+
+def test_publisher_tab_order_puts_cartridge_management_last() -> None:
+    source = inspect.getsource(PublisherApplication._build_ui)
+
+    games = source.index('self.tabs.add("卡带配置")')
+    acceptance = source.index('self.tabs.add("发布验收")')
+    management = source.index('self.tabs.add("卡带管理")')
+    assert games < acceptance < management
+
+
 def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
     guarded = (
         "import_dlc",
@@ -131,6 +156,8 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
         "build_all",
         "refresh_steam_data",
         "publish_release",
+        "publish_cartridge_hub",
+        "generate_client_hub",
         "_begin_remote_operation",
         "_run_action",
         "save_profile",

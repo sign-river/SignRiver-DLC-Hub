@@ -69,6 +69,7 @@ class PublisherCartridge:
         }
         builtin_patch_dirs = {
             "civilization_6": "Base/Binaries/Win64Steam",
+            "rimworld": "RimWorldWin64_Data/Plugins/x86_64",
         }
         builtin_executables = {
             "stellaris": "stellaris.exe",

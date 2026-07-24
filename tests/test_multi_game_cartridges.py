@@ -65,6 +65,9 @@ def test_client_registry_contains_independent_cartridges() -> None:
     rim = cartridges["rimworld"]
     assert rim.store_app_id == "294100"
     assert rim.dlc_relative_dir == "Data"
+    assert rim.patch_profile.install_relative_dir == (
+        "RimWorldWin64_Data/Plugins/x86_64"
+    )
     assert rim.patch_profile.appinfo_asset_name == "rimworld_appinfo.json"
 
 
@@ -233,6 +236,9 @@ def test_publisher_seeds_all_game_cartridges_without_overwriting_existing(tmp_pa
     assert profiles["hearts_of_iron_4"].steam_app_id == "394360"
     assert profiles["cities_skylines"].steam_app_id == "255710"
     assert profiles["rimworld"].dlc_relative_dir == "Data"
+    assert profiles["rimworld"].patch_relative_dir == (
+        "RimWorldWin64_Data/Plugins/x86_64"
+    )
     assert len(publisher_cartridges()) == 5
 
 

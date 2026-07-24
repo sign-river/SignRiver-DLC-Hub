@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
+from .announcements import AnnouncementDraft, AnnouncementValidationError
 from .cream import SteamAppInfo
 from .cartridges import create_builtin_cartridges
 from .dlc_naming import (
@@ -24,7 +25,7 @@ from .dlc_naming import (
     auto_managed_folder,
     parse_managed_folder,
 )
-from .client_cartridges import export_hub_cartridges
+from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
 from .freshness import (
     DlcFreshnessReport,
     build_resource_freshness,
@@ -92,6 +93,17 @@ class PublisherWorkspace:
                 )
                 self.save_game(updated)
                 existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "rimworld"
+                and current_profile.patch_relative_dir == "."
+            ):
+                updated = replace(
+                    current_profile,
+                    patch_relative_dir=profile.patch_relative_dir,
+                )
+                self.save_game(updated)
+                existing[profile.game_id] = updated
         if initial:
             return existing[initial[0].game_id]
         return builtins[0]
@@ -122,6 +134,59 @@ class PublisherWorkspace:
         if not _SAFE_ID.fullmatch(game_id):
             raise WorkspaceError("游戏 ID 只能包含小写字母、数字、下划线和短横线")
         return self.games_dir / game_id
+
+    @property
+    def announcement_path(self) -> Path:
+        """Active announcement copied into the next generated hub Release."""
+        return self.root / "announcement.json"
+
+    @property
+    def announcement_draft_path(self) -> Path:
+        """Editor state retained even while remote announcement publishing is off."""
+        return self.root / "announcement-draft.json"
+
+    def load_announcement_draft(self) -> AnnouncementDraft:
+        active = self.announcement_path
+        draft = self.announcement_draft_path
+        try:
+            if active.is_file():
+                value = json.loads(active.read_text(encoding="utf-8"))
+                if not isinstance(value, dict):
+                    raise AnnouncementValidationError("公告文件根节点必须是对象")
+                return AnnouncementDraft.from_dict(value, enabled=True).validate()
+            if draft.is_file():
+                value = json.loads(draft.read_text(encoding="utf-8"))
+                if not isinstance(value, dict):
+                    raise AnnouncementValidationError("公告草稿根节点必须是对象")
+                return AnnouncementDraft.from_dict(value)
+        except (OSError, json.JSONDecodeError, TypeError) as error:
+            raise AnnouncementValidationError(f"公告配置读取失败：{error}") from error
+        return AnnouncementDraft.empty()
+
+    def save_announcement_draft(self, draft: AnnouncementDraft) -> AnnouncementDraft:
+        """Persist editor state and atomically enable or disable hub publication."""
+        if draft.enabled:
+            draft = draft.validate()
+        self._atomic_json(self.announcement_draft_path, draft.to_draft_dict())
+        if draft.enabled:
+            self._atomic_json(
+                self.announcement_path,
+                draft.to_announcement_dict(),
+            )
+        else:
+            self.announcement_path.unlink(missing_ok=True)
+        return draft
+
+    def announcement_status(self) -> str:
+        if self.announcement_path.is_file():
+            try:
+                draft = self.load_announcement_draft()
+                return f"已启用：{draft.title}"
+            except AnnouncementValidationError:
+                return "配置异常"
+        if self.announcement_draft_path.is_file():
+            return "草稿已停用"
+        return "未配置"
 
     def scan_sources(self, profile: GameProfile) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
         game_dir = self.game_dir(profile.game_id)
@@ -829,7 +894,7 @@ class PublisherWorkspace:
         profiles = self.list_games()
         if not profiles:
             raise WorkspaceError("没有可导出的游戏卡带")
-        announcement = self.root / "announcement.json"
+        announcement = self.announcement_path
         freshness = {
             profile.game_id: self.refresh_resource_freshness(profile).to_client_dict()
             for profile in profiles
@@ -841,6 +906,40 @@ class PublisherWorkspace:
             announcement_path=announcement if announcement.is_file() else None,
             freshness_by_game=freshness,
         )
+
+    @staticmethod
+    def hub_release_profile() -> GameProfile:
+        """Return the synthetic cartridge used to persist the shared hub Release.
+
+        The hub is not a playable game, but the remote synchroniser only needs
+        a stable identity, display name, and Release tag.  Keeping this identity
+        separate prevents one game's publish state from being reused for the
+        cross-game cartridge catalogue.
+        """
+        return GameProfile(
+            game_id="hub",
+            display_name="客户端卡带中心",
+            release_tag=HUB_RELEASE_TAG,
+            appinfo_name="hub_appinfo.json",
+        )
+
+    def hub_publish_assets(
+        self, *, default_game_id: str | None = None
+    ) -> tuple[PublishAsset, ...]:
+        """Regenerate and snapshot the complete client cartridge hub."""
+        written = self.export_client_hub(default_game_id=default_game_id)
+        assets: list[PublishAsset] = []
+        for path in sorted(written, key=lambda item: item.name.casefold()):
+            stat = path.stat()
+            assets.append(
+                PublishAsset(
+                    path=path,
+                    name=path.name,
+                    size_bytes=stat.st_size,
+                    sha256=self._verified_file_sha256(path),
+                )
+            )
+        return tuple(assets)
 
     def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id

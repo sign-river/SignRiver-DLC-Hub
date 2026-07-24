@@ -48,6 +48,22 @@ def test_initializes_stellaris_workspace(tmp_path: Path) -> None:
     assert (workspace.game_dir("stellaris") / "patches").is_dir()
 
 
+def test_initialize_migrates_legacy_rimworld_patch_directory(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    path = workspace.game_dir("rimworld") / "game.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["patch_relative_dir"] = "."
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    workspace.initialize()
+
+    rimworld = next(
+        profile for profile in workspace.list_games() if profile.game_id == "rimworld"
+    )
+    assert rimworld.patch_relative_dir == "RimWorldWin64_Data/Plugins/x86_64"
+
+
 def test_large_release_archive_is_split_without_changing_bytes(tmp_path: Path) -> None:
     archive = tmp_path / "dlc001_large.zip"
     payload = bytes(range(256)) * 50

@@ -32,6 +32,30 @@ def test_acceptance_checklist_adds_mapping_case_only_to_mapping_cartridges(
     assert "dlc.mapped-directory-names" not in stellaris
     assert "recovery.safe-restore" in civilization
     assert "download.multipart" in stellaris
+    assert "download.source-switch" in stellaris
+    assert "download.never-timeout" in stellaris
+    assert "dlc.selection-after-refresh" in stellaris
+    assert "patch.final-integrity" in stellaris
+    assert "ui.remote-announcement" in stellaris
+
+
+def test_acceptance_checklist_adds_grouped_case_only_to_grouped_cartridges(
+    tmp_path: Path,
+) -> None:
+    workspace, manager = manager_for(tmp_path)
+
+    cities = {
+        case.case_id
+        for case in manager.cases_for(profile_by_id(workspace, "cities_skylines"))
+    }
+    civilization = {
+        case.case_id
+        for case in manager.cases_for(profile_by_id(workspace, "civilization_6"))
+    }
+
+    assert "dlc.grouped-directory-layout" in cities
+    assert "dlc.mapped-directory-names" in cities
+    assert "dlc.grouped-directory-layout" not in civilization
 
 
 def test_patch_failure_scenarios_cover_auto_and_manual_cases() -> None:
