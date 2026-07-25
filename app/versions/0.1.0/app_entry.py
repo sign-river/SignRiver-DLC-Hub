@@ -87,6 +87,7 @@ PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
 PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
+USAGE_TUTORIAL_URL = ""
 
 
 def _card(parent, **kwargs):
@@ -129,71 +130,21 @@ def _settings_description(
     return textbox
 
 
-class _OutlinedSwitch(ctk.CTkSwitch):
-    """CTk switch with a crisp ring around its white thumb."""
-
-    def __init__(
-        self,
-        *args,
-        thumb_color,
-        thumb_border_color,
-        thumb_border_width=2,
-        **kwargs,
-    ):
-        self._thumb_fill_color = thumb_color
-        self._thumb_ring_width = thumb_border_width
-        super().__init__(
-            *args,
-            button_length=0,
-            button_color=thumb_border_color,
-            button_hover_color=thumb_border_color,
-            **kwargs,
-        )
-
-    def _draw(self, no_color_updates=False):
-        super()._draw(no_color_updates)
-        if not self._canvas.find_withtag("outlined_thumb_fill"):
-            self._canvas.create_aa_circle(
-                0,
-                0,
-                0,
-                tags=("outlined_thumb_fill",),
-            )
-
-        width = self._apply_widget_scaling(self._switch_width)
-        height = self._apply_widget_scaling(self._switch_height)
-        ring_width = self._apply_widget_scaling(self._thumb_ring_width)
-        radius = max(1, round((height / 2) - ring_width))
-        center_x = (height / 2) + (width - height) * int(self._check_state)
-        self._canvas.coords(
-            "outlined_thumb_fill",
-            round(center_x),
-            round(height / 2),
-            radius,
-        )
-        self._canvas.itemconfig(
-            "outlined_thumb_fill",
-            fill=self._apply_appearance_mode(self._thumb_fill_color),
-        )
-        self._canvas.tag_raise("outlined_thumb_fill")
-
-
 def _blue_switch(parent, **kwargs):
-    """Blue-white pill switch shared by binary settings."""
-    return _OutlinedSwitch(
+    """Standard binary-setting switch with clear off and on states."""
+    return ctk.CTkSwitch(
         parent,
         width=154,
         height=30,
-        switch_width=48,
-        switch_height=26,
-        corner_radius=13,
+        switch_width=44,
+        switch_height=24,
+        corner_radius=12,
         border_width=1,
-        fg_color=UI["primary_surface"],
-        border_color=UI["primary"],
+        fg_color="#AEBECD",
+        border_color="#94A3B8",
         progress_color=UI["primary"],
-        thumb_color=UI["card"],
-        thumb_border_color=UI["primary"],
-        thumb_border_width=1,
+        button_color="#F8FAFC",
+        button_hover_color="#F8FAFC",
         text_color=UI["text_secondary"],
         font=ctk.CTkFont(size=13, weight="bold"),
         **kwargs,
@@ -598,11 +549,11 @@ class DlcHubApplication:
         sidebar.pack_propagate(False)
         self.sidebar = sidebar
         ctk.CTkLabel(
-            sidebar, text="唏嘘南溪DLC", text_color=UI["primary"],
+            sidebar, text="唏嘘南溪", text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold")
         ).pack(anchor="w", padx=18, pady=(30, 4))
         ctk.CTkLabel(
-            sidebar, text="一键解锁工具", text_color=UI["muted"],
+            sidebar, text="DLC一键解锁工具", text_color=UI["muted"],
             font=ctk.CTkFont(size=11, weight="bold"),
         ).pack(anchor="w", padx=19, pady=(0, 24))
         self.navigation_buttons = {}
@@ -633,62 +584,59 @@ class DlcHubApplication:
             container, fg_color=UI["brand"], corner_radius=14, height=104
         )
         topbar.pack(fill="x", pady=(0, 24))
-        title_group = ctk.CTkFrame(topbar, fg_color="transparent")
-        title_group.pack(side="left", padx=24, pady=20)
+        topbar.grid_columnconfigure(0, weight=1)
+        topbar.grid_columnconfigure(1, weight=0)
         ctk.CTkLabel(
-            title_group, text=PRODUCT_HEADER_TITLE_ZH,
+            topbar, text=PRODUCT_HEADER_TITLE_ZH,
+            anchor="w",
             text_color=UI["on_blue"],
             font=ctk.CTkFont(size=28, weight="bold"),
-        ).pack(anchor="w")
-        title_status_row = ctk.CTkFrame(title_group, fg_color="transparent")
-        title_status_row.pack(anchor="w", pady=(3, 0))
-        self.top_health = ctk.CTkLabel(
-            title_status_row,
-            text=f"{self.cartridge.adapter.descriptor.display_name} · 等待路径检测",
-            text_color="#E8F2FA", font=ctk.CTkFont(size=14),
-        )
-        self.top_health.pack(side="left")
-        ctk.CTkLabel(
-            title_status_row,
-            text="开源免费 · 付费购买请立即退款",
-            text_color=UI["on_blue"],
-            fg_color="#2F6FA9",
-            corner_radius=8,
-            height=22,
-            font=ctk.CTkFont(size=11, weight="bold"),
-        ).pack(side="left", padx=(10, 0))
+        ).grid(row=0, column=0, sticky="w", padx=(24, 18), pady=(12, 6))
         profile_group = ctk.CTkFrame(topbar, fg_color="transparent")
-        profile_group.pack(side="right", padx=22, pady=18)
-        author_group = ctk.CTkFrame(profile_group, fg_color="transparent")
-        author_group.pack(side="left", padx=(0, 12))
-        ctk.CTkLabel(
-            author_group, text=AUTHOR_EN, text_color=UI["on_blue"],
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(anchor="e")
-        ctk.CTkLabel(
-            author_group, text=AUTHOR_CN, text_color="#E8F2FA",
-            font=ctk.CTkFont(size=16, weight="bold"),
-        ).pack(anchor="e")
+        profile_group.grid(row=0, column=1, sticky="e", padx=(18, 22), pady=(12, 6))
         ctk.CTkButton(
-            profile_group, text="GitHub", width=68,
+            profile_group, text="GitHub", width=68, height=34,
             command=lambda: self._open_external_link(
                 "https://github.com/sign-river/SignRiver-DLC-Hub"
             ),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            profile_group, text="资源仓库", width=78,
-            command=self._open_resource_repository,
-        ).pack(side="left", padx=3)
-        ctk.CTkButton(
-            profile_group, text="B站", width=52,
+            profile_group, text="B站", width=52, height=34,
             command=lambda: self._open_external_link(
                 "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
             ),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            profile_group, text="QQ群 1061299021", width=118,
+            profile_group, text="使用教程", width=78, height=34,
+            command=self._open_usage_tutorial,
+        ).pack(side="left", padx=3)
+        ctk.CTkButton(
+            profile_group, text="QQ群 1061299021", width=132, height=34,
             command=self._copy_qq_group,
         ).pack(side="left", padx=(3, 0))
+        status_band = ctk.CTkFrame(
+            topbar, fg_color=UI["brand"], corner_radius=7, height=26
+        )
+        status_band.grid(
+            row=1, column=0, columnspan=2, sticky="ew",
+            padx=(24, 22), pady=(0, 12),
+        )
+        status_band.grid_columnconfigure(0, weight=1)
+        status_band.grid_propagate(False)
+        self.top_health = ctk.CTkLabel(
+            status_band,
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 等待路径检测",
+            anchor="w",
+            text_color="#E8F2FA", font=ctk.CTkFont(size=14),
+        )
+        self.top_health.grid(row=0, column=0, sticky="w", padx=(0, 18))
+        ctk.CTkLabel(
+            status_band,
+            text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款",
+            anchor="e",
+            text_color="#DCECF8",
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).grid(row=0, column=1, sticky="e", padx=(18, 12))
 
         self.page_host = ctk.CTkFrame(container, fg_color=UI["page"], corner_radius=0)
         self.page_host.pack(fill="both", expand=True)
@@ -706,7 +654,7 @@ class DlcHubApplication:
         selector_row.pack(fill="x", padx=24, pady=(0, 2))
         ctk.CTkLabel(selector_row, text="当前游戏").pack(side="left")
         self.game_selector = _combo_box(
-            selector_row, values=list(self.supported_games), width=190,
+            selector_row, values=list(self.supported_games), width=220,
             command=self._select_game,
         )
         self.game_selector.set(self.selected_game_name)
@@ -1040,9 +988,20 @@ class DlcHubApplication:
                     "两边的 Release 标签与资源文件名保持一致。切换后会重新读取"
                     "游戏列表与当前游戏目录。"
                 ),
-                pady=(0, 18),
+                pady=(0, 8),
             )
         )
+        self.resource_repository_link = ctk.CTkLabel(
+            source_card,
+            text="资源仓库（当前下载源）",
+            text_color=UI["primary"],
+            cursor="hand2",
+            font=ctk.CTkFont(size=13, underline=True),
+        )
+        self.resource_repository_link.bind(
+            "<Button-1>", lambda _event: self._open_resource_repository()
+        )
+        self.resource_repository_link.pack(anchor="w", padx=24, pady=(0, 18))
 
         cache_card = _card(settings_list)
         self.cache_card = cache_card
@@ -1627,6 +1586,12 @@ class DlcHubApplication:
             )
             return
         webbrowser.open(url)
+
+    def _open_usage_tutorial(self) -> None:
+        if USAGE_TUTORIAL_URL:
+            self._open_external_link(USAGE_TUTORIAL_URL)
+            return
+        self._notify("使用教程暂未发布")
 
     def _copy_qq_group(self) -> None:
         group_number = "1061299021"
@@ -6205,20 +6170,23 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
-                self.context.updates.install(release, progress)
-                self._post_ui(lambda: self._installed(release.version))
+                if release.kind == "full":
+                    self.context.updates.start_full_update(release, progress)
+                    self._post_ui(lambda: self._full_update_prepared(release.version))
+                else:
+                    self.context.updates.install(release, progress)
+                    self._post_ui(lambda: self._installed(release.version))
             except Exception as error:
-                # Full packages are intentionally handled as a browser download in v0.1.
-                if hasattr(error, "url"):
-                    self._post_ui(
-                        lambda error=error: self._open_full_update(error),
-                    )
-                    return
                 self.context.logger.exception("Update installation failed")
                 message = str(error)
                 self._post_ui(lambda message=message: self._show_error(message))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _full_update_prepared(self, version: str) -> None:
+        self.progress.set(1)
+        self.status.configure(text=f"v{version} 已准备，正在退出以替换启动器……")
+        self.window.after(700, self.context.exit_for_full_update)
 
     def _installed(self, version: str) -> None:
         self.progress.set(1)
@@ -6226,16 +6194,6 @@ class DlcHubApplication:
         if messagebox.askyesno("更新完成", "模块更新已安全安装，是否立即重启？", parent=self.window):
             self.context.restart()
         self.update_button.configure(state="normal")
-
-    def _open_full_update(self, error) -> None:
-        self.status.configure(text=f"v{error.version} 需要完整更新")
-        self.update_button.configure(state="normal")
-        if messagebox.askyesno(
-            "需要完整更新",
-            "该版本包含启动器变更，需要重新下载完整压缩包。是否打开下载页面？",
-            parent=self.window,
-        ):
-            webbrowser.open(error.url)
 
     def _show_error(self, message: str) -> None:
         self.status.configure(text="更新失败")

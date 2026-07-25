@@ -169,6 +169,19 @@ GitLink 更新 Release 时必须使用 `version_id`，不能使用列表中的�
 
 批量“发布到 GitLink”适合一次性发布当前构建结果；“远程资源”页面适合后续单独补充、替换或删除某个 DLC、补丁或 AppInfo 文件。
 
+## 全量启动器更新
+
+需要替换启动器 EXE 或运行时的 Release 使用 `kind: "full"`。完整包必须由
+`tools/build_release.py` 生成，其中的 `release-manifest.json` 仅列出可由更新器
+接管的文件及其 SHA-256；不得把 `data/`、`cache/`、`app/state.json` 或旧安装的
+`config/update.json` 放入清单。
+
+客户端先下载、校验并解压至同卷暂存目录，再由暂存启动器副本在主程序退出后逐个
+替换清单内文件。新启动器成功加载应用模块后确认事务；失败时会按备份反序恢复。
+用户覆盖配置读取顺序为 `data/config/update.json`、`config/update.json`、
+`config/defaults/update.json`，全量包只更新最后一项。发布前应验证完整包中
+`release-manifest.json` 存在且未列入这些保留路径。
+
 ## 删除说明
 
 资源页的删除只会删除当前发布工作区中的源文件，并会要求二次确认。它不会自动删除已经发布到 GitLink 的旧附件；远程附件需要在“远程资源”页面中单独删除。重新生成时，输出目录里不再属于当前游戏资源的旧文件会被清理。

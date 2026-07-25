@@ -40,6 +40,9 @@ class UpdateService:
     def install(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> str:
         return self._client.install(release, progress)
 
+    def start_full_update(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> str:
+        return self._client.start_full_update(release, progress).version
+
 
 @dataclass(frozen=True)
 class HostContext:
@@ -57,6 +60,10 @@ class HostContext:
             os._exit(0)
         launcher = self.paths.root / "launcher.py"
         os.execl(sys.executable, sys.executable, str(launcher))
+
+    def exit_for_full_update(self) -> None:
+        """Exit without spawning the current launcher again; the helper starts the new one."""
+        os._exit(0)
 
     @classmethod
     def create(

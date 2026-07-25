@@ -16,11 +16,18 @@ class UpdateSettings:
     allow_insecure_http: bool = False
 
     @classmethod
-    def load(cls, path: Path) -> "UpdateSettings":
-        if not path.exists():
-            return cls()
+    def load(
+        cls,
+        path: Path,
+        *,
+        defaults_path: Path | None = None,
+        user_path: Path | None = None,
+    ) -> "UpdateSettings":
         try:
-            value = read_json(path)
+            value: dict = {}
+            for candidate in (defaults_path, path, user_path):
+                if candidate is not None and candidate.exists():
+                    value.update(read_json(candidate))
             settings = cls(
                 manifest_url=value.get("manifest_url", ""),
                 channel=value.get("channel", "stable"),

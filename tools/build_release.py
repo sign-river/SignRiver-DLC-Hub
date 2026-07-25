@@ -5,6 +5,8 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -21,6 +23,33 @@ from signriver_launcher.product import (  # noqa: E402
 )
 
 VERSION = LAUNCHER_VERSION
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_release_manifest(release: Path, version: str = VERSION) -> Path:
+    """Write the ownership manifest consumed by the in-place full updater."""
+    protected = {Path("app/state.json"), Path("config/update.json")}
+    files = []
+    for path in sorted(release.rglob("*")):
+        if not path.is_file() or path.name == "release-manifest.json":
+            continue
+        relative = path.relative_to(release)
+        if relative in protected or relative.parts[0] in {"data", "cache"}:
+            continue
+        files.append({"path": relative.as_posix(), "size": path.stat().st_size, "sha256": _sha256(path)})
+    manifest = release / "release-manifest.json"
+    manifest.write_text(
+        json.dumps({"schema_version": 1, "version": version, "files": files}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
 
 
 def application_hidden_imports() -> list[str]:
@@ -231,6 +260,7 @@ def main() -> int:
         "文件夹可放到含中文的路径下；请保持本目录内的 app、config 完整。\n"
     )
     (release / "使用说明.txt").write_text(instructions, encoding="utf-8")
+    write_release_manifest(release)
 
     archive = dist / f"{RELEASE_ZIP_STEM}-v{VERSION}-windows-x64.zip"
     archive.unlink(missing_ok=True)

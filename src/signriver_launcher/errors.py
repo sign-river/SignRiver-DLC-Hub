@@ -32,3 +32,7 @@ class FullUpdateRequired(SignRiverError):
         self.version = version
         self.url = url
         self.notes = notes
+
+
+class FullUpdateError(SignRiverError):
+    pass

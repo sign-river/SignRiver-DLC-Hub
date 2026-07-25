@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -22,6 +24,7 @@ from .constants import (
     MAX_MANIFEST_BYTES,
 )
 from .errors import DownloadError, FullUpdateRequired, IntegrityError, ManifestError, PackageError
+from .full_update import FullUpdateManager, FullUpdateTransaction
 from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest
 from .net_errors import describe_network_error
@@ -96,13 +99,41 @@ class UpdateClient:
         progress: ProgressCallback | None = None,
     ) -> str:
         if release.kind == "full":
-            raise FullUpdateRequired(release.version, release.package_url, release.notes)
+            return self.prepare_full_update(release, progress).version
         archive = self.download(release, progress)
         try:
             self.install_archive(archive, release)
         finally:
             archive.unlink(missing_ok=True)
         return release.version
+
+    def prepare_full_update(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+    ) -> FullUpdateTransaction:
+        if release.kind != "full":
+            raise PackageError("only full releases can be prepared for in-place replacement")
+        archive = self.download(release, progress)
+        try:
+            return FullUpdateManager(self.paths).prepare(archive, release)
+        finally:
+            archive.unlink(missing_ok=True)
+
+    def start_full_update(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+    ) -> FullUpdateTransaction:
+        transaction = self.prepare_full_update(release, progress)
+        helper = Path(transaction.staging_path) / "full-update-helper.exe"
+        if getattr(sys, "frozen", False):
+            shutil.copy2(sys.executable, helper)
+            command = [str(helper), "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
+        else:
+            command = [sys.executable, "-m", "signriver_launcher.main", "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
+        subprocess.Popen(command, cwd=self.paths.root)
+        return transaction
 
     def download(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> Path:
         url = self._resolve_url(release.package_url)

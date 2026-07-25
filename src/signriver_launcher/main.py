@@ -14,6 +14,8 @@ from .paths import RuntimePaths
 from .state import StateStore
 from .updater import UpdateClient
 from .versioning import Version
+from .full_update import FullUpdateManager
+from .full_update_helper import apply_full_update
 
 
 def _configure_logging(log_dir: Path) -> logging.Logger:
@@ -63,7 +65,18 @@ def _show_fatal_error(message: str) -> None:
         print(message, file=sys.stderr)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--apply-full-update":
+        if len(argv) != 4:
+            return 2
+        apply_full_update(Path(argv[1]), argv[2], int(argv[3]))
+        return 0
+    confirm_transaction = None
+    if argv and argv[0] == "--confirm-full-update":
+        if len(argv) != 2:
+            return 2
+        confirm_transaction = argv[1]
     if sys.platform == "win32":
         try:
             import ctypes
@@ -79,7 +92,12 @@ def main() -> int:
     store = StateStore(paths.state_file)
     try:
         _bootstrap_state(paths, store)
-        settings = UpdateSettings.load(paths.update_config_file)
+        FullUpdateManager(paths).recover_pending()
+        settings = UpdateSettings.load(
+            paths.update_config_file,
+            defaults_path=paths.update_defaults_config_file,
+            user_path=paths.user_update_config_file,
+        )
         updater = UpdateClient(paths, settings, store)
         loader = ModuleLoader(paths.versions_dir)
 
@@ -95,7 +113,11 @@ def main() -> int:
             )
             application = loader.create_application(state.active_version, context)
             store.mark_healthy(state.active_version)
+            if confirm_transaction:
+                FullUpdateManager(paths).confirm(confirm_transaction)
         except ModuleLoadError:
+            if confirm_transaction:
+                FullUpdateManager(paths).rollback(confirm_transaction)
             if state.pending_version != state.active_version:
                 raise
             logger.exception("New module failed during initialization; rolling back")

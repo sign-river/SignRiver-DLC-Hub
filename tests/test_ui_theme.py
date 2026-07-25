@@ -77,18 +77,21 @@ def test_game_selector_has_visible_border_and_home_uses_github() -> None:
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
-    assert 'text="开源免费 · 付费购买请立即退款"' in source
-    assert 'fg_color="#2F6FA9"' in source
-    assert 'title_status_row.pack(anchor="w", pady=(3, 0))' in source
+    assert '开源免费 · 付费购买请立即退款"' in source
+    assert 'self.top_health.grid(row=0, column=0, sticky="w", padx=(0, 18))' in source
     assert "PRODUCT_TITLE_ZH" in source
     assert 'self.window.title(PRODUCT_TITLE_ZH)' in source
     assert 'PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"' in source
     assert 'text=PRODUCT_HEADER_TITLE_ZH' in source
-    assert 'text=AUTHOR_EN' in source
-    assert 'text=AUTHOR_CN' in source
+    assert 'text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款"' in source
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
-    assert 'text="唏嘘南溪DLC"' in source
-    assert 'text="一键解锁工具"' in source
+    assert 'USAGE_TUTORIAL_URL = ""' in source
+    assert 'profile_group, text="使用教程", width=78,' in source
+    assert 'command=self._open_usage_tutorial' in source
+    assert 'text="资源仓库（当前下载源）"' in source
+    assert 'self.resource_repository_link = ctk.CTkLabel(' in source
+    assert 'text="唏嘘南溪"' in source
+    assert 'text="DLC一键解锁工具"' in source
     assert "def _apply_window_icon" in source
     assert "SetCurrentProcessExplicitAppUserModelID" in source
     assert "def _apply_native_windows_icons" in source
@@ -96,6 +99,24 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert "def _sync_help_wraplengths" in source
     assert "iconphoto(" not in source
     assert "app.ico" in source
+
+
+def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'status_band = ctk.CTkFrame(' in source
+    assert 'status_band.grid_columnconfigure(0, weight=1)' in source
+    assert 'status_band.grid_propagate(False)' in source
+    assert 'profile_group.grid(row=0, column=1, sticky="e"' in source
+    assert 'profile_group, text="QQ群 1061299021", width=132, height=34,' in source
+    assert 'text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款"' in source
+    topbar = source.split('profile_group = ctk.CTkFrame(topbar', 1)[1].split(
+        'self.page_host =', 1
+    )[0]
+    assert 'text="资源仓库"' not in topbar
+    assert topbar.index('text="GitHub"') < topbar.index('text="B站"')
+    assert topbar.index('text="B站"') < topbar.index('text="使用教程"')
+    assert topbar.index('text="使用教程"') < topbar.index('text="QQ群 1061299021"')
 
 
 def test_all_dropdowns_use_bordered_combo_box_factory() -> None:
@@ -396,8 +417,11 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert 'justify="left"' in source
     assert "spacing2=6" in source
     assert "def _blue_switch" in source
-    assert 'border_color=UI["primary"]' in source
-    assert "thumb_border_width=1" in source
+    assert "return ctk.CTkSwitch(" in source
+    assert 'fg_color="#AEBECD"' in source
+    assert 'button_color="#F8FAFC"' in source
+    assert 'progress_color=UI["primary"]' in source
+    assert "switch_width=44" in source
     assert "def _settings_header" in source
     assert 'uniform="settings-action"' in source
     assert "self.settings_list" in source

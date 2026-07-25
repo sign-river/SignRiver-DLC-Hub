@@ -36,12 +36,36 @@ class RuntimePaths:
         return self.root / "config" / "update.json"
 
     @property
+    def update_defaults_config_file(self) -> Path:
+        return self.root / "config" / "defaults" / "update.json"
+
+    @property
+    def user_update_config_file(self) -> Path:
+        return self.data_dir / "config" / "update.json"
+
+    @property
     def cache_dir(self) -> Path:
         return self.root / "cache"
 
     @property
     def data_dir(self) -> Path:
         return self.root / "data"
+
+    @property
+    def update_data_dir(self) -> Path:
+        return self.data_dir / "update"
+
+    @property
+    def full_update_staging_dir(self) -> Path:
+        return self.root / ".update-staging"
+
+    @property
+    def full_update_backup_dir(self) -> Path:
+        return self.root / ".update-backup"
+
+    @property
+    def update_cache_dir(self) -> Path:
+        return self.cache_dir / "updates"
 
     @property
     def log_dir(self) -> Path:
@@ -54,6 +78,11 @@ class RuntimePaths:
             self.cache_dir,
             self.data_dir,
             self.log_dir,
+            self.update_data_dir,
+            self.full_update_staging_dir,
+            self.full_update_backup_dir,
+            self.update_cache_dir,
             self.update_config_file.parent,
+            self.user_update_config_file.parent,
         ):
             directory.mkdir(parents=True, exist_ok=True)

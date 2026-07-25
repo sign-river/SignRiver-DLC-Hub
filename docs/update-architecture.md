@@ -27,12 +27,14 @@
 │       │   ├── app_entry.py
 │       │   └── ...
 │       └── 0.1.1/
-├── config/update.json          # 清单地址、通道和超时
+├── config/defaults/update.json # 出厂清单地址、通道和超时
 ├── cache/                      # 下载缓存，可删除
 └── data/                       # 用户设置、日志和长期数据
 ```
 
-`data/` 不属于任何模块更新包，更新和回滚都不会覆盖用户数据。
+`data/` 不属于任何模块更新包，更新和回滚都不会覆盖用户数据。更新设置按
+`data/config/update.json`（用户覆盖）→ `config/update.json`（旧安装兼容覆盖）→
+`config/defaults/update.json`（发行默认）的顺序读取；全量更新不会替换前两者。
 
 ## 模块接口
 
