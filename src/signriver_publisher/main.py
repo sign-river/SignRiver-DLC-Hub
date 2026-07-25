@@ -20,7 +20,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SignRiver DLC release publisher")
     parser.add_argument("--workspace", type=Path, default=default_workspace_path())
     arguments = parser.parse_args(argv)
-    settings = PublisherSettings.load(discover_settings_path())
-    application = PublisherApplication(PublisherWorkspace(arguments.workspace), settings=settings)
+    settings_path = discover_settings_path()
+    settings = PublisherSettings.load(settings_path)
+    application = PublisherApplication(
+        PublisherWorkspace(arguments.workspace),
+        settings=settings,
+        settings_path=settings_path,
+    )
     application.mainloop()
     return 0

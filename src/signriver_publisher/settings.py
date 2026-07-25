@@ -56,6 +56,54 @@ class PublisherSettings:
             publish_target=target,
         )
 
+    def with_active_values(
+        self, owner: str, repository: str, token: str
+    ) -> "PublisherSettings":
+        if self.publish_target == "github":
+            return PublisherSettings(
+                owner=self.owner,
+                repository=self.repository,
+                token=self.token,
+                github_owner=owner,
+                github_repository=repository,
+                github_token=token,
+                publish_target=self.publish_target,
+            )
+        return PublisherSettings(
+            owner=owner,
+            repository=repository,
+            token=token,
+            github_owner=self.github_owner,
+            github_repository=self.github_repository,
+            github_token=self.github_token,
+            publish_target=self.publish_target,
+        )
+
+    def save(self, path: Path) -> None:
+        payload = {
+            "publish_target": self.publish_target,
+            "gitlink": {
+                "owner": self.owner,
+                "repository": self.repository,
+                "token": self.token,
+            },
+            "github": {
+                "owner": self.github_owner,
+                "repository": self.github_repository,
+                "token": self.github_token,
+            },
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        except OSError as error:
+            raise PublisherSettingsError(f"无法保存发布器本地配置：{error}") from error
+
     @classmethod
     def load(cls, path: Path) -> "PublisherSettings":
         if not path.is_file():

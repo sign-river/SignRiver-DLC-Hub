@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -15,10 +18,19 @@ class GitHubPublisherError(RuntimeError):
     pass
 
 
+class GitHubUploadPaused(GitHubPublisherError):
+    """Raised when a streaming GitHub asset upload is paused by the user."""
+
+
 @dataclass(frozen=True, slots=True)
 class GitHubRepository:
     owner: str
     name: str
+
+    def __post_init__(self) -> None:
+        safe_name = re.compile(r"^[A-Za-z0-9_.-]+$")
+        if not safe_name.fullmatch(self.owner) or not safe_name.fullmatch(self.name):
+            raise GitHubPublisherError("GitHub 所有者和仓库名格式不正确")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +72,52 @@ class GitHubReleaseClient:
             raise
         return self._normalize(payload)
 
+    def repository_info(self) -> dict[str, object]:
+        url = (
+            f"{self.api_base}/repos/{quote(self.repository.owner, safe='')}/"
+            f"{quote(self.repository.name, safe='')}"
+        )
+        payload = self._request_json("GET", url)
+        if not isinstance(payload, dict):
+            raise GitHubPublisherError("GitHub 仓库响应无效")
+        return payload
+
+    def create_repository(self, description: str) -> GitHubRepository:
+        user = self._request_json("GET", f"{self.api_base}/user")
+        if not isinstance(user, dict) or not str(user.get("login") or "").strip():
+            raise GitHubPublisherError("无法确认 GitHub token 对应的账户")
+        login = str(user["login"]).strip()
+        if login.casefold() == self.repository.owner.casefold():
+            url = f"{self.api_base}/user/repos"
+        else:
+            url = (
+                f"{self.api_base}/orgs/"
+                f"{quote(self.repository.owner, safe='')}/repos"
+            )
+        payload = self._request_json(
+            "POST",
+            url,
+            body={
+                "name": self.repository.name,
+                "description": description,
+                "private": False,
+                "has_issues": False,
+                "has_projects": False,
+                "has_wiki": False,
+                "auto_init": True,
+            },
+        )
+        if not isinstance(payload, dict):
+            raise GitHubPublisherError("GitHub 创建仓库响应无效")
+        owner = payload.get("owner")
+        actual_owner = (
+            str(owner.get("login") or "").strip() if isinstance(owner, dict) else ""
+        )
+        actual_name = str(payload.get("name") or "").strip()
+        if not actual_owner or not actual_name:
+            raise GitHubPublisherError("GitHub 创建仓库后未返回仓库信息")
+        return GitHubRepository(actual_owner, actual_name)
+
     def ensure_release(self, tag: str, *, name: str | None = None) -> GitHubRelease:
         existing = self.get_release_by_tag(tag)
         if existing is not None:
@@ -68,17 +126,37 @@ class GitHubReleaseClient:
             f"{self.api_base}/repos/{self.repository.owner}/"
             f"{self.repository.name}/releases"
         )
-        payload = self._request_json(
-            "POST",
+        release_payload = {
+            "tag_name": tag,
+            "name": name or tag,
+            "draft": False,
+            "prerelease": False,
+        }
+        try:
+            payload = self._request_json("POST", url, body=release_payload)
+        except GitHubPublisherError as error:
+            if "Repository is empty" not in str(error):
+                raise
+            self._initialize_repository()
+            payload = self._request_json("POST", url, body=release_payload)
+        return self._normalize(payload)
+
+    def _initialize_repository(self) -> None:
+        url = (
+            f"{self.api_base}/repos/{quote(self.repository.owner, safe='')}/"
+            f"{quote(self.repository.name, safe='')}/contents/README.md"
+        )
+        content = base64.b64encode(
+            b"# SignRiver DLC release assets\n"
+        ).decode("ascii")
+        self._request_json(
+            "PUT",
             url,
             body={
-                "tag_name": tag,
-                "name": name or tag,
-                "draft": False,
-                "prerelease": False,
+                "message": "Initialize release repository",
+                "content": content,
             },
         )
-        return self._normalize(payload)
 
     def delete_asset(self, asset_id: int) -> None:
         url = (
@@ -94,6 +172,7 @@ class GitHubReleaseClient:
         *,
         replace_existing: bool = True,
         progress: Callable[[int, int], None] | None = None,
+        should_pause: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         path = Path(path)
         if replace_existing:
@@ -102,18 +181,17 @@ class GitHubReleaseClient:
                     self.delete_asset(int(asset["id"]))
         upload_base = release.upload_url.split("{", 1)[0]
         url = f"{upload_base}?name={quote(path.name)}"
-        data = path.read_bytes()
-        if progress is not None:
-            progress(0, len(data))
+        size = path.stat().st_size
+        body = _FileUploadBody(path, progress=progress, should_pause=should_pause)
         request = urllib.request.Request(
             url,
-            data=data,
+            data=body,
             method="POST",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/octet-stream",
-                "Content-Length": str(len(data)),
+                "Content-Length": str(size),
                 "User-Agent": "SignRiver-Publisher/0.1",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
@@ -121,6 +199,8 @@ class GitHubReleaseClient:
         try:
             with self._opener(request, timeout=120) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except GitHubUploadPaused:
+            raise
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
             raise GitHubPublisherError(
@@ -128,8 +208,6 @@ class GitHubReleaseClient:
             ) from error
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             raise GitHubPublisherError(f"GitHub 上传失败：{error}") from error
-        if progress is not None:
-            progress(len(data), len(data))
         if not isinstance(payload, dict):
             raise GitHubPublisherError("GitHub 上传返回了异常响应")
         return payload
@@ -164,7 +242,7 @@ class GitHubReleaseClient:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
-            with self._opener(request, timeout=60) as response:
+            with self._open_request(request, timeout=60) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
@@ -172,7 +250,9 @@ class GitHubReleaseClient:
                 f"GitHub API HTTP {error.code}: {detail}"
             ) from error
         except OSError as error:
-            raise GitHubPublisherError(f"GitHub API 请求失败：{error}") from error
+            raise GitHubPublisherError(
+                f"GitHub 连接失败，请检查网络或代理设置：{error}"
+            ) from error
         if not expect_json or not raw:
             return {}
         try:
@@ -180,10 +260,51 @@ class GitHubReleaseClient:
         except (UnicodeError, json.JSONDecodeError) as error:
             raise GitHubPublisherError(f"GitHub API 响应不是 JSON：{error}") from error
 
+    def _open_request(self, request, *, timeout: int):
+        for attempt in range(3):
+            try:
+                return self._opener(request, timeout=timeout)
+            except urllib.error.HTTPError:
+                raise
+            except (urllib.error.URLError, OSError) as error:
+                if attempt == 2:
+                    raise
+                time.sleep(1 << attempt)
+
+
+class _FileUploadBody:
+    """Iterable request body that reports real upload progress per chunk."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        progress: Callable[[int, int], None] | None,
+        should_pause: Callable[[], bool] | None,
+    ) -> None:
+        self.path = path
+        self.progress = progress
+        self.should_pause = should_pause
+        self.size = path.stat().st_size
+
+    def __iter__(self):
+        sent = 0
+        if self.progress is not None:
+            self.progress(sent, self.size)
+        with self.path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                if self.should_pause is not None and self.should_pause():
+                    raise GitHubUploadPaused(f"发布已暂停：{self.path.name}")
+                yield chunk
+                sent += len(chunk)
+                if self.progress is not None:
+                    self.progress(sent, self.size)
+
 
 __all__ = [
     "GitHubPublisherError",
     "GitHubRelease",
     "GitHubReleaseClient",
     "GitHubRepository",
+    "GitHubUploadPaused",
 ]

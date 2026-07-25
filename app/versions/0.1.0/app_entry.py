@@ -101,33 +101,19 @@ def _card(parent, **kwargs):
     )
 
 
-def _settings_description(
-    parent, text: str, *, height: int = 56, **pack_kwargs
-):
-    """Read-only card copy with real word-wrap and comfortable line spacing."""
-    textbox = ctk.CTkTextbox(
+def _settings_description(parent, text: str, **pack_kwargs):
+    """Compact, read-only settings copy that expands only when it wraps."""
+    label = ctk.CTkLabel(
         parent,
-        height=height,
-        fg_color="transparent",
-        border_width=0,
-        border_spacing=0,
+        text=text,
         text_color=UI["text_secondary"],
         font=ctk.CTkFont(size=13),
-        wrap="word",
-        activate_scrollbars=False,
-    )
-    textbox.insert("1.0", text)
-    textbox.tag_add("description", "1.0", "end")
-    textbox.tag_config(
-        "description",
+        anchor="w",
         justify="left",
-        spacing1=3,
-        spacing2=6,
-        spacing3=3,
+        wraplength=760,
     )
-    textbox.configure(state="disabled")
-    textbox.pack(fill="x", padx=20, **pack_kwargs)
-    return textbox
+    label.pack(fill="x", padx=24, **pack_kwargs)
+    return label
 
 
 def _blue_switch(parent, **kwargs):
@@ -188,6 +174,30 @@ def _combo_box(parent, *, values, width, command=None):
     if command is not None:
         options["command"] = command
     return ctk.CTkComboBox(parent, **options)
+
+
+class _InlineCatalogStatus:
+    """Appends transient catalog feedback to the resource freshness line."""
+
+    def __init__(self, label, freshness_text: str) -> None:
+        self._label = label
+        self._freshness_text = freshness_text
+        self._message = ""
+
+    def configure(self, **kwargs) -> None:
+        if "text" in kwargs:
+            self._message = kwargs["text"]
+        self._render()
+
+    def set_freshness_text(self, text: str) -> None:
+        self._freshness_text = text
+        self._render()
+
+    def _render(self) -> None:
+        text = self._freshness_text
+        if self._message:
+            text = f"{text} · {self._message}"
+        self._label.configure(text=text, text_color=UI["muted"])
 
 
 class DlcHubApplication:
@@ -411,6 +421,9 @@ class DlcHubApplication:
         except Exception:
             self.context.logger.exception("Unable to initialize game discovery")
         self._build_ui()
+        self.main_window_origin = self._center_on_desktop(
+            self.window, width=1120, height=840,
+        )
         self.window.protocol("WM_DELETE_WINDOW", self._close)
         self.window.after(50, self._drain_ui_events)
         self._show_recovered_downloads()
@@ -421,6 +434,26 @@ class DlcHubApplication:
         self.window.after(500, self._refresh_catalog)
         if self.context.updates.enabled and self.context.updates.check_on_startup:
             self.window.after(800, self._check_update)
+
+    @staticmethod
+    def _center_on_desktop(
+        window, *, parent_bounds=None, width=None, height=None,
+    ) -> tuple[int, int]:
+        """Position a window once its requested layout dimensions are available."""
+        window.update_idletasks()
+        width = width or window.winfo_width()
+        height = height or window.winfo_height()
+        if parent_bounds is not None:
+            parent_left, parent_top, parent_width, parent_height = parent_bounds
+            left = parent_left + (parent_width - width) // 2
+            top = parent_top + (parent_height - height) // 2
+        else:
+            desktop_width = window.winfo_screenwidth()
+            desktop_height = window.winfo_screenheight()
+            left = (desktop_width - width) // 2
+            top = (desktop_height - height) // 2
+        window.geometry(f"{width}x{height}{left:+d}{top:+d}")
+        return left, top
 
     @staticmethod
     def _configure_windows_app_identity() -> None:
@@ -581,7 +614,7 @@ class DlcHubApplication:
         self.content_container = container
 
         topbar = ctk.CTkFrame(
-            container, fg_color=UI["brand"], corner_radius=14, height=104
+            container, fg_color=UI["brand"], corner_radius=14, height=200
         )
         topbar.pack(fill="x", pady=(0, 24))
         topbar.grid_columnconfigure(0, weight=1)
@@ -590,36 +623,36 @@ class DlcHubApplication:
             topbar, text=PRODUCT_HEADER_TITLE_ZH,
             anchor="w",
             text_color=UI["on_blue"],
-            font=ctk.CTkFont(size=28, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=(24, 18), pady=(12, 6))
+            font=ctk.CTkFont(size=32, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=(24, 18), pady=(22, 10))
         profile_group = ctk.CTkFrame(topbar, fg_color="transparent")
-        profile_group.grid(row=0, column=1, sticky="e", padx=(18, 22), pady=(12, 6))
+        profile_group.grid(row=0, column=1, sticky="e", padx=(18, 22), pady=(22, 10))
         ctk.CTkButton(
-            profile_group, text="GitHub", width=68, height=34,
+            profile_group, text="GitHub", width=68, height=42,
             command=lambda: self._open_external_link(
                 "https://github.com/sign-river/SignRiver-DLC-Hub"
             ),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            profile_group, text="B站", width=52, height=34,
+            profile_group, text="B站", width=52, height=42,
             command=lambda: self._open_external_link(
                 "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
             ),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            profile_group, text="使用教程", width=78, height=34,
+            profile_group, text="使用教程", width=78, height=42,
             command=self._open_usage_tutorial,
         ).pack(side="left", padx=3)
         ctk.CTkButton(
-            profile_group, text="QQ群 1061299021", width=132, height=34,
+            profile_group, text="QQ群 1061299021", width=132, height=42,
             command=self._copy_qq_group,
         ).pack(side="left", padx=(3, 0))
         status_band = ctk.CTkFrame(
-            topbar, fg_color=UI["brand"], corner_radius=7, height=26
+            topbar, fg_color=UI["brand"], corner_radius=7, height=32
         )
         status_band.grid(
             row=1, column=0, columnspan=2, sticky="ew",
-            padx=(24, 22), pady=(0, 12),
+            padx=(24, 22), pady=(0, 20),
         )
         status_band.grid_columnconfigure(0, weight=1)
         status_band.grid_propagate(False)
@@ -627,7 +660,7 @@ class DlcHubApplication:
             status_band,
             text=f"{self.cartridge.adapter.descriptor.display_name} · 等待路径检测",
             anchor="w",
-            text_color="#E8F2FA", font=ctk.CTkFont(size=14),
+            text_color="#E8F2FA", font=ctk.CTkFont(size=16),
         )
         self.top_health.grid(row=0, column=0, sticky="w", padx=(0, 18))
         ctk.CTkLabel(
@@ -635,7 +668,7 @@ class DlcHubApplication:
             text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款",
             anchor="e",
             text_color="#DCECF8",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
         ).grid(row=0, column=1, sticky="e", padx=(18, 12))
 
         self.page_host = ctk.CTkFrame(container, fg_color=UI["page"], corner_radius=0)
@@ -757,13 +790,10 @@ class DlcHubApplication:
             wraplength=760,
         )
         self.catalog_freshness.pack(fill="x", padx=24, pady=(2, 0))
-        self.catalog_preview = ctk.CTkLabel(
-            catalog_card,
-            text="下载和安装功能尚未启用",
-            anchor="w",
-            text_color=UI["muted"],
+        self.catalog_preview = _InlineCatalogStatus(
+            self.catalog_freshness,
+            self._freshness_status_text(),
         )
-        self.catalog_preview.pack(fill="x", padx=24, pady=(2, 16))
         catalog_command_bar = ctk.CTkFrame(
             catalog_card,
             fg_color=UI["panel"],
@@ -905,8 +935,7 @@ class DlcHubApplication:
         self.settings_description_boxes = [
             _settings_description(
                 speed_test_card,
-                "从当前下载源拉取测试文件，结果仅用于判断当前网络状况，不会保留测速文件。",
-                height=44,
+                "从当前下载源下载一小段测试文件，看看当前网络是否适合下载；测速文件不会保留。",
             )
         ]
         self.speed_test_status = ctk.CTkLabel(
@@ -933,9 +962,8 @@ class DlcHubApplication:
             _settings_description(
                 resilience_card,
                 (
-                    "默认关闭。开启后，资源下载可在网络长时间卡顿时继续等待；"
-                    "主动断网或服务器拒绝连接仍会按正常重试规则处理。连接完全卡住时，"
-                    "暂停或取消也可能要等网络恢复后才会生效。"
+                    "默认开启超时检测。网络较慢或使用代理时，可以打开“关闭超时检测”，"
+                    "让下载继续等待；网络完全断开时仍可手动取消。"
                 ),
                 pady=(0, 18),
             )
@@ -960,8 +988,8 @@ class DlcHubApplication:
             _settings_description(
                 announcement_card,
                 (
-                    "启动时自动读取远程公告。开启后，当前公告关闭后不再弹出；"
-                    "远程更换公告 id 后会再次显示。也可在公告窗口中一键开启。"
+                    "启动时会显示最新公告。打开开关后，同一条公告不再重复弹出；"
+                    "有新公告时仍会显示。"
                 ),
                 pady=(0, 18),
             )
@@ -984,9 +1012,8 @@ class DlcHubApplication:
             _settings_description(
                 source_card,
                 (
-                    "默认使用 GitLink。若当前线路不稳定，可切换到 GitHub；"
-                    "两边的 Release 标签与资源文件名保持一致。切换后会重新读取"
-                    "游戏列表与当前游戏目录。"
+                    "国内用户建议使用 GitLink；海外用户建议使用 GitHub。"
+                    "国内用户使用代理时，也可以选择 GitHub。切换后会重新加载资源。"
                 ),
                 pady=(0, 8),
             )
@@ -1020,8 +1047,8 @@ class DlcHubApplication:
             _settings_description(
                 cache_card,
                 (
-                    "packages 保存已校验资源（哈希目录名用于防止串包）；downloads 保存下载半包；"
-                    "quarantine 隔离坏包。请使用“分析并清理”，无需手动进入这些目录。"
+                    "缓存会保存已下载的资源和未完成下载，方便继续下载。"
+                    "需要释放空间时，使用“分析并清理”即可，不必手动删除文件。"
                 ),
             )
         )
@@ -1041,11 +1068,9 @@ class DlcHubApplication:
             _settings_description(
                 update_card,
                 (
-                    f"应用模块 v{self.context.app_version}  ·  "
-                    f"启动器 v{self.context.launcher_version}  ·  "
-                    f"API {self.context.api_version}"
+                    "显示当前程序版本。点击“检查更新”可获取新版本；"
+                    "更新不会删除游戏、DLC 或下载缓存。"
                 ),
-                height=44,
             )
         )
         self.progress = ctk.CTkProgressBar(update_card, mode="determinate")
@@ -1188,6 +1213,9 @@ class DlcHubApplication:
             widget = getattr(self, name, None)
             if widget is None:
                 continue
+            parent = getattr(widget, "master", None) or self.window
+            widget.configure(wraplength=self._content_wraplength_for(parent))
+        for widget in self.settings_description_boxes:
             parent = getattr(widget, "master", None) or self.window
             widget.configure(wraplength=self._content_wraplength_for(parent))
 
@@ -2376,6 +2404,13 @@ class DlcHubApplication:
             command=self._close_announcement_dialog,
         ).pack(side="right")
 
+        main_left, main_top = self.main_window_origin
+        self._center_on_desktop(
+            dialog,
+            parent_bounds=(main_left, main_top, 1120, 840),
+            width=560,
+            height=420,
+        )
         dialog.after(50, dialog.lift)
         dialog.after(80, dialog.focus_force)
 
@@ -2657,7 +2692,10 @@ class DlcHubApplication:
         if not hasattr(self, "catalog_freshness"):
             return
         text = self._freshness_status_text(catalog_count=catalog_count)
-        self.catalog_freshness.configure(text=text, text_color=UI["muted"])
+        if hasattr(self, "catalog_preview"):
+            self.catalog_preview.set_freshness_text(text)
+        else:
+            self.catalog_freshness.configure(text=text, text_color=UI["muted"])
 
     def _refresh_catalog(self) -> None:
         generation = self.game_selection_generation
@@ -2745,9 +2783,7 @@ class DlcHubApplication:
                 text="补丁资源缺失，一键解锁工具暂不可用；请稍后刷新目录"
             )
         else:
-            self.catalog_preview.configure(
-                text="勾选需要的 DLC 后点击一键解锁工具：先打补丁，再逐个下载并安装"
-            )
+            self.catalog_preview.configure(text="")
         self._render_catalog_rows()
         self._reconcile_catalog_cache()
         self._schedule_ready_installs()

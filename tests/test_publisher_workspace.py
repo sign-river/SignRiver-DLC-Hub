@@ -1051,6 +1051,24 @@ def test_publisher_settings_loads_private_config(tmp_path: Path) -> None:
     assert settings == PublisherSettings("owner", "assets", "local-secret")
 
 
+def test_publisher_settings_saves_active_github_values(tmp_path: Path) -> None:
+    path = tmp_path / "publisher.local.json"
+    settings = PublisherSettings().with_publish_target("github").with_active_values(
+        "sign-river", "release-assets", "github-secret"
+    )
+
+    settings.save(path)
+
+    assert PublisherSettings.load(path) == settings
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["publish_target"] == "github"
+    assert payload["github"] == {
+        "owner": "sign-river",
+        "repository": "release-assets",
+        "token": "github-secret",
+    }
+
+
 def test_settings_path_honors_environment_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "private.json"
     monkeypatch.setenv("SIGNRIVER_PUBLISHER_CONFIG", str(path))

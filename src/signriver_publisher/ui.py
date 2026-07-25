@@ -24,7 +24,12 @@ from .acceptance import (
     AcceptanceSession,
     PreparationPreview,
 )
-from .github import GitHubPublisherError, GitHubReleaseClient, GitHubRepository
+from .github import (
+    GitHubPublisherError,
+    GitHubReleaseClient,
+    GitHubRepository,
+    GitHubUploadPaused,
+)
 from .gitlink import (
     GitLinkAttachmentClient,
     GitLinkCli,
@@ -35,7 +40,7 @@ from .gitlink import (
 )
 from .models import GameProfile, PublishAsset
 from .remote import RemoteAsset, RemoteBulkDeleteResult, RemoteRelease, RemoteResourceManager
-from .settings import PublisherSettings
+from .settings import PublisherSettings, PublisherSettingsError
 from .workspace import PublisherWorkspace, WorkspaceError
 
 LOGGER = logging.getLogger(__name__)
@@ -77,10 +82,12 @@ class PublisherApplication(ctk.CTk):
         workspace: PublisherWorkspace,
         *,
         settings: PublisherSettings | None = None,
+        settings_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.workspace = workspace
         self.settings = settings or PublisherSettings()
+        self.settings_path = settings_path
         self.profile = workspace.initialize()
         self.acceptance = AcceptanceManager(workspace)
         self._acceptance_generation = 0
@@ -111,6 +118,7 @@ class PublisherApplication(ctk.CTk):
         # the middle of a ZIP, state-file write, or attachment upload.
         self._background_mutations: dict[str, str] = {}
         self._upload_control: UploadControl | None = None
+        self._github_publish_resume_context = None
         self._publish_resume_context: (
             tuple[GitLinkRepository, GameProfile, tuple[PublishAsset, ...], str | None]
             | None
@@ -125,6 +133,7 @@ class PublisherApplication(ctk.CTk):
         self.configure(fg_color=PAGE)
         ctk.set_appearance_mode("light")
         self._build_ui()
+        self._sync_publish_target_controls()
         self.protocol("WM_DELETE_WINDOW", self._close_publisher)
         self.after(40, self._drain_ui_events)
         self.refresh()
@@ -401,7 +410,7 @@ class PublisherApplication(ctk.CTk):
         )
         self.freshness_summary.grid(row=2, column=0, padx=22, pady=(0, 14), sticky="ew")
 
-        remote = self._card(self.build_tab, 1, "GitLink 新仓库")
+        remote = self._card(self.build_tab, 1, "发布仓库")
         remote.grid_rowconfigure(4, weight=1)
         settings = ctk.CTkFrame(remote, fg_color="transparent")
         settings.grid(row=1, column=0, padx=20, sticky="ew")
@@ -430,19 +439,20 @@ class PublisherApplication(ctk.CTk):
         buttons.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
         self.check_gitlink_button = ctk.CTkButton(
             buttons,
-            text="检查登录与仓库",
+            text="检查仓库",
             width=160,
             fg_color=LIGHT_BLUE,
             command=self.check_gitlink,
         )
         self.check_gitlink_button.pack(side="left", padx=4)
-        ctk.CTkButton(
+        self.create_repository_button = ctk.CTkButton(
             buttons,
             text="创建新仓库",
             width=140,
             fg_color=LIGHT_BLUE,
             command=self.create_repository,
-        ).pack(side="left", padx=4)
+        )
+        self.create_repository_button.pack(side="left", padx=4)
         self.adopt_remote_button = ctk.CTkButton(
             buttons,
             text="采用远程附件",
@@ -463,12 +473,14 @@ class PublisherApplication(ctk.CTk):
             buttons,
             width=230,
             show="●",
-            placeholder_text="GitLink 私有令牌",
+            placeholder_text="发布令牌",
             border_color="#BDBDBD",
         )
         self.token_entry.pack(side="right", padx=4)
         if self.settings.active_token:
             self.token_entry.insert(0, self.settings.active_token)
+        for entry in (self.owner_entry, self.repo_entry, self.token_entry):
+            entry.bind("<FocusOut>", lambda _event: self._save_active_settings())
         transfer = ctk.CTkFrame(remote, fg_color="transparent")
         transfer.grid(row=3, column=0, padx=22, pady=(0, 10), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
@@ -570,12 +582,13 @@ class PublisherApplication(ctk.CTk):
             font=("Microsoft YaHei UI", 19, "bold"),
             text_color=BLUE,
         ).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
-        ctk.CTkLabel(
+        self.remote_asset_title = ctk.CTkLabel(
             remote_card,
             text="GitLink Release 附件",
             font=("Microsoft YaHei UI", 19, "bold"),
             text_color=BLUE,
-        ).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
+        )
+        self.remote_asset_title.grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
         self.local_output_list = ctk.CTkScrollableFrame(
             local_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
         )
@@ -2638,6 +2651,23 @@ class PublisherApplication(ctk.CTk):
     def refresh_remote_resources(self) -> None:
         if not self._begin_remote_operation("正在读取远程资源…"):
             return
+        if self._publish_target() == "github":
+            try:
+                client = self._github_repository_client()
+                profile = self.profile
+            except GitHubPublisherError as error:
+                self._remote_failed(str(error))
+                return
+
+            def github_work() -> None:
+                try:
+                    release = self._github_remote_release(client, profile)
+                    self._post_ui(lambda: self._remote_loaded(profile, release))
+                except Exception as error:
+                    self._post_ui(lambda value=str(error): self._remote_failed(value))
+
+            threading.Thread(target=github_work, daemon=True).start()
+            return
         try:
             manager, profile = self._remote_manager()
         except (GitLinkError, OSError) as error:
@@ -2671,6 +2701,29 @@ class PublisherApplication(ctk.CTk):
             return
         if not self._begin_remote_operation(f"正在上传 {path.name}…"):
             return
+        if self._publish_target() == "github":
+            try:
+                client = self._github_repository_client()
+                profile = self.profile
+            except GitHubPublisherError as error:
+                self._remote_failed(str(error))
+                return
+
+            def github_work() -> None:
+                try:
+                    release = client.ensure_release(profile.release_tag)
+                    client.upload_asset(release, path, replace_existing=True)
+                    updated = self._github_remote_release(client, profile)
+                    self._post_ui(
+                        lambda: self._remote_mutation_done(
+                            profile, "上传", path.name, (), updated
+                        )
+                    )
+                except Exception as error:
+                    self._post_ui(lambda value=str(error): self._remote_failed(value))
+
+            threading.Thread(target=github_work, daemon=True).start()
+            return
         try:
             manager, profile = self._remote_manager()
         except (GitLinkError, OSError) as error:
@@ -2703,6 +2756,28 @@ class PublisherApplication(ctk.CTk):
         ):
             return
         if not self._begin_remote_operation(f"正在删除 {asset.name}…"):
+            return
+        if self._publish_target() == "github":
+            try:
+                client = self._github_repository_client()
+                profile = self.profile
+            except GitHubPublisherError as error:
+                self._remote_failed(str(error))
+                return
+
+            def github_work() -> None:
+                try:
+                    client.delete_asset(int(asset.asset_id))
+                    updated = self._github_remote_release(client, profile)
+                    self._post_ui(
+                        lambda: self._remote_mutation_done(
+                            profile, "删除", asset.name, (), updated
+                        )
+                    )
+                except Exception as error:
+                    self._post_ui(lambda value=str(error): self._remote_failed(value))
+
+            threading.Thread(target=github_work, daemon=True).start()
             return
         try:
             manager, profile = self._remote_manager()
@@ -2745,6 +2820,36 @@ class PublisherApplication(ctk.CTk):
         ):
             return
         if not self._begin_remote_operation("正在删除全部远程附件…"):
+            return
+        if self._publish_target() == "github":
+            try:
+                client = self._github_repository_client()
+                profile = self.profile
+            except GitHubPublisherError as error:
+                self._remote_failed(str(error))
+                return
+
+            def github_work() -> None:
+                deleted = []
+                failures = []
+                for asset in release.assets:
+                    try:
+                        client.delete_asset(int(asset.asset_id))
+                        deleted.append(asset)
+                    except Exception as error:
+                        failures.append(f"{asset.name}：{error}")
+                try:
+                    updated = self._github_remote_release(client, profile)
+                    result = RemoteBulkDeleteResult(
+                        tuple(deleted), tuple(failures), updated
+                    )
+                    self._post_ui(
+                        lambda value=result: self._remote_bulk_delete_done(profile, value)
+                    )
+                except Exception as error:
+                    self._post_ui(lambda value=str(error): self._remote_failed(value))
+
+            threading.Thread(target=github_work, daemon=True).start()
             return
         try:
             manager, profile = self._remote_manager()
@@ -2794,6 +2899,30 @@ class PublisherApplication(ctk.CTk):
         return RemoteResourceManager(
             GitLinkAttachmentClient(token), repository
         ), self.profile
+
+    def _github_remote_release(
+        self, client: GitHubReleaseClient, profile: GameProfile
+    ) -> RemoteRelease | None:
+        release = client.get_release_by_tag(profile.release_tag)
+        if release is None:
+            return None
+        assets = tuple(
+            RemoteAsset(
+                asset_id=str(asset["id"]),
+                name=str(asset.get("name") or ""),
+                display_size=self._format_transfer_size(float(asset.get("size") or 0)),
+                url=str(asset.get("browser_download_url") or ""),
+            )
+            for asset in release.assets
+            if asset.get("id") is not None and asset.get("name")
+        )
+        return RemoteRelease(
+            release_id=str(release.release_id),
+            tag=release.tag,
+            name=release.tag,
+            body="",
+            assets=assets,
+        )
 
     def _begin_remote_operation(self, message: str) -> bool:
         if self._remote_operation_active:
@@ -2907,6 +3036,11 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("远程操作失败", message)
 
     def check_gitlink(self) -> None:
+        if not self._save_active_settings():
+            return
+        if self._publish_target() == "github":
+            self._check_github_repository()
+            return
         try:
             manager, profile = self._remote_manager()
         except GitLinkError as error:
@@ -2950,6 +3084,11 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("GitLink 检查失败", f"{message}\n\n{guidance}")
 
     def create_repository(self) -> None:
+        if not self._save_active_settings():
+            return
+        if self._publish_target() == "github":
+            self._create_github_repository()
+            return
         try:
             repo = self._repository()
         except GitLinkError as error:
@@ -2974,6 +3113,99 @@ class PublisherApplication(ctk.CTk):
             messagebox.showerror("创建失败", str(error))
         finally:
             self._end_background_mutation("repository-create")
+
+    def _github_repository_client(self) -> GitHubReleaseClient:
+        owner = self.owner_entry.get().strip()
+        name = self.repo_entry.get().strip()
+        token = self.token_entry.get().strip()
+        if not owner or not name:
+            raise GitHubPublisherError("请填写 GitHub 所有者和仓库名")
+        if not token:
+            raise GitHubPublisherError("请填写 GitHub token")
+        return GitHubReleaseClient(GitHubRepository(owner, name), token)
+
+    def _check_github_repository(self) -> None:
+        try:
+            client = self._github_repository_client()
+        except GitHubPublisherError as error:
+            messagebox.showerror("GitHub 检查失败", str(error))
+            return
+        if not self._begin_background_mutation(
+            "repository-check", "正在检查 GitHub 仓库"
+        ):
+            return
+        self.check_gitlink_button.configure(state="disabled", text="正在检查…")
+
+        def worker() -> None:
+            try:
+                info = client.repository_info()
+                self._post_ui(lambda info=info: self._github_check_done(info))
+            except (GitHubPublisherError, OSError) as error:
+                message = str(error)
+                self._post_ui(lambda value=message: self._github_check_failed(value))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _github_check_done(self, info: dict[str, object]) -> None:
+        self._end_background_mutation("repository-check")
+        self.check_gitlink_button.configure(state="normal", text="检查仓库")
+        full_name = str(info.get("full_name") or "GitHub 仓库")
+        visibility = "公开" if not bool(info.get("private")) else "私有"
+        detail = f"{full_name} 可以访问（{visibility}仓库）。"
+        self._log(f"GitHub API 检查成功：{detail}")
+        messagebox.showinfo("GitHub 检查完成", detail)
+
+    def _github_check_failed(self, message: str) -> None:
+        self._end_background_mutation("repository-check")
+        self.check_gitlink_button.configure(state="normal", text="检查仓库")
+        self._log(f"GitHub API 检查失败：{message}")
+        messagebox.showerror("GitHub 检查失败", message)
+
+    def _create_github_repository(self) -> None:
+        try:
+            client = self._github_repository_client()
+        except GitHubPublisherError as error:
+            messagebox.showerror("创建失败", str(error))
+            return
+        repo = client.repository
+        if not messagebox.askyesno(
+            "创建新仓库", f"确认创建公开 GitHub 仓库 {repo.owner}/{repo.name}？"
+        ):
+            return
+        if not self._begin_background_mutation(
+            "repository-create", "正在创建 GitHub 仓库"
+        ):
+            return
+        self.create_repository_button.configure(state="disabled", text="正在创建…")
+
+        def worker() -> None:
+            try:
+                created = client.create_repository(
+                    "SignRiver DLC Hub public release assets"
+                )
+                self._post_ui(
+                    lambda created=created: self._github_repository_created(created)
+                )
+            except (GitHubPublisherError, OSError) as error:
+                message = str(error)
+                self._post_ui(
+                    lambda value=message: self._github_repository_create_failed(value)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _github_repository_created(self, repository: GitHubRepository) -> None:
+        self._end_background_mutation("repository-create")
+        self.create_repository_button.configure(state="normal", text="创建新仓库")
+        detail = f"新仓库已创建：https://github.com/{repository.owner}/{repository.name}"
+        self._log(detail)
+        messagebox.showinfo("创建完成", detail)
+
+    def _github_repository_create_failed(self, message: str) -> None:
+        self._end_background_mutation("repository-create")
+        self.create_repository_button.configure(state="normal", text="创建新仓库")
+        self._log(f"GitHub 创建失败：{message}")
+        messagebox.showerror("创建失败", message)
 
     def adopt_remote_assets(self) -> None:
         try:
@@ -3050,6 +3282,8 @@ class PublisherApplication(ctk.CTk):
         messagebox.showerror("采用远程附件失败", message)
 
     def publish_release(self) -> None:
+        if not self._save_active_settings():
+            return
         self._active_publish_scope = "game"
         if self._publish_target() == "github":
             self._publish_release_github()
@@ -3103,7 +3337,25 @@ class PublisherApplication(ctk.CTk):
     def _publish_target(self) -> str:
         return "github" if self.publish_target_menu.get() == "GitHub" else "gitlink"
 
+    def _save_active_settings(self) -> bool:
+        if self.settings_path is None:
+            return True
+        self.settings = self.settings.with_active_values(
+            self.owner_entry.get().strip(),
+            self.repo_entry.get().strip(),
+            self.token_entry.get().strip(),
+        )
+        try:
+            self.settings.save(self.settings_path)
+        except PublisherSettingsError as error:
+            self._log(f"无法保存本地发布配置：{error}")
+            messagebox.showerror("保存本地配置失败", str(error))
+            return False
+        return True
+
     def _on_publish_target_changed(self, display_name: str) -> None:
+        if not self._save_active_settings():
+            return
         target = "github" if display_name == "GitHub" else "gitlink"
         self.settings = self.settings.with_publish_target(target)
         self.owner_entry.delete(0, "end")
@@ -3116,12 +3368,30 @@ class PublisherApplication(ctk.CTk):
         self.repository = GitLinkRepository(
             self.settings.active_owner, self.settings.active_repository
         )
+        self._sync_publish_target_controls()
+        self._save_active_settings()
         self._log(
             f"发布目标已切换为 {display_name}："
             f"{self.settings.active_owner}/{self.settings.active_repository}"
         )
         if hasattr(self, "cartridge_list"):
             self.refresh_cartridge_management()
+
+    def _sync_publish_target_controls(self) -> None:
+        is_github = self._publish_target() == "github"
+        self.check_gitlink_button.configure(text="检查仓库")
+        self.create_repository_button.configure(text="创建新仓库")
+        self.token_entry.configure(
+            placeholder_text="GitHub token" if is_github else "GitLink 私有令牌"
+        )
+        self.adopt_remote_button.configure(
+            state="disabled" if is_github else "normal",
+            text="GitHub 暂不支持采用" if is_github else "采用远程附件",
+        )
+        if hasattr(self, "remote_asset_title"):
+            self.remote_asset_title.configure(
+                text="GitHub Release 附件" if is_github else "GitLink Release 附件"
+            )
 
     def _publish_release_github(self) -> None:
         if not self._begin_background_mutation(
@@ -3162,6 +3432,7 @@ class PublisherApplication(ctk.CTk):
         token: str,
         profile: GameProfile,
         assets: tuple[PublishAsset, ...],
+        completed: frozenset[str] = frozenset(),
     ) -> None:
         publish_button, pause_button, status_label, progress_bar = (
             self._publish_scope_controls()
@@ -3169,7 +3440,11 @@ class PublisherApplication(ctk.CTk):
         self._set_publish_buttons_available(False)
         publish_button.configure(state="disabled", text="正在发布…")
         self.adopt_remote_button.configure(state="disabled")
-        pause_button.configure(state="disabled", text="GitHub 暂不支持暂停")
+        self._upload_control = UploadControl()
+        self._github_publish_resume_context = (
+            owner, name, token, profile, assets, completed,
+        )
+        pause_button.configure(state="normal", text="暂停发布")
         status_label.configure(text="正在准备 GitHub 上传…")
         progress_bar.set(0)
 
@@ -3180,16 +3455,39 @@ class PublisherApplication(ctk.CTk):
                 )
                 release = client.ensure_release(profile.release_tag)
                 total = len(assets)
+                completed_names = set(completed)
                 for index, asset in enumerate(assets, start=1):
+                    if asset.name in completed_names:
+                        self._queue_upload_progress(
+                            index, total, asset.name, asset.size_bytes, asset.size_bytes
+                        )
+                        continue
                     self._queue_upload_progress(
                         index, total, asset.name, 0, asset.size_bytes
                     )
-                    client.upload_asset(release, asset.path, replace_existing=True)
+                    client.upload_asset(
+                        release,
+                        asset.path,
+                        replace_existing=True,
+                        progress=lambda sent, size, i=index, value=asset.name: (
+                            self._queue_upload_progress(i, total, value, sent, size)
+                        ),
+                        should_pause=lambda: bool(
+                            self._upload_control and self._upload_control.pause_requested
+                        ),
+                    )
+                    completed_names.add(asset.name)
                     self._queue_upload_progress(
                         index, total, asset.name, asset.size_bytes, asset.size_bytes
                     )
                 self._post_ui(
                     lambda: self._github_publish_done(owner, name, profile, total)
+                )
+            except GitHubUploadPaused as error:
+                self._post_ui(
+                    lambda value=str(error), done=frozenset(completed_names): (
+                        self._github_publish_paused(value, done)
+                    )
                 )
             except (GitHubPublisherError, OSError) as error:
                 message = str(error)
@@ -3208,10 +3506,12 @@ class PublisherApplication(ctk.CTk):
             self._publish_scope_controls()
         )
         self._set_publish_buttons_available(True)
-        self.adopt_remote_button.configure(state="normal")
+        self._sync_publish_target_controls()
         pause_button.configure(state="disabled", text="暂停发布")
         status_label.configure(text=f"GitHub 发布完成 · {total} 个文件")
         progress_bar.set(1)
+        self._upload_control = None
+        self._github_publish_resume_context = None
         summary = f"已发布到 GitHub {owner}/{name} · {profile.release_tag}"
         self._log(summary)
         if self._active_publish_scope == "hub":
@@ -3225,9 +3525,11 @@ class PublisherApplication(ctk.CTk):
             self._publish_scope_controls()
         )
         self._set_publish_buttons_available(True)
-        self.adopt_remote_button.configure(state="normal")
+        self._sync_publish_target_controls()
         pause_button.configure(state="disabled", text="暂停发布")
         status_label.configure(text="GitHub 发布失败")
+        self._upload_control = None
+        self._github_publish_resume_context = None
         self._log(f"GitHub 发布失败：{message}")
         messagebox.showerror("GitHub 发布失败", message)
 
@@ -3401,6 +3703,14 @@ class PublisherApplication(ctk.CTk):
             pause_button.configure(state="disabled", text="正在暂停…")
             status_label.configure(text="正在中止当前文件上传…")
             return
+        github_context = self._github_publish_resume_context
+        if github_context is not None:
+            owner, name, token, profile, assets, completed = github_context
+            self._log("继续 GitHub 发布：当前文件将从头上传，已完成文件会跳过。")
+            self._start_github_publish(
+                owner, name, token, profile, assets, completed,
+            )
+            return
         context = self._publish_resume_context
         if context is None:
             return
@@ -3428,6 +3738,28 @@ class PublisherApplication(ctk.CTk):
         pause_button.configure(state="normal", text="继续发布")
         status_label.configure(text="已暂停；继续时当前文件从头上传")
         self._log(f"{message}。已确认文件已保存；继续时当前文件会从头上传。")
+
+    def _github_publish_paused(
+        self, message: str, completed: frozenset[str]
+    ) -> None:
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
+        context = self._github_publish_resume_context
+        if context is None:
+            return
+        owner, name, token, profile, assets, _previous_completed = context
+        self._github_publish_resume_context = (
+            owner, name, token, profile, assets, completed,
+        )
+        self._upload_control = None
+        publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(False)
+        publish_button.configure(state="disabled", text="发布已暂停")
+        pause_button.configure(state="normal", text="继续发布")
+        status_label.configure(text="已暂停；继续时当前文件会从头上传")
+        self._log(f"{message}。已完成的 GitHub 文件将保留，继续时会跳过。")
 
     def _show_upload_progress(
         self, index: int, total: int, name: str, sent: int, size: int

@@ -108,7 +108,7 @@ def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
     assert 'status_band.grid_columnconfigure(0, weight=1)' in source
     assert 'status_band.grid_propagate(False)' in source
     assert 'profile_group.grid(row=0, column=1, sticky="e"' in source
-    assert 'profile_group, text="QQ群 1061299021", width=132, height=34,' in source
+    assert 'profile_group, text="QQ群 1061299021", width=132, height=42,' in source
     assert 'text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款"' in source
     topbar = source.split('profile_group = ctk.CTkFrame(topbar', 1)[1].split(
         'self.page_host =', 1
@@ -415,7 +415,8 @@ def test_settings_separates_speed_cache_and_update_without_duplicate_about_page(
     assert "def _settings_description" in source
     assert "self.settings_description_boxes" in source
     assert 'justify="left"' in source
-    assert "spacing2=6" in source
+    assert "Compact, read-only settings copy" in source
+    assert "widget.configure(wraplength=self._content_wraplength_for(parent))" in source
     assert "def _blue_switch" in source
     assert "return ctk.CTkSwitch(" in source
     assert 'fg_color="#AEBECD"' in source
