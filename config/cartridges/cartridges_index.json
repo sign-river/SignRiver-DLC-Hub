@@ -11,36 +11,36 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "9c30594ee8e21b71ca6e10e70924c5fc02057c6ec2843f9be811b444e7e3b306",
-      "size_bytes": 1032
+      "sha256": "f8a90bf25f3a85994f58373d1738b04d5d4bca0416f3808a1eaf19c0fbcba916",
+      "size_bytes": 995
     },
     {
       "game_id": "civilization_6",
       "display_name": "文明6 (Civilization VI)",
       "asset_name": "cartridge_civilization_6.json",
-      "sha256": "ea5c086321fd3c43404b63447b146044fc46151cdcbb1ea501e6c5770d153b3c",
-      "size_bytes": 1102
+      "sha256": "cff898718cd83148833e403d6ba98c74bba8b66f32b619bb4eb92e541f597743",
+      "size_bytes": 1065
     },
     {
       "game_id": "hearts_of_iron_4",
       "display_name": "钢铁雄心4 (Hearts of Iron IV)",
       "asset_name": "cartridge_hearts_of_iron_4.json",
-      "sha256": "68a78fdc01d5b6af46aa93fc0fe0d758d3e29ab05a10aacbc76813d58913575f",
-      "size_bytes": 1059
+      "sha256": "dadb9e62b0f36c919921cab2756c437016f2187bc77d190af572ccaabda62ec8",
+      "size_bytes": 1022
     },
     {
       "game_id": "cities_skylines",
       "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "159f66a20f8c094ce293bedc759aa74e451443a286c72e212bfab02fb58d5063",
-      "size_bytes": 1114
+      "sha256": "6258c45c5cea388c9fe8c0e168de68bccbdfbb2121bf773d427982bf62dd0225",
+      "size_bytes": 1079
     },
     {
       "game_id": "rimworld",
       "display_name": "边缘世界 (RimWorld)",
       "asset_name": "cartridge_rimworld.json",
-      "sha256": "1c1ecdc10ff0702b4c1c787e836fc5762a6bd0b735c3d38cf8aaec035a9f19b1",
-      "size_bytes": 1065
+      "sha256": "f77eb6c7f3c418c19b09ebf43bcf78d4668b49682c92610964ff6e4d9d17ce6c",
+      "size_bytes": 1029
     }
   ]
 }
