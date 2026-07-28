@@ -67,6 +67,15 @@ def test_publisher_stopped_pump_drops_callbacks_and_progress() -> None:
     assert harness._pending_upload_progress is None
 
 
+def test_update_release_publish_runs_network_work_off_the_tk_thread() -> None:
+    source = inspect.getsource(PublisherApplication.publish_update_release)
+
+    assert 'name="update-release-publish"' in source
+    assert "threading.Thread(" in source
+    assert "self._post_ui(" in source
+    assert "UPDATE_RELEASE_TAG" in source
+
+
 def test_publisher_single_writer_rejects_overlapping_mutations(monkeypatch) -> None:
     harness = _CloseHarness()
     notices = []

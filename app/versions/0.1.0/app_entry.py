@@ -891,7 +891,7 @@ class DlcHubApplication:
         )
         self.download_selected_button = ctk.CTkButton(
             primary_action_panel,
-            text="一键解锁工具",
+            text="一键解锁",
             command=self._one_click_unlock,
             width=176,
             height=50,
@@ -3754,7 +3754,7 @@ class DlcHubApplication:
     def _set_batch_download_state(self, state: str) -> None:
         self.batch_download_state = state
         text, enabled = {
-            "idle": ("一键解锁工具", True),
+            "idle": ("一键解锁", True),
             "running": ("暂停下载", True),
             "installing": ("正在安装…", False),
             "pausing": ("继续下载", True),

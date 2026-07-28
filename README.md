@@ -65,4 +65,10 @@ python tools/build_release.py
 python tools/build_module.py app/versions/0.1.0
 ```
 
+后续更新发布时，先构建模块 ZIP 或完整 ZIP，再生成对应更新清单并将两者上传到 GitLink 或 GitHub 的 `updates` Release：
+
+```bash
+python tools/build_update_manifest.py dist/modules/SignRiver-DLC-Hub-module-v0.1.1.zip --version 0.1.1 --kind module --target gitlink --owner signriver --repository signriver-dlc-assets --notes "更新说明"
+```
+
 `build_release.py` 生成首次发布用的完整包：外层优先产出中文名自解压 EXE（需本机安装带 `7z.sfx` 的 7-Zip），并同时生成中文名 ZIP；解压后的文件夹与启动 EXE 均为「唏嘘南溪DLC一键解锁工具」。`build_module.py` 生成后续小版本使用的模块更新包和清单片段。程序通过 `sys.executable` 定位安装目录，支持含中文的安装路径。

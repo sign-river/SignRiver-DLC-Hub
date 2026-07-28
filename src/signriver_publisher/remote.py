@@ -400,10 +400,18 @@ class RemoteResourceManager:
         )
 
     def upload_file(self, profile: GameProfile, path: Path) -> RemoteMutationResult:
+        return self.upload_file_to_release(
+            profile.release_tag, profile.display_name, path
+        )
+
+    def upload_file_to_release(
+        self, tag: str, release_name: str, path: Path
+    ) -> RemoteMutationResult:
+        """Upload or replace one attachment in a named Release."""
         path = path.resolve()
         if not path.is_file():
             raise GitLinkError(f"本地发布文件不存在：{path.name}")
-        current = self.get_release(profile.release_tag)
+        current = self.get_release(tag)
         new_id = self.client.upload(path)
         new_asset = RemoteAsset(
             new_id, path.name, _format_size(path.stat().st_size), ""
@@ -432,7 +440,7 @@ class RemoteResourceManager:
                     self.repository,
                     release_id=current.release_id,
                     tag=current.tag,
-                    name=current.name or profile.display_name,
+                    name=current.name or release_name,
                     body=current.body,
                     attachment_ids=[*retained, new_id],
                 )
@@ -440,8 +448,8 @@ class RemoteResourceManager:
             else:
                 self.client.create_release(
                     self.repository,
-                    tag=profile.release_tag,
-                    name=profile.display_name,
+                    tag=tag,
+                    name=release_name,
                     body="SignRiver Publisher 远程资源管理",
                     attachment_ids=[new_id],
                 )

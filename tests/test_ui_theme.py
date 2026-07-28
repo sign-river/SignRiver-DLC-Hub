@@ -140,7 +140,7 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
 
     assert 'self.catalog_view_mode = "simple"' in source
     assert 'text="切换高级视图"' in source
-    assert 'text="一键解锁工具"' in source
+    assert 'text="一键解锁"' in source
     assert "def _render_simple_catalog_rows" in source
     assert "def _render_advanced_catalog_rows" in source
     assert "def _simple_entry_status" in source

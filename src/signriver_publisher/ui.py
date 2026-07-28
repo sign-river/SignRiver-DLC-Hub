@@ -41,6 +41,13 @@ from .gitlink import (
 from .models import GameProfile, PublishAsset
 from .remote import RemoteAsset, RemoteBulkDeleteResult, RemoteRelease, RemoteResourceManager
 from .settings import PublisherSettings, PublisherSettingsError
+from .updates import (
+    UPDATE_MANIFEST_ASSET,
+    UPDATE_RELEASE_TAG,
+    UpdateReleaseDraft,
+    release_asset_url,
+    write_update_manifest,
+)
 from .workspace import PublisherWorkspace, WorkspaceError
 
 LOGGER = logging.getLogger(__name__)
@@ -469,6 +476,14 @@ class PublisherApplication(ctk.CTk):
             command=self.publish_release,
         )
         self.publish_button.pack(side="left", padx=4)
+        self.publish_update_button = ctk.CTkButton(
+            buttons,
+            text="发布程序更新",
+            width=150,
+            fg_color=BLUE,
+            command=self.publish_update_release,
+        )
+        self.publish_update_button.pack(side="left", padx=4)
         self.token_entry = ctk.CTkEntry(
             buttons,
             width=230,
@@ -3314,6 +3329,93 @@ class PublisherApplication(ctk.CTk):
             self._publish_resume_context = None
             self._end_background_mutation("publish")
 
+    def publish_update_release(self) -> None:
+        """Publish a built module/full ZIP and its client update manifest."""
+        if not self._save_active_settings():
+            return
+        package_name = filedialog.askopenfilename(
+            title="选择程序更新包", filetypes=[("ZIP 文件", "*.zip")]
+        )
+        if not package_name:
+            return
+        version = simpledialog.askstring("程序更新", "版本号（例如 0.1.1）：", parent=self)
+        if not version:
+            return
+        kind = simpledialog.askstring(
+            "程序更新", "更新类型：module 或 full", initialvalue="module", parent=self
+        )
+        if kind not in {"module", "full"}:
+            messagebox.showerror("程序更新", "更新类型只能是 module 或 full", parent=self)
+            return
+        notes = simpledialog.askstring("程序更新", "更新说明：", parent=self) or ""
+        mandatory = messagebox.askyesno(
+            "程序更新", "是否强制此版本更新？", parent=self
+        )
+        if not self._begin_background_mutation("update-publish", "正在发布程序更新"):
+            return
+        package = Path(package_name)
+        owner, repository, token = (
+            self.owner_entry.get().strip(),
+            self.repo_entry.get().strip(),
+            self.token_entry.get().strip(),
+        )
+        target = self._publish_target()
+        self.publish_update_button.configure(state="disabled", text="正在发布…")
+
+        def worker() -> None:
+            try:
+                draft = UpdateReleaseDraft(
+                    version=version.strip(), kind=kind, package=package,
+                    notes=notes, mandatory=mandatory,
+                )
+                manifest = write_update_manifest(
+                    self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
+                    channel="stable",
+                    releases=[draft.release_dict(release_asset_url(
+                        target, owner, repository, package.name
+                    ))],
+                )
+                if target == "github":
+                    client = GitHubReleaseClient(
+                        GitHubRepository(owner, repository), token
+                    )
+                    release = client.ensure_release(
+                        UPDATE_RELEASE_TAG, name="SignRiver Updates"
+                    )
+                    for path in (package, manifest):
+                        client.upload_asset(release, path, replace_existing=True)
+                else:
+                    manager = RemoteResourceManager(
+                        GitLinkAttachmentClient(token or None),
+                        GitLinkRepository(owner, repository),
+                    )
+                    for path in (package, manifest):
+                        manager.upload_file_to_release(
+                            UPDATE_RELEASE_TAG, "SignRiver Updates", path
+                        )
+                self._post_ui(
+                    lambda: self._publish_update_done(version.strip(), target)
+                )
+            except Exception as error:
+                self._post_ui(lambda message=str(error): self._publish_update_failed(message))
+
+        threading.Thread(
+            target=worker, daemon=True, name="update-release-publish"
+        ).start()
+
+    def _publish_update_done(self, version: str, target: str) -> None:
+        self._end_background_mutation("update-publish")
+        self.publish_update_button.configure(state="normal", text="发布程序更新")
+        message = f"程序更新 {version} 已发布到 {target} 的 {UPDATE_RELEASE_TAG} Release"
+        self._log(message)
+        messagebox.showinfo("程序更新发布完成", message, parent=self)
+
+    def _publish_update_failed(self, message: str) -> None:
+        self._end_background_mutation("update-publish")
+        self.publish_update_button.configure(state="normal", text="发布程序更新")
+        self._log(f"程序更新发布失败：{message}")
+        messagebox.showerror("程序更新发布失败", message, parent=self)
+
     def _publish_scope_controls(self):
         if self._active_publish_scope == "hub":
             return (
@@ -3332,6 +3434,7 @@ class PublisherApplication(ctk.CTk):
     def _set_publish_buttons_available(self, available: bool) -> None:
         state = "normal" if available else "disabled"
         self.publish_button.configure(state=state, text="发布到 Release")
+        self.publish_update_button.configure(state=state, text="发布程序更新")
         self.hub_publish_button.configure(state=state, text="发布 hub Release")
 
     def _publish_target(self) -> str:
