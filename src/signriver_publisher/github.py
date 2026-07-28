@@ -293,7 +293,7 @@ class GitHubReleaseClient:
                 return self._opener(request, timeout=timeout)
             except urllib.error.HTTPError:
                 raise
-            except (urllib.error.URLError, OSError) as error:
+            except (urllib.error.URLError, OSError):
                 if attempt == 2:
                     raise
                 time.sleep(1 << attempt)

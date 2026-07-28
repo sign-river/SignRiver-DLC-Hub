@@ -4,3 +4,4 @@ Pillow<13,>=10
 [dev]
 pytest<10,>=8
 pyinstaller<7,>=6
+ruff<1,>=0.12

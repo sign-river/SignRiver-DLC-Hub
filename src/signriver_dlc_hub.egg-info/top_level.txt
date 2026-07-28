@@ -1,1 +1,3 @@
+signriver_common
 signriver_launcher
+signriver_publisher

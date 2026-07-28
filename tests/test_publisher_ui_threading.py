@@ -5,9 +5,11 @@ import inspect
 import textwrap
 import threading
 from queue import SimpleQueue
+from types import SimpleNamespace
 
 import signriver_publisher.ui as publisher_ui
 from signriver_publisher.ui import PublisherApplication
+from signriver_publisher.updates import UpdateReleaseDraft
 
 
 class _UiHarness:
@@ -73,7 +75,32 @@ def test_update_release_publish_runs_network_work_off_the_tk_thread() -> None:
     assert 'name="update-release-publish"' in source
     assert "threading.Thread(" in source
     assert "self._post_ui(" in source
-    assert "UPDATE_RELEASE_TAG" in source
+    assert "_publish_update_mirror" in source
+
+
+def test_update_mirror_uploads_both_packages_before_either_manifest(tmp_path) -> None:
+    package = tmp_path / "module.zip"
+    package.write_bytes(b"module")
+    calls = []
+
+    class Harness:
+        settings = SimpleNamespace(
+            owner="gitlink-owner", repository="assets", token="gitlink-token",
+            github_owner="github-owner", github_repository="assets", github_token="github-token",
+        )
+        workspace = SimpleNamespace(output_dir=tmp_path / "output")
+
+        def _publish_update_target(self, target, owner, repository, token, package, manifest):
+            calls.append((target, package is not None, manifest is not None))
+
+    PublisherApplication._publish_update_mirror(
+        Harness(), UpdateReleaseDraft("0.2.0", "module", package)
+    )
+
+    assert calls == [
+        ("gitlink", True, False), ("github", True, False),
+        ("gitlink", False, True), ("github", False, True),
+    ]
 
 
 def test_publisher_single_writer_rejects_overlapping_mutations(monkeypatch) -> None:

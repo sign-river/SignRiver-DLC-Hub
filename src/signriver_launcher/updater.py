@@ -23,7 +23,7 @@ from .constants import (
     MAX_ARCHIVE_UNCOMPRESSED_BYTES,
     MAX_MANIFEST_BYTES,
 )
-from .errors import DownloadError, FullUpdateRequired, IntegrityError, ManifestError, PackageError
+from .errors import DownloadError, IntegrityError, ManifestError, PackageError
 from .full_update import FullUpdateManager, FullUpdateTransaction
 from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest

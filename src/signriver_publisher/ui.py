@@ -484,6 +484,14 @@ class PublisherApplication(ctk.CTk):
             command=self.publish_update_release,
         )
         self.publish_update_button.pack(side="left", padx=4)
+        self.publish_update_mirror_button = ctk.CTkButton(
+            buttons,
+            text="双源镜像发布更新",
+            width=170,
+            fg_color=LIGHT_BLUE,
+            command=lambda: self.publish_update_release(mirror=True),
+        )
+        self.publish_update_mirror_button.pack(side="left", padx=4)
         self.token_entry = ctk.CTkEntry(
             buttons,
             width=230,
@@ -3329,7 +3337,7 @@ class PublisherApplication(ctk.CTk):
             self._publish_resume_context = None
             self._end_background_mutation("publish")
 
-    def publish_update_release(self) -> None:
+    def publish_update_release(self, *, mirror: bool = False) -> None:
         """Publish a built module/full ZIP and its client update manifest."""
         if not self._save_active_settings():
             return
@@ -3351,7 +3359,8 @@ class PublisherApplication(ctk.CTk):
         mandatory = messagebox.askyesno(
             "程序更新", "是否强制此版本更新？", parent=self
         )
-        if not self._begin_background_mutation("update-publish", "正在发布程序更新"):
+        operation = "正在镜像发布程序更新" if mirror else "正在发布程序更新"
+        if not self._begin_background_mutation("update-publish", operation):
             return
         package = Path(package_name)
         owner, repository, token = (
@@ -3361,6 +3370,7 @@ class PublisherApplication(ctk.CTk):
         )
         target = self._publish_target()
         self.publish_update_button.configure(state="disabled", text="正在发布…")
+        self.publish_update_mirror_button.configure(state="disabled")
 
         def worker() -> None:
             try:
@@ -3368,33 +3378,21 @@ class PublisherApplication(ctk.CTk):
                     version=version.strip(), kind=kind, package=package,
                     notes=notes, mandatory=mandatory,
                 )
-                manifest = write_update_manifest(
-                    self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
-                    channel="stable",
-                    releases=[draft.release_dict(release_asset_url(
-                        target, owner, repository, package.name
-                    ))],
-                )
-                if target == "github":
-                    client = GitHubReleaseClient(
-                        GitHubRepository(owner, repository), token
-                    )
-                    release = client.ensure_release(
-                        UPDATE_RELEASE_TAG, name="SignRiver Updates"
-                    )
-                    for path in (package, manifest):
-                        client.upload_asset(release, path, replace_existing=True)
+                if mirror:
+                    self._publish_update_mirror(draft)
+                    published_target = "GitLink + GitHub"
                 else:
-                    manager = RemoteResourceManager(
-                        GitLinkAttachmentClient(token or None),
-                        GitLinkRepository(owner, repository),
+                    manifest = write_update_manifest(
+                        self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
+                        channel="stable",
+                        releases=[draft.release_dict(release_asset_url(
+                            target, owner, repository, package.name
+                        ))],
                     )
-                    for path in (package, manifest):
-                        manager.upload_file_to_release(
-                            UPDATE_RELEASE_TAG, "SignRiver Updates", path
-                        )
+                    self._publish_update_target(target, owner, repository, token, package, manifest)
+                    published_target = target
                 self._post_ui(
-                    lambda: self._publish_update_done(version.strip(), target)
+                    lambda: self._publish_update_done(version.strip(), published_target)
                 )
             except Exception as error:
                 self._post_ui(lambda message=str(error): self._publish_update_failed(message))
@@ -3403,9 +3401,64 @@ class PublisherApplication(ctk.CTk):
             target=worker, daemon=True, name="update-release-publish"
         ).start()
 
+    def _publish_update_mirror(self, draft: UpdateReleaseDraft) -> None:
+        """Upload the identical package to both hosts before either manifest."""
+        targets = (
+            ("gitlink", self.settings.owner, self.settings.repository, self.settings.token),
+            ("github", self.settings.github_owner, self.settings.github_repository, self.settings.github_token),
+        )
+        if not all(owner and repository and token for _target, owner, repository, token in targets):
+            raise ValueError("双源镜像发布需要在本地配置中填写 GitLink 和 GitHub 的完整凭据")
+        manifests = []
+        for target, owner, repository, _token in targets:
+            manifests.append((target, owner, repository, _token, write_update_manifest(
+                self.workspace.output_dir / "updates" / target / UPDATE_MANIFEST_ASSET,
+                channel="stable",
+                releases=[draft.release_dict(release_asset_url(
+                    target, owner, repository, draft.package.name
+                ))],
+            )))
+        # Package first: a newly visible manifest can never reference an asset
+        # that has not reached its source Release yet.
+        for target, owner, repository, token, _manifest in manifests:
+            self._publish_update_target(target, owner, repository, token, draft.package, None)
+        for target, owner, repository, token, manifest in manifests:
+            self._publish_update_target(target, owner, repository, token, None, manifest)
+
+    @staticmethod
+    def _update_paths(package: Path | None, manifest: Path | None) -> tuple[Path, ...]:
+        return tuple(path for path in (package, manifest) if path is not None)
+
+    def _publish_update_target(
+        self, target: str, owner: str, repository: str, token: str,
+        package: Path | None, manifest: Path | None,
+    ) -> None:
+        paths = self._update_paths(package, manifest)
+        if target == "github":
+                    client = GitHubReleaseClient(
+                        GitHubRepository(owner, repository), token
+                    )
+                    release = client.ensure_release(
+                        UPDATE_RELEASE_TAG, name="SignRiver Updates"
+                    )
+                    for path in paths:
+                        client.upload_asset(release, path, replace_existing=True)
+        elif target == "gitlink":
+                    manager = RemoteResourceManager(
+                        GitLinkAttachmentClient(token or None),
+                        GitLinkRepository(owner, repository),
+                    )
+                    for path in paths:
+                        manager.upload_file_to_release(
+                            UPDATE_RELEASE_TAG, "SignRiver Updates", path
+                        )
+        else:
+            raise ValueError(f"unsupported update target: {target}")
+
     def _publish_update_done(self, version: str, target: str) -> None:
         self._end_background_mutation("update-publish")
         self.publish_update_button.configure(state="normal", text="发布程序更新")
+        self.publish_update_mirror_button.configure(state="normal")
         message = f"程序更新 {version} 已发布到 {target} 的 {UPDATE_RELEASE_TAG} Release"
         self._log(message)
         messagebox.showinfo("程序更新发布完成", message, parent=self)
@@ -3413,6 +3466,7 @@ class PublisherApplication(ctk.CTk):
     def _publish_update_failed(self, message: str) -> None:
         self._end_background_mutation("update-publish")
         self.publish_update_button.configure(state="normal", text="发布程序更新")
+        self.publish_update_mirror_button.configure(state="normal")
         self._log(f"程序更新发布失败：{message}")
         messagebox.showerror("程序更新发布失败", message, parent=self)
 
@@ -3435,6 +3489,7 @@ class PublisherApplication(ctk.CTk):
         state = "normal" if available else "disabled"
         self.publish_button.configure(state=state, text="发布到 Release")
         self.publish_update_button.configure(state=state, text="发布程序更新")
+        self.publish_update_mirror_button.configure(state=state)
         self.hub_publish_button.configure(state=state, text="发布 hub Release")
 
     def _publish_target(self) -> str:
