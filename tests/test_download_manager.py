@@ -16,6 +16,7 @@ def spec(**changes) -> DownloadSpec:
         task_id="stellaris-dlc001",
         url="https://www.gitlink.org.cn/file.zip",
         filename="dlc001.zip",
+        game_id="stellaris",
         expected_size=len(DATA),
         expected_sha256=hashlib.sha256(DATA).hexdigest(),
     )
@@ -30,6 +31,7 @@ def test_download_verifies_and_moves_to_content_addressed_cache(tmp_path: Path) 
     assert result.state is DownloadState.READY
     assert result.result_path is not None and result.result_path.read_bytes() == DATA
     assert result.result_path.parent.name == hashlib.sha256(DATA).hexdigest()
+    assert result.result_path.parent.parent.name == "stellaris"
     assert DownloadState.DOWNLOADING in states
     assert DownloadState.VERIFYING in states
 
@@ -102,7 +104,7 @@ def test_hash_mismatch_is_quarantined(tmp_path: Path) -> None:
     result = manager.run(spec(expected_sha256="0" * 64))
     assert result.state is DownloadState.CORRUPT
     assert "SHA-256" in (result.error or "")
-    assert len(list((tmp_path / "quarantine").glob("*.bad"))) == 1
+    assert len(list((tmp_path / "quarantine" / "stellaris").glob("*.bad"))) == 1
     assert not list((tmp_path / "packages").rglob("*.zip"))
 
 
@@ -153,7 +155,7 @@ def test_pre_requested_pause_does_not_open_network(tmp_path: Path) -> None:
 def test_cancel_removes_partial_file(tmp_path: Path) -> None:
     control = DownloadControl()
     control.cancel()
-    partial = tmp_path / "downloads" / "stellaris-dlc001.part"
+    partial = tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part"
     partial.parent.mkdir(parents=True)
     partial.write_bytes(b"old")
     result = DownloadManager(tmp_path, opener=lambda *_args: io.BytesIO(DATA)).run(spec(), control)
@@ -164,7 +166,7 @@ def test_cancel_removes_partial_file(tmp_path: Path) -> None:
 
 def test_cancel_closes_partial_before_unlinking(tmp_path: Path, monkeypatch) -> None:
     control = DownloadControl()
-    part = tmp_path / "downloads" / "stellaris-dlc001.part"
+    part = tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part"
     active = False
     original_open = Path.open
     original_unlink = Path.unlink
@@ -217,7 +219,7 @@ def test_cancel_closes_partial_before_unlinking(tmp_path: Path, monkeypatch) -> 
 
 def test_pause_closes_and_discards_partial_before_returning(tmp_path: Path, monkeypatch) -> None:
     control = DownloadControl()
-    part = tmp_path / "downloads" / "stellaris-dlc001.part"
+    part = tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part"
     active = False
     original_open = Path.open
     original_unlink = Path.unlink
@@ -328,7 +330,7 @@ def test_cancel_requested_by_verifier_does_not_commit_package(tmp_path: Path) ->
     assert result.error is None
     assert DownloadState.VERIFYING in [item.state for item in states]
     assert DownloadState.READY not in [item.state for item in states]
-    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not (tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part").exists()
     assert not list((tmp_path / "packages").rglob("*.zip"))
 
 
@@ -348,7 +350,7 @@ def test_pause_requested_by_verifier_does_not_commit_package(tmp_path: Path) -> 
     assert result.error is None
     assert DownloadState.VERIFYING in [item.state for item in states]
     assert DownloadState.READY not in [item.state for item in states]
-    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not (tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part").exists()
     assert not list((tmp_path / "packages").rglob("*.zip"))
 
 
@@ -372,7 +374,7 @@ def test_cancel_requested_at_eof_does_not_enter_verification(tmp_path: Path) -> 
     assert result.state is DownloadState.CANCELLED
     assert DownloadState.VERIFYING not in [item.state for item in states]
     assert DownloadState.READY not in [item.state for item in states]
-    assert not (tmp_path / "downloads" / "stellaris-dlc001.part").exists()
+    assert not (tmp_path / "downloads" / "stellaris" / "stellaris-dlc001.part").exists()
     assert not list((tmp_path / "packages").rglob("*.zip"))
 
 

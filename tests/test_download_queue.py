@@ -19,7 +19,7 @@ DATA = b"queue-data" * 100
 
 def make_spec(task_id: str = "queue-1") -> DownloadSpec:
     return DownloadSpec(
-        task_id, "https://example.test/dlc.zip", "dlc.zip",
+        task_id, "https://example.test/dlc.zip", "dlc.zip", "stellaris",
         len(DATA), hashlib.sha256(DATA).hexdigest(),
     )
 
@@ -168,7 +168,7 @@ def test_restore_marks_ready_task_failed_when_cache_is_missing(tmp_path: Path) -
 
 def test_reconcile_cached_recovers_orphan_package(tmp_path: Path) -> None:
     digest = hashlib.sha256(DATA).hexdigest()
-    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package = tmp_path / "cache" / "packages" / "stellaris" / digest / "dlc.zip"
     package.parent.mkdir(parents=True)
     package.write_bytes(DATA)
     repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
@@ -190,7 +190,7 @@ def test_reconcile_cached_memoizes_stable_orphan_package_hash(
     tmp_path: Path, monkeypatch,
 ) -> None:
     digest = hashlib.sha256(DATA).hexdigest()
-    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package = tmp_path / "cache" / "packages" / "stellaris" / digest / "dlc.zip"
     package.parent.mkdir(parents=True)
     package.write_bytes(DATA)
     queue = DownloadQueue(
@@ -217,7 +217,7 @@ def test_reconcile_cached_hash_memo_invalidates_when_file_changes(
     tmp_path: Path, monkeypatch,
 ) -> None:
     digest = hashlib.sha256(DATA).hexdigest()
-    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package = tmp_path / "cache" / "packages" / "stellaris" / digest / "dlc.zip"
     package.parent.mkdir(parents=True)
     package.write_bytes(DATA)
     queue = DownloadQueue(DownloadManager(tmp_path / "cache"))
@@ -430,10 +430,10 @@ def test_reconcile_cannot_overwrite_task_started_during_hash_validation(
     digest = hashlib.sha256(DATA).hexdigest()
     cache_root = tmp_path / "cache"
     if cache_kind == "packages":
-        candidate = cache_root / "packages" / digest / "dlc.zip"
+        candidate = cache_root / "packages" / "stellaris" / digest / "dlc.zip"
         reconcile_name = "reconcile_cached"
     else:
-        candidate = cache_root / "quarantine" / "queue-1-old.bad"
+        candidate = cache_root / "quarantine" / "stellaris" / "queue-1-old.bad"
         reconcile_name = "reconcile_quarantined"
     candidate.parent.mkdir(parents=True)
     candidate.write_bytes(DATA)
@@ -555,7 +555,7 @@ def test_reconcile_quarantined_recovers_file_accepted_by_current_verifier(
     tmp_path: Path,
 ) -> None:
     cache = tmp_path / "cache"
-    quarantine = cache / "quarantine"
+    quarantine = cache / "quarantine" / "stellaris"
     quarantine.mkdir(parents=True)
     isolated = quarantine / "queue-1-123.bad"
     isolated.write_bytes(DATA)
@@ -576,7 +576,7 @@ def test_reconcile_quarantined_recovers_file_accepted_by_current_verifier(
     queue.shutdown()
 
     digest = hashlib.sha256(DATA).hexdigest()
-    expected = cache / "packages" / digest / "dlc.zip"
+    expected = cache / "packages" / "stellaris" / digest / "dlc.zip"
     assert recovered[0].state is DownloadState.READY
     assert recovered[0].result_path == expected
     assert expected.read_bytes() == DATA
@@ -766,7 +766,7 @@ def test_clear_all_rejects_active_download() -> None:
 def test_forget_drops_snapshot_and_optionally_removes_cached_package(tmp_path: Path) -> None:
     """The repair flow needs a clean slate before re-downloading assets."""
     digest = hashlib.sha256(DATA).hexdigest()
-    package = tmp_path / "cache" / "packages" / digest / "dlc.zip"
+    package = tmp_path / "cache" / "packages" / "stellaris" / digest / "dlc.zip"
     package.parent.mkdir(parents=True)
     package.write_bytes(DATA)
     repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
@@ -814,7 +814,7 @@ def test_invalidate_cached_quarantines_package_and_allows_redownload(
 ) -> None:
     cache = tmp_path / "cache"
     digest = hashlib.sha256(DATA).hexdigest()
-    package = cache / "packages" / digest / "dlc.zip"
+    package = cache / "packages" / "stellaris" / digest / "dlc.zip"
     package.parent.mkdir(parents=True)
     package.write_bytes(b"externally changed")
     queue = DownloadQueue(
@@ -830,7 +830,7 @@ def test_invalidate_cached_quarantines_package_and_allows_redownload(
 
     queue.shutdown()
     assert isolated is not None and isolated.is_file()
-    assert isolated.parent == cache / "quarantine"
+    assert isolated.parent == cache / "quarantine" / "stellaris"
     assert result.state is DownloadState.READY
     assert result.result_path is not None
     assert result.result_path.read_bytes() == DATA

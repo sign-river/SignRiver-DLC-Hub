@@ -87,7 +87,8 @@ PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
 PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"
 AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
-USAGE_TUTORIAL_URL = ""
+USAGE_TUTORIAL_URL = "https://sign-river.github.io/p/signriver-dlc-hub/getting-started/"
+BILIBILI_TUTORIAL_URL = "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
 
 
 def _card(parent, **kwargs):
@@ -635,9 +636,7 @@ class DlcHubApplication:
         ).pack(side="left", padx=3)
         ctk.CTkButton(
             profile_group, text="B站", width=52, height=42,
-            command=lambda: self._open_external_link(
-                "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
-            ),
+            command=lambda: self._open_external_link(BILIBILI_TUTORIAL_URL),
         ).pack(side="left", padx=3)
         ctk.CTkButton(
             profile_group, text="使用教程", width=78, height=42,
@@ -1042,6 +1041,12 @@ class DlcHubApplication:
         )
         self.cache_cleanup_button.grid(
             row=0, column=2, sticky="ew", padx=(0, 8)
+        )
+        self.game_cache_cleanup_button = ctk.CTkButton(
+            cache_header, text="清理当前游戏缓存", command=self._cleanup_current_game_cache,
+        )
+        self.game_cache_cleanup_button.grid(
+            row=0, column=1, sticky="ew", padx=(0, 8)
         )
         self.settings_description_boxes.append(
             _settings_description(
@@ -1605,6 +1610,7 @@ class DlcHubApplication:
         parsed = urlparse(url)
         allowed_hosts = {
             "github.com", "space.bilibili.com",
+            "sign-river.github.io",
             "www.gitlink.org.cn", "gitlink.org.cn",
         }
         if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
@@ -1616,10 +1622,18 @@ class DlcHubApplication:
         webbrowser.open(url)
 
     def _open_usage_tutorial(self) -> None:
-        if USAGE_TUTORIAL_URL:
+        choice = messagebox.askyesnocancel(
+            "使用教程",
+            "教程部署在 GitHub 上，需要使用代理才能访问。\n\n"
+            "是：打开 GitHub 教程\n"
+            "否：打开 B 站教程\n"
+            "取消：暂不打开",
+            parent=self.window,
+        )
+        if choice is True:
             self._open_external_link(USAGE_TUTORIAL_URL)
-            return
-        self._notify("使用教程暂未发布")
+        elif choice is False:
+            self._open_external_link(BILIBILI_TUTORIAL_URL)
 
     def _copy_qq_group(self) -> None:
         group_number = "1061299021"
@@ -1976,7 +1990,7 @@ class DlcHubApplication:
                 protected = list(ready_paths)
                 if repository is not None:
                     protected.extend(
-                        self.context.paths.cache / "packages" / receipt.package_sha256
+                        self.context.paths.cache / "packages" / receipt.game_id / receipt.package_sha256
                         for receipt in repository.active()
                     )
                 usage = self.cache_maintenance.usage_bytes()
@@ -2003,11 +2017,103 @@ class DlcHubApplication:
             target=worker, daemon=True, name="cache-maintenance-preview"
         ).start()
 
+    def _cleanup_current_game_cache(self) -> None:
+        """Remove completed cache packages owned only by the selected game."""
+        if self.cache_cleanup_running:
+            return
+        if self._content_work_is_active():
+            messagebox.showwarning(
+                "当前任务尚未结束",
+                "请先等待下载、安装或补丁操作结束，再清理当前游戏缓存。",
+                parent=self.window,
+            )
+            return
+        game_id = self.cartridge.adapter.descriptor.game_id
+        game_name = self.cartridge.adapter.descriptor.display_name
+        snapshots = (
+            self.download_queue.snapshots() if self.download_queue is not None else ()
+        )
+        self._set_cache_cleanup_running(True, "正在分析…")
+
+        def worker() -> None:
+            try:
+                usage = self.cache_maintenance.game_usage(game_id, snapshots)
+                plan = self.cache_maintenance.plan_game_cleanup(game_id, snapshots)
+                self._post_ui(
+                    lambda usage=usage, plan=plan:
+                    self._confirm_current_game_cache_cleanup(game_name, usage, plan)
+                )
+            except Exception as error:
+                self.context.logger.exception("Game cache cleanup analysis failed")
+                self._post_ui(
+                    lambda message=str(error):
+                    self._finish_cache_cleanup_error(message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="game-cache-maintenance-preview"
+        ).start()
+
+    def _confirm_current_game_cache_cleanup(self, game_name, usage, plan) -> None:
+        if not plan.paths:
+            self.cache_status.configure(
+                text=(
+                    f"{game_name}：已识别 {usage.file_count} 个缓存文件，"
+                    "没有可单独清理的内容"
+                )
+            )
+            self._set_cache_cleanup_running(False, "分析并清理")
+            return
+        if not messagebox.askyesno(
+            "确认清理游戏缓存",
+            f"{game_name} 的已下载缓存：{usage.file_count} 个文件，"
+            f"{usage.bytes_used / 1048576:.1f} MiB。\n\n"
+            f"将删除该游戏的 {plan.file_count} 个缓存文件，"
+            f"约 {plan.bytes_to_remove / 1048576:.1f} MiB。\n"
+            "已安装的游戏文件不会受影响；以后需要时会重新下载。",
+            parent=self.window,
+        ):
+            self._set_cache_cleanup_running(False, "分析并清理")
+            return
+        self.cache_cleanup_button.configure(text="正在清理…")
+
+        def worker() -> None:
+            try:
+                self.cache_maintenance.execute(plan)
+                invalidate_hashes = getattr(self.download_queue, "invalidate_hashes", None)
+                if callable(invalidate_hashes):
+                    invalidate_hashes(plan.paths)
+                self._post_ui(
+                    lambda plan=plan: self._finish_current_game_cache_cleanup(plan)
+                )
+            except Exception as error:
+                self.context.logger.exception("Game cache cleanup failed")
+                self._post_ui(
+                    lambda message=str(error):
+                    self._finish_cache_cleanup_error(message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="game-cache-maintenance-execute"
+        ).start()
+
+    def _finish_current_game_cache_cleanup(self, plan) -> None:
+        self.cache_status.configure(
+            text=f"已清理当前游戏 {plan.file_count} 个缓存文件、{plan.bytes_to_remove / 1048576:.1f} MiB"
+        )
+        self._set_cache_cleanup_running(False, "分析并清理")
+        self._schedule_cache_usage_scan(force=True)
+        self._reconcile_catalog_cache()
+
     def _set_cache_cleanup_running(self, running: bool, text: str) -> None:
         self.cache_cleanup_running = running
         self.cache_cleanup_button.configure(
             state="disabled" if running else "normal", text=text
         )
+        if hasattr(self, "game_cache_cleanup_button"):
+            self.game_cache_cleanup_button.configure(
+                state="disabled" if running else "normal"
+            )
 
     def _confirm_cache_cleanup(self, usage, plan, maintenance) -> None:
         transaction_count = len(maintenance.candidates) if maintenance is not None else 0
@@ -2056,7 +2162,7 @@ class DlcHubApplication:
                 ]
                 if self.install_repository is not None:
                     protected.extend(
-                        self.context.paths.cache / "packages" / receipt.package_sha256
+                        self.context.paths.cache / "packages" / receipt.game_id / receipt.package_sha256
                         for receipt in self.install_repository.active()
                     )
                 fresh_plan = self.cache_maintenance.plan(
@@ -2538,16 +2644,26 @@ class DlcHubApplication:
         def worker() -> None:
             try:
                 usage = self.cache_maintenance.usage_bytes()
+                snapshots = (
+                    self.download_queue.snapshots()
+                    if self.download_queue is not None else ()
+                )
+                game_id = self.cartridge.adapter.descriptor.game_id
+                game_usage = self.cache_maintenance.game_usage(game_id, snapshots)
             except Exception:
                 self.context.logger.exception("Unable to calculate cache usage")
                 usage = None
-            self._post_ui(lambda usage=usage: self._finish_cache_usage_scan(usage))
+                game_usage = None
+            self._post_ui(
+                lambda usage=usage, game_usage=game_usage:
+                self._finish_cache_usage_scan(usage, game_usage)
+            )
 
         threading.Thread(
             target=worker, daemon=True, name="cache-usage-scan"
         ).start()
 
-    def _finish_cache_usage_scan(self, usage: int | None) -> None:
+    def _finish_cache_usage_scan(self, usage: int | None, game_usage=None) -> None:
         self.cache_usage_scan_running = False
         self.cache_usage_last_scan = time.monotonic()
         if usage is not None:
@@ -2559,7 +2675,13 @@ class DlcHubApplication:
                     or current.startswith("当前缓存：")
                 ):
                     self.cache_status.configure(
-                        text=f"当前缓存：{usage / 1048576:.1f} MiB"
+                        text=(
+                            f"当前缓存：{usage / 1048576:.1f} MiB"
+                            if game_usage is None else
+                            f"当前缓存：{usage / 1048576:.1f} MiB；当前游戏已识别 "
+                            f"{game_usage.file_count} 个文件、"
+                            f"{game_usage.bytes_used / 1048576:.1f} MiB"
+                        )
                     )
 
     def _open_path(self, path: Path) -> None:
@@ -3938,6 +4060,7 @@ class DlcHubApplication:
             task_id=self._dlc_task_id(entry.dlc_id),
             url=assets[0].download_url,
             filename=entry.asset.name,
+            game_id=self.cartridge.adapter.descriptor.game_id,
             expected_size=None,
             expected_sha256=None,
             supports_range=False,
@@ -4758,6 +4881,7 @@ class DlcHubApplication:
             task_id=task_id,
             url=asset.download_url,
             filename=asset.name,
+            game_id=self.cartridge.adapter.descriptor.game_id,
             # GitLink only exposes a rounded display value (for example
             # "5.0 MB"), not the byte-exact attachment length. Treating that
             # estimate as exact quarantines valid files with a size mismatch.

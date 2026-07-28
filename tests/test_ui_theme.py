@@ -85,7 +85,9 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert 'text=PRODUCT_HEADER_TITLE_ZH' in source
     assert 'text=f"{AUTHOR_CN}|{AUTHOR_EN}  ·  开源免费 · 付费购买请立即退款"' in source
     assert 'AUTHOR_CN = "唏嘘南溪"' in source
-    assert 'USAGE_TUTORIAL_URL = ""' in source
+    assert 'USAGE_TUTORIAL_URL = "https://sign-river.github.io/p/signriver-dlc-hub/getting-started/"' in source
+    assert "BILIBILI_TUTORIAL_URL" in source
+    assert "messagebox.askyesnocancel(" in source
     assert 'profile_group, text="使用教程", width=78,' in source
     assert 'command=self._open_usage_tutorial' in source
     assert 'text="资源仓库（当前下载源）"' in source

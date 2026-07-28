@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 11
+LATEST_SCHEMA_VERSION = 12
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -49,6 +49,7 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
             task_id TEXT PRIMARY KEY NOT NULL,
             url TEXT NOT NULL,
             filename TEXT NOT NULL,
+            game_id TEXT NOT NULL,
             expected_size INTEGER,
             expected_sha256 TEXT,
             supports_range INTEGER NOT NULL CHECK (supports_range IN (0, 1)),
@@ -153,6 +154,10 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
         DEFAULT 'directory' CHECK (install_mode IN ('directory', 'overlay'))
         """,
     ),
+    # Version 12 was reserved while the unreleased cache schema was being
+    # finalized.  New databases already create download_tasks with game_id in
+    # migration 2, so no data transformation is required here.
+    12: (),
 }
 
 

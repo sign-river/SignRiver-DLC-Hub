@@ -6,7 +6,7 @@ from signriver_app.infrastructure.persistence import Database, DownloadTaskRepos
 
 def test_download_snapshot_round_trip_and_recovery(tmp_path: Path) -> None:
     repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
-    spec = DownloadSpec("task-1", "https://example.test/a.zip", "a.zip", 12, "a" * 64)
+    spec = DownloadSpec("task-1", "https://example.test/a.zip", "a.zip", "stellaris", 12, "a" * 64)
     paused = DownloadSnapshot(spec, DownloadState.PAUSED, 5, 12, 2, sha256=None, error="offline")
     repository.save(paused)
     assert repository.list_all() == (paused,)
@@ -25,11 +25,11 @@ def test_download_snapshot_round_trip_and_recovery(tmp_path: Path) -> None:
 def test_download_repository_can_clear_all_states(tmp_path: Path) -> None:
     repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
     repository.save(DownloadSnapshot(
-        DownloadSpec("ready", "https://example.test/a.zip", "a.zip"),
+        DownloadSpec("ready", "https://example.test/a.zip", "a.zip", "stellaris"),
         DownloadState.READY,
     ))
     repository.save(DownloadSnapshot(
-        DownloadSpec("paused", "https://example.test/b.zip", "b.zip"),
+        DownloadSpec("paused", "https://example.test/b.zip", "b.zip", "stellaris"),
         DownloadState.PAUSED,
     ))
 

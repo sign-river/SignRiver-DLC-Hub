@@ -25,6 +25,7 @@ class DownloadSpec:
     task_id: str
     url: str
     filename: str
+    game_id: str
     expected_size: int | None = None
     expected_sha256: str | None = None
     supports_range: bool = False

@@ -182,35 +182,62 @@ class GitHubReleaseClient:
         upload_base = release.upload_url.split("{", 1)[0]
         url = f"{upload_base}?name={quote(path.name)}"
         size = path.stat().st_size
-        body = _FileUploadBody(path, progress=progress, should_pause=should_pause)
-        request = urllib.request.Request(
-            url,
-            data=body,
-            method="POST",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/octet-stream",
-                "Content-Length": str(size),
-                "User-Agent": "SignRiver-Publisher/0.1",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-        )
-        try:
-            with self._opener(request, timeout=120) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except GitHubUploadPaused:
-            raise
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            raise GitHubPublisherError(
-                f"GitHub 上传失败 HTTP {error.code}: {detail}"
-            ) from error
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise GitHubPublisherError(f"GitHub 上传失败：{error}") from error
+        for attempt in range(3):
+            body = _FileUploadBody(path, progress=progress, should_pause=should_pause)
+            request = urllib.request.Request(
+                url,
+                data=body,
+                method="POST",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(size),
+                    "User-Agent": "SignRiver-Publisher/0.1",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            try:
+                with self._opener(request, timeout=120) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except GitHubUploadPaused:
+                raise
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")
+                if (
+                    error.code == 422
+                    and "already_exists" in detail
+                    and attempt < 2
+                ):
+                    self._remove_partial_asset(release.tag, path.name)
+                    time.sleep(1 << attempt)
+                    continue
+                raise GitHubPublisherError(
+                    f"GitHub 上传失败 HTTP {error.code}: {detail}"
+                ) from error
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                if attempt == 2:
+                    raise GitHubPublisherError(
+                        f"GitHub 上传失败，已重试 3 次：{error}"
+                    ) from error
+                self._remove_partial_asset(release.tag, path.name)
+                time.sleep(1 << attempt)
         if not isinstance(payload, dict):
             raise GitHubPublisherError("GitHub 上传返回了异常响应")
         return payload
+
+    def _remove_partial_asset(self, tag: str, name: str) -> None:
+        """Clear a server-side asset when the connection closed after upload."""
+        try:
+            release = self.get_release_by_tag(tag)
+        except GitHubPublisherError:
+            return
+        if release is None:
+            return
+        for asset in release.assets:
+            if str(asset.get("name")) == name and asset.get("id") is not None:
+                self.delete_asset(int(asset["id"]))
 
     def _normalize(self, payload: object) -> GitHubRelease:
         if not isinstance(payload, dict):

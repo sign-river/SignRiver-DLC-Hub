@@ -3456,10 +3456,27 @@ class PublisherApplication(ctk.CTk):
                 release = client.ensure_release(profile.release_tag)
                 total = len(assets)
                 completed_names = set(completed)
+                reusable_assets = {
+                    str(item.get("name")): int(item.get("size") or 0)
+                    for item in release.assets
+                    if item.get("name") and item.get("size") is not None
+                }
                 for index, asset in enumerate(assets, start=1):
-                    if asset.name in completed_names:
+                    if (
+                        asset.name in completed_names
+                        or (
+                            asset.name != profile.appinfo_name
+                            and reusable_assets.get(asset.name) == asset.size_bytes
+                        )
+                    ):
+                        completed_names.add(asset.name)
                         self._queue_upload_progress(
                             index, total, asset.name, asset.size_bytes, asset.size_bytes
+                        )
+                        self._post_ui(
+                            lambda i=index, value=asset.name: self._log(
+                                f"[{i}/{total}] 复用 GitHub 附件 {value}"
+                            )
                         )
                         continue
                     self._queue_upload_progress(
@@ -3706,6 +3723,10 @@ class PublisherApplication(ctk.CTk):
         github_context = self._github_publish_resume_context
         if github_context is not None:
             owner, name, token, profile, assets, completed = github_context
+            if not self._begin_background_mutation(
+                "publish", "正在继续上传 GitHub Release"
+            ):
+                return
             self._log("继续 GitHub 发布：当前文件将从头上传，已完成文件会跳过。")
             self._start_github_publish(
                 owner, name, token, profile, assets, completed,
@@ -3752,6 +3773,7 @@ class PublisherApplication(ctk.CTk):
             owner, name, token, profile, assets, completed,
         )
         self._upload_control = None
+        self._end_background_mutation("publish")
         publish_button, pause_button, status_label, _progress_bar = (
             self._publish_scope_controls()
         )

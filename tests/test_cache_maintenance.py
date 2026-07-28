@@ -85,3 +85,24 @@ def test_cleanup_rejects_path_outside_cache(tmp_path: Path) -> None:
     else:
         raise AssertionError("outside cleanup path was accepted")
     assert outside.exists()
+
+
+def test_game_usage_and_cleanup_follow_game_cache_roots(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    stellaris = cache / "packages" / "stellaris" / ("a" * 64) / "stellaris.zip"
+    bad = cache / "quarantine" / "stellaris" / "rejected.bad"
+    hoi4 = cache / "packages" / "hoi4" / ("b" * 64) / "hoi4.zip"
+    for path, content in ((stellaris, b"stellaris"), (bad, b"bad"), (hoi4, b"hoi4")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    maintenance = CacheMaintenance(cache)
+    usage = maintenance.game_usage("stellaris")
+    assert usage.file_count == 1
+    assert usage.bytes_used == len(b"stellaris")
+
+    plan = maintenance.plan_game_cleanup("stellaris")
+    assert set(plan.paths) == {stellaris.parents[1], bad.parent}
+    maintenance.execute(plan)
+    assert not stellaris.exists()
+    assert not bad.exists()
+    assert hoi4.exists()

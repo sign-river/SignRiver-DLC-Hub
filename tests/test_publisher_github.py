@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+import urllib.error
 
 import pytest
 
@@ -175,3 +177,57 @@ def test_github_asset_upload_can_be_paused_between_chunks(tmp_path) -> None:
             progress=progress,
             should_pause=lambda: pause["requested"],
         )
+
+
+def test_github_asset_upload_retries_after_connection_reset(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "asset.zip"
+    path.write_bytes(b"asset")
+    attempts = []
+
+    def opener(request, *, timeout: int):
+        attempts.append(b"".join(request.data))
+        if len(attempts) == 1:
+            raise OSError(10054, "connection reset")
+        return _Response({"id": 8, "name": "asset.zip"})
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+    release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
+
+    client.upload_asset(release, path)
+
+    assert attempts == [b"asset", b"asset"]
+
+
+def test_github_asset_upload_recovers_from_existing_asset_conflict(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "asset.zip"
+    path.write_bytes(b"asset")
+    attempts = []
+
+    def opener(request, *, timeout: int):
+        attempts.append(b"".join(request.data))
+        if len(attempts) == 1:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                422,
+                "Validation Failed",
+                None,
+                BytesIO(b'{"errors":[{"code":"already_exists"}]}'),
+            )
+        return _Response({"id": 8, "name": "asset.zip"})
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+    release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
+
+    client.upload_asset(release, path)
+
+    assert attempts == [b"asset", b"asset"]

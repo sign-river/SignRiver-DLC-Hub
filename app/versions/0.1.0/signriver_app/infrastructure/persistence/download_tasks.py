@@ -19,6 +19,7 @@ class DownloadTaskRepository:
     def save(self, snapshot: DownloadSnapshot) -> None:
         values = (
             snapshot.spec.task_id, self._stored_url(snapshot.spec), snapshot.spec.filename,
+            snapshot.spec.game_id,
             snapshot.spec.expected_size, snapshot.spec.expected_sha256,
             int(snapshot.spec.supports_range), snapshot.state.value,
             snapshot.bytes_downloaded, snapshot.total_bytes, snapshot.attempt,
@@ -30,12 +31,13 @@ class DownloadTaskRepository:
             with self.database.transaction() as connection:
                 connection.execute(
                     """INSERT INTO download_tasks (
-                        task_id, url, filename, expected_size, expected_sha256,
+                        task_id, url, filename, game_id, expected_size, expected_sha256,
                         supports_range, state, bytes_downloaded, total_bytes,
                         attempt, result_path, actual_sha256, error, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(task_id) DO UPDATE SET
                         url=excluded.url, filename=excluded.filename,
+                        game_id=excluded.game_id,
                         expected_size=excluded.expected_size,
                         expected_sha256=excluded.expected_sha256,
                         supports_range=excluded.supports_range, state=excluded.state,
@@ -117,6 +119,7 @@ class DownloadTaskRepository:
                 pass
         spec = DownloadSpec(
             task_id=row["task_id"], url=url, filename=row["filename"],
+            game_id=row["game_id"],
             expected_size=row["expected_size"],
             expected_sha256=row["expected_sha256"],
             supports_range=bool(row["supports_range"]),

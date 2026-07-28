@@ -95,7 +95,8 @@ class DownloadManager:
         quarantine = self.cache_root / "quarantine"
         for directory in (downloads, packages, quarantine):
             directory.mkdir(parents=True, exist_ok=True)
-        part = downloads / f"{spec.task_id}.part"
+        part = downloads / spec.game_id / f"{spec.task_id}.part"
+        part.parent.mkdir(parents=True, exist_ok=True)
         snapshot = DownloadSnapshot(spec=spec, total_bytes=spec.expected_size)
         notify(snapshot)
 
@@ -225,7 +226,7 @@ class DownloadManager:
                 )
                 if requested is not None:
                     return requested
-                target_dir = packages / actual_hash
+                target_dir = packages / spec.game_id / actual_hash
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target = target_dir / spec.filename
                 requested = self._finish_requested_control(
@@ -253,7 +254,8 @@ class DownloadManager:
                     return requested
                 # Keep only the newest rejected attempt for a task.  Retrying
                 # a multi-gigabyte package must not multiply cache usage.
-                isolated = quarantine / f"{spec.task_id}-latest.bad"
+                isolated = quarantine / spec.game_id / f"{spec.task_id}-latest.bad"
+                isolated.parent.mkdir(parents=True, exist_ok=True)
                 if part.exists():
                     os.replace(part, isolated)
                 if attempt < self.policy.attempts:
@@ -350,6 +352,8 @@ class DownloadManager:
                 raise ValueError("download URL must be credential-free HTTPS")
         if not _SAFE_FILENAME.fullmatch(spec.filename) or spec.filename in {".", ".."}:
             raise ValueError("unsafe download filename")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", spec.game_id):
+            raise ValueError("unsafe game ID")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", spec.task_id):
             raise ValueError("unsafe download task ID")
         if spec.expected_size is not None and spec.expected_size < 0:

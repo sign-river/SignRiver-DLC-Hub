@@ -20,7 +20,7 @@ def test_diagnostic_export_redacts_secrets_paths_and_url_queries(tmp_path: Path)
         encoding="utf-8",
     )
     snapshot = DownloadSnapshot(
-        DownloadSpec("task-1", "https://example.test/file.zip?token=secret", "file.zip"),
+        DownloadSpec("task-1", "https://example.test/file.zip?token=secret", "file.zip", "stellaris"),
         DownloadState.FAILED,
         error="password=hunter2",
     )

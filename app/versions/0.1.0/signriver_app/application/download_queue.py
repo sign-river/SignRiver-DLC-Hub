@@ -144,9 +144,6 @@ class DownloadQueue:
         A file is restored only after the current cartridge verifier accepts
         its full structure.  Genuine bad packages remain isolated.
         """
-        quarantine = self.manager.cache_root / "quarantine"
-        if not quarantine.is_dir():
-            return ()
         verifier_factory = verifier_for or self.verifier_for
         recovered = []
         for spec in specs:
@@ -155,6 +152,9 @@ class DownloadQueue:
             with self._lock:
                 may_reconcile = self._may_reconcile_locked(spec.task_id)
             if not may_reconcile:
+                continue
+            quarantine = self.manager.cache_root / "quarantine" / spec.game_id
+            if not quarantine.is_dir():
                 continue
             prefix = f"{spec.task_id}-"
             candidates = sorted(
@@ -184,7 +184,7 @@ class DownloadQueue:
                     verifier = verifier_factory(spec)
                     if verifier is not None:
                         verifier(candidate, digest)
-                    target_dir = self.manager.cache_root / "packages" / digest
+                    target_dir = self.manager.cache_root / "packages" / spec.game_id / digest
                     target_dir.mkdir(parents=True, exist_ok=True)
                     target = target_dir / spec.filename
                     # Validate an existing content-addressed target before
@@ -442,7 +442,7 @@ class DownloadQueue:
                 resolved.relative_to(packages)
             except ValueError as error:
                 raise ValueError("cached package escaped the package directory") from error
-            quarantine = cache_root / "quarantine"
+            quarantine = cache_root / "quarantine" / snapshot.spec.game_id
             quarantine.mkdir(parents=True, exist_ok=True)
             isolated = quarantine / f"{task_id}-{time.time_ns()}.bad"
             resolved.replace(isolated)
@@ -451,6 +451,9 @@ class DownloadQueue:
                 parent = resolved.parent
                 if parent != packages and not any(parent.iterdir()):
                     parent.rmdir()
+                    game_directory = parent.parent
+                    if game_directory != packages and not any(game_directory.iterdir()):
+                        game_directory.rmdir()
             except OSError:
                 pass
 
@@ -624,7 +627,7 @@ class DownloadQueue:
         packages = Path(cache_root) / "packages"
         if not packages.is_dir():
             return None
-        for candidate in packages.glob(f"*/{spec.filename}"):
+        for candidate in packages.glob(f"{spec.game_id}/*/{spec.filename}"):
             if not self._may_reconcile(spec.task_id):
                 return None
             if not candidate.is_file():
