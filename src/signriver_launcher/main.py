@@ -67,6 +67,34 @@ def _show_fatal_error(message: str) -> None:
         print(message, file=sys.stderr)
 
 
+def format_rollback_notice(failed_version: str, rolled_back_version: str, reason: str) -> str:
+    """Compose the recovery notice shown after an automatic module rollback."""
+    return (
+        f"新版本模块 {failed_version} 启动失败，已自动回滚到 {rolled_back_version}。\n"
+        f"失败原因：{reason}\n\n"
+        "程序已用上一版本正常打开（启动器保持当前版本）。\n"
+        "可在「设置」页重新点击检查更新，重新下载修复后的版本；\n"
+        "若反复失败，请通过日志页导出诊断信息后反馈。"
+    )
+
+
+def _show_rollback_notice(
+    failed_version: str, rolled_back_version: str, error: ModuleLoadError
+) -> None:
+    try:
+        from tkinter import messagebox
+
+        messagebox.showwarning(
+            "唏嘘南溪DLC一键解锁工具",
+            format_rollback_notice(failed_version, rolled_back_version, str(error)),
+        )
+    except Exception:
+        print(
+            format_rollback_notice(failed_version, rolled_back_version, str(error)),
+            file=sys.stderr,
+        )
+
+
 def _activate_confirmed_full_update_module(
     paths: RuntimePaths,
     store: StateStore,
@@ -151,13 +179,14 @@ def main(argv: list[str] | None = None) -> int:
             store.mark_healthy(state.active_version)
             if confirm_transaction:
                 FullUpdateManager(paths).confirm(confirm_transaction)
-        except ModuleLoadError:
+        except ModuleLoadError as error:
             if confirm_transaction:
                 FullUpdateManager(paths).rollback(confirm_transaction)
             if state.previous_version is None:
                 raise
             logger.exception("New module failed during initialization; rolling back")
-            state = store.rollback_pending(state.active_version)
+            failed_version = state.active_version
+            state = store.rollback_pending(failed_version)
             context = HostContext.create(
                 state.active_version,
                 paths.root,
@@ -167,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
                 logger,
             )
             application = loader.create_application(state.active_version, context)
+            _show_rollback_notice(failed_version, state.active_version, error)
 
         logger.info("Starting application module %s", state.active_version)
         application.run()
