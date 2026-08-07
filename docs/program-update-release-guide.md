@@ -13,8 +13,14 @@
 
 ## 构建与准备
 
+> 说明：`build_release.py` 会自动从 PATH 查找 UPX（也可用 `--upx-dir` 显式指定）。
+> 没有 UPX 时启动器 EXE 不会压缩（约 177MB），构建会打印显式警告；
+> 安装 UPX 后 EXE 约 17MB、全量更新包约 19MB。UPX 仅需在构建机上使用，
+> 不随发布包分发。
+
+
 ```powershell
-.\.venv\Scripts\python.exe tools\build_release.py
+.\.venv\Scripts\python.exe tools\build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
 .\.venv\Scripts\python.exe tools\prepare_update_release.py `
   dist\updates\SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip `
   --version 0.1.3 --kind full --min-launcher-version 0.1.2 `

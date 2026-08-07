@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -209,9 +210,41 @@ def _build_python_sfx(archive_zip: Path, sfx_path: Path) -> bool:
     return True
 
 
+def resolve_upx_dir(explicit: Path | None) -> Path | None:
+    """Locate the directory containing ``upx.exe`` for PyInstaller.
+
+    Prefer the explicit ``--upx-dir``; otherwise search ``PATH``.  Return
+    ``None`` when UPX is unavailable so callers can warn loudly instead of
+    silently producing an uncompressed (much larger) onefile EXE.
+    """
+    if explicit is not None:
+        candidate = explicit if explicit.is_absolute() else ROOT / explicit
+        if (candidate / "upx.exe").is_file():
+            return candidate
+        raise SystemExit(f"upx.exe not found in --upx-dir: {candidate}")
+    found = shutil.which("upx")
+    return Path(found).resolve().parent if found else None
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--upx-dir",
+        type=Path,
+        default=None,
+        help="directory containing upx.exe (default: PATH lookup)",
+    )
+    args = parser.parse_args()
     if os.name != "nt":
         raise SystemExit("Windows release packages must be built on Windows")
+    upx_dir = resolve_upx_dir(args.upx_dir)
+    if upx_dir is None:
+        print(
+            "WARNING: UPX not found; the launcher EXE will NOT be compressed "
+            "and release packages will be much larger than expected"
+        )
+    else:
+        print(f"UPX:            {upx_dir / 'upx.exe'}")
     if APP_VERSION != VERSION:
         raise SystemExit(
             f"active app version {APP_VERSION} must match launcher version {VERSION}"
@@ -240,6 +273,10 @@ def main() -> int:
     # a Chinese folder/EXE for domestic users.
     icon_path = ROOT / "config" / "app.ico"
     icon_args = ["--icon", str(icon_path)] if icon_path.is_file() else []
+    build_env = None
+    if upx_dir is not None:
+        build_env = dict(os.environ)
+        build_env["PATH"] = str(upx_dir) + os.pathsep + build_env.get("PATH", "")
     subprocess.run(
         [
             sys.executable,
@@ -269,11 +306,13 @@ def main() -> int:
         ],
         cwd=ROOT,
         check=True,
+        env=build_env,
     )
 
     built_exe = dist / "bin" / f"{BUILD_EXE_BASENAME}.exe"
     if not built_exe.is_file():
         raise SystemExit(f"PyInstaller did not produce {built_exe}")
+    print(f"Launcher EXE size: {built_exe.stat().st_size:,} bytes")
 
     # Drop both the previous Chinese release and any leftover English folder.
     for stale in (

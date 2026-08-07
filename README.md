@@ -61,7 +61,7 @@ python -m pytest
 ## 构建
 
 ```bash
-python tools/build_release.py
+python tools/build_release.py  # 需要 PATH 中有 UPX（或 --upx-dir 指定），否则 EXE 约 177MB
 python tools/build_module.py app/versions/0.1.3
 ```
 
