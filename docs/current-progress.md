@@ -104,9 +104,9 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 ### 模块归档
 
 - `dist/modules/SignRiver-DLC-Hub-module-v0.1.3.zip`
-- 大小：`182,152` 字节
+- 大小：`185,288` 字节（2026-08-08 重新打包，包含 static_manifest 与当前 UI）
 - SHA256：
-  `17dd3b3bf8fa106494cce27ec0f99b4cee5efd59618b377944abc9d13e30c1c0`
+  `e99c55c05dd36535bf47c3c32bddbbd54a6a4c1e5242bd9946eac05bb6426386`
 
 ### 发布器
 
