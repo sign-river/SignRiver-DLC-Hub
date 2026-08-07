@@ -7,8 +7,8 @@
 - 当前程序版本：`0.1.3`
 - Host API：`2`
 - 更新类型：`full`
-- `0.1.3` 已于 2026-08-01 双源发布（GitHub 与 GitLink 的 `updates` Release，23,550,648 字节 / SHA256 `712cf5...`）。
-- 本地 2026-08-07 已用 UPX 重建全量包：18,753,701 字节 / SHA256 `baf1fb...`（EXE 从 176.9MB 压缩回 17.3MB），包含最新源码改动，尚未上传，与线上不一致。
+- `0.1.3` 已双源发布：2026-08-01 首次发布（23,550,648 字节 / `712cf5...`），2026-08-07 已用 UPX 小包替换（18,753,701 字节 / `baf1fb5e...`）。
+- 2026-08-07 的 UPX 小包（18,753,701 字节 / `baf1fb5e...`）已上传 GitHub 与 GitLink，两端清单均已指向新哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
 - 已修复 `tools/restore_module_archives.py` 的 GitLink 下载地址（去掉错误的 `/api/` 前缀，并按平台区分仓库所有者），实测可从 GitLink 恢复 v0.1.3 模块归档。
 - 已为 `tools/build_release.py` 接入 UPX 探测（`--upx-dir` / PATH）；本机 UPX 5.0.2 下构建产物：启动器 EXE 17,279,062 字节、全量更新包 18,753,701 字节（SHA256 `baf1fb5e...`）。
 - 两个平台的清单均指向各自平台的下载地址，不会跨源下载。
@@ -54,30 +54,25 @@
 
 ## 远端发布状态
 
-核验时间：2026-08-07；两个平台的 `updates` Release 均已发布 `0.1.3`（2026-08-01 上传，23,550,648 字节 / SHA256 `712cf5...`）。
+核验时间：2026-08-07；两个平台的 `updates` Release 均已发布 UPX 小包 `0.1.3`（18,753,701 字节 / SHA256 `baf1fb5e...`），清单一致。
 
 ### GitHub
 
 - 清单状态：HTTP `200`
 - 清单版本：`0.1.3`
 - 类型：`full`
-- 下载包：
+- 下载包（18,753,701 字节 / `baf1fb5e...`）：
   `https://github.com/sign-river/signriver-dlc-assets/releases/download/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-- `updates` Release 当前受管附件：
-  - `SignRiver-DLC-Hub-full-v0.1.1-windows-x64.zip`
-  - `SignRiver-DLC-Hub-full-v0.1.2-windows-x64.zip`
-  - `SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-  - `update-manifest.json`
-- `modules` Release：**不存在**，模块归档 v0.1.1/v0.1.2/v0.1.3 均返回 HTTP `404`，需创建 Release 并上传。
+- `modules` Release：已创建，v0.1.1/v0.1.2/v0.1.3 模块归档全部存在，大小与 SHA256 和 `config/module-archives.json` 一致。
 
 ### GitLink
 
 - 清单状态：HTTP `200`
 - 清单版本：`0.1.3`
 - 类型：`full`
-- 下载包：
+- 下载包（18,753,701 字节 / `baf1fb5e...`）：
   `https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-- `modules` Release：模块归档 v0.1.1/v0.1.2/v0.1.3 均已存在，下载大小与 SHA256 和 `config/module-archives.json` 一致。
+- `modules` Release：v0.1.1/v0.1.2/v0.1.3 模块归档全部存在，大小与 SHA256 和 `config/module-archives.json` 一致。
 - `update-manifest.json` 数量：`1`
 
 GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
@@ -94,7 +89,7 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 - 大小：`18,753,701` 字节（2026-08-07 UPX 重建版）
 - SHA256：
   `baf1fb5ec2ce523bd9be4ed7e392431802882d48927dac89f507ce19767d7497`
-- 注：线上 2026-08-01 发布的仍是旧版（23,550,648 字节 / `712cf5...`），新版尚未上传。
+- 注：该 UPX 小包已于 2026-08-07 上传双源，线上清单已指向本哈希。
 
 对应清单：
 
