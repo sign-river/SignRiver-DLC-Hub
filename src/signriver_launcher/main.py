@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         except ModuleLoadError:
             if confirm_transaction:
                 FullUpdateManager(paths).rollback(confirm_transaction)
-            if state.pending_version != state.active_version:
+            if state.previous_version is None:
                 raise
             logger.exception("New module failed during initialization; rolling back")
             state = store.rollback_pending(state.active_version)

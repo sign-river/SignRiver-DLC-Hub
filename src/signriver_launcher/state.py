@@ -89,8 +89,14 @@ class StateStore:
         return state
 
     def rollback_pending(self, failed_version: str) -> InstallState:
+        """Roll the active module back to its previous version.
+
+        The pending marker is not required: a module can also be rolled back
+        after it was already confirmed healthy (for example when the installed
+        files are later corrupted), as long as a previous version still exists.
+        """
         state = self.load()
-        if state.active_version != failed_version or state.pending_version != failed_version:
+        if state.active_version != failed_version:
             return state
         if not state.previous_version:
             raise ConfigurationError("The failed module has no rollback target")
