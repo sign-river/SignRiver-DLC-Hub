@@ -8,7 +8,7 @@
 - Host API：`2`
 - 更新类型：`full`
 - `0.1.3` 已双源发布：2026-08-01 首次发布（23,550,648 字节 / `712cf5...`），2026-08-07 已用 UPX 小包替换（18,753,701 字节 / `baf1fb5e...`）。
-- 2026-08-07 的 UPX 小包（18,753,701 字节 / `baf1fb5e...`）已上传 GitHub 与 GitLink，两端清单均已指向新哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
+- 2026-08-08 已发布含“模块损坏自动回滚”修复的 0.1.3 全量包（18,754,167 字节 / `f49e6603...`），GitHub 与 GitLink 清单均已指向新哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
 - 已修复 `tools/restore_module_archives.py` 的 GitLink 下载地址（去掉错误的 `/api/` 前缀，并按平台区分仓库所有者），实测可从 GitLink 恢复 v0.1.3 模块归档。
 - 已为 `tools/build_release.py` 接入 UPX 探测（`--upx-dir` / PATH）；本机 UPX 5.0.2 下构建产物：启动器 EXE 17,279,062 字节、全量更新包 18,753,701 字节（SHA256 `baf1fb5e...`）。
 - 两个平台的清单均指向各自平台的下载地址，不会跨源下载。
@@ -86,10 +86,10 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 
 `dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
 
-- 大小：`18,753,701` 字节（2026-08-07 UPX 重建版）
+- 大小：`18,754,167` 字节（2026-08-08 重建，含“模块损坏自动回滚”修复）
 - SHA256：
-  `baf1fb5ec2ce523bd9be4ed7e392431802882d48927dac89f507ce19767d7497`
-- 注：该 UPX 小包已于 2026-08-07 上传双源，线上清单已指向本哈希。
+  `f49e66030af03b5b13977bfffd2689ff802f50c47b79009334176d43f41eb6f4`
+- 注：已上传 GitHub 与 GitLink，两端清单均指向本哈希。
 
 对应清单：
 
