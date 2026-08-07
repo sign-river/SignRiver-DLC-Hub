@@ -216,6 +216,18 @@ class DlcHubApplication:
         self.ui_events = SimpleQueue()
         self.pending_download_snapshots = {}
         self.pending_download_lock = threading.Lock()
+        self.update_download_active = False
+        self.update_download_cancelling = False
+        self.update_download_preparing = False
+        self.update_download_version = ""
+        self.update_download_current = 0
+        self.update_download_total: int | None = None
+        self.update_download_speed = 0.0
+        self.update_download_started_at = 0.0
+        self.update_download_cancel_event: threading.Event | None = None
+        self.update_task_row = None
+        self.update_task_status_label = None
+        self.update_task_cancel_button = None
         self.ui_event_pump_running = True
         self.discovery = None
         self.adapter_registry = AdapterRegistry()
@@ -400,6 +412,9 @@ class DlcHubApplication:
                 self.announcement_service.set_download_source(
                     self.user_settings.download_source
                 )
+            self.context.updates.set_download_source(
+                self.user_settings.download_source
+            )
             self.download_manager = DownloadManager(self.context.paths.cache)
             self.download_manager.configure_timeout(
                 None if self.user_settings.download_never_timeout else 30
@@ -591,7 +606,18 @@ class DlcHubApplication:
         ctk.CTkLabel(
             sidebar, text="DLC一键解锁工具", text_color=UI["muted"],
             font=ctk.CTkFont(size=11, weight="bold"),
-        ).pack(anchor="w", padx=19, pady=(0, 24))
+        ).pack(anchor="w", padx=19, pady=(0, 4))
+        ctk.CTkLabel(
+            sidebar,
+            text=(
+                f"程序 v{self.context.app_version}\n"
+                f"启动器 v{self.context.launcher_version}"
+            ),
+            justify="left",
+            anchor="w",
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=11),
+        ).pack(anchor="w", padx=19, pady=(0, 20))
         self.navigation_buttons = {}
         for page_name in ("DLC 库", "下载任务", "日志", "设置"):
             button = ctk.CTkButton(
@@ -1071,6 +1097,15 @@ class DlcHubApplication:
             update_header, text="检查更新", command=self._check_update,
         )
         self.update_button.grid(row=0, column=3, sticky="ew")
+        self.update_cancel_button = ctk.CTkButton(
+            update_header,
+            text="取消下载",
+            command=self._cancel_update_download,
+            fg_color=UI["danger"],
+            hover_color=UI["danger_hover"],
+            state="disabled",
+        )
+        self.update_cancel_button.grid(row=0, column=2, sticky="ew", padx=(0, 8))
         self.settings_description_boxes.append(
             _settings_description(
                 update_card,
@@ -1084,7 +1119,13 @@ class DlcHubApplication:
         self.progress.set(0)
         self.progress.pack(fill="x", padx=24, pady=(12, 6))
         self.status = ctk.CTkLabel(
-            update_card, text="尚未检查更新", text_color=UI["muted"], anchor="w"
+            update_card,
+            text=(
+                f"当前程序 v{self.context.app_version} · "
+                f"启动器 v{self.context.launcher_version} · 尚未检查更新"
+            ),
+            text_color=UI["muted"],
+            anchor="w",
         )
         self.status.pack(fill="x", padx=24, pady=(0, 18))
 
@@ -1674,9 +1715,12 @@ class DlcHubApplication:
     def _refresh_task_page(self) -> None:
         self.task_refresh_pending = False
         snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
+        has_update_download = self.update_download_active
         snapshot_ids = tuple(snapshot.spec.task_id for snapshot in snapshots)
         active_task_id = self._active_download_task_id(snapshots)
-        if snapshot_ids and snapshot_ids == tuple(self.task_rows):
+        if snapshot_ids and snapshot_ids == tuple(self.task_rows) and (
+            has_update_download == (self.update_task_row is not None)
+        ):
             try:
                 rows_alive = all(row.winfo_exists() for row in self.task_rows.values())
             except TclError:
@@ -1692,14 +1736,19 @@ class DlcHubApplication:
         self.task_rows.clear()
         self.task_action_frames.clear()
         self.task_action_keys.clear()
+        self.update_task_row = None
+        self.update_task_status_label = None
+        self.update_task_cancel_button = None
         for child in self.task_list_frame.winfo_children():
             child.destroy()
-        if not snapshots:
+        if not snapshots and not has_update_download:
             ctk.CTkLabel(
                 self.task_list_frame, text="暂无下载任务"
             ).pack(pady=40)
             self._schedule_task_scroll(None)
             return
+        if has_update_download:
+            self._render_update_download_row()
         for snapshot in snapshots:
             row = ctk.CTkFrame(
                 self.task_list_frame, fg_color=UI["card"], corner_radius=10,
@@ -1726,6 +1775,79 @@ class DlcHubApplication:
                 row, set(self.navigation_buttons.values())
             )
         self._schedule_task_scroll(active_task_id)
+
+    def _render_update_download_row(self) -> None:
+        row = ctk.CTkFrame(
+            self.task_list_frame, fg_color=UI["card"], corner_radius=10,
+            border_width=1, border_color=UI["primary_border"], height=68,
+        )
+        row.pack(fill="x", pady=3)
+        row.pack_propagate(False)
+        info = ctk.CTkFrame(row, fg_color="transparent")
+        info.pack(side="left", fill="both", expand=True, padx=(14, 4), pady=7)
+        ctk.CTkLabel(
+            info,
+            text=f"程序更新 v{self.update_download_version}",
+            anchor="w",
+            height=23,
+        ).pack(fill="x")
+        status = ctk.CTkLabel(
+            info,
+            text=self._update_download_task_text(),
+            anchor="w",
+            height=20,
+            text_color=("gray40", "gray70"),
+        )
+        status.pack(fill="x")
+        cancel = ctk.CTkButton(
+            row,
+            text="取消",
+            width=64,
+            command=self._cancel_update_download,
+            state=(
+                "disabled"
+                if self.update_download_cancelling or self.update_download_preparing
+                else "normal"
+            ),
+        )
+        cancel.pack(side="right", padx=(8, 12), pady=16)
+        self.update_task_row = row
+        self.update_task_status_label = status
+        self.update_task_cancel_button = cancel
+        self._apply_visual_theme_to_children(
+            row, set(self.navigation_buttons.values())
+        )
+
+    def _update_download_task_text(self) -> str:
+        state = (
+            "正在取消" if self.update_download_cancelling
+            else "正在准备" if self.update_download_preparing
+            else "下载中"
+        )
+        total = self.update_download_total
+        progress = (
+            f"{self.update_download_current / 1048576:.1f}/"
+            f"{total / 1048576:.1f} MiB"
+            if total else f"{self.update_download_current / 1048576:.1f} MiB"
+        )
+        return f"{state} · {progress} · {self.update_download_speed / 1024:.1f} KiB/s"
+
+    def _refresh_update_download_task(self) -> None:
+        if getattr(self, "current_page", None) != "下载任务":
+            return
+        label = self.update_task_status_label
+        if label is None:
+            self._refresh_task_page()
+            return
+        label.configure(text=self._update_download_task_text())
+        if self.update_task_cancel_button is not None:
+            self.update_task_cancel_button.configure(
+                state=(
+                    "disabled"
+                    if self.update_download_cancelling or self.update_download_preparing
+                    else "normal"
+                )
+            )
 
     def _render_task_row_actions(self, snapshot) -> None:
         task_id = snapshot.spec.task_id
@@ -2327,13 +2449,16 @@ class DlcHubApplication:
         self.download_source_generation += 1
         source_generation = self.download_source_generation
         self.game_selection_generation += 1
+        self.context.updates.set_download_source(selected)
         self.cartridge_catalog.set_download_source(selected)
         self.announcement_service.set_download_source(selected)
         self.cartridges.clear()
         self.catalog_preview.configure(
             text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
         )
-        self._notify(f"下载源已切换为 {provider_display_name(selected)}")
+        self._notify(
+            f"下载和程序更新源已切换为 {provider_display_name(selected)}"
+        )
 
         def worker() -> None:
             try:
@@ -2633,6 +2758,8 @@ class DlcHubApplication:
         }
         active = [item for item in snapshots if item.state in active_states]
         speed = sum(item.speed_bytes_per_second or 0 for item in active)
+        update_task_count = int(self.update_download_active)
+        speed += self.update_download_speed if self.update_download_active else 0
         cache_text = (
             f"{self.cache_usage_bytes / 1048576:.1f} MiB"
             if self.cache_usage_bytes is not None
@@ -2640,7 +2767,7 @@ class DlcHubApplication:
         )
         self.global_status.configure(text=(
             f"网络：{'已连接' if self.catalog_online else '未连接'}\n"
-            f"任务：{len(active)} · {speed / 1024:.1f} KiB/s\n"
+            f"任务：{len(active) + update_task_count} · {speed / 1024:.1f} KiB/s\n"
             f"缓存：{cache_text}"
         ))
         if hasattr(self, "cache_status"):
@@ -2886,10 +3013,7 @@ class DlcHubApplication:
             return
         if source is not None and source != self.user_settings.download_source:
             return
-        if (
-            request_generation is not None
-            and request_generation != self.catalog_request_generation
-        ):
+        if request_generation is not None and request_generation != self.catalog_request_generation:
             return
         self.catalog_online = True
         entries = snapshot.entries
@@ -3051,17 +3175,6 @@ class DlcHubApplication:
         count: int,
         *,
         generation: int | None = None,
-        cartridge_id: str | None = None,
-    ) -> None:
-        if generation is not None and generation != self.game_selection_generation:
-            return
-        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
-            return
-        self.catalog_preview.configure(text=f"已从缓存恢复 {count} 个已下载 DLC")
-        self._schedule_ready_installs()
-
-    def _show_catalog_error(
-        self, message: str, *, generation: int | None = None,
         cartridge_id: str | None = None, source: str | None = None,
         request_generation: int | None = None,
     ) -> None:
@@ -3071,10 +3184,18 @@ class DlcHubApplication:
             return
         if source is not None and source != self.user_settings.download_source:
             return
-        if (
-            request_generation is not None
-            and request_generation != self.catalog_request_generation
-        ):
+        if request_generation is not None and request_generation != self.catalog_request_generation:
+            return
+        self.catalog_preview.configure(text=f"已从缓存恢复 {count} 个已下载 DLC")
+        self._schedule_ready_installs()
+
+    def _show_catalog_error(
+        self, message: str, *, generation: int | None = None,
+        cartridge_id: str | None = None,
+    ) -> None:
+        if generation is not None and generation != self.game_selection_generation:
+            return
+        if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
             return
         self.catalog_online = False
         self.catalog_refresh_button.configure(state="normal")
@@ -6320,7 +6441,7 @@ class DlcHubApplication:
         if not self.context.updates.enabled:
             messagebox.showinfo(
                 "更新尚未配置",
-                "请先在 config/update.json 中填写 manifest_url。",
+                "当前下载源没有配置对应的程序更新清单。",
                 parent=self.window,
             )
             return
@@ -6352,45 +6473,127 @@ class DlcHubApplication:
             self.status.configure(text=f"已发现 v{release.version}，暂未安装")
             self.update_button.configure(state="normal")
             return
+        cancel_event = threading.Event()
+        self.update_download_active = True
+        self.update_download_cancelling = False
+        self.update_download_preparing = False
+        self.update_download_version = release.version
+        self.update_download_current = 0
+        self.update_download_total = release.size
+        self.update_download_speed = 0.0
+        self.update_download_started_at = time.monotonic()
+        self.update_download_cancel_event = cancel_event
+        self.progress.set(0)
+        self.update_cancel_button.configure(state="normal")
         self.status.configure(text=f"正在下载 v{release.version}……")
+        self._refresh_update_download_task()
 
         def progress(current: int, total: int | None) -> None:
-            def apply() -> None:
-                if total:
-                    self.progress.set(min(current / total, 1))
-                    self.status.configure(
-                        text=(
-                            f"正在下载…… {current / 1048576:.1f}/"
-                            f"{total / 1048576:.1f} MB"
-                        )
-                    )
-                else:
-                    self.status.configure(text=f"正在下载…… {current / 1048576:.1f} MB")
-
-            self._post_ui(apply)
+            self._post_ui(
+                lambda: self._record_update_download_progress(current, total)
+            )
 
         def worker() -> None:
             try:
                 if release.kind == "full":
-                    self.context.updates.start_full_update(release, progress)
+                    self.context.updates.start_full_update(
+                        release, progress, cancel_event.is_set
+                    )
                     self._post_ui(lambda: self._full_update_prepared(release.version))
                 else:
-                    self.context.updates.install(release, progress)
+                    self.context.updates.install(
+                        release, progress, cancel_event.is_set
+                    )
                     self._post_ui(lambda: self._installed(release.version))
             except Exception as error:
                 self.context.logger.exception("Update installation failed")
                 message = str(error)
-                self._post_ui(lambda message=message: self._show_error(message))
+                if cancel_event.is_set():
+                    self._post_ui(self._update_download_cancelled)
+                else:
+                    self._post_ui(
+                        lambda message=message: self._update_download_failed(message)
+                    )
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _record_update_download_progress(
+        self, current: int, total: int | None,
+    ) -> None:
+        if not self.update_download_active:
+            return
+        self.update_download_current = current
+        self.update_download_total = total
+        elapsed = max(time.monotonic() - self.update_download_started_at, 0.001)
+        self.update_download_speed = current / elapsed
+        if total:
+            self.progress.set(min(current / total, 1))
+            self.status.configure(
+                text=(
+                    f"正在下载 v{self.update_download_version}…… "
+                    f"{current / 1048576:.1f}/{total / 1048576:.1f} MiB · "
+                    f"{self.update_download_speed / 1024:.1f} KiB/s"
+                )
+            )
+            if current >= total:
+                self.update_download_preparing = True
+                self.update_cancel_button.configure(state="disabled")
+        else:
+            self.status.configure(
+                text=(
+                    f"正在下载 v{self.update_download_version}…… "
+                    f"{current / 1048576:.1f} MiB · "
+                    f"{self.update_download_speed / 1024:.1f} KiB/s"
+                )
+            )
+        self._refresh_update_download_task()
+
+    def _cancel_update_download(self) -> None:
+        event = self.update_download_cancel_event
+        if (
+            event is None
+            or not self.update_download_active
+            or self.update_download_cancelling
+            or self.update_download_preparing
+        ):
+            return
+        self.update_download_cancelling = True
+        event.set()
+        self.update_cancel_button.configure(state="disabled")
+        self.status.configure(text="正在取消程序更新下载……")
+        self._refresh_update_download_task()
+
+    def _clear_update_download(self) -> None:
+        self.update_download_active = False
+        self.update_download_cancelling = False
+        self.update_download_preparing = False
+        self.update_download_speed = 0.0
+        self.update_download_cancel_event = None
+        self.update_cancel_button.configure(state="disabled")
+        if getattr(self, "current_page", None) == "下载任务":
+            self._refresh_task_page()
+
+    def _update_download_cancelled(self) -> None:
+        self._clear_update_download()
+        self.status.configure(text="程序更新下载已取消")
+        self.update_button.configure(state="normal")
+        self._notify("程序更新下载已取消")
+
+    def _update_download_failed(self, message: str) -> None:
+        self._clear_update_download()
+        self._show_error(message)
+
     def _full_update_prepared(self, version: str) -> None:
         self.progress.set(1)
+        self.update_download_preparing = True
+        self.update_cancel_button.configure(state="disabled")
+        self._refresh_update_download_task()
         self.status.configure(text=f"v{version} 已准备，正在退出以替换启动器……")
         self.window.after(700, self.context.exit_for_full_update)
 
     def _installed(self, version: str) -> None:
         self.progress.set(1)
+        self._clear_update_download()
         self.status.configure(text=f"v{version} 已安装，重启后生效")
         if messagebox.askyesno("更新完成", "模块更新已安全安装，是否立即重启？", parent=self.window):
             self.context.restart()

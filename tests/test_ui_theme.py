@@ -5,8 +5,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.1" / "app_entry.py"
-CURRENT_APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.2" / "app_entry.py"
+# These assertions describe the CURRENT UI implementation. Git only tracks
+# app/versions/0.1.0 as module source; later version directories are restored
+# from release archives on CI and may be stale, so always read 0.1.0 here.
+APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
+CURRENT_APP_ENTRY = APP_ENTRY
 
 
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
