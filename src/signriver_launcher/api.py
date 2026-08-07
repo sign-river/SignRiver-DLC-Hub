@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,14 +35,35 @@ class UpdateService:
     def check_on_startup(self) -> bool:
         return self._client.settings.check_on_startup
 
+    @property
+    def download_source(self) -> str:
+        return self._client.settings.download_source
+
+    @property
+    def manifest_url(self) -> str:
+        return self._client.settings.active_manifest_url
+
+    def set_download_source(self, source: str) -> None:
+        self._client.set_download_source(source)
+
     def check(self) -> ReleaseInfo | None:
         return self._client.check(self.current_version)
 
-    def install(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> str:
-        return self._client.install(release, progress)
+    def install(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> str:
+        return self._client.install(release, progress, cancel)
 
-    def start_full_update(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> str:
-        return self._client.start_full_update(release, progress).version
+    def start_full_update(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+        cancel: Callable[[], bool] | None = None,
+    ) -> str:
+        return self._client.start_full_update(release, progress, cancel).version
 
 
 @dataclass(frozen=True)

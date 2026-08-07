@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -9,8 +12,11 @@ import pytest
 
 from signriver_launcher.errors import FullUpdateError
 from signriver_launcher.full_update import FullUpdateManager
+from signriver_launcher.full_update_helper import _wait_for_parent
+from signriver_launcher.main import _activate_confirmed_full_update_module
 from signriver_launcher.models import ReleaseInfo
 from signriver_launcher.paths import RuntimePaths
+from signriver_launcher.state import StateStore
 
 
 def _digest(value: bytes) -> str:
@@ -99,6 +105,22 @@ def test_full_update_refuses_a_second_pending_transaction(tmp_path: Path) -> Non
         manager.prepare(package, release)
 
 
+def test_full_update_recovers_when_helper_exits_before_apply(tmp_path: Path) -> None:
+    paths = RuntimePaths(tmp_path)
+    paths.ensure()
+    package = tmp_path / "full.zip"
+    release = _archive(package)
+    manager = FullUpdateManager(paths)
+    transaction = manager.prepare(package, release)
+
+    recovered = manager.recover_pending()
+
+    assert recovered is not None and recovered.stage == "rolled_back"
+    assert not Path(transaction.staging_path).exists()
+    assert not Path(transaction.backup_path).exists()
+    assert not manager.lock_path.exists()
+
+
 def test_full_update_allows_a_new_transaction_after_confirmation(tmp_path: Path) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
@@ -141,3 +163,117 @@ def test_full_update_rejects_manifest_hash_mismatch_before_swapping(tmp_path: Pa
     with pytest.raises(FullUpdateError, match="verification failed"):
         FullUpdateManager(paths).prepare(package, release)
     assert old.read_bytes() == b"old"
+
+
+def test_full_update_activates_new_module_and_rolls_state_back_with_files(
+    tmp_path: Path,
+) -> None:
+    paths = RuntimePaths(tmp_path)
+    paths.ensure()
+    store = StateStore(paths.state_file)
+    store.bootstrap("0.1.0")
+    old = paths.versions_dir / "0.1.0"
+    old.mkdir()
+    (old / "module.json").write_text(
+        json.dumps(
+            {
+                "version": "0.1.0",
+                "api_version": 1,
+                "entrypoint": "app_entry.py:create_application",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (old / "app_entry.py").write_text("old", encoding="utf-8")
+    metadata = json.dumps(
+        {
+            "version": "0.2.0",
+            "api_version": 1,
+            "entrypoint": "app_entry.py:create_application",
+        }
+    ).encode()
+    files = {
+        "launcher.exe": b"new launcher",
+        "app/versions/0.2.0/module.json": metadata,
+        "app/versions/0.2.0/app_entry.py": b"new",
+    }
+    package = tmp_path / "full.zip"
+    release = _archive(package, files=files)
+    manager = FullUpdateManager(paths)
+
+    transaction = manager.prepare(package, release)
+    assert transaction.activate_version == "0.2.0"
+    manager.apply(transaction.transaction_id)
+
+    activated = store.load()
+    assert activated.active_version == "0.2.0"
+    assert activated.previous_version == "0.1.0"
+    assert activated.pending_version == "0.2.0"
+
+    manager.rollback(transaction.transaction_id)
+
+    rolled_back = store.load()
+    assert rolled_back.active_version == "0.1.0"
+    assert rolled_back.pending_version is None
+    assert not (paths.versions_dir / "0.2.0" / "module.json").exists()
+    assert not (paths.versions_dir / "0.2.0" / "app_entry.py").exists()
+
+
+def test_new_launcher_activates_module_after_legacy_helper_swap(
+    tmp_path: Path,
+) -> None:
+    paths = RuntimePaths(tmp_path)
+    paths.ensure()
+    store = StateStore(paths.state_file)
+    store.bootstrap("0.1.0")
+    module = paths.versions_dir / "0.2.0"
+    module.mkdir()
+    (module / "module.json").write_text(
+        json.dumps(
+            {
+                "version": "0.2.0",
+                "api_version": 1,
+                "entrypoint": "app_entry.py:create_application",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (module / "app_entry.py").write_text(
+        "def create_application(context): pass", encoding="utf-8"
+    )
+    transaction_id = "legacy-transaction"
+    paths.update_data_dir.mkdir(parents=True, exist_ok=True)
+    (paths.update_data_dir / "transaction.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "transaction_id": transaction_id,
+                "version": "0.2.0",
+                "stage": "swapped",
+                "staging_path": str(tmp_path / "stage"),
+                "backup_path": str(tmp_path / "backup"),
+                "files": [],
+                "completed": [],
+                "error": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _activate_confirmed_full_update_module(paths, store, transaction_id)
+
+    state = store.load()
+    assert state.active_version == "0.2.0"
+    assert state.previous_version == "0.1.0"
+    assert state.pending_version == "0.2.0"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process wait regression")
+def test_full_update_helper_waits_without_terminating_parent_process() -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(0.2)"]
+    )
+
+    _wait_for_parent(process.pid, timeout_seconds=5)
+
+    assert process.wait(timeout=1) == 0

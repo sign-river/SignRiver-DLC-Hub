@@ -65,7 +65,16 @@ class RemoteResourceManager:
         self.repository = repository
 
     def get_release(self, tag: str) -> RemoteRelease | None:
-        return parse_release(self.client.list_releases(self.repository), tag)
+        release = parse_release(
+            self.client.list_releases(self.repository), tag
+        )
+        edit_release = getattr(self.client, "get_release_edit", None)
+        if release is None or not callable(edit_release):
+            return release
+        detailed = parse_release_detail(
+            edit_release(self.repository, release.release_id), tag
+        )
+        return detailed or release
 
     def adopt_matching_release_assets(
         self,
@@ -405,14 +414,25 @@ class RemoteResourceManager:
         )
 
     def upload_file_to_release(
-        self, tag: str, release_name: str, path: Path
+        self,
+        tag: str,
+        release_name: str,
+        path: Path,
+        *,
+        progress: Callable[[int, int], None] | None = None,
+        control: UploadControl | None = None,
     ) -> RemoteMutationResult:
         """Upload or replace one attachment in a named Release."""
         path = path.resolve()
         if not path.is_file():
             raise GitLinkError(f"本地发布文件不存在：{path.name}")
         current = self.get_release(tag)
-        new_id = self.client.upload(path)
+        if progress is None and control is None:
+            new_id = self.client.upload(path)
+        else:
+            new_id = self.client.upload(
+                path, progress=progress, control=control
+            )
         new_asset = RemoteAsset(
             new_id, path.name, _format_size(path.stat().st_size), ""
         )
@@ -546,35 +566,55 @@ def parse_release(payload: dict[str, object], tag: str) -> RemoteRelease | None:
     for item in candidates:
         if not isinstance(item, dict) or str(item.get("tag_name", "")) != tag:
             continue
-        release_id = item.get("version_id") or item.get("id") or item.get("version_gid")
-        if release_id is None:
-            raise GitLinkError(f"Release {tag} 缺少 ID")
-        assets: list[RemoteAsset] = []
-        raw_assets = item.get("attachments", [])
-        if isinstance(raw_assets, list):
-            for raw in raw_assets:
-                if not isinstance(raw, dict):
-                    continue
-                asset_id = str(raw.get("id", "")).strip()
-                name = str(raw.get("title") or raw.get("name") or "").strip()
-                if not asset_id or not name:
-                    continue
-                assets.append(
-                    RemoteAsset(
-                        asset_id,
-                        name,
-                        str(raw.get("filesize", "")).strip(),
-                        str(raw.get("url", "")).strip(),
-                    )
-                )
-        return RemoteRelease(
-            release_id=str(release_id),
-            tag=tag,
-            name=str(item.get("name", "")).strip(),
-            body=str(item.get("body", "")).strip(),
-            assets=tuple(assets),
-        )
+        return _parse_release_item(item, tag)
     return None
+
+
+def parse_release_detail(
+    payload: dict[str, object], tag: str
+) -> RemoteRelease | None:
+    if str(payload.get("tag_name", "")) != tag:
+        return None
+    return _parse_release_item(payload, tag)
+
+
+def _parse_release_item(item: dict[str, object], tag: str) -> RemoteRelease:
+    release_id = item.get("version_id") or item.get("id") or item.get("version_gid")
+    if release_id is None:
+        raise GitLinkError(f"Release {tag} 缺少 ID")
+    assets: list[RemoteAsset] = []
+    raw_assets = item.get("attachments", [])
+    if isinstance(raw_assets, list):
+        for raw in raw_assets:
+            if not isinstance(raw, dict):
+                continue
+            url = str(raw.get("url", "")).strip()
+            storage_match = re.search(
+                r"/api/attachments/([A-Za-z0-9_.-]+)(?:[/?#]|$)", url
+            )
+            asset_id = (
+                storage_match.group(1)
+                if storage_match
+                else str(raw.get("id", "")).strip()
+            )
+            name = str(raw.get("title") or raw.get("name") or "").strip()
+            if not asset_id or not name:
+                continue
+            assets.append(
+                RemoteAsset(
+                    asset_id,
+                    name,
+                    str(raw.get("filesize", "")).strip(),
+                    url,
+                )
+            )
+    return RemoteRelease(
+        release_id=str(release_id),
+        tag=tag,
+        name=str(item.get("name", "")).strip(),
+        body=str(item.get("body", "")).strip(),
+        assets=tuple(assets),
+    )
 
 
 def _format_size(size: int) -> str:

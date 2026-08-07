@@ -45,6 +45,8 @@ _RELEASE_PART = re.compile(
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _DLC_DIR = re.compile(r"^(dlc\d{3,})_([A-Za-z0-9][A-Za-z0-9_-]*)$", re.I)
+_CATALOG_ASSET_NAME = "catalog.json"
+_CATALOG_SCHEMA_VERSION = 1
 
 
 class WorkspaceError(RuntimeError):
@@ -884,10 +886,33 @@ class PublisherWorkspace:
         return len(self._published_dlc_paths(profile))
 
     def publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
-        return tuple(asset.path for asset in self._validated_publish_assets(profile))
+        return tuple(asset.path for asset in self.publish_assets(profile))
 
     def publish_assets(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
-        return self._validated_publish_assets(profile)
+        assets = self._validated_publish_assets(profile)
+        # The catalog is uploaded last by virtue of its name and makes public
+        # clients independent from provider Release-list APIs.
+        path = self.output_dir / profile.game_id / _CATALOG_ASSET_NAME
+        payload = {
+            "schema_version": _CATALOG_SCHEMA_VERSION,
+            "game_id": profile.game_id,
+            "release_tag": profile.release_tag,
+            "name": profile.display_name,
+            "assets": [
+                {
+                    "name": asset.name,
+                    "size_bytes": asset.size_bytes,
+                    "sha256": asset.sha256,
+                }
+                for asset in assets
+            ],
+        }
+        self._atomic_json(path, payload)
+        stat = path.stat()
+        manifest = PublishAsset(
+            path, path.name, stat.st_size, self._file_sha256(path)
+        )
+        return (*assets, manifest)
 
     def export_client_hub(self, *, default_game_id: str | None = None) -> tuple[Path, ...]:
         """Materialise client cartridge documents and the hub index for upload."""
@@ -949,7 +974,10 @@ class PublisherWorkspace:
         for name in profile.patch_asset_names:
             if not (target / name).is_file():
                 raise WorkspaceError(f"发布包缺少 {name}，请先生成全部发布文件")
-        files = tuple(sorted(path for path in target.iterdir() if path.is_file()))
+        files = tuple(sorted(
+            path for path in target.iterdir()
+            if path.is_file() and path.name != _CATALOG_ASSET_NAME
+        ))
         split_bases = {
             match.group("base").casefold()
             for path in files
@@ -1046,7 +1074,13 @@ class PublisherWorkspace:
             recorded_casefold.add(folded)
 
         target = self.output_dir / profile.game_id
-        actual_all = tuple(sorted(path for path in target.iterdir() if path.is_file()))
+        # catalog.json is a derived final attachment, generated from the
+        # verified build assets after this check. It is deliberately not part
+        # of the immutable build-complete evidence to avoid a self-reference.
+        actual_all = tuple(sorted(
+            path for path in target.iterdir()
+            if path.is_file() and path.name != _CATALOG_ASSET_NAME
+        ))
         actual_names = {path.name for path in actual_all}
         if actual_names != set(recorded):
             raise WorkspaceError("发布文件与完整构建凭证不一致，请重新构建")

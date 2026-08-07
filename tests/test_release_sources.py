@@ -8,7 +8,9 @@ from signriver_app.infrastructure.catalog import (
     create_release_source,
     resolve_repository,
     speed_test_url,
+    StaticManifestReleaseSource,
 )
+from signriver_app.infrastructure.catalog.gitlink import ReleaseSourceError
 
 
 def test_github_release_source_normalizes_assets() -> None:
@@ -65,3 +67,57 @@ def test_factory_and_speed_urls_follow_provider() -> None:
     assert github.__class__.__name__ == "GitHubReleaseSource"
     assert speed_test_url("gitlink").endswith("/test/test.bin")
     assert "github.com/sign-river/" in speed_test_url("github")
+
+
+class _FailingLegacySource:
+    def get_release_by_tag(self, _tag: str):
+        raise ReleaseSourceError("API rate limited")
+
+
+def test_static_manifest_avoids_api_and_builds_direct_asset_urls(tmp_path) -> None:
+    payload = json.dumps({
+        "schema_version": 1,
+        "release_tag": "cities_skylines",
+        "assets": [{
+            "name": "dlc001_demo.zip",
+            "size_bytes": 2048,
+            "sha256": "a" * 64,
+        }],
+    }).encode("utf-8")
+    cache = tmp_path / "github" / "cities_skylines.json"
+    source = StaticManifestReleaseSource(
+        "github", "sign-river", "signriver-dlc-assets",
+        legacy_source=_FailingLegacySource(), cache_path=cache,
+        fetch=lambda *_args: payload,
+    )
+
+    release = source.get_release_by_tag("cities_skylines")
+
+    assert release.assets[0].asset_id == "a" * 64
+    assert release.assets[0].download_url == (
+        "https://github.com/sign-river/signriver-dlc-assets/releases/download/"
+        "cities_skylines/dlc001_demo.zip"
+    )
+    assert cache.read_bytes() == payload
+
+
+def test_static_manifest_uses_provider_scoped_cache_when_remote_and_api_fail(
+    tmp_path,
+) -> None:
+    payload = json.dumps({
+        "schema_version": 1,
+        "release_tag": "stellaris",
+        "assets": [{"name": "dlc001_demo.zip", "size_bytes": 10}],
+    }).encode("utf-8")
+    cache = tmp_path / "gitlink" / "stellaris.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(payload)
+    source = StaticManifestReleaseSource(
+        "gitlink", "signriver", "signriver-dlc-assets",
+        legacy_source=_FailingLegacySource(), cache_path=cache,
+        fetch=lambda *_args: (_ for _ in ()).throw(OSError("offline")),
+    )
+
+    release = source.get_release_by_tag("stellaris")
+
+    assert release.assets[0].download_url.startswith("https://gitlink.org.cn/")

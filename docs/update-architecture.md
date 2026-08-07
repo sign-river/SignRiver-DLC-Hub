@@ -35,6 +35,9 @@
 `data/` 不属于任何模块更新包，更新和回滚都不会覆盖用户数据。更新设置按
 `data/config/update.json`（用户覆盖）→ `config/update.json`（旧安装兼容覆盖）→
 `config/defaults/update.json`（发行默认）的顺序读取；全量更新不会替换前两者。
+配置中的 `manifest_urls.gitlink` 与 `manifest_urls.github` 分别指向两个平台的
+`updates/update-manifest.json`。应用模块把设置页选中的下载源同步给宿主，所以
+DLC、卡带、公告、程序清单及更新包始终来自同一平台。
 
 ## 模块接口
 
@@ -45,7 +48,7 @@
   "schema_version": 1,
   "name": "SignRiver DLC Hub",
   "version": "0.1.1",
-  "api_version": 1,
+  "api_version": 2,
   "entrypoint": "app_entry.py:create_application"
 }
 ```
@@ -63,12 +66,14 @@ def create_application(context):
 - `context.paths.cache`：可清理缓存；
 - `context.updates.check()`：检查更新；
 - `context.updates.install(...)`：下载并安装；
+- `context.updates.set_download_source(...)`：让程序更新源跟随用户下载源；
 - `context.restart()`：由宿主安全重启；
 - `context.logger`：统一日志。
 
 模块内部文件请使用相对导入（例如 `from .services import updater`）。宿主会为每个版本建立独立的包命名空间，避免新版本初始化失败后污染旧版本的导入缓存。
 
-只有提升 Host API 版本或修改宿主本身时，才需要重新发布 EXE。
+只有提升 Host API 版本或修改宿主本身时，才需要重新发布 EXE。`0.1.1`
+增加了更新源联动接口，因此 Host API 从 1 升为 2，必须通过全量更新发布。
 
 ## 更新清单
 
@@ -96,7 +101,7 @@ def create_application(context):
 `kind` 有两种：
 
 - `module`：普通更新，启动器自动安装；
-- `full`：涉及启动器或运行时的大更新，引导用户下载完整压缩包。
+- `full`：涉及启动器或运行时的大更新，由临时助手原地替换并自动回滚。
 
 `package_url` 可以是 HTTPS 绝对地址，也可以是相对于清单地址的相对地址。默认拒绝普通 HTTP。
 
@@ -125,7 +130,11 @@ def create_application(context):
 
 4. 上传 `dist/modules/SignRiver-DLC-Hub-module-v新版本.zip`；
 5. 将生成的 `.release.json` 内容加入线上清单；
-6. 把 `config/update.json` 的 `manifest_url` 指向线上清单。
+6. 确认两边 `update-manifest.json` 分别引用各自平台的同名附件。
+
+全量更新必须使用 `build_release.py` 额外生成的
+`dist/updates/SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip`。首次安装 ZIP
+包含外层产品目录，不能作为全量更新包；发布器会在上传前拒绝这种结构。
 
 ## 安全边界
 

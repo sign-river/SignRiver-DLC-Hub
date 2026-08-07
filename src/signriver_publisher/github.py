@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
+_TRANSIENT_HTTP_STATUS = frozenset({500, 502, 503, 504})
+_RETRYABLE_API_METHODS = frozenset({"GET", "PUT", "PATCH", "DELETE"})
+
 
 class GitHubPublisherError(RuntimeError):
     pass
@@ -163,7 +166,13 @@ class GitHubReleaseClient:
             f"{self.api_base}/repos/{self.repository.owner}/"
             f"{self.repository.name}/releases/assets/{asset_id}"
         )
-        self._request_json("DELETE", url, expect_json=False)
+        try:
+            self._request_json("DELETE", url, expect_json=False)
+        except GitHubPublisherError as error:
+            # DELETE is idempotent. A retry may see 404 when the first request
+            # succeeded but GitHub lost its response.
+            if "GitHub API HTTP 404:" not in str(error):
+                raise
 
     def upload_asset(
         self,
@@ -205,6 +214,10 @@ class GitHubReleaseClient:
                 raise
             except urllib.error.HTTPError as error:
                 detail = error.read().decode("utf-8", errors="replace")
+                if error.code in _TRANSIENT_HTTP_STATUS and attempt < 2:
+                    self._remove_partial_asset(release.tag, path.name)
+                    time.sleep(1 << attempt)
+                    continue
                 if (
                     error.code == 422
                     and "already_exists" in detail
@@ -291,7 +304,14 @@ class GitHubReleaseClient:
         for attempt in range(3):
             try:
                 return self._opener(request, timeout=timeout)
-            except urllib.error.HTTPError:
+            except urllib.error.HTTPError as error:
+                if (
+                    request.get_method() in _RETRYABLE_API_METHODS
+                    and error.code in _TRANSIENT_HTTP_STATUS
+                    and attempt < 2
+                ):
+                    time.sleep(1 << attempt)
+                    continue
                 raise
             except (urllib.error.URLError, OSError):
                 if attempt == 2:

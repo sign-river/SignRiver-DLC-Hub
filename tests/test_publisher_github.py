@@ -231,3 +231,59 @@ def test_github_asset_upload_recovers_from_existing_asset_conflict(
     client.upload_asset(release, path)
 
     assert attempts == [b"asset", b"asset"]
+
+
+def test_github_asset_upload_retries_transient_server_error(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "asset.zip"
+    path.write_bytes(b"asset")
+    attempts = []
+
+    def opener(request, *, timeout: int):
+        attempts.append(b"".join(request.data))
+        if len(attempts) == 1:
+            raise urllib.error.HTTPError(
+                request.full_url, 502, "Bad Gateway", None,
+                BytesIO(b'{"message":"Server Error"}'),
+            )
+        return _Response({"id": 8, "name": "asset.zip"})
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+    release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
+
+    client.upload_asset(release, path)
+
+    assert attempts == [b"asset", b"asset"]
+
+
+def test_github_api_get_retries_transient_server_error(monkeypatch) -> None:
+    attempts = []
+
+    def opener(request, *, timeout: int):
+        attempts.append(request.get_method())
+        if len(attempts) == 1:
+            raise urllib.error.HTTPError(
+                request.full_url, 502, "Bad Gateway", None,
+                BytesIO(b'{"message":"Server Error"}'),
+            )
+        return _Response({
+            "id": 1,
+            "tag_name": "rimworld",
+            "assets": [],
+            "upload_url": "https://uploads.example.test/1{?name}",
+        })
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+
+    release = client.get_release_by_tag("rimworld")
+
+    assert release is not None
+    assert attempts == ["GET", "GET"]

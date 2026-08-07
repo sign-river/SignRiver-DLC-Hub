@@ -14,6 +14,7 @@ from .errors import FullUpdateError, PackageError
 from .jsonio import atomic_write_json, read_json
 from .models import FullReleaseManifest, ReleaseInfo
 from .paths import RuntimePaths
+from .state import StateStore
 
 _PROTECTED_ROOTS = {"data", "cache", ".update-staging", ".update-backup"}
 
@@ -28,6 +29,7 @@ class FullUpdateTransaction:
     files: list[str]
     completed: list[str] = field(default_factory=list)
     error: str | None = None
+    activate_version: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict) -> "FullUpdateTransaction":
@@ -43,10 +45,30 @@ class FullUpdateTransaction:
         error = value.get("error")
         if error is not None and not isinstance(error, str):
             raise FullUpdateError("full update transaction contains an invalid error")
-        return cls(value["transaction_id"], value["version"], value["stage"], value["staging_path"], value["backup_path"], files, completed, error)
+        activate_version = value.get("activate_version")
+        if activate_version is not None and not isinstance(activate_version, str):
+            raise FullUpdateError(
+                "full update transaction contains an invalid activation version"
+            )
+        return cls(
+            value["transaction_id"], value["version"], value["stage"],
+            value["staging_path"], value["backup_path"], files, completed,
+            error, activate_version,
+        )
 
     def to_dict(self) -> dict:
-        return {"schema_version": FULL_UPDATE_SCHEMA_VERSION, "transaction_id": self.transaction_id, "version": self.version, "stage": self.stage, "staging_path": self.staging_path, "backup_path": self.backup_path, "files": self.files, "completed": self.completed, "error": self.error}
+        return {
+            "schema_version": FULL_UPDATE_SCHEMA_VERSION,
+            "transaction_id": self.transaction_id,
+            "version": self.version,
+            "stage": self.stage,
+            "staging_path": self.staging_path,
+            "backup_path": self.backup_path,
+            "files": self.files,
+            "completed": self.completed,
+            "error": self.error,
+            "activate_version": self.activate_version,
+        }
 
 
 class FullUpdateManager:
@@ -83,9 +105,13 @@ class FullUpdateManager:
             self._safe_extract(archive, staging)
             manifest = self._read_manifest(staging, release.version)
             self._validate_staged_files(staging, manifest)
+            activate_version = self._activation_version(staging, manifest)
             self._check_disk_space(manifest)
             files = [entry.path for entry in manifest.files]
-            transaction = FullUpdateTransaction(transaction_id, release.version, "prepared", str(staging), str(backup), files)
+            transaction = FullUpdateTransaction(
+                transaction_id, release.version, "prepared", str(staging),
+                str(backup), files, activate_version=activate_version,
+            )
             self._save(transaction)
             return transaction
         except Exception:
@@ -115,6 +141,10 @@ class FullUpdateManager:
                 os.replace(source, target)
                 transaction.completed.append(relative)
                 self._save(transaction)
+            if transaction.activate_version:
+                StateStore(self.paths.state_file).activate(
+                    transaction.activate_version
+                )
             transaction.stage = "swapped"
             self._save(transaction)
             return transaction
@@ -144,14 +174,27 @@ class FullUpdateManager:
             if prior.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(prior, target)
+        if transaction.activate_version:
+            store = StateStore(self.paths.state_file)
+            state = store.load()
+            if (
+                state.active_version == transaction.activate_version
+                and state.pending_version == transaction.activate_version
+            ):
+                store.rollback_pending(transaction.activate_version)
         transaction.stage = "rolled_back"
         self._save(transaction)
+        shutil.rmtree(transaction.staging_path, ignore_errors=True)
+        shutil.rmtree(transaction.backup_path, ignore_errors=True)
         self.lock_path.unlink(missing_ok=True)
         return transaction
 
     def recover_pending(self) -> FullUpdateTransaction | None:
         transaction = self.load()
-        if transaction is not None and transaction.stage == "rollback_required":
+        if transaction is not None and transaction.stage in {
+            "prepared",
+            "rollback_required",
+        }:
             return self.rollback(transaction.transaction_id)
         return transaction
 
@@ -189,6 +232,33 @@ class FullUpdateManager:
             path = staging.joinpath(*PurePosixPath(entry.path).parts)
             if not path.is_file() or path.stat().st_size != entry.size or self._sha256(path) != entry.sha256:
                 raise FullUpdateError(f"full release file verification failed: {entry.path}")
+
+    @staticmethod
+    def _activation_version(
+        staging: Path, manifest: FullReleaseManifest
+    ) -> str | None:
+        relative = f"app/versions/{manifest.version}/module.json"
+        if not any(entry.path == relative for entry in manifest.files):
+            return None
+        try:
+            value = read_json(staging / relative)
+            version = value["version"]
+            entrypoint = value["entrypoint"].rsplit(":", 1)[0]
+        except (OSError, KeyError, TypeError, ValueError) as error:
+            raise FullUpdateError(
+                f"full update target module is invalid: {error}"
+            ) from error
+        if version != manifest.version:
+            raise FullUpdateError(
+                "full update target module version does not match release"
+            )
+        entry_relative = f"app/versions/{version}/{entrypoint}"
+        if (
+            not any(entry.path == entry_relative for entry in manifest.files)
+            or not (staging / entry_relative).is_file()
+        ):
+            raise FullUpdateError("full update target module entrypoint is missing")
+        return version
 
     def _check_disk_space(self, manifest: FullReleaseManifest) -> None:
         required = sum(entry.size for entry in manifest.files)

@@ -141,7 +141,8 @@ def test_server_cartridge_owns_release_and_patch_contract(tmp_path: Path) -> Non
 
     output_names = {path.name for path in workspace.publish_files(cartridge)}
     assert output_names == {
-        "custom_api64.dll", "custom_api64_original.dll", "other_game_appinfo.json",
+        "catalog.json", "custom_api64.dll", "custom_api64_original.dll",
+        "other_game_appinfo.json",
     }
     restored = workspace.list_games()[0]
     assert restored.patch_asset_names == cartridge.patch_asset_names
@@ -252,6 +253,24 @@ def test_successful_build_writes_verified_completion_manifest(tmp_path: Path) ->
             "sha256": asset.sha256,
         }
         for asset in assets
+        if asset.name != "catalog.json"
+    ]
+    catalog = json.loads(
+        (workspace.output_dir / profile.game_id / "catalog.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert catalog["schema_version"] == 1
+    assert catalog["release_tag"] == profile.release_tag
+    assert [item["name"] for item in catalog["assets"]] == [
+        asset.name for asset in assets if asset.name != "catalog.json"
+    ]
+
+    # Building the UI materialises catalog.json before the user presses
+    # publish. A second validation/publish pass must accept that derived file.
+    second_pass = workspace.publish_assets(profile)
+    assert [asset.name for asset in second_pass] == [
+        asset.name for asset in assets
     ]
 
 
@@ -1086,6 +1105,41 @@ def test_parse_remote_release_assets() -> None:
     assert [(item.asset_id, item.name, item.display_size) for item in release.assets] == [("1", "a.zip", "1 MB")]
 
 
+def test_remote_release_edit_recovers_deletable_attachment_uuids() -> None:
+    class Client:
+        def list_releases(self, _repo):
+            return {
+                "releases": [{
+                    "id": 9,
+                    "version_id": 2318,
+                    "tag_name": "updates",
+                    "attachments": [{
+                        "id": 488835,
+                        "title": "update-manifest.json",
+                    }],
+                }]
+            }
+
+        def get_release_edit(self, _repo, release_id):
+            assert release_id == "2318"
+            return {
+                "id": 2318,
+                "tag_name": "updates",
+                "attachments": [{
+                    "id": 488835,
+                    "title": "update-manifest.json",
+                    "url": "/api/attachments/old-manifest-uuid",
+                }],
+            }
+
+    release = RemoteResourceManager(
+        Client(), GitLinkRepository()
+    ).get_release("updates")
+
+    assert release is not None
+    assert release.assets[0].asset_id == "old-manifest-uuid"
+
+
 def test_manual_remote_dlc_can_be_adopted_and_reused_without_upload(
     tmp_path: Path,
 ) -> None:
@@ -1186,6 +1240,71 @@ def test_remote_upload_replaces_same_name_and_keeps_other_assets(tmp_path: Path)
     assert result.action == "替换"
     assert client.updated_ids == ["keep", "new"]
     assert client.deleted == ["old"]
+
+
+def test_remote_upload_cleans_all_gitlink_duplicate_names(tmp_path: Path) -> None:
+    source = tmp_path / "update-manifest.json"
+    source.write_text("{}", encoding="utf-8")
+
+    class Client:
+        deleted: list[str] = []
+        updated_ids: list[str] = []
+
+        def list_releases(self, _repo):
+            return {
+                "releases": [{
+                    "id": 9,
+                    "version_id": 2318,
+                    "tag_name": "updates",
+                    "name": "Updates",
+                    "attachments": [
+                        {"id": 1, "title": source.name},
+                        {"id": 2, "title": source.name},
+                        {"id": 3, "title": "keep.zip"},
+                    ],
+                }]
+            }
+
+        def get_release_edit(self, _repo, _release_id):
+            return {
+                "id": 2318,
+                "tag_name": "updates",
+                "name": "Updates",
+                "attachments": [
+                    {
+                        "id": 1,
+                        "title": source.name,
+                        "url": "/api/attachments/old-one-uuid",
+                    },
+                    {
+                        "id": 2,
+                        "title": source.name,
+                        "url": "/api/attachments/old-two-uuid",
+                    },
+                    {
+                        "id": 3,
+                        "title": "keep.zip",
+                        "url": "/api/attachments/keep-uuid",
+                    },
+                ],
+            }
+
+        def upload(self, _path):
+            return "new-manifest-uuid"
+
+        def update_release(self, _repo, **kwargs):
+            self.updated_ids = kwargs["attachment_ids"]
+
+        def delete_attachment(self, value):
+            self.deleted.append(value)
+
+    client = Client()
+    RemoteResourceManager(
+        client, GitLinkRepository()
+    ).upload_file_to_release("updates", "Updates", source)
+
+    assert client.updated_ids == ["keep-uuid", "new-manifest-uuid"]
+    assert client.deleted == ["old-one-uuid", "old-two-uuid"]
 
 
 def test_remote_delete_can_remove_last_release_asset() -> None:

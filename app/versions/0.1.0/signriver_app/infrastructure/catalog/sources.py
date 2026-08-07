@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import quote
 
 from .github import GitHubReleaseSource, GitHubSourceConfig
 from .gitlink import GitLinkReleaseSource, GitLinkSourceConfig, ReleaseSourceError
+from .static_manifest import StaticManifestReleaseSource
 
 DownloadSource = Literal["gitlink", "github"]
 DOWNLOAD_SOURCES: tuple[DownloadSource, ...] = ("gitlink", "github")
@@ -77,6 +79,19 @@ def create_release_source(
     )
 
 
+def create_catalog_release_source(
+    provider: DownloadSource, owner: str, repository: str, *,
+    cache_path=None, fetch=None, timeout: float = 15,
+):
+    """Prefer a fixed catalog.json asset and retain the API during migration."""
+    provider = normalize_download_source(provider)
+    legacy = create_release_source(provider, owner, repository, timeout=timeout)
+    return StaticManifestReleaseSource(
+        provider, owner, repository, legacy_source=legacy,
+        cache_path=cache_path, timeout=timeout, fetch=fetch,
+    )
+
+
 def create_hub_release_source(
     provider: DownloadSource,
     *,
@@ -101,6 +116,22 @@ def speed_test_url(provider: DownloadSource) -> str:
     )
 
 
+def fixed_release_asset_url(
+    provider: DownloadSource, tag: str, asset_name: str, *,
+    owner: str | None = None, repository: str | None = None,
+) -> str:
+    """Build a stable public Release URL without calling a provider API."""
+    provider = normalize_download_source(provider)
+    default_owner, default_repository = default_repository_for(provider)
+    selected_owner = owner or default_owner
+    selected_repository = repository or default_repository
+    host = "github.com" if provider == "github" else "gitlink.org.cn"
+    return (
+        f"https://{host}/{selected_owner}/{selected_repository}/releases/download/"
+        f"{quote(tag, safe='')}/{quote(asset_name, safe='._-')}"
+    )
+
+
 def repository_home_url(provider: DownloadSource) -> str:
     provider = normalize_download_source(provider)
     owner, repository = default_repository_for(provider)
@@ -119,8 +150,10 @@ __all__ = [
     "DownloadSource",
     "ReleaseSourceError",
     "create_hub_release_source",
+    "create_catalog_release_source",
     "create_release_source",
     "default_repository_for",
+    "fixed_release_asset_url",
     "normalize_download_source",
     "provider_display_name",
     "repository_home_url",

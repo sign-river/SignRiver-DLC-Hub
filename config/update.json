@@ -1,5 +1,10 @@
 {
-  "manifest_url": "",
+  "manifest_url": "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/updates/update-manifest.json",
+  "manifest_urls": {
+    "gitlink": "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/updates/update-manifest.json",
+    "github": "https://github.com/sign-river/signriver-dlc-assets/releases/download/updates/update-manifest.json"
+  },
+  "download_source": "gitlink",
   "channel": "stable",
   "check_on_startup": false,
   "timeout_seconds": 20,

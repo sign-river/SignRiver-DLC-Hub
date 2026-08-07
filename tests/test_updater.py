@@ -2,17 +2,26 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from signriver_launcher.config import UpdateSettings
-from signriver_launcher.errors import DownloadError, IntegrityError, PackageError
+from signriver_launcher.errors import (
+    DownloadCancelled,
+    DownloadError,
+    IntegrityError,
+    PackageError,
+)
 from signriver_launcher.models import ReleaseInfo
 from signriver_launcher.paths import RuntimePaths
+from signriver_launcher.product import RELEASE_EXE_NAME
 from signriver_launcher.state import StateStore
 from signriver_launcher.updater import UpdateClient
+import signriver_launcher.updater as updater_module
 
 
 def digest(path: Path) -> str:
@@ -82,6 +91,48 @@ def test_rejects_hash_mismatch(tmp_path) -> None:
         client.install_archive(archive, release)
     assert store.load().active_version == "0.1.0"
     assert not (paths.versions_dir / "0.1.1").exists()
+
+
+def test_update_download_can_be_cancelled_and_cleans_partial_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _store, paths = client_for(tmp_path)
+    payload = b"first" + b"second"
+    release = ReleaseInfo(
+        "0.1.1", "module", "https://example.test/module.zip",
+        hashlib.sha256(payload).hexdigest(), len(payload), "0.1.0",
+    )
+
+    class Response:
+        def __init__(self) -> None:
+            self._chunks = iter((b"first", b"second"))
+            self.headers = {"Content-Length": str(len(payload))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return release.package_url
+
+        def read(self, _size):
+            return next(self._chunks, b"")
+
+    monkeypatch.setattr(
+        updater_module.urllib.request, "urlopen", lambda *_args, **_kwargs: Response()
+    )
+    cancelled = False
+
+    def progress(_current: int, _total: int | None) -> None:
+        nonlocal cancelled
+        cancelled = True
+
+    with pytest.raises(DownloadCancelled, match="已取消"):
+        client.download(release, progress, lambda: cancelled)
+
+    assert not tuple(paths.cache_dir.glob("module-0.1.1-*.zip*"))
 
 
 def test_rejects_zip_path_traversal(tmp_path) -> None:
@@ -179,3 +230,102 @@ def test_rejects_update_urls_with_embedded_credentials(
 
     with pytest.raises(DownloadError, match="without embedded credentials"):
         client._validate_remote_url(url)
+
+
+def test_selected_download_source_controls_manifest_and_relative_package_url(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, _store, _paths = client_for(tmp_path)
+    client.settings = UpdateSettings(
+        manifest_urls={
+            "gitlink": "https://gitlink.example/updates/update-manifest.json",
+            "github": "https://github.example/updates/update-manifest.json",
+        }
+    )
+    client.set_download_source("github")
+    requested = []
+    payload = json.dumps(
+        {
+            "schema_version": 1,
+            "channel": "stable",
+            "releases": [
+                {
+                    "version": "0.1.1",
+                    "kind": "module",
+                    "package_url": "module-v0.1.1.zip",
+                    "sha256": "a" * 64,
+                    "size": 1,
+                    "min_launcher_version": "0.1.0",
+                }
+            ],
+        }
+    ).encode()
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return requested[-1].full_url
+
+        def read(self, _size):
+            return payload
+
+    def open_request(request, timeout):
+        requested.append(request)
+        assert timeout == 20
+        return Response()
+
+    monkeypatch.setattr(updater_module.urllib.request, "urlopen", open_request)
+
+    manifest = client._fetch_manifest()
+
+    assert requested[0].full_url == (
+        "https://github.example/updates/update-manifest.json"
+    )
+    assert manifest.releases[0].package_url == (
+        "https://github.example/updates/module-v0.1.1.zip"
+    )
+
+
+def test_frozen_full_update_uses_staged_new_launcher_as_helper(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, _store, paths = client_for(tmp_path)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    staged_launcher = staging / RELEASE_EXE_NAME
+    staged_launcher.write_bytes(b"new launcher")
+    transaction = SimpleNamespace(
+        staging_path=str(staging),
+        transaction_id="transaction-id",
+    )
+    release = ReleaseInfo(
+        "0.1.2",
+        "full",
+        "https://example.test/full.zip",
+        "a" * 64,
+        1,
+        "0.1.0",
+    )
+    calls = []
+    monkeypatch.setattr(
+        client, "prepare_full_update", lambda *_args, **_kwargs: transaction
+    )
+    monkeypatch.setattr(updater_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        updater_module.subprocess,
+        "Popen",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+
+    client.start_full_update(release)
+
+    helper = staging / "full-update-helper.exe"
+    assert helper.read_bytes() == b"new launcher"
+    assert calls[0][0][0] == str(helper)
+    assert calls[0][1]["cwd"] == paths.root
+    assert calls[0][1]["stdin"] == subprocess.DEVNULL

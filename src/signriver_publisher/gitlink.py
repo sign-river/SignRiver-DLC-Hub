@@ -265,6 +265,19 @@ class GitLinkAttachmentClient:
             f"/api/{repository.owner}/{repository.name}/releases.json?page=1&limit=100",
         )
 
+    def get_release_edit(
+        self, repository: GitLinkRepository, release_id: str
+    ) -> dict[str, object]:
+        if not release_id.isdigit():
+            raise GitLinkError("Release ID 格式不正确")
+        return self._json_request(
+            "GET",
+            (
+                f"/api/{repository.owner}/{repository.name}/releases/"
+                f"{release_id}/edit.json"
+            ),
+        )
+
     def create_release(
         self,
         repository: GitLinkRepository,

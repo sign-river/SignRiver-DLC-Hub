@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from ..domain import ANNOUNCEMENT_ASSET_NAME, Announcement, HUB_RELEASE_TAG
 from ..infrastructure.catalog import (
     create_hub_release_source,
+    fixed_release_asset_url,
     normalize_download_source,
 )
 from ..infrastructure.net_errors import describe_network_error
@@ -37,6 +38,7 @@ class AnnouncementService:
         self.cache_dir = Path(cache_dir)
         self.bootstrap_path = Path(bootstrap_path) if bootstrap_path else None
         self.download_source = normalize_download_source(download_source)
+        self._source_overridden = source is not None
         self.source = source or create_hub_release_source(self.download_source)
         self._open = opener or self._download_bytes
         self.timeout = timeout
@@ -92,16 +94,22 @@ class AnnouncementService:
         return muted_id.strip() != announcement.announcement_id
 
     def _fetch_remote(self) -> Announcement:
-        release = self.source.get_release_by_tag(HUB_RELEASE_TAG)
-        for asset in release.assets:
-            if asset.name == ANNOUNCEMENT_ASSET_NAME:
-                payload = self._open(asset.download_url, self.timeout)
-                return Announcement.from_dict(
-                    json.loads(payload.decode("utf-8"))
-                )
-        raise AnnouncementError(
-            f"hub Release 中缺少资源：{ANNOUNCEMENT_ASSET_NAME}"
+        if self._source_overridden:
+            release = self.source.get_release_by_tag(HUB_RELEASE_TAG)
+            for asset in release.assets:
+                if asset.name == ANNOUNCEMENT_ASSET_NAME:
+                    payload = self._open(asset.download_url, self.timeout)
+                    return Announcement.from_dict(json.loads(payload.decode("utf-8")))
+            raise AnnouncementError(
+                f"hub Release 中缺少资源：{ANNOUNCEMENT_ASSET_NAME}"
+            )
+        payload = self._open(
+            fixed_release_asset_url(
+                self.download_source, HUB_RELEASE_TAG, ANNOUNCEMENT_ASSET_NAME
+            ),
+            self.timeout,
         )
+        return Announcement.from_dict(json.loads(payload.decode("utf-8")))
 
     def _cache_path(self) -> Path:
         return self.cache_dir / ANNOUNCEMENT_ASSET_NAME

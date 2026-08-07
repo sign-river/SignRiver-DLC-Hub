@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -42,9 +43,12 @@ from .models import GameProfile, PublishAsset
 from .remote import RemoteAsset, RemoteBulkDeleteResult, RemoteRelease, RemoteResourceManager
 from .settings import PublisherSettings, PublisherSettingsError
 from .updates import (
+    MODULE_ARCHIVE_RELEASE_TAG,
     UPDATE_MANIFEST_ASSET,
     UPDATE_RELEASE_TAG,
     UpdateReleaseDraft,
+    inspect_module_archive,
+    inspect_update_package,
     release_asset_url,
     write_update_manifest,
 )
@@ -133,6 +137,7 @@ class PublisherApplication(ctk.CTk):
         self._active_publish_scope = "game"
         self._upload_sample: tuple[str, int, float] | None = None
         self._upload_speed = 0.0
+        self._publish_advanced_visible = False
         self._current_remote_release: RemoteRelease | None = None
         self.title("SignRiver 发布管理器")
         self.geometry("1240x800")
@@ -417,8 +422,8 @@ class PublisherApplication(ctk.CTk):
         )
         self.freshness_summary.grid(row=2, column=0, padx=22, pady=(0, 14), sticky="ew")
 
-        remote = self._card(self.build_tab, 1, "发布仓库")
-        remote.grid_rowconfigure(4, weight=1)
+        remote = self._card(self.build_tab, 1, "发布控制台")
+        remote.grid_rowconfigure(6, weight=1)
         settings = ctk.CTkFrame(remote, fg_color="transparent")
         settings.grid(row=1, column=0, padx=20, sticky="ew")
         settings.grid_columnconfigure((1, 3, 5), weight=1)
@@ -442,58 +447,148 @@ class PublisherApplication(ctk.CTk):
         self.repo_entry = ctk.CTkEntry(settings, border_color="#BDBDBD")
         self.repo_entry.insert(0, self.settings.active_repository)
         self.repo_entry.grid(row=0, column=5, padx=(0, 10), sticky="ew")
-        buttons = ctk.CTkFrame(remote, fg_color="transparent")
-        buttons.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
+        regions = ctk.CTkFrame(remote, fg_color="transparent")
+        regions.grid(row=2, column=0, padx=18, pady=12, sticky="ew")
+        regions.grid_columnconfigure((0, 1, 2), weight=1, uniform="publish")
+        region_specs = (
+            (
+                "发布当前游戏",
+                "当前卡带的 DLC、补丁、AppInfo 与 catalog.json",
+            ),
+            (
+                "发布客户端",
+                "完整程序更新包与双源更新清单",
+            ),
+            (
+                "维护基础设施",
+                "历史模块归档，以及卡带与公告入口",
+            ),
+        )
+        region_frames = []
+        for column, (title, hint) in enumerate(region_specs):
+            frame = ctk.CTkFrame(
+                regions, fg_color="#F7F9FC", border_width=1,
+                border_color="#D8DEE6", corner_radius=10,
+            )
+            frame.grid(
+                row=0, column=column, padx=5, pady=0, sticky="nsew"
+            )
+            ctk.CTkLabel(
+                frame, text=title, font=("Microsoft YaHei UI", 16, "bold"),
+                text_color=BLUE, anchor="w",
+            ).pack(fill="x", padx=14, pady=(12, 2))
+            ctk.CTkLabel(
+                frame, text=hint, text_color=MUTED, anchor="w",
+                justify="left", wraplength=300,
+            ).pack(fill="x", padx=14, pady=(0, 8))
+            region_frames.append(frame)
+
+        game_region, client_region, infrastructure_region = region_frames
+        advanced = ctk.CTkFrame(
+            remote, fg_color="#F7F9FC", border_width=1,
+            border_color="#D8DEE6", corner_radius=10,
+        )
+        self.publish_advanced_frame = advanced
         self.check_gitlink_button = ctk.CTkButton(
-            buttons,
+            advanced,
             text="检查仓库",
             width=160,
             fg_color=LIGHT_BLUE,
             command=self.check_gitlink,
         )
-        self.check_gitlink_button.pack(side="left", padx=4)
         self.create_repository_button = ctk.CTkButton(
-            buttons,
+            advanced,
             text="创建新仓库",
             width=140,
             fg_color=LIGHT_BLUE,
             command=self.create_repository,
         )
-        self.create_repository_button.pack(side="left", padx=4)
         self.adopt_remote_button = ctk.CTkButton(
-            buttons,
+            advanced,
             text="采用远程附件",
             width=145,
             fg_color=LIGHT_BLUE,
             command=self.adopt_remote_assets,
         )
-        self.adopt_remote_button.pack(side="left", padx=4)
         self.publish_button = ctk.CTkButton(
-            buttons,
-            text="发布到 Release",
-            width=160,
+            game_region,
+            text="发布当前游戏到所选源",
+            width=210,
             fg_color=BLUE,
             command=self.publish_release,
         )
-        self.publish_button.pack(side="left", padx=4)
+        self.publish_button.pack(fill="x", padx=14, pady=(4, 14))
         self.publish_update_button = ctk.CTkButton(
-            buttons,
-            text="发布程序更新",
+            advanced,
+            text="单源发布程序更新",
             width=150,
             fg_color=BLUE,
             command=self.publish_update_release,
         )
-        self.publish_update_button.pack(side="left", padx=4)
         self.publish_update_mirror_button = ctk.CTkButton(
-            buttons,
+            client_region,
             text="双源镜像发布更新",
             width=170,
             fg_color=LIGHT_BLUE,
             command=lambda: self.publish_update_release(mirror=True),
         )
-        self.publish_update_mirror_button.pack(side="left", padx=4)
+        self.publish_update_mirror_button.pack(fill="x", padx=14, pady=(4, 14))
+        self.publish_module_archive_button = ctk.CTkButton(
+            advanced,
+            text="单源发布模块归档",
+            width=150,
+            fg_color=LIGHT_BLUE,
+            command=self.publish_module_archive,
+        )
+        self.publish_hub_single_button = ctk.CTkButton(
+            advanced,
+            text="单源发布卡带中心",
+            width=150,
+            fg_color=LIGHT_BLUE,
+            command=self.publish_cartridge_hub,
+        )
+        self.publish_module_archive_mirror_button = ctk.CTkButton(
+            infrastructure_region,
+            text="双源镜像归档",
+            width=150,
+            fg_color=LIGHT_BLUE,
+            command=lambda: self.publish_module_archive(mirror=True),
+        )
+        self.publish_module_archive_mirror_button.pack(
+            fill="x", padx=14, pady=(4, 6)
+        )
+        ctk.CTkButton(
+            infrastructure_region, text="打开卡带管理",
+            fg_color=LIGHT_BLUE,
+            command=lambda: self.tabs.set("卡带管理"),
+        ).pack(fill="x", padx=14, pady=(0, 14))
+
+        self.publish_advanced_button = ctk.CTkButton(
+            remote, text="展开高级操作 ▾", width=160,
+            fg_color="transparent", border_width=1,
+            border_color="#B8C5D1", text_color=TEXT,
+            command=self._toggle_publish_advanced,
+        )
+        self.publish_advanced_button.grid(
+            row=3, column=0, padx=22, pady=(0, 8), sticky="w"
+        )
+        ctk.CTkLabel(
+            advanced,
+            text="单源与仓库维护",
+            font=("Microsoft YaHei UI", 14, "bold"),
+            text_color=TEXT,
+        ).pack(side="left", padx=(12, 8), pady=10)
+        for button in (
+            self.check_gitlink_button,
+            self.create_repository_button,
+            self.adopt_remote_button,
+            self.publish_update_button,
+            self.publish_module_archive_button,
+            self.publish_hub_single_button,
+        ):
+            button.pack(side="left", padx=4, pady=10)
         self.token_entry = ctk.CTkEntry(
-            buttons,
+            advanced,
             width=230,
             show="●",
             placeholder_text="发布令牌",
@@ -505,7 +600,7 @@ class PublisherApplication(ctk.CTk):
         for entry in (self.owner_entry, self.repo_entry, self.token_entry):
             entry.bind("<FocusOut>", lambda _event: self._save_active_settings())
         transfer = ctk.CTkFrame(remote, fg_color="transparent")
-        transfer.grid(row=3, column=0, padx=22, pady=(0, 10), sticky="ew")
+        transfer.grid(row=5, column=0, padx=22, pady=(0, 10), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=250, anchor="w", text_color=MUTED
@@ -532,8 +627,19 @@ class PublisherApplication(ctk.CTk):
             border_color="#E0E0E0",
             text_color=TEXT,
         )
-        self.log.grid(row=4, column=0, padx=20, pady=(0, 18), sticky="nsew")
+        self.log.grid(row=6, column=0, padx=20, pady=(0, 18), sticky="nsew")
         self._log("令牌从本地私密配置或输入框读取，不会输出到日志。")
+
+    def _toggle_publish_advanced(self) -> None:
+        self._publish_advanced_visible = not self._publish_advanced_visible
+        if self._publish_advanced_visible:
+            self.publish_advanced_frame.grid(
+                row=4, column=0, padx=22, pady=(0, 10), sticky="ew"
+            )
+            self.publish_advanced_button.configure(text="收起高级操作 ▴")
+        else:
+            self.publish_advanced_frame.grid_remove()
+            self.publish_advanced_button.configure(text="展开高级操作 ▾")
 
     def _build_remote_tab(self) -> None:
         self.remote_tab.grid_rowconfigure(1, weight=1)
@@ -685,9 +791,9 @@ class PublisherApplication(ctk.CTk):
         ).grid(row=0, column=3, padx=4, sticky="ew")
         self.hub_publish_button = ctk.CTkButton(
             actions,
-            text="发布 hub Release",
+            text="一键双端发布卡带",
             fg_color=BLUE,
-            command=self.publish_cartridge_hub,
+            command=self.publish_cartridge_hub_mirror,
         )
         self.hub_publish_button.grid(row=0, column=4, padx=4, sticky="ew")
 
@@ -2621,7 +2727,13 @@ class PublisherApplication(ctk.CTk):
         self.adopt_remote_button.configure(state="normal")
         self.game_menu.configure(state="normal")
         self.build_summary.configure(
-            text=f"{resources} 个资源 · {files} 个文件 · {size / 1024 / 1024:.1f} MiB"
+            text=(
+                f"{resources} 个资源 · {files} 个文件（含 catalog.json） · "
+                f"{size / 1024 / 1024:.1f} MiB"
+            )
+        )
+        self._log(
+            "已生成静态目录 catalog.json；发布到 Release 时会作为最后一个附件上传。"
         )
         self._log(f"本地构建完成：{game_id}，共 {files} 个发布文件。")
         self._fill_local_outputs()
@@ -3342,27 +3454,31 @@ class PublisherApplication(ctk.CTk):
         if not self._save_active_settings():
             return
         package_name = filedialog.askopenfilename(
-            title="选择程序更新包", filetypes=[("ZIP 文件", "*.zip")]
+            title="选择程序更新包",
+            initialdir=self._update_package_dir(),
+            filetypes=[("ZIP 文件", "*.zip")],
         )
         if not package_name:
             return
-        version = simpledialog.askstring("程序更新", "版本号（例如 0.1.1）：", parent=self)
-        if not version:
+        package = Path(package_name)
+        try:
+            package_info = inspect_update_package(package)
+        except ValueError as error:
+            messagebox.showerror("程序更新", str(error), parent=self)
             return
-        kind = simpledialog.askstring(
-            "程序更新", "更新类型：module 或 full", initialvalue="module", parent=self
-        )
-        if kind not in {"module", "full"}:
-            messagebox.showerror("程序更新", "更新类型只能是 module 或 full", parent=self)
-            return
-        notes = simpledialog.askstring("程序更新", "更新说明：", parent=self) or ""
+        version = package_info.version
+        kind = package_info.kind
+        notes = simpledialog.askstring(
+            "程序更新",
+            f"已识别：版本 {version}，类型 {kind}\n更新说明：",
+            parent=self,
+        ) or ""
         mandatory = messagebox.askyesno(
             "程序更新", "是否强制此版本更新？", parent=self
         )
         operation = "正在镜像发布程序更新" if mirror else "正在发布程序更新"
         if not self._begin_background_mutation("update-publish", operation):
             return
-        package = Path(package_name)
         owner, repository, token = (
             self.owner_entry.get().strip(),
             self.repo_entry.get().strip(),
@@ -3371,6 +3487,13 @@ class PublisherApplication(ctk.CTk):
         target = self._publish_target()
         self.publish_update_button.configure(state="disabled", text="正在发布…")
         self.publish_update_mirror_button.configure(state="disabled")
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
+        self._upload_sample = None
+        self._upload_speed = 0.0
+        self._active_publish_scope = "game"
+        self.upload_progress.set(0)
+        self.upload_status.configure(text="正在准备程序更新发布…")
 
         def worker() -> None:
             try:
@@ -3420,10 +3543,114 @@ class PublisherApplication(ctk.CTk):
             )))
         # Package first: a newly visible manifest can never reference an asset
         # that has not reached its source Release yet.
-        for target, owner, repository, token, _manifest in manifests:
-            self._publish_update_target(target, owner, repository, token, draft.package, None)
-        for target, owner, repository, token, manifest in manifests:
-            self._publish_update_target(target, owner, repository, token, None, manifest)
+        for index, (target, owner, repository, token, _manifest) in enumerate(
+            manifests, start=1
+        ):
+            self._publish_update_target(
+                target,
+                owner,
+                repository,
+                token,
+                draft.package,
+                None,
+                progress_start=index - 1,
+                progress_total=4,
+            )
+        for index, (target, owner, repository, token, manifest) in enumerate(
+            manifests, start=3
+        ):
+            self._publish_update_target(
+                target,
+                owner,
+                repository,
+                token,
+                None,
+                manifest,
+                progress_start=index - 1,
+                progress_total=4,
+            )
+
+    def publish_module_archive(self, *, mirror: bool = False) -> None:
+        """Publish every verified module snapshot from the standard archive directory."""
+        if not self._save_active_settings():
+            return
+        archive_dir = self._module_archive_dir()
+        packages = tuple(sorted(archive_dir.glob("SignRiver-DLC-Hub-module-v*.zip")))
+        if not packages:
+            messagebox.showerror(
+                "模块归档",
+                f"归档目录中没有模块 ZIP：\n{archive_dir}\n\n"
+                "请先执行 tools\\build_module.py --all-versions app\\versions。",
+                parent=self,
+            )
+            return
+        try:
+            archives = tuple((package, inspect_module_archive(package)) for package in packages)
+        except ValueError as error:
+            messagebox.showerror("模块归档", f"归档校验失败：{error}", parent=self)
+            return
+        target = self._publish_target()
+        destination = "GitLink + GitHub" if mirror else target
+        versions = ", ".join(archive.version for _package, archive in archives)
+        if not messagebox.askyesno(
+            "确认发布模块归档",
+            f"归档目录：{archive_dir}\n已识别 {len(archives)} 个版本：{versions}\n\n"
+            f"将上传到 {destination} 的 {MODULE_ARCHIVE_RELEASE_TAG} Release。"
+            "此操作不会发布客户端更新。是否继续？",
+            parent=self,
+        ):
+            return
+        if not self._begin_background_mutation("module-archive", "正在发布模块归档"):
+            return
+        selected_owner = self.owner_entry.get().strip()
+        selected_repository = self.repo_entry.get().strip()
+        selected_token = self.token_entry.get().strip()
+        self.publish_module_archive_button.configure(state="disabled", text="正在归档…")
+        self.publish_module_archive_mirror_button.configure(state="disabled")
+        self.upload_progress.set(0)
+        self.upload_status.configure(text=f"正在归档 {len(archives)} 个模块版本…")
+
+        def worker() -> None:
+            try:
+                targets: tuple[tuple[str, str, str, str], ...]
+                if mirror:
+                    targets = (
+                        ("gitlink", self.settings.owner, self.settings.repository, self.settings.token),
+                        ("github", self.settings.github_owner, self.settings.github_repository, self.settings.github_token),
+                    )
+                    if not all(owner and repository and token for _target, owner, repository, token in targets):
+                        raise ValueError("双源镜像归档需要在本地配置中填写 GitLink 和 GitHub 的完整凭据")
+                else:
+                    targets = ((target, selected_owner, selected_repository, selected_token),)
+                total = len(archives) * len(targets)
+                for target_index, (host, owner, repository, token) in enumerate(targets):
+                    for archive_index, (package, _archive) in enumerate(archives):
+                        self._publish_update_target(
+                            host, owner, repository, token, package, None,
+                            progress_start=target_index * len(archives) + archive_index,
+                            progress_total=total,
+                            release_tag=MODULE_ARCHIVE_RELEASE_TAG,
+                            release_name="SignRiver Module Archives",
+                        )
+                self._post_ui(lambda: self._publish_module_archive_done(versions, destination))
+            except Exception as error:
+                self._post_ui(lambda message=str(error): self._publish_module_archive_failed(message))
+
+        threading.Thread(
+            target=worker, daemon=True, name="module-archive-publish"
+        ).start()
+
+    @staticmethod
+    def _module_archive_dir() -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent.parent / "modules"
+        return Path(__file__).resolve().parents[2] / "dist" / "modules"
+
+    @staticmethod
+    def _update_package_dir() -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent.parent / "updates"
+        return Path(__file__).resolve().parents[2] / "dist" / "updates"
 
     @staticmethod
     def _update_paths(package: Path | None, manifest: Path | None) -> tuple[Path, ...]:
@@ -3432,43 +3659,104 @@ class PublisherApplication(ctk.CTk):
     def _publish_update_target(
         self, target: str, owner: str, repository: str, token: str,
         package: Path | None, manifest: Path | None,
+        *,
+        progress_start: int = 0,
+        progress_total: int | None = None,
+        release_tag: str = UPDATE_RELEASE_TAG,
+        release_name: str = "SignRiver Updates",
     ) -> None:
         paths = self._update_paths(package, manifest)
+        total = progress_total or len(paths)
+        target_label = "GitHub" if target == "github" else "GitLink"
+
+        def progress_callback(index: int, path: Path):
+            name = f"{target_label} · {path.name}"
+            size = path.stat().st_size
+            self._queue_upload_progress(index, total, name, 0, size)
+            return lambda sent, upload_size: self._queue_upload_progress(
+                index, total, name, sent, upload_size
+            )
+
         if target == "github":
                     client = GitHubReleaseClient(
                         GitHubRepository(owner, repository), token
                     )
+                    if paths:
+                        progress_callback(progress_start + 1, paths[0])
                     release = client.ensure_release(
-                        UPDATE_RELEASE_TAG, name="SignRiver Updates"
+                        release_tag, name=release_name
                     )
-                    for path in paths:
-                        client.upload_asset(release, path, replace_existing=True)
+                    for offset, path in enumerate(paths, start=1):
+                        callback = progress_callback(progress_start + offset, path)
+                        client.upload_asset(
+                            release,
+                            path,
+                            replace_existing=True,
+                            progress=callback,
+                        )
+                        callback(path.stat().st_size, path.stat().st_size)
         elif target == "gitlink":
                     manager = RemoteResourceManager(
                         GitLinkAttachmentClient(token or None),
                         GitLinkRepository(owner, repository),
                     )
-                    for path in paths:
+                    for offset, path in enumerate(paths, start=1):
+                        callback = progress_callback(progress_start + offset, path)
                         manager.upload_file_to_release(
-                            UPDATE_RELEASE_TAG, "SignRiver Updates", path
+                            release_tag,
+                            release_name,
+                            path,
+                            progress=callback,
                         )
+                        callback(path.stat().st_size, path.stat().st_size)
         else:
             raise ValueError(f"unsupported update target: {target}")
 
     def _publish_update_done(self, version: str, target: str) -> None:
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
+        self.upload_progress.set(1)
+        self.upload_status.configure(
+            text=f"程序更新 {version} 已发布完成 · {target}"
+        )
         self._end_background_mutation("update-publish")
-        self.publish_update_button.configure(state="normal", text="发布程序更新")
+        self.publish_update_button.configure(state="normal", text="单源发布程序更新")
         self.publish_update_mirror_button.configure(state="normal")
         message = f"程序更新 {version} 已发布到 {target} 的 {UPDATE_RELEASE_TAG} Release"
         self._log(message)
         messagebox.showinfo("程序更新发布完成", message, parent=self)
 
     def _publish_update_failed(self, message: str) -> None:
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
+        self.upload_status.configure(text="程序更新发布失败，请查看下方日志")
         self._end_background_mutation("update-publish")
-        self.publish_update_button.configure(state="normal", text="发布程序更新")
+        self.publish_update_button.configure(state="normal", text="单源发布程序更新")
         self.publish_update_mirror_button.configure(state="normal")
         self._log(f"程序更新发布失败：{message}")
         messagebox.showerror("程序更新发布失败", message, parent=self)
+
+    def _publish_module_archive_done(self, version: str, target: str) -> None:
+        self.upload_progress.set(1)
+        self.upload_status.configure(text=f"模块归档 {version} 已发布完成 · {target}")
+        self._end_background_mutation("module-archive")
+        self.publish_module_archive_button.configure(
+            state="normal", text="单源发布模块归档"
+        )
+        self.publish_module_archive_mirror_button.configure(state="normal")
+        message = f"模块归档 {version} 已发布到 {target} 的 {MODULE_ARCHIVE_RELEASE_TAG} Release"
+        self._log(message)
+        messagebox.showinfo("模块归档发布完成", message, parent=self)
+
+    def _publish_module_archive_failed(self, message: str) -> None:
+        self.upload_status.configure(text="模块归档发布失败，请查看下方日志")
+        self._end_background_mutation("module-archive")
+        self.publish_module_archive_button.configure(
+            state="normal", text="单源发布模块归档"
+        )
+        self.publish_module_archive_mirror_button.configure(state="normal")
+        self._log(f"模块归档发布失败：{message}")
+        messagebox.showerror("模块归档发布失败", message, parent=self)
 
     def _publish_scope_controls(self):
         if self._active_publish_scope == "hub":
@@ -3487,10 +3775,15 @@ class PublisherApplication(ctk.CTk):
 
     def _set_publish_buttons_available(self, available: bool) -> None:
         state = "normal" if available else "disabled"
-        self.publish_button.configure(state=state, text="发布到 Release")
-        self.publish_update_button.configure(state=state, text="发布程序更新")
+        self.publish_button.configure(state=state, text="发布当前游戏到所选源")
+        self.publish_update_button.configure(state=state, text="单源发布程序更新")
         self.publish_update_mirror_button.configure(state=state)
-        self.hub_publish_button.configure(state=state, text="发布 hub Release")
+        self.publish_module_archive_button.configure(
+            state=state, text="单源发布模块归档"
+        )
+        self.publish_module_archive_mirror_button.configure(state=state)
+        self.hub_publish_button.configure(state=state, text="一键双端发布卡带")
+        self.publish_hub_single_button.configure(state=state)
 
     def _publish_target(self) -> str:
         return "github" if self.publish_target_menu.get() == "GitHub" else "gitlink"
@@ -4071,6 +4364,185 @@ class PublisherApplication(ctk.CTk):
         self.hub_upload_status.configure(text="生成失败")
         self._log(f"客户端卡带中心生成失败：{message}")
         messagebox.showerror("生成失败", message)
+
+    def publish_cartridge_hub_mirror(self) -> None:
+        """Regenerate the hub once and publish the same assets to both hosts."""
+        profiles = self.workspace.list_games()
+        if not profiles:
+            messagebox.showerror("无法发布", "尚未配置任何游戏卡带")
+            return
+        if not self._save_active_settings():
+            return
+        targets = (
+            (
+                "GitLink", self.settings.owner, self.settings.repository,
+                self.settings.token,
+            ),
+            (
+                "GitHub", self.settings.github_owner,
+                self.settings.github_repository, self.settings.github_token,
+            ),
+        )
+        if not all(owner and repository and token for _, owner, repository, token in targets):
+            messagebox.showerror(
+                "无法双端发布",
+                "请先在高级操作中分别填写并保存 GitLink 和 GitHub 的仓库及令牌。",
+            )
+            return
+        if not messagebox.askyesno(
+            "确认双端发布卡带中心",
+            f"将重新生成 {len(profiles)} 张客户端卡带，并依次同步到：\n\n"
+            f"GitLink · {targets[0][1]}/{targets[0][2]} · hub\n"
+            f"GitHub · {targets[1][1]}/{targets[1][2]} · hub\n\n"
+            "任一端失败时，已经完成的另一端会保留。是否继续？",
+        ):
+            return
+        if not self._begin_background_mutation(
+            "publish", "正在双端发布卡带中心"
+        ):
+            return
+        self._active_publish_scope = "hub"
+        self._set_publish_buttons_available(False)
+        self.hub_generate_button.configure(state="disabled")
+        self.hub_publish_button.configure(state="disabled", text="正在双端发布…")
+        self.hub_upload_status.configure(text="正在生成完整卡带主表…")
+        self.hub_upload_progress.set(0)
+        self._upload_control = UploadControl()
+        default_game_id = self.profile.game_id
+
+        def worker() -> None:
+            stage = "GitLink"
+            try:
+                assets = self.workspace.hub_publish_assets(
+                    default_game_id=default_game_id
+                )
+                total = len(assets) * 2
+                profile = self.workspace.hub_release_profile()
+                gitlink_repo = GitLinkRepository(targets[0][1], targets[0][2])
+                previous_state = self.workspace.load_publish_state(
+                    profile, gitlink_repo.owner, gitlink_repo.name
+                )
+                manager = RemoteResourceManager(
+                    GitLinkAttachmentClient(targets[0][3]), gitlink_repo
+                )
+
+                def gitlink_progress(
+                    index: int, count: int, name: str, stage: str
+                ) -> None:
+                    self._post_ui(
+                        lambda i=index, value=name, action=stage: self._log(
+                            f"[GitLink {i}/{len(assets)}] {action} {value}"
+                        )
+                    )
+
+                def gitlink_upload(
+                    index: int, count: int, name: str, sent: int, size: int
+                ) -> None:
+                    self._queue_upload_progress(index, total, name, sent, size)
+
+                result = manager.sync_release(
+                    profile, assets, previous_state,
+                    progress=gitlink_progress,
+                    upload_progress=gitlink_upload,
+                    upload_control=self._upload_control,
+                    checkpoint=lambda state: self.workspace.save_publish_state(
+                        profile, state
+                    ),
+                )
+                self.workspace.save_publish_state(profile, result.state)
+                self._post_ui(
+                    lambda: self._log("GitLink hub Release 已同步完成，开始 GitHub。")
+                )
+
+                stage = "GitHub"
+                github = GitHubReleaseClient(
+                    GitHubRepository(targets[1][1], targets[1][2]),
+                    targets[1][3],
+                )
+                release = github.ensure_release(profile.release_tag)
+                reusable = {
+                    str(item.get("name")): int(item.get("size") or 0)
+                    for item in release.assets
+                    if item.get("name") and item.get("size") is not None
+                }
+                for index, asset in enumerate(assets, start=1):
+                    overall = len(assets) + index
+                    if reusable.get(asset.name) == asset.size_bytes:
+                        self._queue_upload_progress(
+                            overall, total, asset.name,
+                            asset.size_bytes, asset.size_bytes,
+                        )
+                        self._post_ui(
+                            lambda i=index, value=asset.name: self._log(
+                                f"[GitHub {i}/{len(assets)}] 复用附件 {value}"
+                            )
+                        )
+                        continue
+                    github.upload_asset(
+                        release, asset.path, replace_existing=True,
+                        progress=lambda sent, size, i=overall, value=asset.name: (
+                            self._queue_upload_progress(
+                                i, total, value, sent, size
+                            )
+                        ),
+                        should_pause=lambda: bool(
+                            self._upload_control
+                            and self._upload_control.pause_requested
+                        ),
+                    )
+                    self._post_ui(
+                        lambda i=index, value=asset.name: self._log(
+                            f"[GitHub {i}/{len(assets)}] 已上传 {value}"
+                        )
+                    )
+                self._post_ui(
+                    lambda count=len(assets): self._hub_mirror_publish_done(count)
+                )
+            except (UploadPaused, GitHubUploadPaused) as error:
+                self._post_ui(
+                    lambda value=f"{stage}：{error}": self._hub_mirror_publish_failed(
+                        value, paused=True
+                    )
+                )
+            except Exception as error:
+                self._post_ui(
+                    lambda value=f"{stage}：{error}": self._hub_mirror_publish_failed(value)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="hub-mirror-publish"
+        ).start()
+
+    def _hub_mirror_publish_done(self, count: int) -> None:
+        self._end_background_mutation("publish")
+        self._upload_control = None
+        self._set_publish_buttons_available(True)
+        self.hub_generate_button.configure(state="normal")
+        self.hub_upload_progress.set(1)
+        self.hub_upload_status.configure(text="GitLink + GitHub 发布完成")
+        self._log(f"卡带中心双端发布完成：每端 {count} 个附件。")
+        self.refresh_cartridge_management()
+        messagebox.showinfo(
+            "卡带中心发布完成",
+            "hub Release 已同步到 GitLink 和 GitHub。",
+        )
+
+    def _hub_mirror_publish_failed(
+        self, message: str, *, paused: bool = False
+    ) -> None:
+        self._end_background_mutation("publish")
+        self._upload_control = None
+        self._set_publish_buttons_available(True)
+        self.hub_generate_button.configure(state="normal")
+        self.hub_publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.hub_upload_status.configure(
+            text="双端发布已暂停" if paused else "双端发布失败"
+        )
+        self._log(f"卡带中心双端发布未完成：{message}")
+        if paused:
+            messagebox.showinfo("卡带中心发布已暂停", message)
+        else:
+            messagebox.showerror("卡带中心双端发布失败", message)
 
     def publish_cartridge_hub(self) -> None:
         profiles = self.workspace.list_games()

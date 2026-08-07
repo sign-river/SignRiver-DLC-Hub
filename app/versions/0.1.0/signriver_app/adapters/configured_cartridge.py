@@ -11,7 +11,7 @@ from types import MappingProxyType
 from ..application.dlc_catalog import ReleaseCatalogService
 from ..domain import PatchBundle, PatchProfile, ReleaseAsset, resolve_game_directory
 from ..infrastructure.catalog import (
-    create_release_source,
+    create_catalog_release_source,
     resolve_repository,
 )
 from ..infrastructure.installs import DirectoryInstallEngine
@@ -80,7 +80,9 @@ class ConfiguredSteamCartridge:
             revision = hashlib.sha256(asset.download_url.encode("utf-8")).hexdigest()[:16]
         return f"{self.cartridge_id}-patch-{role}-{revision}"
 
-    def create_catalog(self, *, download_source: str = "gitlink") -> ReleaseCatalogService:
+    def create_catalog(
+        self, *, download_source: str = "gitlink", cache_path: Path | None = None,
+    ) -> ReleaseCatalogService:
         owner, repository = resolve_repository(
             download_source,  # type: ignore[arg-type]
             owner=self.repository_owner,
@@ -88,7 +90,9 @@ class ConfiguredSteamCartridge:
             repositories=self.repositories,
         )
         return ReleaseCatalogService(
-            create_release_source(download_source, owner, repository),  # type: ignore[arg-type]
+            create_catalog_release_source(  # type: ignore[arg-type]
+                download_source, owner, repository, cache_path=cache_path,
+            ),
             release_tag=self.release_tag,
             patch_profile=self.patch_profile,
         )

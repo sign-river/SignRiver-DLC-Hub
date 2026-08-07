@@ -21,6 +21,7 @@ from ..domain import (
 )
 from ..infrastructure.catalog import (
     create_hub_release_source,
+    fixed_release_asset_url,
     normalize_download_source,
 )
 from ..infrastructure.net_errors import describe_network_error
@@ -219,12 +220,11 @@ class CartridgeCatalogService:
         return index
 
     def _fetch_remote_asset(self, asset_name: str) -> bytes:
-        release = self.source.get_release_by_tag(HUB_RELEASE_TAG)
-        for asset in release.assets:
-            if asset.name == asset_name:
-                return self._open(asset.download_url, self.timeout)
-        raise CartridgeCatalogError(
-            f"hub Release 中缺少资源：{asset_name}"
+        return self._open(
+            fixed_release_asset_url(
+                self.download_source, HUB_RELEASE_TAG, asset_name
+            ),
+            self.timeout,
         )
 
     def _load_local_document(

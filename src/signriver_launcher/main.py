@@ -10,6 +10,8 @@ from .api import HostContext
 from .config import UpdateSettings
 from .errors import ConfigurationError, ModuleLoadError, SignRiverError
 from .loader import ModuleLoader
+from .jsonio import read_json
+from .models import ModuleMetadata
 from .paths import RuntimePaths
 from .state import StateStore
 from .updater import UpdateClient
@@ -65,6 +67,31 @@ def _show_fatal_error(message: str) -> None:
         print(message, file=sys.stderr)
 
 
+def _activate_confirmed_full_update_module(
+    paths: RuntimePaths,
+    store: StateStore,
+    transaction_id: str,
+) -> None:
+    """Activate a full-update module even when the swap used an older helper."""
+    transaction = FullUpdateManager(paths).load()
+    if (
+        transaction is None
+        or transaction.transaction_id != transaction_id
+        or transaction.stage != "swapped"
+    ):
+        return
+    module_root = paths.versions_dir / transaction.version
+    metadata = ModuleMetadata.from_dict(read_json(module_root / "module.json"))
+    entrypoint = metadata.entrypoint.rsplit(":", 1)[0]
+    if metadata.version != transaction.version or not (
+        module_root / entrypoint
+    ).is_file():
+        raise ModuleLoadError(
+            "full update target module metadata does not match the transaction"
+        )
+    store.activate(transaction.version)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--apply-full-update":
@@ -92,7 +119,16 @@ def main(argv: list[str] | None = None) -> int:
     store = StateStore(paths.state_file)
     try:
         _bootstrap_state(paths, store)
-        FullUpdateManager(paths).recover_pending()
+        full_update_manager = FullUpdateManager(paths)
+        full_update_manager.recover_pending()
+        if confirm_transaction:
+            try:
+                _activate_confirmed_full_update_module(
+                    paths, store, confirm_transaction
+                )
+            except (OSError, ValueError, SignRiverError):
+                full_update_manager.rollback(confirm_transaction)
+                raise
         settings = UpdateSettings.load(
             paths.update_config_file,
             defaults_path=paths.update_defaults_config_file,

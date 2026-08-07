@@ -4,15 +4,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from signriver_launcher.versioning import Version
 
 
 UPDATE_RELEASE_TAG = "updates"
 UPDATE_MANIFEST_ASSET = "update-manifest.json"
+MODULE_ARCHIVE_RELEASE_TAG = "modules"
+_PACKAGE_FILENAME = re.compile(
+    r"(?:^|[-_])(?P<kind>module|full)[-_]v?"
+    r"(?P<version>[0-9]+\.[0-9]+\.[0-9]+)"
+    r"(?=[-_.]|$)",
+    re.I,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePackageInfo:
+    version: str
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleArchiveInfo:
+    """Identity of a stored module snapshot, not a client update release."""
+
+    version: str
 
 
 def sha256(path: Path) -> str:
@@ -47,6 +70,7 @@ class UpdateReleaseDraft:
             raise ValueError(f"update package does not exist: {self.package}")
         if self.installer_version < 1:
             raise ValueError("installer version must be positive")
+        _validate_package(self.package, self.kind, self.version)
 
     def release_dict(self, package_url: str) -> dict[str, object]:
         package = Path(self.package)
@@ -61,6 +85,88 @@ class UpdateReleaseDraft:
             "notes": self.notes,
             "installer_version": self.installer_version,
         }
+
+
+def _validate_package(package: Path, kind: str, version: str) -> None:
+    try:
+        with zipfile.ZipFile(package) as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)):
+                raise ValueError("update ZIP contains duplicate paths")
+            for name in names:
+                member = PurePosixPath(name.replace("\\", "/"))
+                if member.is_absolute() or ".." in member.parts:
+                    raise ValueError("update ZIP contains unsafe paths")
+            metadata_name = (
+                "module.json" if kind == "module" else "release-manifest.json"
+            )
+            if metadata_name not in names:
+                raise ValueError(
+                    f"{kind} update ZIP must contain {metadata_name} at its root"
+                )
+            metadata = json.loads(archive.read(metadata_name).decode("utf-8"))
+    except (OSError, zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"update package is not a valid ZIP: {error}") from error
+    if not isinstance(metadata, dict) or metadata.get("version") != version:
+        raise ValueError(
+            f"update package version does not match requested version {version}"
+        )
+    if kind == "module":
+        entrypoint = str(metadata.get("entrypoint") or "").rsplit(":", 1)[0]
+        if not entrypoint or entrypoint not in names:
+            raise ValueError("module update ZIP entrypoint is missing")
+    elif metadata.get("schema_version") != 1:
+        raise ValueError("full update ZIP has an invalid release manifest")
+
+
+def inspect_update_package(package: Path) -> UpdatePackageInfo:
+    """Read update type and version from root metadata and verify its filename."""
+    package = Path(package)
+    try:
+        with zipfile.ZipFile(package) as archive:
+            names = set(archive.namelist())
+            metadata_names = names & {"module.json", "release-manifest.json"}
+            if len(metadata_names) != 1:
+                raise ValueError(
+                    "update ZIP must contain exactly one root metadata file"
+                )
+            metadata_name = metadata_names.pop()
+            kind = "module" if metadata_name == "module.json" else "full"
+            metadata = json.loads(
+                archive.read(metadata_name).decode("utf-8")
+            )
+    except (
+        OSError,
+        zipfile.BadZipFile,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ValueError(f"update package is not a valid ZIP: {error}") from error
+    version = str(metadata.get("version") or "").strip()
+    try:
+        Version.parse(version)
+    except ValueError as error:
+        raise ValueError(
+            "update package metadata has an invalid semantic version"
+        ) from error
+    filename_match = _PACKAGE_FILENAME.search(package.name)
+    if filename_match and (
+        filename_match.group("kind").casefold() != kind
+        or filename_match.group("version") != version
+    ):
+        raise ValueError(
+            "update package filename does not match its embedded type/version"
+        )
+    _validate_package(package, kind, version)
+    return UpdatePackageInfo(version, kind)
+
+
+def inspect_module_archive(package: Path) -> ModuleArchiveInfo:
+    """Verify a module ZIP before storing it in the immutable modules Release."""
+    info = inspect_update_package(package)
+    if info.kind != "module":
+        raise ValueError("模块归档必须包含根目录 module.json，不能使用全量更新包")
+    return ModuleArchiveInfo(info.version)
 
 
 def release_asset_url(
@@ -101,6 +207,7 @@ def write_update_manifest(
 
 
 __all__ = [
-    "UPDATE_MANIFEST_ASSET", "UPDATE_RELEASE_TAG", "UpdateReleaseDraft",
-    "release_asset_url", "sha256", "write_update_manifest",
+    "UPDATE_MANIFEST_ASSET", "UPDATE_RELEASE_TAG", "UpdatePackageInfo",
+    "UpdateReleaseDraft", "inspect_update_package", "release_asset_url",
+    "sha256", "write_update_manifest",
 ]

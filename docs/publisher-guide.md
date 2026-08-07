@@ -171,16 +171,24 @@ GitLink 更新 Release 时必须使用 `version_id`，不能使用列表中的�
 
 ## 全量启动器更新
 
-需要替换启动器 EXE 或运行时的 Release 使用 `kind: "full"`。完整包必须由
-`tools/build_release.py` 生成，其中的 `release-manifest.json` 仅列出可由更新器
-接管的文件及其 SHA-256；不得把 `data/`、`cache/`、`app/state.json` 或旧安装的
-`config/update.json` 放入清单。
+需要替换启动器 EXE 或运行时的 Release 使用 `kind: "full"`。执行
+`tools/build_release.py` 后，必须选择
+`dist/updates/SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip`；不要选择供用户
+首次安装的中文 ZIP 或自解压 EXE。专用更新 ZIP 的根目录直接包含
+`release-manifest.json`，发布器会校验包类型、版本和根目录结构。
+
+`release-manifest.json` 仅列出可由更新器接管的文件及其 SHA-256；不得把
+`data/`、`cache/`、`app/state.json` 或旧安装的 `config/update.json` 放入清单。
 
 客户端先下载、校验并解压至同卷暂存目录，再由暂存启动器副本在主程序退出后逐个
 替换清单内文件。新启动器成功加载应用模块后确认事务；失败时会按备份反序恢复。
 用户覆盖配置读取顺序为 `data/config/update.json`、`config/update.json`、
-`config/defaults/update.json`，全量包只更新最后一项。发布前应验证完整包中
-`release-manifest.json` 存在且未列入这些保留路径。
+`config/defaults/update.json`，全量包只更新最后一项。`manifest_urls` 同时保存
+GitLink 与 GitHub 清单地址，设置页选择哪个下载源，程序更新就使用哪个地址。
+
+双源镜像发布会先把同一个版本化更新 ZIP 上传到两个平台，再分别上传对应平台的
+`update-manifest.json`。每个平台只替换同名清单和同名版本包，不会删除其他版本
+附件。详细的上传、保留和测试清单见 [程序更新发布指南](program-update-release-guide.md)。
 
 ## 删除说明
 

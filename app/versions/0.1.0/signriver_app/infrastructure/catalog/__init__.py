@@ -3,18 +3,21 @@
 from .gitlink import GitLinkReleaseSource, GitLinkSourceConfig, ReleaseSourceError
 from .github import GitHubReleaseSource, GitHubSourceConfig
 from .sources import (
+    create_catalog_release_source,
     DEFAULT_ASSET_REPOS,
     DOWNLOAD_SOURCES,
     DownloadSource,
     create_hub_release_source,
     create_release_source,
     default_repository_for,
+    fixed_release_asset_url,
     normalize_download_source,
     provider_display_name,
     repository_home_url,
     resolve_repository,
     speed_test_url,
 )
+from .static_manifest import CATALOG_ASSET_NAME, CATALOG_SCHEMA_VERSION, StaticManifestReleaseSource
 from .stellaris_package import (
     PackageInspectionError,
     StellarisPackageMetadata,
@@ -41,6 +44,7 @@ __all__ = [
     "create_hub_release_source",
     "create_release_source",
     "default_repository_for",
+    "fixed_release_asset_url",
     "inspect_directory_package",
     "inspect_grouped_directory_package",
     "inspect_stellaris_package",
@@ -49,4 +53,8 @@ __all__ = [
     "repository_home_url",
     "resolve_repository",
     "speed_test_url",
+    "CATALOG_ASSET_NAME",
+    "CATALOG_SCHEMA_VERSION",
+    "StaticManifestReleaseSource",
+    "create_catalog_release_source",
 ]

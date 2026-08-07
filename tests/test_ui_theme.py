@@ -5,7 +5,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
+APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.1" / "app_entry.py"
+CURRENT_APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.2" / "app_entry.py"
+
+
+def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
+    source = CURRENT_APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'text="取消下载"' in source
+    assert "self.context.app_version" in source
+    assert "def _cancel_update_download" in source
+    assert "def _render_update_download_row" in source
 PUBLISHER_UI = Path(__file__).parents[1] / "src" / "signriver_publisher" / "ui.py"
 
 
@@ -133,6 +143,11 @@ def test_all_dropdowns_use_bordered_combo_box_factory() -> None:
     assert "self.download_source_menu" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
     assert "repository_home_url(self.user_settings.download_source)" in source
+    assert "self.context.updates.set_download_source(selected)" in source
+    assert (
+        "self.context.updates.set_download_source(\n"
+        "                self.user_settings.download_source"
+    ) in source
 
 
 def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
@@ -380,6 +395,7 @@ def test_simple_catalog_is_compact_and_has_complete_bulk_selection() -> None:
 
 def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
+    publisher_source = PUBLISHER_UI.read_text(encoding="utf-8")
 
     assert 'text="GitHub"' in source
     assert 'text="清除全部记录"' in source
@@ -390,6 +406,14 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert 'text="开始测速"' in source
     assert "measure_download_speed(url)" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
+    assert "已生成静态目录 catalog.json" in publisher_source
+    assert '"发布当前游戏"' in publisher_source
+    assert '"发布客户端"' in publisher_source
+    assert '"维护基础设施"' in publisher_source
+    assert 'text="展开高级操作 ▾"' in publisher_source
+    assert "def _toggle_publish_advanced" in publisher_source
+    assert 'text="单源发布程序更新"' in publisher_source
+    assert 'text="单源发布模块归档"' in publisher_source
     assert 'text="一键移除补丁"' in source
     assert 'text="移除本程序安装内容"' in source
     assert 'text="卸载全部 DLC"' not in source

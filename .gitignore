@@ -19,6 +19,10 @@ cache/*
 data/*
 !data/.gitkeep
 app/.staging/
+/app/versions/*
+!/app/versions/0.1.0/
+!/app/versions/0.1.0/**
+/app/versions/**/__pycache__/
 *.log
 *.zip
 publisher-workspace/

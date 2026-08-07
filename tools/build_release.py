@@ -23,6 +23,10 @@ from signriver_launcher.product import (  # noqa: E402
 )
 
 VERSION = LAUNCHER_VERSION
+APP_VERSION = json.loads(
+    (ROOT / "app" / "state.json").read_text(encoding="utf-8")
+)["active_version"]
+APP_VERSION_ROOT = ROOT / "app" / "versions" / APP_VERSION
 
 
 def _sha256(path: Path) -> str:
@@ -35,7 +39,11 @@ def _sha256(path: Path) -> str:
 
 def write_release_manifest(release: Path, version: str = VERSION) -> Path:
     """Write the ownership manifest consumed by the in-place full updater."""
-    protected = {Path("app/state.json"), Path("config/update.json")}
+    protected = {
+        Path("app/state.json"),
+        Path("config/update.json"),
+        Path("config/publisher.local.json"),
+    }
     files = []
     for path in sorted(release.rglob("*")):
         if not path.is_file() or path.name == "release-manifest.json":
@@ -52,8 +60,29 @@ def write_release_manifest(release: Path, version: str = VERSION) -> Path:
     return manifest
 
 
+def build_full_update_archive(
+    release: Path, output: Path, version: str = VERSION
+) -> Path:
+    """Build the flat ZIP consumed by FullUpdateManager."""
+    manifest = json.loads(
+        (release / "release-manifest.json").read_text(encoding="utf-8")
+    )
+    if manifest.get("version") != version:
+        raise SystemExit("release-manifest.json version does not match update version")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
+    with zipfile.ZipFile(
+        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+    ) as package:
+        package.write(release / "release-manifest.json", "release-manifest.json")
+        for item in manifest["files"]:
+            relative = Path(item["path"])
+            package.write(release / relative, relative.as_posix())
+    return output
+
+
 def application_hidden_imports() -> list[str]:
-    package_root = ROOT / "app" / "versions" / "0.1.0" / "signriver_app"
+    package_root = APP_VERSION_ROOT / "signriver_app"
     modules = {"webbrowser", "signriver_app"}
     for path in package_root.rglob("*.py"):
         relative = path.relative_to(package_root)
@@ -183,6 +212,20 @@ def _build_python_sfx(archive_zip: Path, sfx_path: Path) -> bool:
 def main() -> int:
     if os.name != "nt":
         raise SystemExit("Windows release packages must be built on Windows")
+    if APP_VERSION != VERSION:
+        raise SystemExit(
+            f"active app version {APP_VERSION} must match launcher version {VERSION}"
+        )
+    if not APP_VERSION_ROOT.is_dir():
+        restore = ROOT / "tools" / "restore_module_archives.py"
+        result = subprocess.run(
+            [sys.executable, str(restore), "--version", APP_VERSION], cwd=ROOT
+        )
+        if result.returncode or not APP_VERSION_ROOT.is_dir():
+            raise SystemExit(
+                f"active application module is missing: {APP_VERSION_ROOT}; "
+                "restore it with tools/restore_module_archives.py"
+            )
 
     dist = ROOT / "dist"
     work = ROOT / "build"
@@ -212,7 +255,7 @@ def main() -> int:
             "--paths",
             str(ROOT / "src"),
             "--paths",
-            str(ROOT / "app" / "versions" / "0.1.0"),
+            str(APP_VERSION_ROOT),
             *hidden_import_args,
             "--collect-all",
             "customtkinter",
@@ -247,7 +290,11 @@ def main() -> int:
         release / "app",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".staging"),
     )
-    shutil.copytree(ROOT / "config", release / "config")
+    shutil.copytree(
+        ROOT / "config",
+        release / "config",
+        ignore=shutil.ignore_patterns("publisher.local.json"),
+    )
     (release / "cache").mkdir()
     (release / "data").mkdir()
 
@@ -269,6 +316,11 @@ def main() -> int:
             if path.is_file():
                 package.write(path, Path(release.name) / path.relative_to(release))
     print(f"Release ZIP:     {archive}")
+    full_update_archive = build_full_update_archive(
+        release,
+        dist / "updates" / f"SignRiver-DLC-Hub-full-v{VERSION}-windows-x64.zip",
+    )
+    print(f"Full update ZIP: {full_update_archive}")
 
     sfx_path = dist / f"{RELEASE_ZIP_STEM}-v{VERSION}-windows-x64-自解压.exe"
     # Prefer a stable short name for casual sharing as well.

@@ -56,8 +56,8 @@ def main() -> int:
         PRODUCT_DISPLAY_NAME,
         (
             f"已解压到：\n{destination}\n\n"
-            f"请打开该文件夹，双击「{RELEASE_DIR_NAME}.exe」启动。"
-            "请勿只复制单个 EXE。"
+            f"请打开此文件夹，并双击「{RELEASE_DIR_NAME}.exe」启动。\n"
+            "请勿将文件夹内的 EXE 单独复制到其他位置运行。"
         ),
     )
     try:

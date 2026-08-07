@@ -14,6 +14,10 @@ class DownloadError(SignRiverError):
     pass
 
 
+class DownloadCancelled(DownloadError):
+    """Raised when a user stops an in-progress update download."""
+
+
 class IntegrityError(SignRiverError):
     pass
 

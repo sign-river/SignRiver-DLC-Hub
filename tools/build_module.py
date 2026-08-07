@@ -48,13 +48,29 @@ def build(source: Path, output_root: Path, base_url: str = "") -> tuple[Path, Pa
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a SignRiver DLC Hub module update")
-    parser.add_argument("source", type=Path)
+    parser.add_argument("source", nargs="?", type=Path)
+    parser.add_argument(
+        "--all-versions",
+        action="store_true",
+        help="build an archive for every direct version directory under source (or app/versions)",
+    )
     parser.add_argument("--output", type=Path, default=Path("dist/modules"))
     parser.add_argument("--base-url", default="")
     args = parser.parse_args()
-    archive, fragment = build(args.source.resolve(), args.output.resolve(), args.base_url)
-    print(f"Module:   {archive}")
-    print(f"Manifest: {fragment}")
+    output = args.output.resolve()
+    if args.all_versions:
+        root = (args.source or Path("app/versions")).resolve()
+        sources = tuple(sorted(path for path in root.iterdir() if path.is_dir()))
+        if not sources:
+            raise SystemExit(f"no module version directories found: {root}")
+    elif args.source is not None:
+        sources = (args.source.resolve(),)
+    else:
+        parser.error("source is required unless --all-versions is used")
+    for source in sources:
+        archive, fragment = build(source, output, args.base_url)
+        print(f"Module:   {archive}")
+        print(f"Manifest: {fragment}")
     return 0
 
 

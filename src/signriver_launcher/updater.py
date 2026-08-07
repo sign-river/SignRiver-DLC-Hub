@@ -14,6 +14,7 @@ import urllib.request
 import uuid
 import zipfile
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from .config import UpdateSettings
@@ -23,16 +24,24 @@ from .constants import (
     MAX_ARCHIVE_UNCOMPRESSED_BYTES,
     MAX_MANIFEST_BYTES,
 )
-from .errors import DownloadError, IntegrityError, ManifestError, PackageError
+from .errors import (
+    DownloadCancelled,
+    DownloadError,
+    IntegrityError,
+    ManifestError,
+    PackageError,
+)
 from .full_update import FullUpdateManager, FullUpdateTransaction
 from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest
 from .net_errors import describe_network_error
 from .paths import RuntimePaths
+from .product import RELEASE_EXE_NAME
 from .state import StateStore
 from .versioning import Version
 
 ProgressCallback = Callable[[int, int | None], None]
+CancelCallback = Callable[[], bool]
 
 
 class UpdateClient:
@@ -52,7 +61,10 @@ class UpdateClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.settings.manifest_url)
+        return bool(self.settings.active_manifest_url)
+
+    def set_download_source(self, source: str) -> None:
+        self.settings = self.settings.with_download_source(source)
 
     def check(self, current_version: str) -> ReleaseInfo | None:
         if not self.enabled:
@@ -97,10 +109,11 @@ class UpdateClient:
         self,
         release: ReleaseInfo,
         progress: ProgressCallback | None = None,
+        cancel: CancelCallback | None = None,
     ) -> str:
         if release.kind == "full":
-            return self.prepare_full_update(release, progress).version
-        archive = self.download(release, progress)
+            return self.prepare_full_update(release, progress, cancel).version
+        archive = self.download(release, progress, cancel)
         try:
             self.install_archive(archive, release)
         finally:
@@ -111,10 +124,11 @@ class UpdateClient:
         self,
         release: ReleaseInfo,
         progress: ProgressCallback | None = None,
+        cancel: CancelCallback | None = None,
     ) -> FullUpdateTransaction:
         if release.kind != "full":
             raise PackageError("only full releases can be prepared for in-place replacement")
-        archive = self.download(release, progress)
+        archive = self.download(release, progress, cancel)
         try:
             return FullUpdateManager(self.paths).prepare(archive, release)
         finally:
@@ -124,18 +138,37 @@ class UpdateClient:
         self,
         release: ReleaseInfo,
         progress: ProgressCallback | None = None,
+        cancel: CancelCallback | None = None,
     ) -> FullUpdateTransaction:
-        transaction = self.prepare_full_update(release, progress)
+        transaction = self.prepare_full_update(release, progress, cancel)
         helper = Path(transaction.staging_path) / "full-update-helper.exe"
         if getattr(sys, "frozen", False):
-            shutil.copy2(sys.executable, helper)
+            staged_launcher = (
+                Path(transaction.staging_path) / RELEASE_EXE_NAME
+            )
+            if not staged_launcher.is_file():
+                raise PackageError(
+                    "full update package does not contain the launcher executable"
+                )
+            shutil.copy2(staged_launcher, helper)
             command = [str(helper), "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
         else:
             command = [sys.executable, "-m", "signriver_launcher.main", "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
-        subprocess.Popen(command, cwd=self.paths.root)
+        subprocess.Popen(
+            command,
+            cwd=self.paths.root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         return transaction
 
-    def download(self, release: ReleaseInfo, progress: ProgressCallback | None = None) -> Path:
+    def download(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+        cancel: CancelCallback | None = None,
+    ) -> Path:
         url = self._resolve_url(release.package_url)
         self._validate_remote_url(url)
         self.paths.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -160,6 +193,8 @@ class UpdateClient:
                 digest = hashlib.sha256()
                 downloaded = 0
                 while True:
+                    if cancel is not None and cancel():
+                        raise DownloadCancelled("更新下载已取消")
                     chunk = response.read(1024 * 256)
                     if not chunk:
                         break
@@ -245,7 +280,7 @@ class UpdateClient:
                 shutil.rmtree(displaced, ignore_errors=True)
 
     def _fetch_manifest(self) -> UpdateManifest:
-        url = self.settings.manifest_url
+        url = self.settings.active_manifest_url
         self._validate_remote_url(url)
         request = urllib.request.Request(
             url,
@@ -267,7 +302,13 @@ class UpdateClient:
             raise ManifestError(f"更新清单不是有效的 UTF-8 JSON：{error}") from error
         if not isinstance(value, dict):
             raise ManifestError("更新清单根节点必须是对象")
-        return UpdateManifest.from_dict(value)
+        manifest = UpdateManifest.from_dict(value)
+        releases = []
+        for release in manifest.releases:
+            package_url = urllib.parse.urljoin(url, release.package_url)
+            self._validate_remote_url(package_url)
+            releases.append(replace(release, package_url=package_url))
+        return UpdateManifest(manifest.channel, tuple(releases))
 
     def _safe_extract(self, archive: Path, destination: Path) -> None:
         with zipfile.ZipFile(archive) as package:
@@ -313,7 +354,7 @@ class UpdateClient:
         return metadata
 
     def _resolve_url(self, package_url: str) -> str:
-        return urllib.parse.urljoin(self.settings.manifest_url, package_url)
+        return urllib.parse.urljoin(self.settings.active_manifest_url, package_url)
 
     def _validate_remote_url(self, url: str) -> None:
         parsed = urllib.parse.urlparse(url)

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 
-VERSION_ROOT = Path(__file__).resolve().parents[1] / "app" / "versions" / "0.1.0"
+VERSION_ROOT = Path(__file__).resolve().parents[1] / "app" / "versions" / "0.1.1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 project_root = str(PROJECT_ROOT)
 if project_root not in sys.path:

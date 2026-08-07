@@ -12,9 +12,9 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 ├── app/
 │   ├── state.json
 │   └── versions/
-│       └── 0.1.0/
-│           ├── module.json
-│           └── app_entry.py
+│       ├── 0.1.0/               # 保留的回滚版本
+│       ├── 0.1.1/               # 上一版本（保留用于回滚）
+│       └── 0.1.3/               # 当前版本
 ├── config/
 │   ├── update.json
 │   ├── announcement.json        # 出厂公告（可被远程 hub 覆盖）
@@ -27,7 +27,7 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 
 ## 客户端主要功能
 
-游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。启动公告同样来自 `hub` Release 的 `announcement.json`（本地出厂文件为 `config/announcement.json`）；设置页可开关“下次公告更新前不再显示”，也可在 GitLink 与 GitHub 之间切换下载源，两边保持相同的 Release 标签与资源文件名。
+游戏列表不再写死在客户端代码中。启动时先读取 `config/cartridges` 出厂主表（并可联网刷新 GitLink / GitHub 的 `hub` Release），加载默认游戏卡带；切换到其他游戏时再按需下载对应卡带。启动公告同样来自 `hub` Release 的 `announcement.json`（本地出厂文件为 `config/announcement.json`）；设置页可开关“下次公告更新前不再显示”，也可在 GitLink 与 GitHub 之间切换下载源。所选下载源同时用于 DLC、卡带、公告和程序更新；两边保持相同 Release 标签、版本与资源文件名。
 
 DLC 库页面提供“一键解锁工具 / 一键修复 / 一键移除补丁 / 移除本程序安装内容”等核心操作：
 
@@ -62,13 +62,15 @@ python -m pytest
 
 ```bash
 python tools/build_release.py
-python tools/build_module.py app/versions/0.1.0
+python tools/build_module.py app/versions/0.1.3
 ```
 
-后续更新发布时，先构建模块 ZIP 或完整 ZIP，再生成对应更新清单并将两者上传到 GitLink 或 GitHub 的 `updates` Release：
+`build_release.py` 会同时生成首次安装包和根目录结构不同的专用全量更新包。首次安装 ZIP/SFX 不能上传为 `kind: full` 更新。为同一个更新包生成匹配的 GitLink/GitHub 清单：
 
 ```bash
-python tools/build_update_manifest.py dist/modules/SignRiver-DLC-Hub-module-v0.1.1.zip --version 0.1.1 --kind module --target gitlink --owner signriver --repository signriver-dlc-assets --notes "更新说明"
+python tools/prepare_update_release.py dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip --version 0.1.3 --kind full --min-launcher-version 0.1.2 --notes "改进全量更新可靠性与双源发布流程"
 ```
 
-`build_release.py` 生成首次发布用的完整包：外层优先产出中文名自解压 EXE（需本机安装带 `7z.sfx` 的 7-Zip），并同时生成中文名 ZIP；解压后的文件夹与启动 EXE 均为「唏嘘南溪DLC一键解锁工具」。`build_module.py` 生成后续小版本使用的模块更新包和清单片段。程序通过 `sys.executable` 定位安装目录，支持含中文的安装路径。
+把专用全量更新 ZIP 原样上传到两个平台的 `updates` Release；GitLink 上传 `dist/updates/gitlink/update-manifest.json`，GitHub 上传 `dist/updates/github/update-manifest.json`。详细的保留和删除规则见 [程序更新发布指南](docs/program-update-release-guide.md)。
+
+`build_release.py` 生成首次发布用的完整包：外层优先产出中文名自解压 EXE（需本机安装带 `7z.sfx` 的 7-Zip），并同时生成中文名 ZIP；解压后的文件夹与启动 EXE 均为「唏嘘南溪DLC一键解锁工具」。`build_module.py` 生成后续不修改启动器的小版本模块更新包。程序通过 `sys.executable` 定位安装目录，支持含中文的安装路径。

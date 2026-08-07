@@ -4,6 +4,8 @@ import ast
 import inspect
 import textwrap
 import threading
+import json
+import zipfile
 from queue import SimpleQueue
 from types import SimpleNamespace
 
@@ -73,14 +75,40 @@ def test_update_release_publish_runs_network_work_off_the_tk_thread() -> None:
     source = inspect.getsource(PublisherApplication.publish_update_release)
 
     assert 'name="update-release-publish"' in source
+    assert "initialdir=self._update_package_dir()" in source
     assert "threading.Thread(" in source
     assert "self._post_ui(" in source
     assert "_publish_update_mirror" in source
 
 
+def test_module_archive_publish_captures_tk_values_before_starting_worker() -> None:
+    source = inspect.getsource(PublisherApplication.publish_module_archive)
+
+    assert 'name="module-archive-publish"' in source
+    assert 'archive_dir = self._module_archive_dir()' in source
+    assert 'archive_dir.glob("SignRiver-DLC-Hub-module-v*.zip")' in source
+    assert "filedialog.askopenfilename" not in source
+    assert 'selected_owner = self.owner_entry.get().strip()' in source
+    assert 'selected_repository = self.repo_entry.get().strip()' in source
+    assert 'selected_token = self.token_entry.get().strip()' in source
+
+
 def test_update_mirror_uploads_both_packages_before_either_manifest(tmp_path) -> None:
     package = tmp_path / "module.zip"
-    package.write_bytes(b"module")
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr(
+            "module.json",
+            json.dumps(
+                {
+                    "version": "0.2.0",
+                    "api_version": 1,
+                    "entrypoint": "app_entry.py:create_application",
+                }
+            ),
+        )
+        archive.writestr(
+            "app_entry.py", "def create_application(context): pass"
+        )
     calls = []
 
     class Harness:
@@ -90,17 +118,87 @@ def test_update_mirror_uploads_both_packages_before_either_manifest(tmp_path) ->
         )
         workspace = SimpleNamespace(output_dir=tmp_path / "output")
 
-        def _publish_update_target(self, target, owner, repository, token, package, manifest):
-            calls.append((target, package is not None, manifest is not None))
+        def _publish_update_target(
+            self, target, owner, repository, token, package, manifest, **progress
+        ):
+            calls.append(
+                (
+                    target,
+                    package is not None,
+                    manifest is not None,
+                    progress.get("progress_start"),
+                    progress.get("progress_total"),
+                )
+            )
 
     PublisherApplication._publish_update_mirror(
         Harness(), UpdateReleaseDraft("0.2.0", "module", package)
     )
 
     assert calls == [
-        ("gitlink", True, False), ("github", True, False),
-        ("gitlink", False, True), ("github", False, True),
+        ("gitlink", True, False, 0, 4), ("github", True, False, 1, 4),
+        ("gitlink", False, True, 2, 4), ("github", False, True, 3, 4),
     ]
+
+
+def test_update_target_reports_github_upload_progress(monkeypatch, tmp_path) -> None:
+    package = tmp_path / "update.zip"
+    manifest = tmp_path / "update-manifest.json"
+    package.write_bytes(b"x" * 12)
+    manifest.write_bytes(b"{}")
+    events = []
+
+    class Client:
+        def __init__(self, repository, token):
+            pass
+
+        def ensure_release(self, tag, *, name):
+            return object()
+
+        def upload_asset(
+            self, release, path, *, replace_existing, progress
+        ):
+            progress(path.stat().st_size, path.stat().st_size)
+
+    monkeypatch.setattr(publisher_ui, "GitHubReleaseClient", Client)
+    harness = SimpleNamespace(
+        _update_paths=PublisherApplication._update_paths,
+        _queue_upload_progress=lambda *value: events.append(value),
+    )
+
+    PublisherApplication._publish_update_target(
+        harness, "github", "owner", "repo", "token", package, manifest
+    )
+
+    assert (1, 2, "GitHub · update.zip", 12, 12) in events
+    assert (2, 2, "GitHub · update-manifest.json", 2, 2) in events
+
+
+def test_update_target_reports_gitlink_upload_progress(monkeypatch, tmp_path) -> None:
+    package = tmp_path / "update.zip"
+    package.write_bytes(b"x" * 12)
+    events = []
+
+    class Manager:
+        def __init__(self, client, repository):
+            pass
+
+        def upload_file_to_release(
+            self, tag, release_name, path, *, progress
+        ):
+            progress(path.stat().st_size, path.stat().st_size)
+
+    monkeypatch.setattr(publisher_ui, "RemoteResourceManager", Manager)
+    harness = SimpleNamespace(
+        _update_paths=PublisherApplication._update_paths,
+        _queue_upload_progress=lambda *value: events.append(value),
+    )
+
+    PublisherApplication._publish_update_target(
+        harness, "gitlink", "owner", "repo", "token", package, None
+    )
+
+    assert (1, 1, "GitLink · update.zip", 12, 12) in events
 
 
 def test_publisher_single_writer_rejects_overlapping_mutations(monkeypatch) -> None:
@@ -168,7 +266,9 @@ def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None
     assert "def open_announcement_manager" in source
     assert "def preview_announcement" in source
     assert "def save_announcement" in source
-    assert 'text="发布 hub Release"' in source
+    assert 'text="一键双端发布卡带"' in source
+    assert "def publish_cartridge_hub_mirror" in source
+    assert 'text="单源发布卡带中心"' in source
     assert "def publish_cartridge_hub" in source
     assert "hub_publish_assets" in source
     assert "self._publish_resume_context = (repo, profile, assets, token)" in source
@@ -192,6 +292,7 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
         "build_all",
         "refresh_steam_data",
         "publish_release",
+        "publish_cartridge_hub_mirror",
         "publish_cartridge_hub",
         "generate_client_hub",
         "_begin_remote_operation",

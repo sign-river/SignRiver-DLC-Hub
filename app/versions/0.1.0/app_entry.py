@@ -359,6 +359,8 @@ class DlcHubApplication:
         self.notice_serial = 0
         self.current_installation = None
         self.game_selection_generation = 0
+        self.download_source_generation = 0
+        self.catalog_request_generation = 0
         self.installed_dlc_paths = {}
         try:
             database = Database(self.context.paths.data / "hub.db")
@@ -1366,6 +1368,7 @@ class DlcHubApplication:
         self.patch_profile = cartridge.patch_profile
         self.catalog = cartridge.create_catalog(
             download_source=self.user_settings.download_source,
+            cache_path=(self.context.paths.data / "catalogs" / self.user_settings.download_source / f"{cartridge.adapter.descriptor.game_id}.json"),
         )
         self.patch_engine = PatchEngine(
             cartridge.patch_profile, self.context.paths.data,
@@ -1531,8 +1534,9 @@ class DlcHubApplication:
             self.cartridge = cartridge
             self.patch_profile = cartridge.patch_profile
             self.catalog = cartridge.create_catalog(
-            download_source=self.user_settings.download_source,
-        )
+                download_source=self.user_settings.download_source,
+                cache_path=(self.context.paths.data / "catalogs" / self.user_settings.download_source / f"{cartridge.adapter.descriptor.game_id}.json"),
+            )
             self.patch_engine = PatchEngine(
                 cartridge.patch_profile, self.context.paths.data,
             )
@@ -2320,6 +2324,9 @@ class DlcHubApplication:
             messagebox.showerror("保存设置失败", str(error), parent=self.window)
             return
         self.user_settings = updated
+        self.download_source_generation += 1
+        source_generation = self.download_source_generation
+        self.game_selection_generation += 1
         self.cartridge_catalog.set_download_source(selected)
         self.announcement_service.set_download_source(selected)
         self.cartridges.clear()
@@ -2335,7 +2342,9 @@ class DlcHubApplication:
                     allow_network=True,
                 )
                 self._post_ui(
-                    lambda loaded=loaded: self._on_download_source_ready(loaded)
+                    lambda loaded=loaded: self._on_download_source_ready(
+                        loaded, selected, source_generation
+                    )
                 )
             except Exception as error:
                 try:
@@ -2346,7 +2355,10 @@ class DlcHubApplication:
                     message = str(error)
 
                     def finish(loaded=loaded, message=message) -> None:
-                        self._on_download_source_ready(loaded)
+                        if not self._on_download_source_ready(
+                            loaded, selected, source_generation
+                        ):
+                            return
                         self._notify(
                             f"远程主表不可用，已使用本地缓存（{message}）",
                             error=True,
@@ -2363,7 +2375,14 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_download_source_ready(self, loaded) -> None:
+    def _on_download_source_ready(
+        self, loaded, source: str, source_generation: int,
+    ) -> bool:
+        if (
+            source_generation != self.download_source_generation
+            or source != self.user_settings.download_source
+        ):
+            return False
         self._activate_loaded_cartridge(loaded, rebuild_services=True)
         self._sync_game_selector_values()
         self.game_selector.set(self.selected_game_name)
@@ -2375,6 +2394,7 @@ class DlcHubApplication:
         )
         self._scan_games()
         self._refresh_catalog()
+        return True
 
     def _run_speed_test(self) -> None:
         if self.speed_test_running:
@@ -2820,7 +2840,10 @@ class DlcHubApplication:
             self.catalog_freshness.configure(text=text, text_color=UI["muted"])
 
     def _refresh_catalog(self) -> None:
+        self.catalog_request_generation += 1
+        request_generation = self.catalog_request_generation
         generation = self.game_selection_generation
+        source = self.user_settings.download_source
         cartridge_id = self.cartridge.cartridge_id
         catalog = self.catalog
         self.catalog_refresh_button.configure(state="disabled")
@@ -2837,6 +2860,7 @@ class DlcHubApplication:
                 self._post_ui(
                     lambda snapshot=snapshot: self._show_catalog(
                         snapshot, generation=generation, cartridge_id=cartridge_id
+                        , source=source, request_generation=request_generation
                     )
                 )
             except Exception as error:
@@ -2845,6 +2869,7 @@ class DlcHubApplication:
                 self._post_ui(
                     lambda message=message: self._show_catalog_error(
                         message, generation=generation, cartridge_id=cartridge_id
+                        , source=source, request_generation=request_generation
                     )
                 )
 
@@ -2852,11 +2877,19 @@ class DlcHubApplication:
 
     def _show_catalog(
         self, snapshot: CatalogSnapshot, *, generation: int | None = None,
-        cartridge_id: str | None = None,
+        cartridge_id: str | None = None, source: str | None = None,
+        request_generation: int | None = None,
     ) -> None:
         if generation is not None and generation != self.game_selection_generation:
             return
         if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
+        if source is not None and source != self.user_settings.download_source:
+            return
+        if (
+            request_generation is not None
+            and request_generation != self.catalog_request_generation
+        ):
             return
         self.catalog_online = True
         entries = snapshot.entries
@@ -3029,11 +3062,19 @@ class DlcHubApplication:
 
     def _show_catalog_error(
         self, message: str, *, generation: int | None = None,
-        cartridge_id: str | None = None,
+        cartridge_id: str | None = None, source: str | None = None,
+        request_generation: int | None = None,
     ) -> None:
         if generation is not None and generation != self.game_selection_generation:
             return
         if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
+            return
+        if source is not None and source != self.user_settings.download_source:
+            return
+        if (
+            request_generation is not None
+            and request_generation != self.catalog_request_generation
+        ):
             return
         self.catalog_online = False
         self.catalog_refresh_button.configure(state="normal")
