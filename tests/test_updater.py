@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import urllib.error
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -329,3 +330,87 @@ def test_frozen_full_update_uses_staged_new_launcher_as_helper(
     assert calls[0][0][0] == str(helper)
     assert calls[0][1]["cwd"] == paths.root
     assert calls[0][1]["stdin"] == subprocess.DEVNULL
+
+
+
+def _manifest_payload() -> bytes:
+    return json.dumps(
+        {
+            "schema_version": 1,
+            "channel": "stable",
+            "releases": [
+                {
+                    "version": "0.1.1",
+                    "kind": "module",
+                    "package_url": "module-v0.1.1.zip",
+                    "sha256": "a" * 64,
+                    "size": 1,
+                    "min_launcher_version": "0.1.0",
+                }
+            ],
+        }
+    ).encode()
+
+
+def test_fetch_manifest_retries_transient_network_errors(tmp_path, monkeypatch) -> None:
+    client, _store, _paths = client_for(tmp_path)
+    client.settings = UpdateSettings(
+        manifest_urls={
+            "gitlink": "https://gitlink.example/updates/update-manifest.json",
+            "github": "https://github.example/updates/update-manifest.json",
+        }
+    )
+    client.set_download_source("github")
+    attempts: list[str] = []
+    payload = _manifest_payload()
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://example.test/update-manifest.json"
+
+        def read(self, _size):
+            return payload
+
+    def open_request(request, timeout):
+        attempts.append(request.full_url)
+        if len(attempts) < 3:
+            raise urllib.error.URLError("connection reset")
+        return Response()
+
+    monkeypatch.setattr(updater_module.urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(updater_module.time, "sleep", lambda _seconds: None)
+
+    manifest = client._fetch_manifest()
+
+    assert len(attempts) == 3
+    assert manifest.releases[0].version == "0.1.1"
+
+
+def test_fetch_manifest_raises_after_all_retries_exhausted(tmp_path, monkeypatch) -> None:
+    client, _store, _paths = client_for(tmp_path)
+    client.settings = UpdateSettings(
+        manifest_urls={
+            "gitlink": "https://gitlink.example/updates/update-manifest.json",
+            "github": "https://github.example/updates/update-manifest.json",
+        }
+    )
+    client.set_download_source("github")
+    attempts: list[str] = []
+
+    def open_request(request, timeout):
+        attempts.append(request.full_url)
+        raise urllib.error.URLError("connection reset")
+
+    monkeypatch.setattr(updater_module.urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(updater_module.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(DownloadError):
+        client._fetch_manifest()
+
+    assert len(attempts) == 3

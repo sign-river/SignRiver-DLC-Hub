@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 import sys
 import tempfile
 import urllib.error
@@ -286,14 +287,22 @@ class UpdateClient:
             url,
             headers={"User-Agent": f"SignRiver-DLC-Hub/{self.launcher_version}"},
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-                self._validate_remote_url(response.geturl())
-                raw = response.read(MAX_MANIFEST_BYTES + 1)
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
+        max_attempts = 3
+        last_error: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
+                    self._validate_remote_url(response.geturl())
+                    raw = response.read(MAX_MANIFEST_BYTES + 1)
+                break
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                last_error = error
+                if attempt < max_attempts - 1:
+                    time.sleep(1.5 * (attempt + 1))
+        else:
             raise DownloadError(
-                describe_network_error(error, url=url, action="获取更新清单")
-            ) from error
+                describe_network_error(last_error, url=url, action="获取更新清单")
+            ) from last_error
         if len(raw) > MAX_MANIFEST_BYTES:
             raise ManifestError("更新清单过大")
         try:

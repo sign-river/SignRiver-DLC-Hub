@@ -10,6 +10,7 @@ _KNOWN_HEADS = (
     "连接超时",
     "无法解析域名",
     "连接被拒绝",
+    "网络连接中断",
     "安全证书校验失败",
     "资源不存在",
     "没有访问权限",
@@ -40,8 +41,15 @@ def describe_network_error(
         head = "无法解析域名"
     elif "connection refused" in lower:
         head = "连接被拒绝"
-    elif "certificate" in lower or "ssl" in lower:
-        head = "安全证书校验失败"
+    elif "certificate" in lower or "ssl" in lower or "tls" in lower:
+        if (
+            "certificate verify failed" in lower
+            or "sslcertverificationerror" in lower
+            or "certificate_verify_failed" in lower
+        ):
+            head = "安全证书校验失败"
+        else:
+            head = "网络连接中断"
     elif "404" in detail or "not found" in lower:
         head = "资源不存在"
     elif "403" in detail or "forbidden" in lower:

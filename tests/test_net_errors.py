@@ -67,3 +67,22 @@ def test_publisher_from_dict_restores_new_cartridge_defaults() -> None:
         assert profile.dlc_import_layout_mode == "children_if_root"
         assert profile.dlc_archive_root_mode == "strip_id_prefix"
         assert profile.install_directory_from_slug is True
+
+
+def test_ssl_eof_is_network_interruption_not_certificate() -> None:
+    error = OSError(
+        "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"
+    )
+    message = app_describe(error, url="https://example.com/manifest.json", action="获取更新清单")
+    assert message.startswith("网络连接中断")
+    assert "安全证书校验失败" not in message
+    assert common_describe(error, url="https://example.com/manifest.json", action="获取更新清单") == message
+    assert launcher_describe(error, url="https://example.com/manifest.json", action="获取更新清单") == message
+
+
+def test_real_certificate_error_stays_certificate_message() -> None:
+    message = app_describe(
+        OSError("CERTIFICATE_VERIFY_FAILED: hostname mismatch"),
+        url="https://example.com/manifest.json",
+    )
+    assert message.startswith("安全证书校验失败")
