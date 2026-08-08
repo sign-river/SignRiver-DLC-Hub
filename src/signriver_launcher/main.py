@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .api import HostContext
 from .config import UpdateSettings
-from .errors import ConfigurationError, ModuleLoadError, SignRiverError
+from .errors import ConfigurationError, ModuleLoadError, PackageError, SignRiverError
 from .loader import ModuleLoader
 from .jsonio import read_json
 from .models import ModuleMetadata
@@ -93,6 +93,34 @@ def _show_rollback_notice(
             format_rollback_notice(failed_version, rolled_back_version, str(error)),
             file=sys.stderr,
         )
+
+
+def _find_usable_module(versions_dir: Path, excluded: set[str]) -> str | None:
+    """Return the newest intact module directory that can still boot."""
+    candidates: list[str] = []
+    for directory in versions_dir.iterdir():
+        if not directory.is_dir():
+            continue
+        name = directory.name
+        try:
+            Version.parse(name)
+        except ValueError:
+            continue
+        if name in excluded:
+            continue
+        try:
+            metadata = ModuleMetadata.from_dict(read_json(directory / "module.json"))
+        except (OSError, ValueError, PackageError):
+            continue
+        if metadata.version != name:
+            continue
+        entrypoint = metadata.entrypoint.rsplit(":", 1)[0]
+        if not (directory / entrypoint).is_file():
+            continue
+        candidates.append(name)
+    if not candidates:
+        return None
+    return str(max(candidates, key=Version.parse))
 
 
 def _activate_confirmed_full_update_module(
@@ -182,11 +210,17 @@ def main(argv: list[str] | None = None) -> int:
         except ModuleLoadError as error:
             if confirm_transaction:
                 FullUpdateManager(paths).rollback(confirm_transaction)
-            if state.previous_version is None:
-                raise
-            logger.exception("New module failed during initialization; rolling back")
             failed_version = state.active_version
-            state = store.rollback_pending(failed_version)
+            logger.exception("New module failed during initialization; rolling back")
+            excluded = {failed_version, *state.bad_versions}
+            fallback = _find_usable_module(paths.versions_dir, excluded)
+            if fallback is None:
+                raise ModuleLoadError(
+                    f"{error}"
+                    + "\n\n模块文件缺失或损坏，且没有可用版本可回退。"
+                    + "请到「设置」页点击「检查更新」重新下载安装。"
+                ) from error
+            state = store.fallback_to(failed_version, fallback)
             context = HostContext.create(
                 state.active_version,
                 paths.root,

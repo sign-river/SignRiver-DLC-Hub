@@ -48,3 +48,15 @@ def test_rollback_requires_a_previous_version(tmp_path) -> None:
         assert "no rollback target" in str(error)
     else:
         raise AssertionError("expected rollback to fail without a previous version")
+
+
+def test_fallback_to_activates_older_version_and_marks_failed(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.json")
+    store.bootstrap("0.1.2")
+
+    state = store.fallback_to("0.1.2", "0.1.1")
+
+    assert state.active_version == "0.1.1"
+    assert state.previous_version is None
+    assert state.pending_version is None
+    assert state.bad_versions == ["0.1.2"]

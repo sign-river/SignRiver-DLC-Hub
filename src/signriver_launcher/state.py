@@ -79,6 +79,18 @@ class StateStore:
         self.save(state)
         return state
 
+    def fallback_to(self, failed_version: str, fallback_version: str) -> InstallState:
+        """Activate an older still-usable module after a module load failure."""
+        state = self.load()
+        if state.active_version != failed_version:
+            return state
+        state.bad_versions = list(dict.fromkeys([*state.bad_versions, failed_version]))
+        state.active_version = fallback_version
+        state.previous_version = None
+        state.pending_version = None
+        self.save(state)
+        return state
+
     def mark_healthy(self, version: str) -> InstallState:
         state = self.load()
         if state.active_version != version:
