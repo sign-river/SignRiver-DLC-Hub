@@ -1,6 +1,6 @@
 # SignRiver DLC Hub 当前进度
 
-更新时间：2026-08-07（Asia/Shanghai）
+更新时间：2026-08-09（Asia/Shanghai）
 
 ## 当前结论
 
@@ -8,7 +8,7 @@
 - Host API：`2`
 - 更新类型：`full`
 - `0.1.3` 已双源发布：2026-08-01 首次发布（23,550,648 字节 / `712cf5...`），2026-08-07 已用 UPX 小包替换（18,753,701 字节 / `baf1fb5e...`）。
-- 2026-08-08 已发布含“模块损坏自动回滚”修复的 0.1.3 全量包（18,754,167 字节 / `f49e6603...`），GitHub 与 GitLink 清单均已指向新哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
+- 2026-08-09 已发布 0.1.3 最终全量包（18,757,762 字节 / `a3c14981...`，含回退链、修复提示、网络重试与错误分类优化），GitHub 与 GitLink 清单均已指向该哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
 - 已修复 `tools/restore_module_archives.py` 的 GitLink 下载地址（去掉错误的 `/api/` 前缀，并按平台区分仓库所有者），实测可从 GitLink 恢复 v0.1.3 模块归档。
 - 已为 `tools/build_release.py` 接入 UPX 探测（`--upx-dir` / PATH）；本机 UPX 5.0.2 下构建产物：启动器 EXE 17,279,062 字节、全量更新包 18,753,701 字节（SHA256 `baf1fb5e...`）。
 - 两个平台的清单均指向各自平台的下载地址，不会跨源下载。
@@ -86,10 +86,10 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 
 `dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
 
-- 大小：`18,754,167` 字节（2026-08-08 重建，含“模块损坏自动回滚”修复）
+- 大小：`18,757,762` 字节（2026-08-09 最终版：含回退链、修复提示、网络重试与错误分类优化）
 - SHA256：
-  `f49e66030af03b5b13977bfffd2689ff802f50c47b79009334176d43f41eb6f4`
-- 注：已上传 GitHub 与 GitLink，两端清单均指向本哈希。
+  `a3c14981a2b6ebe62391779f54cf1a898227b8223f781f10d25b3d781367667c`
+- 注：已上传 GitHub 与 GitLink，两端清单均指向本哈希（E2E 验收通过）。
 
 对应清单：
 
@@ -197,6 +197,10 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 - `dist/test-baselines/`
 - `dist/test-baselines-fixed-launcher-v0.1.2/`
 - 任何包含 GitLink/GitHub 私有令牌的文件
+
+## 验收状态
+
+- 真实安装目录 E2E 验收已通过（2026-08-09）：GitLink/GitHub 双源 0.1.2 → 0.1.3 升级、下载源保留、模块损坏回退链（0.1.3 → 0.1.2 → 0.1.1）、无可用版本时的修复提示均符合预期。
 
 ## 后续建议
 
