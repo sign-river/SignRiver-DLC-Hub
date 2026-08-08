@@ -114,9 +114,9 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 
 `dist/publisher/SignRiver-Publisher.exe`
 
-- 大小：`19,711,015` 字节
+- 大小：`15,249,225` 字节（2026-08-09 UPX 重建）
 - SHA256：
-  `a17ff796fc020e50579d865ba4b7ac8f42e2ca87838588f4132eb9a3fb032c83`
+  `8e4c72f1b67cb0c99024ce6233ca53b13ea100047bfdfe18c8d462eaed806e75`
 
 ### 更新测试基线
 
