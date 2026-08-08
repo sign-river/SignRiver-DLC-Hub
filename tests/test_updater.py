@@ -414,3 +414,90 @@ def test_fetch_manifest_raises_after_all_retries_exhausted(tmp_path, monkeypatch
         client._fetch_manifest()
 
     assert len(attempts) == 3
+
+
+
+def _manifest_with_release(version: str, kind: str) -> bytes:
+    return json.dumps(
+        {
+            "schema_version": 1,
+            "channel": "stable",
+            "releases": [
+                {
+                    "version": version,
+                    "kind": kind,
+                    "package_url": f"{kind}-v{version}.zip",
+                    "sha256": "a" * 64,
+                    "size": 1,
+                    "min_launcher_version": "0.1.0",
+                }
+            ],
+        }
+    ).encode()
+
+
+def _manifest_response(payload: bytes):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://example.test/update-manifest.json"
+
+        def read(self, _size):
+            return payload
+
+    return Response()
+
+
+def test_bad_full_release_is_still_offered_for_reinstall(tmp_path, monkeypatch) -> None:
+    client, store, _paths = client_for(tmp_path)
+    client.settings = UpdateSettings(
+        manifest_urls={
+            "gitlink": "https://gitlink.example/updates/update-manifest.json",
+            "github": "https://github.example/updates/update-manifest.json",
+        }
+    )
+    client.set_download_source("github")
+    state = store.load()
+    state.bad_versions = ["0.1.1"]
+    store.save(state)
+    payload = _manifest_with_release("0.1.1", "full")
+    monkeypatch.setattr(
+        updater_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _manifest_response(payload),
+    )
+
+    release = client.check("0.1.0")
+
+    assert release is not None
+    assert release.version == "0.1.1"
+    assert release.kind == "full"
+
+
+def test_bad_module_release_is_excluded_from_updates(tmp_path, monkeypatch) -> None:
+    client, store, _paths = client_for(tmp_path)
+    client.settings = UpdateSettings(
+        manifest_urls={
+            "gitlink": "https://gitlink.example/updates/update-manifest.json",
+            "github": "https://github.example/updates/update-manifest.json",
+        }
+    )
+    client.set_download_source("github")
+    state = store.load()
+    state.bad_versions = ["0.1.1"]
+    store.save(state)
+    payload = _manifest_with_release("0.1.1", "module")
+    monkeypatch.setattr(
+        updater_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _manifest_response(payload),
+    )
+
+    release = client.check("0.1.0")
+
+    assert release is None

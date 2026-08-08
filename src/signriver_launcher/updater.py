@@ -82,7 +82,7 @@ class UpdateClient:
             release
             for release in manifest.releases
             if Version.parse(release.version) > current
-            and release.version not in bad_versions
+            and (release.version not in bad_versions or release.kind == "full")
         ]
         if not candidates:
             return None
