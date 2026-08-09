@@ -31,3 +31,4 @@ config/publisher.local.json
 .vscode/
 Thumbs.db
 .DS_Store
+tools/make_notice_image.py
