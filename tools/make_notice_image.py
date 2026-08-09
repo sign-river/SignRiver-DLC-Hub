@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -25,22 +26,40 @@ def resolve_font(size: int) -> ImageFont.FreeTypeFont:
     raise SystemExit("no usable CJK font found")
 
 
-def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list[str]:
+_BULLET = re.compile(r"^(?P<mark>[\u00b7\u2022\-\*\d]+[.\u3001?]?\s+)")
+
+
+def wrap_paragraph(
+    paragraph: str,
+    font: ImageFont.FreeTypeFont,
+    max_width: int,
+    draw: ImageDraw.ImageDraw,
+) -> tuple[list[str], int]:
+    """Wrap one paragraph; returns (lines, continuation indent in px)."""
+    indent_px = 0
+    bullet = _BULLET.match(paragraph)
+    if bullet:
+        indent_px = int(draw.textlength(bullet.group("mark"), font=font))
+    if not paragraph.strip():
+        return [""], 0
     lines: list[str] = []
-    for paragraph in text.splitlines():
-        if not paragraph.strip():
-            lines.append("")
-            continue
-        current = ""
-        for char in paragraph:
-            candidate = current + char
-            if draw.textlength(candidate, font=font) > max_width and current:
-                lines.append(current)
-                current = char
-            else:
-                current = candidate
-        lines.append(current)
-    return lines
+    current = ""
+    for char in paragraph:
+        candidate = current + char
+        if draw.textlength(candidate, font=font) > max_width and current:
+            lines.append(current)
+            current = char
+        else:
+            current = candidate
+    lines.append(current)
+    return lines, indent_px
+
+
+def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list[tuple[list[str], int]]:
+    return [
+        wrap_paragraph(paragraph, font, max_width, draw)
+        for paragraph in text.splitlines()
+    ]
 
 
 def main() -> int:
@@ -63,30 +82,36 @@ def main() -> int:
     body_font = resolve_font(args.font_size)
     content_width = args.width - args.margin * 2
     title_lines = wrap_text(title, title_font, content_width, probe)
-    body_lines = wrap_text(body, body_font, content_width, probe)
+    body_paragraphs = wrap_text(body, body_font, content_width, probe)
+    body_line_count = sum(len(lines) for lines, _indent in body_paragraphs)
+    blank_paragraphs = sum(1 for lines, _indent in body_paragraphs if not lines or not lines[0])
 
     title_line_h = args.title_size + args.line_spacing
     body_line_h = args.font_size + args.line_spacing
-    blank_paragraphs = sum(1 for line in body_lines if not line)
     height = (
         args.margin * 2
         + len(title_lines) * title_line_h
         + args.paragraph_gap
-        + len(body_lines) * body_line_h
+        + body_line_count * body_line_h
         + blank_paragraphs * (args.paragraph_gap - args.line_spacing)
     )
 
     image = Image.new("RGB", (args.width, height), "white")
     draw = ImageDraw.Draw(image)
     y = args.margin
-    for line in title_lines:
-        draw.text((args.margin, y), line, font=title_font, fill="black")
-        y += title_line_h
+    for lines, _indent in title_lines:
+        for line in lines:
+            draw.text((args.margin, y), line, font=title_font, fill="black")
+            y += title_line_h
     y += args.paragraph_gap
-    for line in body_lines:
-        if line:
-            draw.text((args.margin, y), line, font=body_font, fill="black")
-        y += body_line_h + (args.paragraph_gap - args.line_spacing if not line else 0)
+    for lines, indent_px in body_paragraphs:
+        if not lines or not lines[0]:
+            y += args.paragraph_gap - args.line_spacing
+            continue
+        for index, line in enumerate(lines):
+            x = args.margin + (indent_px if index > 0 else 0)
+            draw.text((x, y), line, font=body_font, fill="black")
+            y += body_line_h
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     image.save(args.output)
