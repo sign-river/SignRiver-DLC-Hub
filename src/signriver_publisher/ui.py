@@ -4326,7 +4326,7 @@ class PublisherApplication(ctk.CTk):
             return
         self.hub_generate_button.configure(state="disabled", text="正在生成…")
         self.hub_publish_button.configure(state="disabled")
-        default_game_id = self.profile.game_id
+        default_game_id = "stellaris"
 
         def worker() -> None:
             try:
@@ -4408,7 +4408,7 @@ class PublisherApplication(ctk.CTk):
         self.hub_upload_status.configure(text="正在生成完整卡带主表…")
         self.hub_upload_progress.set(0)
         self._upload_control = UploadControl()
-        default_game_id = self.profile.game_id
+        default_game_id = "stellaris"
 
         def worker() -> None:
             stage = "GitLink"
@@ -4579,7 +4579,7 @@ class PublisherApplication(ctk.CTk):
         token = self.token_entry.get().strip() or None
         profile = self.workspace.hub_release_profile()
         repo = GitLinkRepository(owner, repository_name)
-        default_game_id = self.profile.game_id
+        default_game_id = "stellaris"
 
         def worker() -> None:
             try:

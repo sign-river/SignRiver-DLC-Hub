@@ -196,8 +196,25 @@ class CartridgeCatalogService:
         if self.index is None:
             self.refresh_index(allow_network=allow_network)
         assert self.index is not None
-        return self.load_cartridge(
-            self.index.default_game_id, allow_network=allow_network,
+        try:
+            return self.load_cartridge(
+                self.index.default_game_id, allow_network=allow_network,
+            )
+        except CartridgeCatalogError:
+            pass
+        # The hub index may name a cartridge this installation cannot load
+        # (e.g. a newer game absent from the local bootstrap, or a stale
+        # default_game_id). Fall back to the first locally available
+        # cartridge so offline startup never bricks on the default only.
+        for entry in self.index.cartridges:
+            if entry.game_id.casefold() == self.index.default_game_id.casefold():
+                continue
+            try:
+                return self.load_cartridge(entry.game_id, allow_network=False)
+            except CartridgeCatalogError:
+                continue
+        raise CartridgeCatalogError(
+            f"????????????{self.index.default_game_id}"
         )
 
     def get_loaded(self, game_id: str) -> LoadedCartridge | None:
