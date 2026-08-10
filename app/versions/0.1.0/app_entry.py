@@ -819,16 +819,27 @@ class DlcHubApplication:
             width=100,
         )
         self.advanced_view_button.pack(side="right", padx=(0, 8))
+        self.catalog_qq_hint_wrap = ctk.CTkFrame(
+            catalog_header, fg_color="transparent"
+        )
+        self.catalog_qq_hint_wrap.pack(side="right", padx=(0, 24))
         self.catalog_qq_hint_button = ctk.CTkLabel(
-            catalog_header,
+            self.catalog_qq_hint_wrap,
             text="dlc未及时更新？来群里提醒一下up",
             text_color=UI["primary"],
-            font=ctk.CTkFont(size=13, underline=True),
+            font=ctk.CTkFont(size=13),
         )
-        self.catalog_qq_hint_button.pack(side="right", padx=(0, 24))
-        self.catalog_qq_hint_button.bind(
-            "<Button-1>", lambda _event: self._open_qq_group_hint()
+        self.catalog_qq_hint_button.pack()
+        # A real drawn line keeps the underline perfectly flat across mixed
+        # CJK/Latin text (Tk's underline attribute jumps between font fallbacks).
+        self.catalog_qq_hint_underline = ctk.CTkFrame(
+            self.catalog_qq_hint_wrap, height=2, fg_color=UI["primary"]
         )
+        self.catalog_qq_hint_underline.pack(fill="x", padx=1)
+        for widget in (self.catalog_qq_hint_wrap, self.catalog_qq_hint_button):
+            widget.bind(
+                "<Button-1>", lambda _event: self._open_qq_group_hint()
+            )
         try:
             self.catalog_qq_hint_button._label.configure(cursor="hand2")
         except Exception:
