@@ -8,7 +8,6 @@ source via ``ast`` and executed in an isolated namespace (same approach as
 from __future__ import annotations
 
 import ast
-import re
 from pathlib import Path
 
 APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
