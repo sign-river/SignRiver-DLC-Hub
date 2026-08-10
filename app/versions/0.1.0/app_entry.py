@@ -819,16 +819,20 @@ class DlcHubApplication:
             width=100,
         )
         self.advanced_view_button.pack(side="right", padx=(0, 8))
-        self.catalog_qq_hint_button = ctk.CTkButton(
+        self.catalog_qq_hint_button = ctk.CTkLabel(
             catalog_header,
             text="dlc未及时更新？来群里提醒一下up",
-            command=self._open_qq_group_hint,
-            fg_color="transparent",
-            border_width=0,
-            text_color=UI["muted"],
-            hover_color=UI["primary_surface"],
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=13, slant="italic", underline=True),
         )
         self.catalog_qq_hint_button.pack(side="right", padx=(0, 8))
+        self.catalog_qq_hint_button.bind(
+            "<Button-1>", lambda _event: self._open_qq_group_hint()
+        )
+        try:
+            self.catalog_qq_hint_button._label.configure(cursor="hand2")
+        except Exception:
+            pass
         self.catalog_status = ctk.CTkLabel(
             catalog_card,
             text=(
