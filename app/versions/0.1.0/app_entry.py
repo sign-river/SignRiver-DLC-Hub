@@ -825,7 +825,7 @@ class DlcHubApplication:
             text_color=UI["primary"],
             font=ctk.CTkFont(size=13, slant="italic", underline=True),
         )
-        self.catalog_qq_hint_button.pack(side="right", padx=(0, 8))
+        self.catalog_qq_hint_button.pack(side="right", padx=(0, 24))
         self.catalog_qq_hint_button.bind(
             "<Button-1>", lambda _event: self._open_qq_group_hint()
         )
