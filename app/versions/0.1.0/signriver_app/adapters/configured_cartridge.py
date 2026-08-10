@@ -38,10 +38,12 @@ class ConfiguredSteamCartridge:
         install_directory_from_slug: bool = False,
         dlc_group_search_roots: tuple[str, ...] = (),
         freshness=None,
+        platform: str = "windows",
     ) -> None:
         self.cartridge_id = f"{game_id}.steam"
         self.selection_name = display_name
         self.platform_name = "Steam"
+        self.patch_platform = platform
         self.store_app_id = store_app_id
         self.release_tag = release_tag
         self.dlc_relative_dir = dlc_relative_dir
@@ -61,6 +63,7 @@ class ConfiguredSteamCartridge:
             steam_app_id=store_app_id,
             executable_relative_path=executable_relative_path,
             required_relative_dirs=(dlc_relative_dir,),
+            platform=platform,
         )
 
     @property

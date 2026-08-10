@@ -29,10 +29,13 @@ from .patches import (
     PatchAssetRole,
     PatchAudit,
     PatchBundle,
+    PatchConfigFormat,
     PatchHealth,
+    PatchPlatform,
     PatchProfile,
     PatchReceipt,
     PatchTemplate,
+    host_patch_platform,
 )
 from .cartridges import (
     CARTRIDGE_DOCUMENT_SCHEMA,
@@ -43,6 +46,7 @@ from .cartridges import (
     CartridgeFreshness,
     CartridgeIndex,
     CartridgeIndexEntry,
+    CartridgePatchVariant,
 )
 from .announcements import (
     ANNOUNCEMENT_ASSET_NAME,
@@ -79,10 +83,13 @@ __all__ = [
     "PatchAssetRole",
     "PatchAudit",
     "PatchBundle",
+    "PatchConfigFormat",
     "PatchHealth",
+    "PatchPlatform",
     "PatchProfile",
     "PatchReceipt",
     "PatchTemplate",
+    "host_patch_platform",
     "CARTRIDGE_DOCUMENT_SCHEMA",
     "CARTRIDGE_INDEX_SCHEMA",
     "HUB_RELEASE_TAG",
@@ -91,6 +98,7 @@ __all__ = [
     "CartridgeFreshness",
     "CartridgeIndex",
     "CartridgeIndexEntry",
+    "CartridgePatchVariant",
     "ANNOUNCEMENT_ASSET_NAME",
     "ANNOUNCEMENT_SCHEMA",
     "Announcement",

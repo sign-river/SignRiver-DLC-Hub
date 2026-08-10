@@ -38,6 +38,7 @@ from typing import Iterable
 
 from ...domain.patches import (
     PatchAudit,
+    PatchConfigFormat,
     PatchHealth,
     PatchProfile,
     PatchReceipt,
@@ -90,6 +91,25 @@ class PatchRestoreReadiness:
 
 def _ini_bool(value: bool) -> str:
     return "True" if value else "False"
+
+
+def _looks_like_binary(data: bytes) -> bool:
+    """True for PE (MZ), ELF or Mach-O payloads used by Steam API libraries."""
+    if data.startswith(b"MZ"):
+        return True
+    if data.startswith(b"\x7fELF"):
+        return True
+    return any(
+        data.startswith(magic)
+        for magic in (
+            b"\xfe\xed\xfa\xce",  # MH_MAGIC
+            b"\xfe\xed\xfa\xcf",  # MH_MAGIC_64
+            b"\xce\xfa\xed\xfe",  # MH_CIGAM
+            b"\xcf\xfa\xed\xfe",  # MH_CIGAM_64
+            b"\xca\xfe\xba\xbe",  # FAT_MAGIC
+            b"\xbe\xba\xfe\xca",  # FAT_CIGAM
+        )
+    )
 
 
 def parse_appinfo_document(data: bytes | str) -> Mapping[str, object]:
@@ -173,6 +193,63 @@ def render_cream_api_ini(
         seen.add(dlc_id)
         lines.append(f"{dlc_id} = {name}")
     return "\n".join(lines) + "\n"
+
+
+def render_smoke_api_config(
+    appinfo: Mapping[str, object],
+    template: PatchTemplate,
+) -> str:
+    """Render ``SmokeAPI.config.json`` from an AppInfo document and template.
+
+    SmokeAPI (v4.x) unlocks every DLC by default, so the generated config only
+    pins the app status and mirrors the published DLC list into ``extra_dlcs``
+    for store-less/pre-order DLCs that the public Steam database omits.
+    """
+    app_id = str(appinfo.get("app_id") or "").strip()
+    if not _SANE_ID.fullmatch(app_id):
+        raise PatchError("AppInfo missing a valid app_id")
+    raw_dlcs = appinfo.get("dlcs")
+    if not isinstance(raw_dlcs, (list, tuple)):
+        raise PatchError("AppInfo missing a dlcs list")
+    dlcs: dict[str, str] = {}
+    for entry in raw_dlcs:
+        if not isinstance(entry, Mapping):
+            raise PatchError("AppInfo contains a non-object DLC entry")
+        dlc_id = str(entry.get("id") or "").strip()
+        name = str(entry.get("name") or "").strip()
+        if not _SANE_ID.fullmatch(dlc_id):
+            raise PatchError(f"AppInfo contains an invalid DLC ID: {dlc_id!r}")
+        if not name or "\r" in name or "\n" in name:
+            raise PatchError(f"AppInfo contains an invalid DLC name: {name!r}")
+        dlcs.setdefault(dlc_id, name)
+    config = {
+        "$schema": (
+            "https://raw.githubusercontent.com/acidicoala/SmokeAPI/refs/tags/"
+            "v4.0.0/res/SmokeAPI.schema.json"
+        ),
+        "$version": 4,
+        "logging": False,
+        "log_steam_http": False,
+        "default_app_status": "unlocked" if template.unlock_all else "original",
+        "override_app_status": {},
+        "override_dlc_status": {},
+        "auto_inject_inventory": True,
+        "extra_inventory_items": [],
+        "extra_dlcs": {app_id: {"dlcs": dlcs}} if dlcs else {},
+    }
+    return json.dumps(config, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_patch_config(
+    appinfo: Mapping[str, object],
+    template: PatchTemplate,
+) -> str:
+    """Render the platform-specific unlock configuration for a template."""
+    if template.config_format == PatchConfigFormat.SMOKEAPI_JSON:
+        return render_smoke_api_config(appinfo, template)
+    if template.config_format == PatchConfigFormat.CREAM_INI:
+        return render_cream_api_ini(appinfo, template)
+    raise PatchError(f"unsupported patch config format: {template.config_format}")
 
 
 class PatchEngine:
@@ -427,8 +504,12 @@ class PatchEngine:
         packaged_backup_bytes = backup_source.read_bytes()
         appinfo_bytes = appinfo_source.read_bytes()
         appinfo = parse_appinfo_document(appinfo_bytes)
-        ini_body = render_cream_api_ini(appinfo, self.profile.template)
-        ini_payload = _UTF8_BOM + ini_body.encode("utf-8")
+        config_body = render_patch_config(appinfo, self.profile.template)
+        if self.profile.template.config_format == PatchConfigFormat.CREAM_INI:
+            # CreamAPI tolerates a UTF-8 BOM and Windows editors expect one.
+            ini_payload = _UTF8_BOM + config_body.encode("utf-8")
+        else:
+            ini_payload = config_body.encode("utf-8")
 
         our_unlocker_size = len(unlocker_bytes)
         our_backup_size = len(packaged_backup_bytes)
@@ -500,7 +581,7 @@ class PatchEngine:
                     and unlocker_path.read_bytes() == unlocker_bytes
                     and ini_path.is_file()
                     and ini_path.read_bytes() == ini_payload
-                    and existing_backup_bytes.startswith(b"MZ")
+                    and _looks_like_binary(existing_backup_bytes)
                 )
                 if existing_backup_bytes == packaged_backup_bytes:
                     backup_origin = "packaged_fallback"

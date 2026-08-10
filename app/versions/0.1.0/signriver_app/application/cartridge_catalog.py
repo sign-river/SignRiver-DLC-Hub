@@ -41,10 +41,13 @@ class LoadedCartridge:
     source: str
 
 
-def _build_cartridge(document: CartridgeDocument) -> GameCartridge:
+def _build_cartridge(
+    document: CartridgeDocument,
+    platform: str | None = None,
+) -> GameCartridge:
     from ..adapters.document_cartridge import build_cartridge_from_document
 
-    return build_cartridge_from_document(document)
+    return build_cartridge_from_document(document, platform=platform)
 
 
 class CartridgeCatalogService:

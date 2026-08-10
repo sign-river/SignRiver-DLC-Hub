@@ -32,6 +32,20 @@
     "language": "schinese",
     "unlock_all": true,
     "extra_protection": false,
-    "force_offline": false
+    "force_offline": false,
+    "platforms": {
+      "steamos": {
+        "unlocker_dll_name": "libsteam_api.so",
+        "original_backup_dll_name": "libsteam_api_o.so",
+        "ini_target_name": "SmokeAPI.config.json",
+        "config_format": "smokeapi_json"
+      },
+      "macos": {
+        "unlocker_dll_name": "libsteam_api.dylib",
+        "original_backup_dll_name": "libsteam_api_o.dylib",
+        "ini_target_name": "icecream.ini",
+        "config_format": "cream_ini"
+      }
+    }
   }
 }

@@ -7,6 +7,8 @@ from .engine import (
     PatchRestoreReadiness,
     parse_appinfo_document,
     render_cream_api_ini,
+    render_patch_config,
+    render_smoke_api_config,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "PatchRestoreReadiness",
     "parse_appinfo_document",
     "render_cream_api_ini",
+    "render_patch_config",
+    "render_smoke_api_config",
 ]

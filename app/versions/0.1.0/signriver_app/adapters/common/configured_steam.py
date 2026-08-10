@@ -26,10 +26,14 @@ class ConfiguredSteamAdapter:
         required_relative_dirs: Iterable[str] = (),
         locator: SteamInstallationLocator | None = None,
         process_checker: Callable[[Path], bool] | None = None,
+        platform: str = "windows",
     ) -> None:
         if not steam_app_id.isdigit():
             raise ValueError("Steam App ID must be numeric")
+        if str(platform or "").strip() not in {"windows", "steamos", "macos"}:
+            raise ValueError("unsupported Steam adapter platform")
         self.steam_app_id = steam_app_id
+        self.platform = str(platform or "windows").strip()
         executable = normalize_game_relative_directory(
             executable_relative_path, field_name="game executable path"
         )
@@ -45,7 +49,7 @@ class ConfiguredSteamAdapter:
             adapter_version="1.0.0",
             game_id=game_id,
             display_name=display_name,
-            platforms=("windows",),
+            platforms=(self.platform,),
             stores=("steam",),
             capabilities=frozenset({
                 AdapterCapability.AUTO_DISCOVERY,
@@ -81,7 +85,7 @@ class ConfiguredSteamAdapter:
             candidates.append(InstallationCandidate(
                 root=installation.root,
                 executable=self._executable(installation.root),
-                source="steam", platform="windows", store="steam",
+                source="steam", platform=self.platform, store="steam",
                 metadata=metadata,
             ))
         return candidates
@@ -92,11 +96,16 @@ class ConfiguredSteamAdapter:
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             return ValidationResult.failure(f"无法规范化游戏路径：{error}")
         errors: list[str] = []
+        warnings: list[str] = []
         if not normalized_root.is_dir():
             errors.append("游戏目录不存在")
         executable = self._executable(normalized_root)
         if not executable.is_file():
-            errors.append(f"未找到启动文件：{self.executable_relative_path}")
+            missing_executable = f"未找到启动文件：{self.executable_relative_path}"
+            if self.platform == "windows" or not self._has_steam_api_library(normalized_root):
+                errors.append(missing_executable)
+            else:
+                warnings.append(missing_executable)
         for relative in self.required_relative_dirs:
             try:
                 directory = resolve_game_directory(
@@ -113,13 +122,13 @@ class ConfiguredSteamAdapter:
             return ValidationResult.failure(
                 errors, normalized_root=normalized_root,
                 executable=executable if executable.is_file() else None,
-                platform="windows", source="steam", store="steam",
-                metadata=metadata,
+                platform=self.platform, source="steam", store="steam",
+                metadata=metadata, warnings=warnings,
             )
         return ValidationResult.success(
             normalized_root, executable=executable,
-            platform="windows", source="steam", store="steam",
-            metadata=metadata,
+            platform=self.platform, source="steam", store="steam",
+            metadata=metadata, warnings=warnings,
         )
 
     def inspect(self, installation: GameInstallation) -> GameState:
@@ -142,6 +151,14 @@ class ConfiguredSteamAdapter:
             running=running, healthy=validation.valid,
             warnings=tuple(warnings), metadata=validation.metadata,
         )
+
+
+    @staticmethod
+    def _has_steam_api_library(root: Path) -> bool:
+        for name in ("libsteam_api.so", "libsteam_api.dylib"):
+            if (root / name).is_file():
+                return True
+        return False
 
 
 def _is_process_running(executable: Path) -> bool:

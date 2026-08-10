@@ -16,6 +16,8 @@ _SUPPORTED_ENGINES = frozenset({"steam_configured_v1"})
 _SUPPORTED_INSPECTORS = frozenset(
     {"directory", "grouped_directory", "stellaris_zip"}
 )
+_SUPPORTED_PLATFORMS = frozenset({"windows", "steamos", "macos"})
+_SUPPORTED_CONFIG_FORMATS = frozenset({"cream_ini", "smokeapi_json"})
 CARTRIDGE_INDEX_SCHEMA = 1
 CARTRIDGE_DOCUMENT_SCHEMA = 1
 HUB_RELEASE_TAG = "hub"
@@ -197,6 +199,64 @@ class CartridgeFreshness:
 
 
 @dataclass(frozen=True, slots=True)
+class CartridgePatchVariant:
+    """Per-platform patch layout declared by a cartridge document.
+
+    A variant overrides the flat ``patch`` fields for one target operating
+    system.  ``windows`` remains the fallback when no variant matches.
+    """
+
+    platform: str
+    unlocker_dll_name: str
+    original_backup_dll_name: str
+    appinfo_asset_name: str
+    install_relative_dir: str = "."
+    ini_target_name: str = "cream_api.ini"
+    config_format: str = "cream_ini"
+    language: str = "schinese"
+    unlock_all: bool = True
+    extra_protection: bool = False
+    force_offline: bool = False
+    executable_relative_path: str | None = None
+    dlc_relative_dir: str | None = None
+
+    def __post_init__(self) -> None:
+        platform = str(self.platform or "").strip().lower()
+        if platform not in _SUPPORTED_PLATFORMS:
+            raise ValueError(f"unsupported patch platform: {self.platform!r}")
+        object.__setattr__(self, "platform", platform)
+        if str(self.config_format or "").strip() not in _SUPPORTED_CONFIG_FORMATS:
+            raise ValueError(
+                f"unsupported patch config format: {self.config_format!r}"
+            )
+        if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
+            raise ValueError("unlocker name must be a plain filename")
+        if not self.original_backup_dll_name or "/" in self.original_backup_dll_name or "\\" in self.original_backup_dll_name:
+            raise ValueError("original backup name must be a plain filename")
+        if not self.appinfo_asset_name.endswith(".json"):
+            raise ValueError("appinfo asset name must reference a .json file")
+
+    def patch_fields(self) -> dict[str, object]:
+        fields: dict[str, object] = {
+            "unlocker_dll_name": self.unlocker_dll_name,
+            "original_backup_dll_name": self.original_backup_dll_name,
+            "appinfo_asset_name": self.appinfo_asset_name,
+            "install_relative_dir": self.install_relative_dir,
+            "ini_target_name": self.ini_target_name,
+            "config_format": self.config_format,
+            "language": self.language,
+            "unlock_all": self.unlock_all,
+            "extra_protection": self.extra_protection,
+            "force_offline": self.force_offline,
+        }
+        if self.executable_relative_path:
+            fields["executable_relative_path"] = self.executable_relative_path
+        if self.dlc_relative_dir:
+            fields["dlc_relative_dir"] = self.dlc_relative_dir
+        return fields
+
+
+@dataclass(frozen=True, slots=True)
 class CartridgeDocument:
     """Complete declarative description of one Steam game cartridge."""
 
@@ -214,10 +274,12 @@ class CartridgeDocument:
     appinfo_asset_name: str
     patch_install_relative_dir: str
     ini_target_name: str = "cream_api.ini"
+    config_format: str = "cream_ini"
     language: str = "schinese"
     unlock_all: bool = True
     extra_protection: bool = False
     force_offline: bool = False
+    patch_variants: tuple[CartridgePatchVariant, ...] = ()
     install_directory_from_slug: bool = False
     dlc_group_search_roots: tuple[str, ...] = ()
     repository_owner: str = "signriver"
@@ -236,6 +298,40 @@ class CartridgeDocument:
             raise ValueError(
                 f"unsupported package_inspector: {self.package_inspector}"
             )
+
+    @property
+    def patch_platforms(self) -> tuple[str, ...]:
+        """Platforms with an explicit patch variant, always including windows."""
+        platforms = {variant.platform for variant in self.patch_variants}
+        platforms.add("windows")
+        return tuple(sorted(platforms))
+
+    def patch_fields_for(self, platform: str) -> dict[str, object]:
+        """Return merged patch fields for a target platform.
+
+        The flat ``patch`` object is the base (Windows) layout; a matching
+        variant overrides the file names and config options.
+        """
+        platform = str(platform or "").strip().lower()
+        if platform not in _SUPPORTED_PLATFORMS:
+            raise ValueError(f"unsupported patch platform: {platform!r}")
+        fields: dict[str, object] = {
+            "unlocker_dll_name": self.unlocker_dll_name,
+            "original_backup_dll_name": self.original_backup_dll_name,
+            "appinfo_asset_name": self.appinfo_asset_name,
+            "install_relative_dir": self.patch_install_relative_dir,
+            "ini_target_name": self.ini_target_name,
+            "config_format": self.config_format,
+            "language": self.language,
+            "unlock_all": self.unlock_all,
+            "extra_protection": self.extra_protection,
+            "force_offline": self.force_offline,
+        }
+        for variant in self.patch_variants:
+            if variant.platform == platform:
+                fields.update(variant.patch_fields())
+                break
+        return fields
 
     @property
     def selection_name(self) -> str:
@@ -272,6 +368,54 @@ class CartridgeDocument:
         patch = value.get("patch")
         if not isinstance(patch, dict):
             raise ValueError("patch object is required")
+        variants: list[CartridgePatchVariant] = []
+        raw_platforms = patch.get("platforms")
+        if raw_platforms is not None:
+            if not isinstance(raw_platforms, dict):
+                raise ValueError("patch.platforms must be an object")
+            for platform, spec in raw_platforms.items():
+                if not isinstance(spec, dict):
+                    raise ValueError(f"patch.platforms[{platform!r}] must be an object")
+                merged = dict(patch)
+                merged.update(spec)
+                variants.append(CartridgePatchVariant(
+                    platform=str(platform),
+                    unlocker_dll_name=_require_nonempty(
+                        merged.get("unlocker_dll_name"),
+                        field=f"patch.platforms[{platform}].unlocker_dll_name",
+                    ),
+                    original_backup_dll_name=_require_nonempty(
+                        merged.get("original_backup_dll_name"),
+                        field=f"patch.platforms[{platform}].original_backup_dll_name",
+                    ),
+                    appinfo_asset_name=_require_nonempty(
+                        merged.get("appinfo_asset_name"),
+                        field=f"patch.platforms[{platform}].appinfo_asset_name",
+                    ),
+                    install_relative_dir=str(
+                        merged.get("install_relative_dir") or "."
+                    ),
+                    ini_target_name=str(
+                        merged.get("ini_target_name") or "cream_api.ini"
+                    ),
+                    config_format=str(
+                        merged.get("config_format") or "cream_ini"
+                    ),
+                    language=str(merged.get("language") or "schinese"),
+                    unlock_all=bool(merged.get("unlock_all", True)),
+                    extra_protection=bool(merged.get("extra_protection", False)),
+                    force_offline=bool(merged.get("force_offline", False)),
+                    executable_relative_path=(
+                        str(merged["executable_relative_path"]).strip()
+                        if merged.get("executable_relative_path")
+                        else None
+                    ),
+                    dlc_relative_dir=(
+                        str(merged["dlc_relative_dir"]).strip()
+                        if merged.get("dlc_relative_dir")
+                        else None
+                    ),
+                ))
         freshness = None
         raw_freshness = value.get("freshness")
         if isinstance(raw_freshness, dict):
@@ -311,6 +455,7 @@ class CartridgeDocument:
                 patch.get("install_relative_dir") or "."
             ),
             ini_target_name=str(patch.get("ini_target_name") or "cream_api.ini"),
+            config_format=str(patch.get("config_format") or "cream_ini"),
             language=str(patch.get("language") or "schinese"),
             unlock_all=bool(patch.get("unlock_all", True)),
             extra_protection=bool(patch.get("extra_protection", False)),
@@ -318,6 +463,7 @@ class CartridgeDocument:
             install_directory_from_slug=bool(
                 value.get("install_directory_from_slug", False)
             ),
+            patch_variants=tuple(variants),
             dlc_group_search_roots=tuple(
                 _require_nonempty(item, field="dlc_group_search_roots item")
                 for item in value.get("dlc_group_search_roots", ())
@@ -352,10 +498,26 @@ class CartridgeDocument:
                 "appinfo_asset_name": self.appinfo_asset_name,
                 "install_relative_dir": self.patch_install_relative_dir,
                 "ini_target_name": self.ini_target_name,
+                "config_format": self.config_format,
                 "language": self.language,
                 "unlock_all": self.unlock_all,
                 "extra_protection": self.extra_protection,
                 "force_offline": self.force_offline,
+                "platforms": {
+                    variant.platform: {
+                        "unlocker_dll_name": variant.unlocker_dll_name,
+                        "original_backup_dll_name": variant.original_backup_dll_name,
+                        "appinfo_asset_name": variant.appinfo_asset_name,
+                        "install_relative_dir": variant.install_relative_dir,
+                        "ini_target_name": variant.ini_target_name,
+                        "config_format": variant.config_format,
+                        "language": variant.language,
+                        "unlock_all": variant.unlock_all,
+                        "extra_protection": variant.extra_protection,
+                        "force_offline": variant.force_offline,
+                    }
+                    for variant in self.patch_variants
+                },
             },
         }
         if self.freshness is not None:
@@ -372,4 +534,5 @@ __all__ = [
     "CartridgeFreshness",
     "CartridgeIndex",
     "CartridgeIndexEntry",
+    "CartridgePatchVariant",
 ]

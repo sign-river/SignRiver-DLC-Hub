@@ -17,6 +17,32 @@ class PatchAssetRole(StrEnum):
     APPINFO_JSON = "appinfo_json"
 
 
+class PatchPlatform(StrEnum):
+    """Host/target operating system for a CreamAPI/SmokeAPI-style patch."""
+
+    WINDOWS = "windows"
+    STEAMOS = "steamos"
+    MACOS = "macos"
+
+
+class PatchConfigFormat(StrEnum):
+    """How the per-game unlock configuration file is rendered."""
+
+    CREAM_INI = "cream_ini"
+    SMOKEAPI_JSON = "smokeapi_json"
+
+
+def host_patch_platform() -> PatchPlatform:
+    """Return the platform the running app should patch by default."""
+    import sys
+
+    if sys.platform == "linux":
+        return PatchPlatform.STEAMOS
+    if sys.platform == "darwin":
+        return PatchPlatform.MACOS
+    return PatchPlatform.WINDOWS
+
+
 class PatchHealth(StrEnum):
     """Current state of a game directory relative to our expected patch layout."""
 
@@ -28,13 +54,14 @@ class PatchHealth(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PatchTemplate:
-    """Rendering parameters for the CreamAPI-style ini file."""
+    """Rendering parameters for the CreamAPI/SmokeAPI-style config file."""
 
     ini_target_name: str
     language: str = "schinese"
     unlock_all: bool = True
     extra_protection: bool = False
     force_offline: bool = False
+    config_format: PatchConfigFormat = PatchConfigFormat.CREAM_INI
 
     def __post_init__(self) -> None:
         if not self.ini_target_name or "/" in self.ini_target_name or "\\" in self.ini_target_name:
@@ -42,6 +69,8 @@ class PatchTemplate:
         language = self.language.strip()
         if not language or any(character in language for character in "\r\n="):
             raise ValueError("language must be a single-line, non-empty token")
+        if not isinstance(self.config_format, PatchConfigFormat):
+            object.__setattr__(self, "config_format", PatchConfigFormat(self.config_format))
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +86,7 @@ class PatchProfile:
     appinfo_asset_name: str
     template: PatchTemplate
     install_relative_dir: str = "."
+    platform: PatchPlatform = PatchPlatform.WINDOWS
 
     def __post_init__(self) -> None:
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
@@ -149,8 +179,11 @@ __all__ = [
     "PatchAssetRole",
     "PatchAudit",
     "PatchBundle",
+    "PatchConfigFormat",
     "PatchHealth",
+    "PatchPlatform",
     "PatchProfile",
     "PatchReceipt",
     "PatchTemplate",
+    "host_patch_platform",
 ]
