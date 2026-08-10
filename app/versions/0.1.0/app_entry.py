@@ -6662,8 +6662,15 @@ class DlcHubApplication:
         messagebox.showerror("更新失败", message, parent=self.window)
 
     def run(self) -> None:
-        self.window.deiconify()
+        # Show the window inside the event loop: a bare deiconify() before
+        # mainloop() can leave the window hidden on some Windows Tk builds.
+        self.window.after(0, self._show_main_window)
         self.window.mainloop()
+
+    def _show_main_window(self) -> None:
+        self.window.deiconify()
+        self.window.lift()
+        self.window.focus_force()
 
 
 def create_application(context) -> DlcHubApplication:
