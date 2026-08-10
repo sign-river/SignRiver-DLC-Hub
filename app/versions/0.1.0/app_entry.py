@@ -201,6 +201,9 @@ class _InlineCatalogStatus:
         self._label.configure(text=text, text_color=UI["muted"])
 
 
+QQ_GROUP_JOIN_URL = ""  # fill from QQ group join link
+
+
 def _format_size(value: float) -> str:
     """Format a byte count for Chinese users (KB/MB/GB, 1024-based)."""
     amount = float(max(0, value))
@@ -813,6 +816,16 @@ class DlcHubApplication:
             width=100,
         )
         self.advanced_view_button.pack(side="right", padx=(0, 8))
+        self.catalog_qq_hint_button = ctk.CTkButton(
+            catalog_header,
+            text="dlc未及时更新？来群里提醒一下up",
+            command=self._open_qq_group_hint,
+            fg_color="transparent",
+            border_width=0,
+            text_color=UI["muted"],
+            hover_color=UI["primary_surface"],
+        )
+        self.catalog_qq_hint_button.pack(side="right", padx=(0, 8))
         self.catalog_status = ctk.CTkLabel(
             catalog_card,
             text=(
@@ -1700,6 +1713,22 @@ class DlcHubApplication:
         self.window.clipboard_append(group_number)
         self.window.update_idletasks()
         self._notify(f"QQ群号已复制：{group_number}")
+
+    def _open_qq_group_hint(self) -> None:
+        if QQ_GROUP_JOIN_URL:
+            webbrowser.open(QQ_GROUP_JOIN_URL)
+            return
+        group_number = "1061299021"
+        self.window.clipboard_clear()
+        self.window.clipboard_append(group_number)
+        self.window.update_idletasks()
+        self._notify("加群链接尚未配置，已复制群号")
+        messagebox.showinfo(
+            "QQ 群",
+            f"加群链接尚未配置，已复制群号 {group_number}\n\n"
+            "请粘贴到 QQ 搜索群号加群，谢谢！",
+            parent=self.window,
+        )
 
     def _show_page(self, page_name: str) -> None:
         self.current_page = page_name
