@@ -54,6 +54,27 @@ def _utf8_console() -> None:
     except Exception:
         pass
 
+def _default_out_dir() -> Path:
+    """Report output directory: EXE folder when frozen, else script folder."""
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+    else:
+        base = Path(__file__).resolve().parent
+    try:
+        probe = base / ".probe_write_check"
+        probe.write_text("x", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return base
+    except OSError:
+        return Path.home() / "Desktop"
+
+
+def _pause_exit(code: int) -> int:
+    print("")
+    print("按回车键关闭窗口。")
+    _safe_input("")
+    return code
+
 
 # ---------------------------------------------------------------------------
 # Steam VDF / library discovery (mirrors app adapters/common/steam.py)
@@ -566,10 +587,10 @@ def _manual_path() -> Path | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="探测城市天际线2 安装目录并生成报告")
     parser.add_argument("--path", help="直接指定游戏根目录，跳过自动检测")
-    parser.add_argument("--out", help="报告输出目录（默认脚本所在目录）")
+    parser.add_argument("--out", help="报告输出目录（默认程序所在目录）")
     args = parser.parse_args()
 
-    out_dir = Path(args.out) if args.out else Path(__file__).resolve().parent
+    out_dir = Path(args.out) if args.out else _default_out_dir()
     game_dir: Path | None = None
     detected_by = "manual"
     if args.path:
@@ -610,7 +631,15 @@ def main() -> int:
 if __name__ == "__main__":
     _utf8_console()
     try:
-        raise SystemExit(main())
+        raise SystemExit(_pause_exit(main()))
     except KeyboardInterrupt:
         print("\n已取消。")
+        _safe_input("")
         raise SystemExit(130)
+    except Exception:  # keep the window open so the user can report the error
+        import traceback
+
+        print("\n[错误] 程序运行出错，请把下面信息截图发给唏嘘南溪：")
+        traceback.print_exc()
+        _safe_input("\n按回车键关闭窗口。")
+        raise SystemExit(1)
