@@ -823,7 +823,7 @@ class DlcHubApplication:
             catalog_header,
             text="dlc未及时更新？来群里提醒一下up",
             text_color=UI["primary"],
-            font=ctk.CTkFont(size=13, slant="italic", underline=True),
+            font=ctk.CTkFont(size=13, underline=True),
         )
         self.catalog_qq_hint_button.pack(side="right", padx=(0, 24))
         self.catalog_qq_hint_button.bind(
