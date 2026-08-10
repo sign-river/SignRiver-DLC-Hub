@@ -201,6 +201,20 @@ class _InlineCatalogStatus:
         self._label.configure(text=text, text_color=UI["muted"])
 
 
+def _format_size(value: float) -> str:
+    """Format a byte count for Chinese users (KB/MB/GB, 1024-based)."""
+    amount = float(max(0, value))
+    for unit in ("B", "KB", "MB", "GB"):
+        if amount < 1024 or unit == "GB":
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} GB"
+
+
+def _format_speed(value: float) -> str:
+    return f"{_format_size(value)}/s"
+
+
 class DlcHubApplication:
     def __init__(self, context) -> None:
         self.context = context
@@ -1826,11 +1840,11 @@ class DlcHubApplication:
         )
         total = self.update_download_total
         progress = (
-            f"{self.update_download_current / 1048576:.1f}/"
-            f"{total / 1048576:.1f} MiB"
-            if total else f"{self.update_download_current / 1048576:.1f} MiB"
+            f"{_format_size(self.update_download_current)}/"
+            f"{_format_size(total)}"
+            if total else _format_size(self.update_download_current)
         )
-        return f"{state} · {progress} · {self.update_download_speed / 1024:.1f} KiB/s"
+        return f"{state} · {progress} · {_format_speed(self.update_download_speed)}"
 
     def _refresh_update_download_task(self) -> None:
         if getattr(self, "current_page", None) != "下载任务":
@@ -1975,7 +1989,7 @@ class DlcHubApplication:
         }
         state = labels.get(snapshot.state, str(snapshot.state))
         speed = (
-            f" · {snapshot.speed_bytes_per_second / 1024:.1f} KiB/s"
+            f" · {_format_speed(snapshot.speed_bytes_per_second)}"
             if snapshot.speed_bytes_per_second else ""
         )
         error_states = {
@@ -1985,7 +1999,7 @@ class DlcHubApplication:
             f" · {snapshot.error}"
             if snapshot.error and snapshot.state in error_states else ""
         )
-        return f"{state} · {snapshot.bytes_downloaded / 1024:.1f} KiB{speed}{error}"
+        return f"{state} · {_format_size(snapshot.bytes_downloaded)}{speed}{error}"
 
     def _update_task_page_snapshot(self, snapshot) -> None:
         """Update progress and controls in place; rebuild only for new tasks."""
@@ -2193,9 +2207,9 @@ class DlcHubApplication:
         if not messagebox.askyesno(
             "确认清理游戏缓存",
             f"{game_name} 的已下载缓存：{usage.file_count} 个文件，"
-            f"{usage.bytes_used / 1048576:.1f} MiB。\n\n"
+            f"{_format_size(usage.bytes_used)}。\n\n"
             f"将删除该游戏的 {plan.file_count} 个缓存文件，"
-            f"约 {plan.bytes_to_remove / 1048576:.1f} MiB。\n"
+            f"约 {_format_size(plan.bytes_to_remove)}。\n"
             "已安装的游戏文件不会受影响；以后需要时会重新下载。",
             parent=self.window,
         ):
@@ -2225,7 +2239,7 @@ class DlcHubApplication:
 
     def _finish_current_game_cache_cleanup(self, plan) -> None:
         self.cache_status.configure(
-            text=f"已清理当前游戏 {plan.file_count} 个缓存文件、{plan.bytes_to_remove / 1048576:.1f} MiB"
+            text=f"已清理当前游戏 {plan.file_count} 个缓存文件、{_format_size(plan.bytes_to_remove)}"
         )
         self._set_cache_cleanup_running(False, "分析并清理")
         self._schedule_cache_usage_scan(force=True)
@@ -2249,17 +2263,17 @@ class DlcHubApplication:
         if not plan.paths and not transaction_count:
             self.cache_usage_bytes = usage
             self.cache_status.configure(
-                text=f"缓存 {usage / 1048576:.1f} MiB，无可安全清理内容"
+                text=f"缓存 {_format_size(usage)}，无可安全清理内容"
             )
             self._set_cache_cleanup_running(False, "分析并清理")
             return
         if not messagebox.askyesno(
             "确认清理缓存",
-            f"当前下载缓存 {usage / 1048576:.1f} MiB。\n"
+            f"当前下载缓存 {_format_size(usage)}。\n"
             f"· 无引用/隔离缓存：{plan.file_count} 个文件，约 "
-            f"{plan.bytes_to_remove / 1048576:.1f} MiB；\n"
+            f"{_format_size(plan.bytes_to_remove)}；\n"
             f"· 已终结安装事务：{transaction_count} 个目录，约 "
-            f"{transaction_bytes / 1048576:.1f} MiB。\n\n"
+            f"{_format_size(transaction_bytes)}。\n\n"
             "已安装 DLC、仍被引用的资源包、活动事务及其备份不会删除。是否继续？",
             parent=self.window,
         ):
@@ -2546,9 +2560,9 @@ class DlcHubApplication:
         self.speed_test_button.configure(state="normal", text="重新测速")
         self.speed_test_status.configure(
             text=(
-                f"测速结果：{result.mebibytes_per_second:.2f} MiB/s · "
+                f"测速结果：{_format_speed(result.mebibytes_per_second * 1048576)} · "
                 f"{result.megabits_per_second:.1f} Mbps · "
-                f"{result.bytes_downloaded / 1024**2:.1f} MiB"
+                f"{_format_size(result.bytes_downloaded)}"
             )
         )
 
@@ -2761,13 +2775,13 @@ class DlcHubApplication:
         update_task_count = int(self.update_download_active)
         speed += self.update_download_speed if self.update_download_active else 0
         cache_text = (
-            f"{self.cache_usage_bytes / 1048576:.1f} MiB"
+            f"{_format_size(self.cache_usage_bytes)}"
             if self.cache_usage_bytes is not None
             else "统计中"
         )
         self.global_status.configure(text=(
             f"网络：{'已连接' if self.catalog_online else '未连接'}\n"
-            f"任务：{len(active) + update_task_count} · {speed / 1024:.1f} KiB/s\n"
+            f"任务：{len(active) + update_task_count} · {_format_speed(speed)}\n"
             f"缓存：{cache_text}"
         ))
         if hasattr(self, "cache_status"):
@@ -2823,11 +2837,11 @@ class DlcHubApplication:
                 ):
                     self.cache_status.configure(
                         text=(
-                            f"当前缓存：{usage / 1048576:.1f} MiB"
+                            f"当前缓存：{_format_size(usage)}"
                             if game_usage is None else
-                            f"当前缓存：{usage / 1048576:.1f} MiB；当前游戏已识别 "
+                            f"当前缓存：{_format_size(usage)}；当前游戏已识别 "
                             f"{game_usage.file_count} 个文件、"
-                            f"{game_usage.bytes_used / 1048576:.1f} MiB"
+                            f"{_format_size(game_usage.bytes_used)}"
                         )
                     )
 
@@ -6030,7 +6044,7 @@ class DlcHubApplication:
         }
         label = labels.get(snapshot.state, str(snapshot.state))
         speed = snapshot.speed_bytes_per_second
-        speed_text = f" · {speed / 1024:.1f} KB/s" if speed else ""
+        speed_text = f" · {_format_speed(speed)}" if speed else ""
         eta = snapshot.eta_seconds
         eta_text = f" · 约 {eta:.0f} 秒" if eta is not None and eta > 0 else ""
         task_id = snapshot.spec.task_id
@@ -6047,7 +6061,7 @@ class DlcHubApplication:
             return
         status, action, cancel, _manage, _uninstall = row
         status.configure(text=(
-            f"{label} · {snapshot.bytes_downloaded / 1024:.1f} KB"
+            f"{label} · {_format_size(snapshot.bytes_downloaded)}"
             f"{speed_text}{eta_text}"
         ))
         terminal = {
@@ -6464,15 +6478,26 @@ class DlcHubApplication:
             self.status.configure(text="当前已是最新版本")
             self.update_button.configure(state="normal")
             return
-        answer = messagebox.askyesno(
-            "发现新版本",
-            f"发现 v{release.version}\n\n{release.notes or '是否立即安装？'}",
-            parent=self.window,
-        )
-        if not answer:
-            self.status.configure(text=f"已发现 v{release.version}，暂未安装")
-            self.update_button.configure(state="normal")
-            return
+        if release.mandatory:
+            messagebox.showinfo(
+                "发现新版本",
+                f"检测到必须更新的版本 v{release.version}\n\n"
+                f"{release.notes or '即将自动开始安装。'}",
+                parent=self.window,
+            )
+            self.status.configure(
+                text=f"检测到必须更新的版本 v{release.version}，正在安装……"
+            )
+        else:
+            answer = messagebox.askyesno(
+                "发现新版本",
+                f"发现 v{release.version}\n\n{release.notes or '是否立即安装？'}",
+                parent=self.window,
+            )
+            if not answer:
+                self.status.configure(text=f"已发现 v{release.version}，暂未安装")
+                self.update_button.configure(state="normal")
+                return
         cancel_event = threading.Event()
         self.update_download_active = True
         self.update_download_cancelling = False
@@ -6531,8 +6556,8 @@ class DlcHubApplication:
             self.status.configure(
                 text=(
                     f"正在下载 v{self.update_download_version}…… "
-                    f"{current / 1048576:.1f}/{total / 1048576:.1f} MiB · "
-                    f"{self.update_download_speed / 1024:.1f} KiB/s"
+                    f"{_format_size(current)}/{_format_size(total)} · "
+                    f"{_format_speed(self.update_download_speed)}"
                 )
             )
             if current >= total:
@@ -6542,8 +6567,8 @@ class DlcHubApplication:
             self.status.configure(
                 text=(
                     f"正在下载 v{self.update_download_version}…… "
-                    f"{current / 1048576:.1f} MiB · "
-                    f"{self.update_download_speed / 1024:.1f} KiB/s"
+                    f"{_format_size(current)} · "
+                    f"{_format_speed(self.update_download_speed)}"
                 )
             )
         self._refresh_update_download_task()
