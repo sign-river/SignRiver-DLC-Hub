@@ -201,7 +201,7 @@ class _InlineCatalogStatus:
         self._label.configure(text=text, text_color=UI["muted"])
 
 
-QQ_GROUP_JOIN_URL = ""  # fill from QQ group join link
+QQ_GROUP_JOIN_URL = "https://qm.qq.com/q/NQRer2RHmC"  # SignRiver DLC Hub 交流群
 
 
 def _format_size(value: float) -> str:
