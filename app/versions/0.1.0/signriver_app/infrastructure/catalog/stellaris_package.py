@@ -40,8 +40,15 @@ def _safe_member(info: zipfile.ZipInfo) -> PurePosixPath:
 
 
 def inspect_stellaris_package(
-    path: Path, *, known_sha256: str | None = None
+    path: Path,
+    *,
+    known_sha256: str | None = None,
+    asset_name: str | None = None,
 ) -> StellarisPackageMetadata:
+    # ``asset_name`` is accepted for interface compatibility with the shared
+    # cartridge verifier; Stellaris packages keep their publisher-managed
+    # dlcNNN_ name as the ZIP root, so the asset filename adds no constraint.
+    # (intentionally unused)
     path = Path(path)
     if not zipfile.is_zipfile(path):
         raise PackageInspectionError("package is not a valid ZIP file")
