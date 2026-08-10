@@ -225,6 +225,9 @@ class DlcHubApplication:
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
         self.window = ctk.CTk()
+        # Build the whole UI while the window is hidden so users
+        # never see a blank shell filling in gradually.
+        self.window.withdraw()
         self.window.title(PRODUCT_TITLE_ZH)
         self.window.geometry("1120x840")
         self.window.minsize(1000, 700)
@@ -6659,6 +6662,7 @@ class DlcHubApplication:
         messagebox.showerror("更新失败", message, parent=self.window)
 
     def run(self) -> None:
+        self.window.deiconify()
         self.window.mainloop()
 
 
