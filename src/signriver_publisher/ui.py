@@ -8,6 +8,8 @@ import threading
 import time
 from pathlib import Path
 from queue import Empty, SimpleQueue
+import json
+
 from tkinter import TclError, filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
@@ -3742,7 +3744,20 @@ class PublisherApplication(ctk.CTk):
 
 
     def _default_update_notes(self, version: str, kind: str) -> str:
-        """Default release notes the maintainer can edit before publishing."""
+        """Default release notes: prefer the per-version draft kept in
+        ``publisher-workspace/update-notes.json`` (maintained by the release
+        helper/AI each build), falling back to a generic template."""
+        try:
+            payload = json.loads(
+                (self.workspace.root / "update-notes.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            notes = payload.get(version)
+            if isinstance(notes, str) and notes.strip():
+                return notes.strip()
+        except (OSError, ValueError, TypeError):
+            pass
         if kind == "module":
             return f"\u300c{version}\u300d\u6a21\u5757\u66f4\u65b0\uff1a\u4fee\u590d\u95ee\u9898\u5e76\u4f18\u5316\u4f7f\u7528\u4f53\u9a8c\uff0c\u5efa\u8bae\u5c3d\u5feb\u66f4\u65b0\u3002"
         return f"\u300c{version}\u300d\u7248\u672c\u66f4\u65b0\uff1a\u4fee\u590d\u95ee\u9898\u5e76\u4f18\u5316\u4f7f\u7528\u4f53\u9a8c\uff0c\u5efa\u8bae\u5c3d\u5feb\u66f4\u65b0\u3002"
@@ -3774,7 +3789,7 @@ class PublisherApplication(ctk.CTk):
         textbox.pack(padx=28, pady=(4, 12))
         textbox.insert("1.0", self._default_update_notes(version, kind))
 
-        mandatory_var = ctk.BooleanVar(value=False)
+        mandatory_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(
             dialog,
             text="\u5f3a\u5236\u6b64\u7248\u672c\u66f4\u65b0\uff08\u7528\u6237\u65e0\u6cd5\u8df3\u8fc7\uff09",
