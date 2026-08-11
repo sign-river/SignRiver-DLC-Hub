@@ -697,6 +697,7 @@ class DlcHubApplication:
         status_band = ctk.CTkFrame(
             topbar, fg_color=UI["brand"], corner_radius=7, height=32
         )
+        self.status_band = status_band
         status_band.grid(
             row=1, column=0, columnspan=2, sticky="ew",
             padx=(24, 22), pady=(0, 20),
@@ -724,15 +725,15 @@ class DlcHubApplication:
         # Top-centered snackbar for task completion/error feedback: visible in
         # the user's current view, colored, auto-dismissing, no modal popup.
         self.snackbar = ctk.CTkFrame(
-            self.page_host, fg_color=UI["success"], corner_radius=10
+            self.status_band, fg_color=UI["success"], corner_radius=8
         )
         self.snackbar_label = ctk.CTkLabel(
             self.snackbar,
             text="",
             text_color="#FFFFFF",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.snackbar_label.pack(padx=20, pady=10)
+        self.snackbar_label.pack(padx=16, pady=4)
         self.snackbar.place_forget()
 
         game_card = _card(self.page_host)
@@ -2824,7 +2825,7 @@ class DlcHubApplication:
         icon = "\u26a0\ufe0f " if error else "\u2705 "
         snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
         self.snackbar_label.configure(text=f"{icon}{message}")
-        snackbar.place(relx=0.5, rely=0.01, anchor="n", relwidth=0.92)
+        snackbar.place(relx=0.5, rely=0.5, anchor="center")
         snackbar.lift()
         if error:
             self.window.bell()
