@@ -135,6 +135,7 @@ class PublisherApplication(ctk.CTk):
             | None
         ) = None
         self._active_publish_scope = "game"
+        self._upload_control = UploadControl()
         self._upload_sample: tuple[str, int, float] | None = None
         self._upload_speed = 0.0
         self._publish_advanced_visible = False
@@ -3420,6 +3421,7 @@ class PublisherApplication(ctk.CTk):
         if not self._save_active_settings():
             return
         self._active_publish_scope = "game"
+        self._upload_control = UploadControl()
         if self._publish_target() == "github":
             self._publish_release_github()
             return
@@ -3468,11 +3470,10 @@ class PublisherApplication(ctk.CTk):
             return
         version = package_info.version
         kind = package_info.kind
-        notes = simpledialog.askstring(
-            "程序更新",
-            f"已识别：版本 {version}，类型 {kind}\n更新说明：",
-            parent=self,
-        ) or ""
+        asked = self._ask_update_notes(version, kind)
+        if asked is None:
+            return
+        notes, mandatory = asked
         mandatory = messagebox.askyesno(
             "程序更新", "是否强制此版本更新？", parent=self
         )
@@ -3492,6 +3493,7 @@ class PublisherApplication(ctk.CTk):
         self._upload_sample = None
         self._upload_speed = 0.0
         self._active_publish_scope = "game"
+        self._upload_control = UploadControl()
         self.upload_progress.set(0)
         self.upload_status.configure(text="正在准备程序更新发布…")
 
@@ -3501,6 +3503,7 @@ class PublisherApplication(ctk.CTk):
                     version=version.strip(), kind=kind, package=package,
                     notes=notes, mandatory=mandatory,
                 )
+                self._update_publish_resume = (draft, mirror, target, owner, repository, token)
                 if mirror:
                     self._publish_update_mirror(draft)
                     published_target = "GitLink + GitHub"
@@ -3516,6 +3519,10 @@ class PublisherApplication(ctk.CTk):
                     published_target = target
                 self._post_ui(
                     lambda: self._publish_update_done(version.strip(), published_target)
+                )
+            except (UploadPaused, GitHubUploadPaused) as error:
+                self._post_ui(
+                    lambda value=str(error): self._publish_update_paused(value)
                 )
             except Exception as error:
                 self._post_ui(lambda message=str(error): self._publish_update_failed(message))
@@ -3693,6 +3700,10 @@ class PublisherApplication(ctk.CTk):
                             path,
                             replace_existing=True,
                             progress=callback,
+                            should_pause=lambda: bool(
+                                self._upload_control
+                                and self._upload_control.pause_requested
+                            ),
                         )
                         callback(path.stat().st_size, path.stat().st_size)
         elif target == "gitlink":
@@ -3707,6 +3718,7 @@ class PublisherApplication(ctk.CTk):
                             release_name,
                             path,
                             progress=callback,
+                            control=self._upload_control,
                         )
                         callback(path.stat().st_size, path.stat().st_size)
         else:
@@ -3725,6 +3737,138 @@ class PublisherApplication(ctk.CTk):
         message = f"程序更新 {version} 已发布到 {target} 的 {UPDATE_RELEASE_TAG} Release"
         self._log(message)
         messagebox.showinfo("程序更新发布完成", message, parent=self)
+
+
+    def _default_update_notes(self, version: str, kind: str) -> str:
+        """Default release notes the maintainer can edit before publishing."""
+        if kind == "module":
+            return f"\u300c{version}\u300d\u6a21\u5757\u66f4\u65b0\uff1a\u4fee\u590d\u95ee\u9898\u5e76\u4f18\u5316\u4f7f\u7528\u4f53\u9a8c\uff0c\u5efa\u8bae\u5c3d\u5feb\u66f4\u65b0\u3002"
+        return f"\u300c{version}\u300d\u7248\u672c\u66f4\u65b0\uff1a\u4fee\u590d\u95ee\u9898\u5e76\u4f18\u5316\u4f7f\u7528\u4f53\u9a8c\uff0c\u5efa\u8bae\u5c3d\u5feb\u66f4\u65b0\u3002"
+
+    def _ask_update_notes(self, version: str, kind: str) -> tuple[str, bool] | None:
+        """Custom styled dialog: editable default notes + mandatory checkbox."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("\u7a0b\u5e8f\u66f4\u65b0\u53d1\u5e03")
+        dialog.geometry("660x480")
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        result: dict[str, object] = {}
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"\u5df2\u8bc6\u522b\uff1a\u7248\u672c {version} \u00b7 \u7c7b\u578b {kind}",
+            font=ctk.CTkFont(size=17, weight="bold"),
+        ).pack(anchor="w", padx=28, pady=(22, 2))
+        ctk.CTkLabel(
+            dialog,
+            text="\u66f4\u65b0\u8bf4\u660e\uff08\u9ed8\u8ba4\u5df2\u751f\u6210\uff0c\u53ef\u76f4\u63a5\u4fee\u6539\uff09\uff1a",
+            anchor="w",
+        ).pack(anchor="w", padx=28, pady=(6, 4))
+
+        textbox = ctk.CTkTextbox(
+            dialog, width=600, height=230, font=ctk.CTkFont(size=14)
+        )
+        textbox.pack(padx=28, pady=(4, 12))
+        textbox.insert("1.0", self._default_update_notes(version, kind))
+
+        mandatory_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            dialog,
+            text="\u5f3a\u5236\u6b64\u7248\u672c\u66f4\u65b0\uff08\u7528\u6237\u65e0\u6cd5\u8df3\u8fc7\uff09",
+            variable=mandatory_var,
+            font=ctk.CTkFont(size=13),
+        ).pack(anchor="w", padx=28, pady=(0, 16))
+
+        button_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_row.pack(fill="x", padx=28, pady=(0, 22))
+
+        def confirm() -> None:
+            notes_text = textbox.get("1.0", "end").strip()
+            result["value"] = (notes_text, bool(mandatory_var.get()))
+            dialog.destroy()
+
+        def cancel() -> None:
+            dialog.destroy()
+
+        ctk.CTkButton(
+            button_row, text="\u53d6\u6d88", width=110, fg_color="#9E9E9E",
+            command=cancel,
+        ).pack(side="right", padx=(10, 0))
+        ctk.CTkButton(
+            button_row, text="\u786e\u8ba4\u53d1\u5e03", width=140,
+            command=confirm,
+        ).pack(side="right")
+        dialog.wait_window()
+        value = result.get("value")
+        return value if isinstance(value, tuple) else None
+
+    def _publish_update_paused(self, message: str) -> None:
+        with self._pending_upload_progress_lock:
+            self._pending_upload_progress = None
+        self._upload_control = None
+        publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        self._set_publish_buttons_available(False)
+        publish_button.configure(state="disabled", text="\u53d1\u5e03\u5df2\u6682\u505c")
+        self.publish_update_button.configure(state="disabled", text="\u53d1\u5e03\u5df2\u6682\u505c")
+        self.publish_update_mirror_button.configure(state="disabled")
+        pause_button.configure(state="normal", text="\u7ee7\u7eed\u53d1\u5e03")
+        status_label.configure(text="\u5df2\u6682\u505c\uff1b\u7ee7\u7eed\u65f6\u4f1a\u4ece\u5934\u91cd\u65b0\u4e0a\u4f20")
+        self._log(f"{message}\u3002\u5df2\u6682\u505c\uff1b\u70b9\u51fb\u7ee7\u7eed\u53d1\u5e03\u5c06\u91cd\u65b0\u4e0a\u4f20\u3002")
+
+    def _resume_update_publish(self) -> None:
+        resume = getattr(self, "_update_publish_resume", None)
+        if resume is None:
+            return
+        draft, mirror, target, owner, repository, token = resume
+        if not self._begin_background_mutation(
+            "update-publish", "\u6b63\u5728\u7ee7\u7eed\u53d1\u5e03\u7a0b\u5e8f\u66f4\u65b0"
+        ):
+            return
+        self._upload_control = UploadControl()
+        self.upload_progress.set(0)
+        self.upload_status.configure(text="\u6b63\u5728\u7ee7\u7eed\u53d1\u5e03\u7a0b\u5e8f\u66f4\u65b0\u2026")
+        publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        pause_button.configure(state="normal", text="\u6682\u505c\u53d1\u5e03")
+        self._log("\u7ee7\u7eed\u53d1\u5e03\uff1a\u91cd\u65b0\u4e0a\u4f20\uff08GitHub \u8986\u76d6\u3001GitLink \u590d\u7528\uff09\u3002")
+
+        def worker() -> None:
+            try:
+                if mirror:
+                    self._publish_update_mirror(draft)
+                    published_target = "GitLink + GitHub"
+                else:
+                    manifest = write_update_manifest(
+                        self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
+                        channel="stable",
+                        releases=[draft.release_dict(release_asset_url(
+                            target, owner, repository, draft.package.name
+                        ))],
+                    )
+                    self._publish_update_target(
+                        target, owner, repository, token,
+                        draft.package, manifest,
+                    )
+                    published_target = target
+                self._post_ui(
+                    lambda: self._publish_update_done(draft.version, published_target)
+                )
+            except (UploadPaused, GitHubUploadPaused) as error:
+                self._post_ui(
+                    lambda value=str(error): self._publish_update_paused(value)
+                )
+            except Exception as error:
+                self._post_ui(
+                    lambda message=str(error): self._publish_update_failed(message)
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="resume-update-publish"
+        ).start()
 
     def _publish_update_failed(self, message: str) -> None:
         with self._pending_upload_progress_lock:
@@ -4170,6 +4314,9 @@ class PublisherApplication(ctk.CTk):
             control.request_pause()
             pause_button.configure(state="disabled", text="正在暂停…")
             status_label.configure(text="正在中止当前文件上传…")
+            return
+        if getattr(self, "_update_publish_resume", None) is not None:
+            self._resume_update_publish()
             return
         github_context = self._github_publish_resume_context
         if github_context is not None:
