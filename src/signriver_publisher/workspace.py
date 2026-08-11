@@ -1074,6 +1074,13 @@ class PublisherWorkspace:
             recorded_casefold.add(folded)
 
         target = self.output_dir / profile.game_id
+        # Sweep leftovers from interrupted atomic writes; they would break the
+        # exact filename-set invariant checked below.
+        for stale in target.glob("*.tmp"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
         # catalog.json is a derived final attachment, generated from the
         # verified build assets after this check. It is deliberately not part
         # of the immutable build-complete evidence to avoid a self-reference.
@@ -1559,8 +1566,22 @@ class PublisherWorkspace:
     @staticmethod
     def _atomic_json(path: Path, value: object) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent, suffix=".tmp", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-            temporary = Path(handle.name)
-        temporary.replace(path)
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", delete=False, dir=path.parent, suffix=".tmp", encoding="utf-8"
+            ) as handle:
+                json.dump(value, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                temporary = Path(handle.name)
+            try:
+                temporary.replace(path)
+            except OSError:
+                # Windows can transiently lock the target (antivirus scan,
+                # preview pane, or a second publisher instance). Retry once
+                # before surfacing the error to the user.
+                time.sleep(0.5)
+                temporary.replace(path)
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink(missing_ok=True)
