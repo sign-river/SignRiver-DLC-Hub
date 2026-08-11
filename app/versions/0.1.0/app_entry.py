@@ -725,13 +725,14 @@ class DlcHubApplication:
         # Top-centered snackbar for task completion/error feedback: visible in
         # the user's current view, colored, auto-dismissing, no modal popup.
         self.snackbar = ctk.CTkFrame(
-            self.window, fg_color=UI["success"], corner_radius=8
+            self.window, fg_color=UI["success"], corner_radius=12, border_width=0
         )
         self.snackbar_label = ctk.CTkLabel(
             self.snackbar,
             text="",
             text_color="#FFFFFF",
             font=ctk.CTkFont(size=15, weight="bold"),
+            wraplength=560,
         )
         self.snackbar_label.pack(padx=24, pady=10)
         self.snackbar.place_forget()
