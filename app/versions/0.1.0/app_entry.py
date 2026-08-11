@@ -739,6 +739,13 @@ class DlcHubApplication:
         )
         self.game_selector.set(self.selected_game_name)
         self.game_selector.pack(side="left", padx=(10, 0))
+        self.export_games_button = ctk.CTkButton(
+            selector_row,
+            text="导出支持列表",
+            command=self._export_supported_games,
+            width=104,
+        )
+        self.export_games_button.pack(side="left", padx=(10, 0))
         self.platform_status = ctk.CTkLabel(
             selector_row,
             text=f"{self.cartridge.platform_name} · App {self.cartridge.store_app_id}",
@@ -1731,6 +1738,24 @@ class DlcHubApplication:
         self.window.clipboard_append(group_number)
         self.window.update_idletasks()
         self._notify(f"QQ群号已复制：{group_number}")
+
+    def _export_supported_games(self) -> None:
+        names = [
+            info.get("display_name") or name
+            for name, info in self.supported_games.items()
+        ]
+        if not names:
+            self._notify("当前没有可导出的游戏列表")
+            return
+        lines = ["本软件当前支持的游戏："]
+        lines.extend(f"· {name}" for name in names)
+        clipboard_text = "\n".join(lines)
+        self.window.clipboard_clear()
+        self.window.clipboard_append(clipboard_text)
+        self.window.update_idletasks()
+        self._notify(
+            f"已复制 {len(names)} 款游戏列表到剪贴板"
+        )
 
     def _open_qq_group_hint(self) -> None:
         if QQ_GROUP_JOIN_URL:
