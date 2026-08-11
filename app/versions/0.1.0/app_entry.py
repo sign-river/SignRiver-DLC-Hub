@@ -2825,7 +2825,7 @@ class DlcHubApplication:
         icon = "\u26a0\ufe0f " if error else "\u2705 "
         snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
         self.snackbar_label.configure(text=f"{icon}{message}")
-        snackbar.place(relx=1.0, rely=0.19, anchor="ne", relwidth=0.5)
+        snackbar.place(relx=1.0, rely=0.17, anchor="ne", relwidth=0.33)
         snackbar.lift()
         if error:
             self.window.bell()
