@@ -725,7 +725,7 @@ class DlcHubApplication:
         # Top-centered snackbar for task completion/error feedback: visible in
         # the user's current view, colored, auto-dismissing, no modal popup.
         self.snackbar = ctk.CTkFrame(
-            self.status_band, fg_color=UI["success"], corner_radius=8
+            self.window, fg_color=UI["success"], corner_radius=8
         )
         self.snackbar_label = ctk.CTkLabel(
             self.snackbar,
@@ -2825,7 +2825,7 @@ class DlcHubApplication:
         icon = "\u26a0\ufe0f " if error else "\u2705 "
         snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
         self.snackbar_label.configure(text=f"{icon}{message}")
-        snackbar.place(relx=0.5, rely=0.5, anchor="center")
+        snackbar.place(relx=1.0, rely=0.02, anchor="ne", x=-16)
         snackbar.lift()
         if error:
             self.window.bell()
