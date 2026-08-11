@@ -1,0 +1,28 @@
+# 全局约定
+
+- 所有对用户的回复一律使用中文（代码、命令、报错原文、专有名词除外）。
+
+# 构建 / 发布流程约定（所有 AI 必须遵守）
+
+## 更新说明（重要）
+
+- 每次构建新版本（例如 0.1.6）并准备发布时，**必须同步完善** `publisher-workspace/update-notes.json` 中该版本的更新说明：
+  - 键为版本号（如 `"0.1.6"`），值为面向普通用户的**中文说明**，列出本次改动要点（修复、新增、优化），结尾加"建议尽快更新。"。
+  - 该文件是发布器「程序更新发布」对话框的默认文案来源，用户只负责修改/确认，不应从零手写。
+  - `publisher-workspace/` 被 Git 忽略，文件仅存于本地工作区，但每次构建都必须维护它。
+
+## 标准构建步骤
+
+1. 改代码先改 `app/versions/0.1.0/`（唯一被 Git 跟踪的模块源码），再同步到目标版本目录（如 `app/versions/0.1.6/`）。
+2. 更新 `publisher-workspace/update-notes.json` 中该版本说明。
+3. `tools/build_module.py --all-versions app\versions`（构建模块归档，清理 `dist/modules` 中的 `0.1.0` 产物）。
+4. `tools/build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64`（全量更新包）。
+5. `tools/prepare_update_release.py dist\updates\SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip --version <版本> --kind full --min-launcher-version 0.1.2 --notes "<更新说明>"`（双源清单，notes 与 update-notes.json 保持一致）。
+6. 同步 `config/module-archives.json` 的 `sha256` / `size`（模块维护基线：最近 2~3 个版本）。
+
+## 其他注意
+
+- 版本切换需同步：`src/signriver_launcher/constants.py` 的 `LAUNCHER_VERSION`、`app/state.json` 的 `active_version`（并清空 `bad_versions`）。
+- 发布器界面代码在 `src/signriver_publisher/`；改完用 `tools/build_publisher.py --upx-dir ...` 重新构建 `dist/publisher/SignRiver-Publisher.exe`。
+- 客户端 UI 代码在 `app/versions/0.1.0/app_entry.py`；改动后同步到目标版本目录再构建。
+- 发布器暂停按钮 / 更新说明对话框等上传流程如有改动，必须跑 `tests/test_publisher_ui_threading.py`。
