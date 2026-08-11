@@ -3718,7 +3718,7 @@ class PublisherApplication(ctk.CTk):
                             release_name,
                             path,
                             progress=callback,
-                            control=self._upload_control,
+                            control=getattr(self, "_upload_control", None),
                         )
                         callback(path.stat().st_size, path.stat().st_size)
         else:

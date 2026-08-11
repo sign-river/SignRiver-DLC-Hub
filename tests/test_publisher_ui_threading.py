@@ -156,7 +156,7 @@ def test_update_target_reports_github_upload_progress(monkeypatch, tmp_path) -> 
             return object()
 
         def upload_asset(
-            self, release, path, *, replace_existing, progress
+            self, release, path, *, replace_existing, progress, should_pause=None
         ):
             progress(path.stat().st_size, path.stat().st_size)
 
@@ -184,7 +184,7 @@ def test_update_target_reports_gitlink_upload_progress(monkeypatch, tmp_path) ->
             pass
 
         def upload_file_to_release(
-            self, tag, release_name, path, *, progress
+            self, tag, release_name, path, *, progress, control=None
         ):
             progress(path.stat().st_size, path.stat().st_size)
 
