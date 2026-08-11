@@ -3474,9 +3474,6 @@ class PublisherApplication(ctk.CTk):
         if asked is None:
             return
         notes, mandatory = asked
-        mandatory = messagebox.askyesno(
-            "程序更新", "是否强制此版本更新？", parent=self
-        )
         operation = "正在镜像发布程序更新" if mirror else "正在发布程序更新"
         if not self._begin_background_mutation("update-publish", operation):
             return
@@ -3732,6 +3729,12 @@ class PublisherApplication(ctk.CTk):
             text=f"程序更新 {version} 已发布完成 · {target}"
         )
         self._end_background_mutation("update-publish")
+        self._upload_control = None
+        self._update_publish_resume = None
+        _publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        pause_button.configure(state="disabled", text="\u6682\u505c\u53d1\u5e03")
         self.publish_update_button.configure(state="normal", text="单源发布程序更新")
         self.publish_update_mirror_button.configure(state="normal")
         message = f"程序更新 {version} 已发布到 {target} 的 {UPDATE_RELEASE_TAG} Release"
@@ -3807,6 +3810,7 @@ class PublisherApplication(ctk.CTk):
         with self._pending_upload_progress_lock:
             self._pending_upload_progress = None
         self._upload_control = None
+        self._end_background_mutation("update-publish")
         publish_button, pause_button, status_label, _progress_bar = (
             self._publish_scope_controls()
         )
@@ -3875,6 +3879,12 @@ class PublisherApplication(ctk.CTk):
             self._pending_upload_progress = None
         self.upload_status.configure(text="程序更新发布失败，请查看下方日志")
         self._end_background_mutation("update-publish")
+        self._upload_control = None
+        self._update_publish_resume = None
+        _publish_button, pause_button, status_label, _progress_bar = (
+            self._publish_scope_controls()
+        )
+        pause_button.configure(state="disabled", text="\u6682\u505c\u53d1\u5e03")
         self.publish_update_button.configure(state="normal", text="单源发布程序更新")
         self.publish_update_mirror_button.configure(state="normal")
         self._log(f"程序更新发布失败：{message}")
