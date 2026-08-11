@@ -721,6 +721,20 @@ class DlcHubApplication:
         self.page_host = ctk.CTkFrame(container, fg_color=UI["page"], corner_radius=0)
         self.page_host.pack(fill="both", expand=True)
 
+        # Top-centered snackbar for task completion/error feedback: visible in
+        # the user's current view, colored, auto-dismissing, no modal popup.
+        self.snackbar = ctk.CTkFrame(
+            self.page_host, fg_color=UI["success"], corner_radius=10
+        )
+        self.snackbar_label = ctk.CTkLabel(
+            self.snackbar,
+            text="",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        self.snackbar_label.pack(padx=20, pady=10)
+        self.snackbar.place_forget()
+
         game_card = _card(self.page_host)
         self.game_card = game_card
         game_card.pack(fill="x", pady=(0, 18))
@@ -2790,16 +2804,34 @@ class DlcHubApplication:
     def _notify(self, message: str, *, error: bool = False) -> None:
         self.notice_serial += 1
         serial = self.notice_serial
-        self.global_notice.configure(
-            text=message,
-            text_color=UI["danger"] if error else UI["success"],
-        )
+        snackbar = getattr(self, "snackbar", None)
+        if snackbar is None:
+            # Fallback before the UI is fully built.
+            self.global_notice.configure(
+                text=message,
+                text_color=UI["danger"] if error else UI["success"],
+            )
+            if error:
+                self.window.bell()
+            self.window.after(
+                6000,
+                lambda serial=serial: (
+                    self.global_notice.configure(text="")
+                    if serial == self.notice_serial else None
+                ),
+            )
+            return
+        icon = "\u26a0\ufe0f " if error else "\u2705 "
+        snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
+        self.snackbar_label.configure(text=f"{icon}{message}")
+        snackbar.place(relx=0.5, rely=0.01, anchor="n", relwidth=0.92)
+        snackbar.lift()
         if error:
             self.window.bell()
         self.window.after(
-            6000,
+            6000 if error else 4000,
             lambda serial=serial: (
-                self.global_notice.configure(text="")
+                snackbar.place_forget()
                 if serial == self.notice_serial else None
             ),
         )
