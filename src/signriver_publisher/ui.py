@@ -135,7 +135,6 @@ class PublisherApplication(ctk.CTk):
             | None
         ) = None
         self._active_publish_scope = "game"
-        self._upload_control = UploadControl()
         self._upload_sample: tuple[str, int, float] | None = None
         self._upload_speed = 0.0
         self._publish_advanced_visible = False
