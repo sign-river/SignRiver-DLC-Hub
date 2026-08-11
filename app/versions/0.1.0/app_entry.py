@@ -731,9 +731,9 @@ class DlcHubApplication:
             self.snackbar,
             text="",
             text_color="#FFFFFF",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(size=15, weight="bold"),
         )
-        self.snackbar_label.pack(padx=16, pady=4)
+        self.snackbar_label.pack(padx=28, pady=12)
         self.snackbar.place_forget()
 
         game_card = _card(self.page_host)
@@ -2825,7 +2825,7 @@ class DlcHubApplication:
         icon = "\u26a0\ufe0f " if error else "\u2705 "
         snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
         self.snackbar_label.configure(text=f"{icon}{message}")
-        snackbar.place(relx=1.0, rely=0.02, anchor="ne", x=-16)
+        snackbar.place(relx=0.5, rely=0.13, anchor="n", relwidth=0.78)
         snackbar.lift()
         if error:
             self.window.bell()
