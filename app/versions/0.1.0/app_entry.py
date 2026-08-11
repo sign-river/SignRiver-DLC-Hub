@@ -842,7 +842,7 @@ class DlcHubApplication:
         self.catalog_qq_hint_underline = ctk.CTkFrame(
             self.catalog_qq_hint_wrap, height=2, fg_color=UI["primary"]
         )
-        self.catalog_qq_hint_underline.pack(fill="x", padx=1, pady=(-5, 0))
+        self.catalog_qq_hint_underline.place(relx=0, rely=1.0, relwidth=1, y=-4)
         for widget in (self.catalog_qq_hint_wrap, self.catalog_qq_hint_button):
             widget.bind(
                 "<Button-1>", lambda _event: self._open_qq_group_hint()
