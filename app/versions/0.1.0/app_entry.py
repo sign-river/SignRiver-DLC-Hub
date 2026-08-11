@@ -471,7 +471,7 @@ class DlcHubApplication:
         self.window.after(350, self._scan_games)
         self.window.after(500, self._refresh_catalog)
         if self.context.updates.enabled and self.context.updates.check_on_startup:
-            self.window.after(800, self._check_update)
+            self.window.after(800, self._auto_check_update)
 
     @staticmethod
     def _center_on_desktop(
@@ -6557,6 +6557,24 @@ class DlcHubApplication:
     def _launch_game(self) -> None:
         webbrowser.open(f"steam://rungameid/{self.cartridge.store_app_id}")
 
+    def _auto_check_update(self) -> None:
+        """Startup update check with quiet retries so a mandatory update is
+        surfaced even when the network is slow on first launch."""
+        delays = (15_000, 45_000)
+
+        def run(remaining: tuple[int, ...]) -> None:
+            try:
+                release = self.context.updates.check()
+                self._post_ui(lambda release=release: self._on_checked(release))
+            except Exception as error:
+                self.context.logger.warning(
+                    "Startup update check failed: %s", error
+                )
+                if remaining:
+                    self.window.after(remaining[0], lambda: run(remaining[1:]))
+
+        run(delays)
+
     def _check_update(self) -> None:
         if not self.context.updates.enabled:
             messagebox.showinfo(
@@ -6587,12 +6605,21 @@ class DlcHubApplication:
         if release.mandatory:
             messagebox.showinfo(
                 "发现新版本",
-                f"检测到必须更新的版本 v{release.version}\n\n"
-                f"{release.notes or '即将自动开始安装。'}",
+                (
+                    f"\u68c0\u6d4b\u5230\u65b0\u7248\u672c v{release.version}"
+                    f"\uff08\u91cd\u8981\u66f4\u65b0\uff09\n\n"
+                    f"{release.notes or ''}\n\n"
+                    "\u672c\u6b21\u66f4\u65b0\u9700\u5b8c\u6210\u540e\u624d\u80fd"
+                    "\u7ee7\u7eed\u4f7f\u7528\uff0c\u6b63\u5728\u51c6\u5907\u5b89\u88c5"
+                    "\uff0c\u8bf7\u7a0d\u5019\u2026\u2026"
+                ),
                 parent=self.window,
             )
             self.status.configure(
-                text=f"检测到必须更新的版本 v{release.version}，正在安装……"
+                text=(
+                    f"\u6b63\u5728\u51c6\u5907\u5b89\u88c5 v{release.version}"
+                    f"\uff08\u91cd\u8981\u66f4\u65b0\uff09\u2026\u2026"
+                )
             )
         else:
             answer = messagebox.askyesno(
