@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import sys
 
@@ -22,8 +24,21 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     settings_path = discover_settings_path()
     settings = PublisherSettings.load(settings_path)
+    workspace = PublisherWorkspace(arguments.workspace)
+    log_dir = arguments.workspace / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_dir / "publisher.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     application = PublisherApplication(
-        PublisherWorkspace(arguments.workspace),
+        workspace,
         settings=settings,
         settings_path=settings_path,
     )
