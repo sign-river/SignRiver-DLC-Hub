@@ -1,122 +1,140 @@
 # 程序更新发布指南
 
-## 当前测试版本
+## 当前发布基线
 
-- 基线版本：`0.1.2`
-- 待测版本：`0.1.3`
-- 本次更新类型：`full`
-- 原因：验证修复后启动器的完整自动升级链路，并交付全量更新可靠性与双源发布流程
-  改进；需要发布包含新启动器的全量包。
+- 当前正式版本：`0.1.7`
+- 当前更新类型：`full`
+- 最低可自动全量更新的启动器版本：`0.1.2`
+- 模块维护基线：`0.1.5`、`0.1.6`、`0.1.7`
 
-`app/versions/0.1.0`、`app/versions/0.1.1` 和 `app/versions/0.1.2` 必须保留，
-作为 `0.1.3` 启动失败时的本地回滚版本。
+后续发布必须使用高于线上版本的新版本号。业务模块的唯一受控源码是 `app/versions/0.1.0/`；修改完成后复制到新的目标版本目录，不能直接把旧的已发布版本目录作为新源码继续修改。
+
+## 发布前同步
+
+假设新版本号为 `<版本>`：
+
+1. 修改 `app/versions/0.1.0/` 中的客户端代码。
+2. 将受控模块源码同步到 `app/versions/<版本>/`，并更新该目录的 `module.json`。
+3. 更新 `src/signriver_launcher/constants.py` 的 `LAUNCHER_VERSION`。
+4. 更新 `app/state.json` 的 `active_version`，清空 `bad_versions`。
+5. 在 `publisher-workspace/update-notes.json` 中写入面向普通用户的中文说明，结尾使用“建议尽快更新。”。
+6. 确认更新说明不会泄露内部路径、令牌或测试信息。
 
 ## 构建与准备
 
-> 说明：`build_release.py` 会自动从 PATH 查找 UPX（也可用 `--upx-dir` 显式指定）。
-> 没有 UPX 时启动器 EXE 不会压缩（约 177MB），构建会打印显式警告；
-> 安装 UPX 后 EXE 约 17MB、全量更新包约 19MB。UPX 仅需在构建机上使用，
-> 不随发布包分发。
-
-
-```powershell
-.\.venv\Scripts\python.exe tools\build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
-.\.venv\Scripts\python.exe tools\prepare_update_release.py `
-  dist\updates\SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip `
-  --version 0.1.3 --kind full --min-launcher-version 0.1.2 `
-  --notes "改进全量更新可靠性与双源发布流程"
-```
-
-## `updates` Release 上传清单
-
-两个平台使用同一个 Release 标签：`updates`。
-
-### GitLink
-
-仓库：`signriver/signriver-dlc-assets`
-
-上传：
-
-1. `dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-2. `dist/updates/gitlink/update-manifest.json`
-
-### GitHub
-
-仓库：`sign-river/signriver-dlc-assets`
-
-上传：
-
-1. `dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-2. `dist/updates/github/update-manifest.json`
-
-发布顺序必须是“两边先上传 ZIP，两边确认 ZIP 可下载，再上传各自清单”。发布器的
-“双源镜像发布程序更新”按钮已经按这个顺序执行。
-
-不要上传以下文件到 `updates` Release：
-
-- `唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64.zip`：这是带外层目录的首次安装包。
-- `唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64-自解压.exe`：这是首次安装自解压包。
-- GitLink 的清单不能上传到 GitHub，GitHub 的清单也不能上传到 GitLink；两者的
-  `package_url` 不同。
-
-## 历史模块归档
-
-历史 `app/versions/<version>` 可通过以下命令压缩，供构建留档与人工恢复使用：
+`build_release.py` 会自动从 PATH 查找 UPX，也可以用 `--upx-dir` 显式指定。未找到 UPX 时启动器不会压缩，构建会给出警告。
 
 ```powershell
 .\.venv\Scripts\python.exe tools\build_module.py --all-versions app\versions
+.\.venv\Scripts\python.exe tools\build_release.py `
+  --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
 ```
 
-在发布器中选择“发布模块归档”或“双源镜像归档”。发布器会读取 ZIP 根目录的
-`module.json` 自动识别版本。两个按钮默认绑定 `dist/modules/`：会校验并一次上传该
-目录中的全部 `SignRiver-DLC-Hub-module-v*.zip` 到独立的 `modules` Release；该操作
-不写入 `updates/update-manifest.json`，不会触发客户端更新。归档 ZIP 上传前仍应保留
-本地版本目录，直到下载、SHA-256 校验和构建恢复流程完成验收。
+`build_module.py --all-versions` 会构建所有本地版本，再清理 `dist/modules` 中不应发布的 `0.1.0` 产物。构建后将 `config/module-archives.json` 更新为最近三个发布版本的文件名、大小和 SHA-256。
 
-本次需将 `dist/modules/SignRiver-DLC-Hub-module-v0.1.3.zip` 上传到两个平台的
-`modules` Release，供干净源码环境按 `config/module-archives.json` 恢复构建。
+生成全量更新的双源清单时，PowerShell 直接传中文参数可能乱码，建议通过 Python `subprocess` 调用：
+
+```python
+import subprocess
+
+version = "<版本>"
+notes = "<与 update-notes.json 完全一致的中文更新说明>"
+subprocess.run(
+    [
+        r".venv\Scripts\python.exe",
+        r"tools\prepare_update_release.py",
+        rf"dist\updates\SignRiver-DLC-Hub-full-v{version}-windows-x64.zip",
+        "--version", version,
+        "--kind", "full",
+        "--min-launcher-version", "0.1.2",
+        "--notes", notes,
+        "--mandatory",
+    ],
+    check=True,
+)
+```
+
+## `updates` Release
+
+两个平台均使用 `updates` 标签：
+
+- GitLink：`signriver/signriver-dlc-assets`
+- GitHub：`sign-river/signriver-dlc-assets`
+
+每个平台上传：
+
+1. `dist/updates/SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip`
+2. 对应平台目录中的 `update-manifest.json`
+
+发布顺序必须是：
+
+1. GitLink 上传更新 ZIP。
+2. GitHub 上传更新 ZIP。
+3. 确认两个 ZIP 均可下载，且大小和 SHA-256 正确。
+4. 上传 GitLink 清单。
+5. 上传 GitHub 清单。
+
+发布器的“双源镜像发布程序更新”已按这个安全顺序执行。清单必须最后上传，否则客户端可能在 ZIP 尚不可用时发现新版本。
+
+以下文件不能放入 `updates` Release：
+
+- 带外层安装目录的首次安装 ZIP。
+- 首次安装自解压 EXE。
+- 另一个平台的清单；GitLink 与 GitHub 的 `package_url` 不同。
+
+## `modules` Release
+
+模块归档发布到独立的 `modules` 标签，不修改程序更新清单，也不会触发客户端更新。
+
+发布器会读取 ZIP 根目录的 `module.json` 自动识别版本。“发布模块归档”和“双源镜像归档”会校验并上传 `dist/modules/SignRiver-DLC-Hub-module-v*.zip`。
+
+必须保证：
+
+- `config/module-archives.json` 只维护最近三个发布版本。
+- 配置中的大小与 SHA-256 和本地归档一致。
+- 两个平台的同版本模块归档内容一致。
+- 远端归档验证和 CI 恢复测试完成前，不清理本地目标版本目录。
 
 ## 保留与删除
 
 必须保留：
 
-- 当前清单 `update-manifest.json`。
-- 当前清单引用的 `SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`。
-- 本地源码中的 `app/versions/0.1.0`、`app/versions/0.1.1`、
-  `app/versions/0.1.2` 和 `app/versions/0.1.3`。
-- 测试期间的 `0.1.2` 基线安装目录，不要在原目录覆盖安装新版。
-
-建议至少保留到下一版验证完成：
-
-- 上一个已经发布且验证通过的版本化更新 ZIP。
-- 对应版本的首次安装 ZIP/SFX（放在普通版本 Release，不放在 `updates`）。
-- `.update-backup/<transaction-id>`；确认升级和回滚测试完成后再清理。
+- 当前唯一的 `update-manifest.json`。
+- 当前清单引用的全量更新 ZIP。
+- 最近一个已验证版本的全量更新 ZIP，供回滚演练使用。
+- 最近三个模块归档。
+- 回滚测试结束前的 `.update-backup/<transaction-id>`。
 
 可以替换：
 
-- `update-manifest.json`：这是 `updates` Release 中唯一固定名称、每次发布都会替换
-  的文件。
-- 同版本号的测试 ZIP 可以在尚未对外开放时替换；一旦清单已公开，修改 ZIP 后必须
-  重新生成并最后上传清单，确保大小和 SHA-256 同步。
+- `update-manifest.json`，但只能在新 ZIP 已上传并完成校验后替换。
+- 尚未公开的同版本测试 ZIP；替换 ZIP 后必须重新生成清单。
 
-不要删除：
+不得删除或覆盖：
 
-- 当前清单仍引用的包。
-- 用户安装目录中的 `data/`、`cache/`、`app/state.json`、`config/update.json`。
-- 回滚测试尚未完成时的 `0.1.2` 模块或 `.update-backup`。
+- 当前清单仍引用的更新包。
+- 用户安装目录中的 `data/`、`cache/`、`app/state.json` 和用户更新源配置。
+- 回滚测试仍需使用的旧模块和事务备份。
 
-## 人工测试
+不得提交或上传：
 
-准备两个独立的 `0.1.2` 基线目录，一个选择 GitLink，一个选择 GitHub。可使用
-`dist/test-baselines-fixed-launcher-v0.1.2/` 下现有的两个固定启动器测试 ZIP；这些只用于
-本地测试，不要上传到公开 Release。
+- `publisher-workspace/`
+- `config/publisher.local.json`
+- `dist/publisher/publisher.local.json`
+- 本地更新测试基线
+- GitLink/GitHub 令牌或其他私有凭据
 
-1. 先只上传两边的 `0.1.3` ZIP，不上传清单；两个基线都应显示没有新版本或远端清单
-   尚不存在，不能开始升级。
-2. 上传 GitLink 清单。在 GitLink 基线点击“检查更新”，应发现 `0.1.3`；GitHub
-   基线此时不应读取 GitLink 的更新。
-3. 上传 GitHub 清单。GitHub 基线应发现同一个 `0.1.3`。
-4. 两边分别执行升级，确认程序退出、助手替换文件、自动启动，设置页显示 `0.1.3`。
-5. 切换下载源后再次检查更新，日志和网络请求应使用新平台。
-6. 至少模拟一次新模块启动失败，确认活动版本回到 `0.1.2`，受管文件恢复，用户
-   `data/`、缓存和下载源设置均未丢失。
+## 发布验收
+
+至少准备两个独立的旧版本安装目录，分别选择 GitLink 和 GitHub：
+
+1. 只上传两个平台的 ZIP、不上传新清单时，旧客户端不能发现新版本。
+2. 分别上传清单后，两边应发现相同版本，但从各自平台下载。
+3. 验证程序退出、更新助手替换文件、自动重启和版本显示。
+4. 验证下载源设置、`data/`、缓存和安装回执没有丢失。
+5. 模拟新模块启动失败，确认可以回退到任一可用旧版本。
+6. 模拟没有可用模块的情况，确认显示明确的修复提示。
+7. 重新计算更新 ZIP 和模块归档哈希，并与本地配置、双源清单核对。
+8. 运行 `pytest`、Ruff、`git diff --check` 和必要的冻结版 Windows E2E。
+
+发布包上传完成后再提交源码。默认由用户手工推送；只有用户明确要求“推送”或“提交并推送”时，AI 才能执行 `git push`。

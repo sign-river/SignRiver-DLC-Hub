@@ -1,95 +1,82 @@
 # SignRiver DLC Hub 当前进度
 
-更新时间：2026-08-09（Asia/Shanghai）
+更新时间：2026-08-14（Asia/Shanghai）
 
 ## 当前结论
 
-- 当前程序版本：`0.1.3`
+- 当前正式版本：`0.1.7`
 - Host API：`2`
-- 更新类型：`full`
-- `0.1.3` 已双源发布：2026-08-01 首次发布（23,550,648 字节 / `712cf5...`），2026-08-07 已用 UPX 小包替换（18,753,701 字节 / `baf1fb5e...`）。
-- 2026-08-09 已发布 0.1.3 最终全量包（18,757,762 字节 / `a3c14981...`，含回退链、修复提示、网络重试与错误分类优化），GitHub 与 GitLink 清单均已指向该哈希；两端 `modules` Release 的 v0.1.1/v0.1.2/v0.1.3 模块归档齐全且哈希一致。
-- 已修复 `tools/restore_module_archives.py` 的 GitLink 下载地址（去掉错误的 `/api/` 前缀，并按平台区分仓库所有者），实测可从 GitLink 恢复 v0.1.3 模块归档。
-- 已为 `tools/build_release.py` 接入 UPX 探测（`--upx-dir` / PATH）；本机 UPX 5.0.2 下构建产物：启动器 EXE 17,279,062 字节、全量更新包 18,753,701 字节（SHA256 `baf1fb5e...`）。
-- 两个平台的清单均指向各自平台的下载地址，不会跨源下载。
-- GitLink 的重复 `update-manifest.json` 已清理，目前只保留一份。
-- 源码修改尚未提交或推送，当前工作区不是干净状态。
+- 活动模块：`0.1.7`
+- 当前更新类型：`full`
+- Windows 客户端、启动器、全量更新和发布器已基本收尾。
+- GitLink/GitHub 清单均已生成并指向各自平台的 `0.1.7` 下载地址。
+- `0.1.7` 为强制更新，启动后会自动检查并静默重试，用户不必手工点击“检查更新”。
+- 模块维护基线为 `0.1.5`、`0.1.6`、`0.1.7`。
 
-## 已完成内容
+## 0.1.4—0.1.7 主要变化
 
-### 下载源与更新源联动
+### 0.1.4
 
-- 选择 GitLink 时，从 GitLink 获取清单并下载更新包。
-- 选择 GitHub 时，从 GitHub 获取清单并下载更新包。
-- 切换下载源后立即同步更新服务配置。
-- GitLink、GitHub 使用各自独立的 `package_url`。
+- 修复远程 Stellaris 卡带的 DLC 包校验参数兼容问题。
+- 默认卡带远程加载失败时回退到本地可用卡带，避免旧客户端离线启动失败。
 
-### 全量更新
+### 0.1.5
 
-- 修复 Windows 更新助手使用 `os.kill(pid, 0)` 导致的
-  `OSError: [WinError 6] 句柄无效`。
-- Windows 上改用 `OpenProcess + WaitForSingleObject` 等待旧程序退出，
-  不再误终止父进程。
-- 更新助手和更新后重启进程使用安全的空标准输入输出句柄。
-- 新版启动器使用更新包内的新 EXE 作为更新助手。
-- 已准备但尚未应用的残留事务会在下次启动时自动回滚清理。
-- 全量更新成功后会激活新模块；失败时恢复受管文件和旧活动版本。
-- `data/`、`cache/`、`app/state.json` 和用户更新源配置不由全量更新覆盖。
+- 接入强制更新流程，`mandatory` 更新不可跳过。
+- 下载速度、缓存和文件大小统一按 KB/MB/GB 自适应显示。
+
+### 0.1.6
+
+- 新增 QQ 交流群入口和“导出支持列表”。
+- 修复启动崩溃、主窗口不显示和空白闪烁问题。
+- 任务成功/失败反馈改为更醒目的彩色横幅。
+- 发布器增加滚动日志、更新上传暂停/继续、更新说明编辑和更可靠的临时文件清理。
+
+### 0.1.7
+
+- 启动后自动检查重要更新，并在失败时静默重试。
+- 优化强制更新提示文案，减少用户对程序不可用的误解。
+- 包含 `0.1.6` 的全部修复和界面优化。
+
+## 核心能力状态
+
+### 客户端
+
+- 五款出厂游戏卡带：群星、文明 6、钢铁雄心 4、都市：天际线、边缘世界。
+- Steam 安装发现、手动路径、安装实例持久化和路径健康检查。
+- GitLink/GitHub 双源卡带、公告、DLC、补丁和程序更新。
+- 单线程下载队列、任务恢复、暂停/取消、哈希校验、内容寻址缓存和坏包隔离。
+- DLC 事务化安装、覆盖备份、失败回滚、安装回执、审计、保守修复和安全卸载。
+- CreamAPI 补丁的一键安装、修复、移除和原版恢复。
+- 日志筛选、缓存清理、网络测速和脱敏诊断包导出。
+
+### 启动器与更新
+
+- 模块包安全解压、SHA-256 校验、原子激活和启动失败回滚。
+- 完整包受管文件清单、同卷暂存、磁盘空间预检和反序回滚。
+- Windows 临时更新助手可在主程序退出后替换运行中的启动器。
+- 更新后确认、残留事务恢复、多版本回退链和无可用模块时的修复提示。
+- `data/`、`cache/`、`app/state.json` 和用户下载源配置不由全量更新覆盖。
 
 ### 发布器
 
-- 程序更新上传已接入真实进度：
-  - 单源发布显示更新包与清单两个阶段。
-  - 双源发布显示 GitLink 包、GitHub 包、GitLink 清单、GitHub 清单四个阶段。
-  - 显示百分比、已传大小、总大小和上传速度。
-- 更新包选择后会自动读取：
-  - `release-manifest.json`：识别为 `full`。
-  - `module.json`：识别为 `module`。
-  - 元数据中的 `version`：自动作为发布版本。
-- 文件名中的版本和类型会与包内元数据交叉校验。
-- 不再手工输入版本号和 `full/module`，只需填写更新说明并选择是否强制更新。
-- GitLink 发布时会读取发行版编辑详情，取得可删除的附件 UUID。
-- 同名附件会先从 Release 中替换，再清理全部旧附件，避免固定下载链接继续返回旧清单。
-- GitHub 继续使用同名 Release Asset 替换机制。
+- DLC、补丁、AppInfo、公告和游戏卡带的工作区管理。
+- GitLink/GitHub Release 创建、附件替换、冗余附件清理和双源镜像。
+- 程序更新包自动识别版本与类型，校验文件名和包内元数据。
+- 程序更新真实上传进度、暂停/继续、更新说明草稿和强制更新选项。
+- 模块归档批量发布，以及双源更新清单的安全上传顺序。
 
-## 远端发布状态
+## 当前发布产物
 
-核验时间：2026-08-07；两个平台的 `updates` Release 均已发布 UPX 小包 `0.1.3`（18,753,701 字节 / SHA256 `baf1fb5e...`），清单一致。
+### 全量更新包
 
-### GitHub
+`dist/updates/SignRiver-DLC-Hub-full-v0.1.7-windows-x64.zip`
 
-- 清单状态：HTTP `200`
-- 清单版本：`0.1.3`
-- 类型：`full`
-- 下载包（18,753,701 字节 / `baf1fb5e...`）：
-  `https://github.com/sign-river/signriver-dlc-assets/releases/download/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-- `modules` Release：已创建，v0.1.1/v0.1.2/v0.1.3 模块归档全部存在，大小与 SHA256 和 `config/module-archives.json` 一致。
-
-### GitLink
-
-- 清单状态：HTTP `200`
-- 清单版本：`0.1.3`
-- 类型：`full`
-- 下载包（18,753,701 字节 / `baf1fb5e...`）：
-  `https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-- `modules` Release：v0.1.1/v0.1.2/v0.1.3 模块归档全部存在，大小与 SHA256 和 `config/module-archives.json` 一致。
-- `update-manifest.json` 数量：`1`
-
-GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
-属于平台自动生成的源码归档，不是客户端更新包。
-
-## 当前产物
-
-### 客户端全量更新包
-
-路径：
-
-`dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-
-- 大小：`18,757,762` 字节（2026-08-09 最终版：含回退链、修复提示、网络重试与错误分类优化）
-- SHA256：
-  `a3c14981a2b6ebe62391779f54cf1a898227b8223f781f10d25b3d781367667c`
-- 注：已上传 GitHub 与 GitLink，两端清单均指向本哈希（E2E 验收通过）。
+- 大小：`18,962,658` 字节
+- SHA-256：`8c843e7af2a339722d5397154d510509e8f31cbda4bd23ba7f47591ed3482b92`
+- 更新类型：`full`
+- 最低启动器版本：`0.1.2`
+- 强制更新：是
 
 对应清单：
 
@@ -98,114 +85,65 @@ GitLink 的 `updates.ZIP`、`updates.TAR.gz` 以及 GitHub 的 Source code
 
 ### 首次安装包
 
-- `dist/唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64.zip`
-- `dist/唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64-自解压.exe`
+- `dist/唏嘘南溪DLC一键解锁工具-v0.1.7-windows-x64.zip`：`18,989,212` 字节
+- `dist/唏嘘南溪DLC一键解锁工具-v0.1.7-windows-x64-自解压.exe`：`30,341,226` 字节
 
 ### 模块归档
 
-- `dist/modules/SignRiver-DLC-Hub-module-v0.1.3.zip`
-- 大小：`185,288` 字节（2026-08-08 重新打包，包含 static_manifest 与当前 UI）
-- SHA256：
-  `e99c55c05dd36535bf47c3c32bddbbd54a6a4c1e5242bd9946eac05bb6426386`
+`dist/modules/SignRiver-DLC-Hub-module-v0.1.7.zip`
+
+- 大小：`187,755` 字节
+- SHA-256：`cf2d2a93e67b790c852b79df35646fb2ee3499112be9c6627e35e1f9406b4844`
 
 ### 发布器
 
-路径：
-
 `dist/publisher/SignRiver-Publisher.exe`
 
-- 大小：`15,249,225` 字节（2026-08-09 UPX 重建）
-- SHA256：
-  `8e4c72f1b67cb0c99024ce6233ca53b13ea100047bfdfe18c8d462eaed806e75`
-
-### 更新测试基线
-
-- `dist/test-baselines-fixed-launcher-v0.1.2/SignRiver-test-baseline-v0.1.1-gitlink.zip`
-- `dist/test-baselines-fixed-launcher-v0.1.2/SignRiver-test-baseline-v0.1.1-github.zip`
-
-这些基线只用于本地更新测试，不得上传到公开 Release。
+- 大小：`15,300,633` 字节
+- SHA-256：`53616697761fc05ad41e96c96730e1d542554788c46580ab140dddac6dcbfe0e`
 
 ## 验证结果
 
-- 完整测试：`472` 项通过。
-- Ruff 静态检查：通过。
-- Git diff whitespace 检查：通过。
-- 冻结版全量更新端到端测试：
-  - 父进程退出码：`0`
-  - 更新助手退出码：`0`
-  - 更新事务状态：`confirmed`
-  - 活动版本：`0.1.2`
-  - 未再出现 `WinError 6`
-- `0.1.3` 更新包结构、ZIP 完整性、内部版本和双源清单哈希校验通过。
-- 更新包自动识别实测：
-  - 版本：`0.1.3`
-  - 类型：`full`
-- GitLink 编辑接口实测可取得重复清单对应的两个附件 UUID，并完成同名清理。
+- 完整测试：`510 passed in 9.11s`（2026-08-14）。
+- `0.1.7` 全量包的本地大小和 SHA-256 与 GitLink/GitHub 清单一致。
+- 两份清单使用相同版本、更新说明、强制更新标志和哈希，但分别指向各自平台。
+- `config/module-archives.json` 记录的 `0.1.7` 模块大小和 SHA-256 与本地归档一致。
+- 既有真实安装目录 E2E 已覆盖双源升级、下载源保留、更新助手替换、模块损坏回退链和修复提示。
 
-## 已知限制
+## 已知边界
 
-### 旧启动器不能通过全量更新自我修复
+### 旧启动器无法自我修复
 
-旧版 `0.1.0` 启动器会复制自己的旧 EXE 作为更新助手，因此它在执行全量更新时仍会触发
-旧的 Windows 句柄错误。这个缺陷无法只靠替换远端 ZIP 修复已经安装的旧启动器。
+`0.1.0` 旧启动器会复制自己的旧 EXE 作为更新助手，因此不能只依靠远端全量 ZIP 修复其 Windows 句柄错误。`0.1.0` 用户需要先手工安装不低于 `0.1.2` 的版本；从 `0.1.2` 起，后续全量自动更新使用更新包中的新版助手。
 
-处理方式：
+### 跨平台尚未完成真机验收
 
-- `0.1.2` 作为新的首次安装版本提供。
-- 已安装旧版的测试用户需要手动安装 `0.1.2`。
-- 从 `0.1.2` 开始，后续全量自动更新使用更新包中的新助手，可以正常升级。
-- `fixed-launcher-v0.1.2` 测试基线仅用于验证修复后的更新链路，不代表旧
-  `0.1.0` 能直接自愈。
-
-### 程序更新上传暂停
-
-普通资源发布仍支持暂停和继续。程序更新发布目前显示实时进度，但不支持中途暂停。
+受控模块源码已加入 SteamOS SmokeAPI 和 macOS icecream 的补丁数据模型、配置解析与单元测试，但当前正式交付和端到端验收仍以 Windows 为主。
 
 ## 上传与保留规则
 
-### 应上传
+应发布：
 
-- 普通程序 Release：
-  - `唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64.zip`
-  - `唏嘘南溪DLC一键解锁工具-v0.1.3-windows-x64-自解压.exe`
-- `updates` Release：
-  - `SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip`
-  - 对应平台的 `update-manifest.json`
-- `modules` Release：
-  - `SignRiver-DLC-Hub-module-v0.1.3.zip`
+- 普通 Release：`0.1.7` 首次安装 ZIP 和自解压 EXE。
+- `updates` Release：`0.1.7` 全量更新 ZIP，以及对应平台的唯一 `update-manifest.json`。
+- `modules` Release：模块维护基线中列出的三个模块归档。
 
-使用新版发布器的“双源镜像发布更新”时，更新 ZIP 和两份清单会自动按安全顺序上传。
+必须保留：
 
-### 应保留
+- 当前清单及其引用的全量更新包。
+- 最近三个可用模块归档：`0.1.5`、`0.1.6`、`0.1.7`。
+- 回滚测试未完成时的 `.update-backup/`。
 
-- 源码中的：
-  - `app/versions/0.1.0`
-  - `app/versions/0.1.1`
-  - `app/versions/0.1.2`
-  - `app/versions/0.1.3`
-- 远端版本化更新包：
-  - `SignRiver-DLC-Hub-full-v0.1.1-windows-x64.zip`
-  - `SignRiver-DLC-Hub-full-v0.1.2-windows-x64.zip`
-- 当前唯一的 `update-manifest.json`
-- 回滚测试未结束前的 `.update-backup/`
-
-### 禁止上传
+禁止提交或上传：
 
 - `dist/publisher/publisher.local.json`
 - `config/publisher.local.json`
 - `publisher-workspace/`
-- `dist/test-baselines/`
-- `dist/test-baselines-fixed-launcher-v0.1.2/`
-- 任何包含 GitLink/GitHub 私有令牌的文件
+- 本地更新测试基线
+- 任何 GitLink/GitHub 私有令牌
 
-## 验收状态
+## 后续方向
 
-- 真实安装目录 E2E 验收已通过（2026-08-09）：GitLink/GitHub 双源 0.1.2 → 0.1.3 升级、下载源保留、模块损坏回退链（0.1.3 → 0.1.2 → 0.1.1）、无可用版本时的修复提示均符合预期。
-
-## 后续建议
-
-1. 使用新版发布器先向 GitLink 和 GitHub 上传 `0.1.3` ZIP，确认可下载后再上传清单。
-2. 从两个独立的 `0.1.2` 安装目录分别执行 `0.1.2 → 0.1.3`。
-3. 验证更新后自动启动、版本显示、下载源保留和回滚。
-4. 检查工作区差异后提交源码，并分别推送到 GitLink 和 GitHub。
-5. 提交前确认私有配置和测试基线未被加入 Git。
+1. Windows 端进入以维护、缺陷修复和新增游戏卡带为主的阶段。
+2. 新版本继续执行源码同步、更新说明、模块归档、全量包、双源清单和回滚验收的完整流程。
+3. SteamOS/macOS 需完成真机游戏目录、补丁安装、恢复和卸载验证后再宣布正式支持。

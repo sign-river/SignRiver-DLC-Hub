@@ -47,6 +47,7 @@ src/signriver_publisher/workspace.py
 tests/test_announcement_service.py
 tests/test_cache_maintenance.py
 tests/test_cartridge_catalog.py
+tests/test_cartridge_default_fallback.py
 tests/test_cleanup_legacy_test_cache_script.py
 tests/test_diagnostics.py
 tests/test_dlc_catalog.py
@@ -62,10 +63,12 @@ tests/test_install_receipt_persistence.py
 tests/test_install_service.py
 tests/test_loader.py
 tests/test_log_reader.py
+tests/test_main.py
 tests/test_multi_game_cartridges.py
 tests/test_net_errors.py
 tests/test_original_restore.py
 tests/test_patch_engine.py
+tests/test_patch_platforms.py
 tests/test_persistence.py
 tests/test_product_packaging.py
 tests/test_publisher_acceptance.py
@@ -77,10 +80,13 @@ tests/test_publisher_updates.py
 tests/test_publisher_workspace.py
 tests/test_release_build.py
 tests/test_release_sources.py
+tests/test_restore_module_archives.py
 tests/test_speed_test.py
 tests/test_state.py
 tests/test_stellaris_adapter.py
+tests/test_stellaris_remote_verifier.py
 tests/test_ui_theme.py
+tests/test_ui_units_mandatory.py
 tests/test_update_config.py
 tests/test_updater.py
 tests/test_user_settings.py

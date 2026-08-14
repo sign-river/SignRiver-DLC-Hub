@@ -12,9 +12,10 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 ├── app/
 │   ├── state.json
 │   └── versions/
-│       ├── 0.1.0/               # 保留的回滚版本
-│       ├── 0.1.1/               # 上一版本（保留用于回滚）
-│       └── 0.1.3/               # 当前版本
+│       ├── 0.1.0/               # Git 跟踪的模块源码
+│       ├── 0.1.5/               # 回滚版本
+│       ├── 0.1.6/               # 上一版本
+│       └── 0.1.7/               # 当前版本
 ├── config/
 │   ├── update.json
 │   ├── announcement.json        # 出厂公告（可被远程 hub 覆盖）
@@ -62,13 +63,13 @@ python -m pytest
 
 ```bash
 python tools/build_release.py  # 需要 PATH 中有 UPX（或 --upx-dir 指定），否则 EXE 约 177MB
-python tools/build_module.py app/versions/0.1.3
+python tools/build_module.py --all-versions app/versions
 ```
 
 `build_release.py` 会同时生成首次安装包和根目录结构不同的专用全量更新包。首次安装 ZIP/SFX 不能上传为 `kind: full` 更新。为同一个更新包生成匹配的 GitLink/GitHub 清单：
 
 ```bash
-python tools/prepare_update_release.py dist/updates/SignRiver-DLC-Hub-full-v0.1.3-windows-x64.zip --version 0.1.3 --kind full --min-launcher-version 0.1.2 --notes "改进全量更新可靠性与双源发布流程"
+python tools/prepare_update_release.py dist/updates/SignRiver-DLC-Hub-full-v0.1.7-windows-x64.zip --version 0.1.7 --kind full --min-launcher-version 0.1.2 --notes "启动自动检查重要更新并优化更新提示" --mandatory
 ```
 
 把专用全量更新 ZIP 原样上传到两个平台的 `updates` Release；GitLink 上传 `dist/updates/gitlink/update-manifest.json`，GitHub 上传 `dist/updates/github/update-manifest.json`。详细的保留和删除规则见 [程序更新发布指南](docs/program-update-release-guide.md)。
