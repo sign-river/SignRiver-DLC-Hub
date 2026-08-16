@@ -87,7 +87,7 @@ def test_client_registry_contains_independent_cartridges() -> None:
     assert v3.patch_profile.install_relative_dir == "binaries"
     workers = cartridges["workers_resources_soviet_republic"]
     assert workers.store_app_id == "784150"
-    assert workers.dlc_relative_dir == "media_soviet/sounds"
+    assert workers.dlc_relative_dir == "media_soviet"
     assert workers.patch_profile.install_relative_dir == "."
     civ7 = cartridges["civilization_7"]
     assert civ7.store_app_id == "1295660"
@@ -132,7 +132,7 @@ def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> N
         "crusader_kings_3": ("binaries/ck3.exe", "game/dlc"),
         "victoria_3": ("binaries/victoria3.exe", "game/dlc"),
         "workers_resources_soviet_republic": (
-            "SOVIET64.exe", "media_soviet/sounds",
+            "SOVIET64.exe", "media_soviet",
         ),
         "civilization_7": (
             "Base/Binaries/Win64/Civ7_Win64_DX12_FinalRelease.exe", "DLC",

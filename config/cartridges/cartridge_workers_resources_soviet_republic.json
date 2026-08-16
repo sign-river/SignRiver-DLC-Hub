@@ -6,7 +6,7 @@
   "store_app_id": "784150",
   "release_tag": "workers_resources_soviet_republic",
   "executable_relative_path": "SOVIET64.exe",
-  "dlc_relative_dir": "media_soviet/sounds",
+  "dlc_relative_dir": "media_soviet",
   "package_inspector": "directory",
   "install_directory_from_slug": true,
   "repository": {

@@ -182,7 +182,7 @@ class PublisherCartridge:
             "rimworld": "Data",
             "crusader_kings_3": "game/dlc",
             "victoria_3": "game/dlc",
-            "workers_resources_soviet_republic": "media_soviet/sounds",
+            "workers_resources_soviet_republic": "media_soviet",
             "civilization_7": "DLC",
             "age_of_wonders_4": "Content",
         }

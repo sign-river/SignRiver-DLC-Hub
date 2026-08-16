@@ -108,7 +108,7 @@ def create_builtin_cartridges() -> tuple[PublisherCartridge, ...]:
             release_tag="workers_resources_soviet_republic",
             appinfo_name="workers_resources_soviet_republic_appinfo.json",
             steam_app_id="784150",
-            dlc_relative_dir="media_soviet/sounds",
+            dlc_relative_dir="media_soviet",
             patch_relative_dir=".",
             dlc_archive_root_mode="strip_id_prefix",
             dlc_import_naming_mode="auto_prefix",
