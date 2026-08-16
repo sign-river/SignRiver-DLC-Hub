@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Steam Game Directory Probe
+title Steam Game Directory Analyzer and DLL Collector
 cd /d "%~dp0"
 
 set "PY="
@@ -17,5 +17,5 @@ pause
 exit /b 1
 
 :run
-%PY% "%~dp0steam_directory_probe.py" %*
+%PY% "%~dp0collect_steam_api64.py" %*
 exit /b %errorlevel%

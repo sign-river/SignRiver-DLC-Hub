@@ -373,6 +373,49 @@ def _dlc_directory_reason(name: str) -> str | None:
     return None
 
 
+def _build_dlc_root_candidates(
+    dlc_directories: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Infer parent roots without replacing or hiding observed DLC-like paths."""
+    candidates: dict[str, dict[str, set[str]]] = {}
+    for entry in dlc_directories:
+        observed_text = str(entry["path"])
+        observed = Path(observed_text)
+        if not _normalized_name(observed.name).startswith("dlc"):
+            continue
+        parents = [parent for parent in observed.parents if parent.as_posix() != "."]
+        if not parents:
+            continue
+        possible_roots = (
+            (Path(observed.parts[0]), "命中路径的顶层祖先"),
+            (parents[0], "命中路径的直接父目录"),
+        )
+        for root, basis in possible_roots:
+            root_text = root.as_posix()
+            candidate = candidates.setdefault(
+                root_text,
+                {"reasons": set(), "evidence_paths": set(), "projected_paths": set()},
+            )
+            candidate["reasons"].add(basis)
+            candidate["evidence_paths"].add(observed_text)
+            projected = (root / observed.name).as_posix()
+            if projected != observed_text:
+                candidate["projected_paths"].add(projected)
+
+    return [
+        {
+            "path": path,
+            "reasons": sorted(values["reasons"]),
+            "evidence_paths": sorted(values["evidence_paths"], key=str.casefold),
+            "projected_paths": sorted(values["projected_paths"], key=str.casefold),
+        }
+        for path, values in sorted(
+            candidates.items(),
+            key=lambda item: (len(Path(item[0]).parts), item[0].casefold()),
+        )
+    ]
+
+
 def _is_patch_file(name: str) -> bool:
     lowered = name.casefold()
     normalized = _normalized_name(name)
@@ -436,10 +479,6 @@ def _scan_tree(root: Path) -> tuple[dict[str, object], list[str]]:
         reason = _dlc_directory_reason(Path(relative).name)
         if reason is None:
             continue
-        parent_name = _normalized_name(Path(relative).parent.name)
-        if parent_name in {"dlc", "dlcs"} and _normalized_name(Path(relative).name).startswith("dlc"):
-            # The DLC root already lists these package directories as children.
-            continue
         dlc_directories.append(
             {
                 "path": relative,
@@ -447,6 +486,7 @@ def _scan_tree(root: Path) -> tuple[dict[str, object], list[str]]:
                 "child_directories": directory_children.get(relative, []),
             }
         )
+    dlc_root_candidates = _build_dlc_root_candidates(dlc_directories)
 
     patch_directory_reasons: dict[str, set[str]] = {}
     for relative in directories:
@@ -467,6 +507,7 @@ def _scan_tree(root: Path) -> tuple[dict[str, object], list[str]]:
             "scanned_file_count": file_count,
             "total_file_bytes": total_bytes,
             "dlc_directories": dlc_directories,
+            "dlc_root_candidates": dlc_root_candidates,
             "patch_directories": patch_directories,
             "patch_files": patch_files,
             "executables": executables,
@@ -504,8 +545,8 @@ def build_report(libraries: Iterable[Path], games: Iterable[SteamGame], discover
             }
         )
     return {
-        "report_format": 2,
-        "report_scope": "完整扫描，仅保留 DLC、补丁、Steam API 和可执行文件路径",
+        "report_format": 3,
+        "report_scope": "完整扫描，分别保留 DLC 实际命中路径、推测根目录候选、补丁、Steam API 和可执行文件路径",
         "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "libraries": [str(path) for path in libraries],
         "game_count": len(game_reports),
@@ -543,7 +584,7 @@ def _render_text(report: Mapping[str, object]) -> str:
         )
         dlc_directories = game["dlc_directories"]
         assert isinstance(dlc_directories, list)
-        lines.append("[DLC / 内容候选目录]")
+        lines.append("[DLC / 内容实际命中路径]")
         if not dlc_directories:
             lines.append("  （未按常见命名识别到候选目录）")
         for entry in dlc_directories:
@@ -552,6 +593,23 @@ def _render_text(report: Mapping[str, object]) -> str:
             children = entry["child_directories"]
             assert isinstance(children, list)
             lines.extend(f"        └─ {child}" for child in children)
+
+        root_candidates = game["dlc_root_candidates"]
+        assert isinstance(root_candidates, list)
+        lines.append("[可能的 DLC 安装根目录（仅供人工判断）]")
+        if not root_candidates:
+            lines.append("  （未根据 DLC 命中路径推测出上层目录）")
+        for entry in root_candidates:
+            assert isinstance(entry, Mapping)
+            lines.append(f"  [ROOT?] {entry['path']}  ({'；'.join(entry['reasons'])})")  # type: ignore[arg-type]
+            evidence_paths = entry["evidence_paths"]
+            assert isinstance(evidence_paths, list)
+            lines.extend(f"          依据实际路径：{path}" for path in evidence_paths)
+            projected_paths = entry["projected_paths"]
+            assert isinstance(projected_paths, list)
+            lines.extend(
+                f"          推测子路径（未验证存在）：{path}" for path in projected_paths
+            )
 
         patch_directories = game["patch_directories"]
         assert isinstance(patch_directories, list)

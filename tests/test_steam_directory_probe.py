@@ -65,6 +65,14 @@ def test_discovers_all_manifest_games_and_scans_complete_tree(tmp_path: Path) ->
             "child_directories": [],
         },
     ]
+    assert index["dlc_root_candidates"] == [
+        {
+            "path": "Content",
+            "reasons": ["命中路径的直接父目录", "命中路径的顶层祖先"],
+            "evidence_paths": ["Content/DLC"],
+            "projected_paths": [],
+        }
+    ]
     assert index["patch_files"] == [
         {"path": "Content/DLC/steam_api64.dll", "size_bytes": 5}
     ]
@@ -108,3 +116,57 @@ def test_game_filter_matches_name_folder_and_app_id(tmp_path: Path) -> None:
     assert probe._matches_game(game, ["skylines"])
     assert probe._matches_game(game, ["949230"])
     assert not probe._matches_game(game, ["stellaris"])
+
+def test_keeps_nested_dlc_hit_and_infers_multiple_parent_root_candidates(
+    tmp_path: Path,
+) -> None:
+    game = tmp_path / "Workers & Resources"
+    nested = game / "media_soviet" / "sounds" / "dlc1"
+    nested.mkdir(parents=True)
+    (nested / "default.bank").write_bytes(b"sound")
+
+    index, issues = probe._scan_tree(game)
+
+    assert issues == []
+    assert index["dlc_directories"] == [
+        {
+            "path": "media_soviet/sounds/dlc1",
+            "reason": "名称包含 DLC",
+            "child_directories": [],
+        }
+    ]
+    assert index["dlc_root_candidates"] == [
+        {
+            "path": "media_soviet",
+            "reasons": ["命中路径的顶层祖先"],
+            "evidence_paths": ["media_soviet/sounds/dlc1"],
+            "projected_paths": ["media_soviet/dlc1"],
+        },
+        {
+            "path": "media_soviet/sounds",
+            "reasons": ["命中路径的直接父目录"],
+            "evidence_paths": ["media_soviet/sounds/dlc1"],
+            "projected_paths": [],
+        },
+    ]
+
+    report = {
+        "generated_at": "2026-08-16T00:00:00+08:00",
+        "libraries": [str(tmp_path)],
+        "game_count": 1,
+        "games": [
+            {
+                "app_id": "784150",
+                "name": "Workers & Resources: Soviet Republic",
+                "root": str(game),
+                "build_id": None,
+                **index,
+                "scan_issues": [],
+            }
+        ],
+        "discovery_issues": [],
+    }
+    rendered = probe._render_text(report)
+    assert "[DIR] media_soviet/sounds/dlc1" in rendered
+    assert "[ROOT?] media_soviet" in rendered
+    assert "推测子路径（未验证存在）：media_soviet/dlc1" in rendered

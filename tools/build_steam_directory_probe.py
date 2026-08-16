@@ -1,4 +1,4 @@
-"""Build the standalone Windows Steam directory probe distribution ZIP."""
+"""Build the combined Steam directory analyzer and DLL collector ZIP."""
 from __future__ import annotations
 
 import argparse
@@ -79,7 +79,7 @@ def main() -> int:
         print(f"UPX: {upx_dir / 'upx.exe'}")
     else:
         print("WARNING: UPX not found; the executable will be larger")
-    command.append(str(ROOT / "tools" / "steam_directory_probe.py"))
+    command.append(str(ROOT / "tools" / "collect_steam_api64.py"))
     subprocess.run(command, cwd=ROOT, check=True)
 
     ascii_exe = OUTPUT_DIR / f"{ASCII_NAME}.exe"
