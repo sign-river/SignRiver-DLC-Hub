@@ -2,8 +2,8 @@
 
 > 最后更新：2026-08-16（Asia/Shanghai）
 > 分支：`main`
-> 本轮功能提交：`b7aa825`、`4a6289c`、`19e175a`
-> 远端基线：整理前已确认 `main == origin/main == d4193dd`；本轮提交尚待按用户明确指令推送
+> 本轮提交：`b7aa825`、`4a6289c`、`19e175a`、`abffa7f`
+> 远端：已按用户明确指令推送，`origin/main` 已更新到 `abffa7f`
 
 ## 当前有效结论
 
@@ -54,7 +54,7 @@
 - `4a6289c`：修正工人与资源 DLC 安装根目录；
 - `19e175a`：融合 Steam 目录分析、DLL 收集、缺失游戏明细和 DLC 根候选报告；
 - 总体验证：`python -m pytest` 为 `533 passed in 11.36s`；`python -m ruff check .`、`python -m compileall -q src tools tests` 和 `git diff --check` 通过；
-- 当前仅剩 `docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md` 待作为交接文档提交，然后按用户明确要求推送 `main`。
+- 上述功能和交接记录已推送至 `origin/main`；工作区在最终交接状态提交前无其他未提交改动。
 
 ## 下一步
 
