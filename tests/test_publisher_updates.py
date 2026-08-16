@@ -122,6 +122,35 @@ def test_update_release_rejects_invalid_versions_before_upload(tmp_path) -> None
         UpdateReleaseDraft("next", "module", package)
 
 
+def test_publisher_accepts_complete_macos_bundle_update(tmp_path) -> None:
+    package = tmp_path / "hub-full-v0.2.0-macos-x64.zip"
+    payload = b"app"
+    import hashlib
+
+    manifest = {
+        "schema_version": 1,
+        "version": "0.2.0",
+        "target_platform": "macos",
+        "target_arch": "x64",
+        "bundle_path": "SignRiver-DLC-Hub.app",
+        "files": [
+            {
+                "path": "SignRiver-DLC-Hub.app/Contents/MacOS/SignRiver-DLC-Hub",
+                "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "mode": 0o755,
+            }
+        ],
+    }
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr("release-manifest.json", json.dumps(manifest))
+        archive.writestr(manifest["files"][0]["path"], payload)
+
+    info = inspect_update_package(package)
+
+    assert (info.target_platform, info.target_arch) == ("macos", "x64")
+
+
 def test_update_release_rejects_wrapped_installer_zip_for_full_update(
     tmp_path,
 ) -> None:

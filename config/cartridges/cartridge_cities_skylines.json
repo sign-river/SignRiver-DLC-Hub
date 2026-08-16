@@ -38,12 +38,17 @@
     "force_offline": false,
     "platforms": {
       "steamos": {
+        "executable_relative_path": "Cities.x64",
+        "dlc_relative_dir": "Files",
         "unlocker_dll_name": "libsteam_api.so",
         "original_backup_dll_name": "libsteam_api_o.so",
         "ini_target_name": "SmokeAPI.config.json",
         "config_format": "smokeapi_json"
       },
       "macos": {
+        "executable_relative_path": "Cities.app/Contents/MacOS/Cities",
+        "dlc_relative_dir": "Files",
+        "install_relative_dir": "Cities.app/Contents/Plugins",
         "unlocker_dll_name": "libsteam_api.dylib",
         "original_backup_dll_name": "libsteam_api_o.dylib",
         "ini_target_name": "icecream.ini",

@@ -35,6 +35,11 @@ def test_bootstrap_index_and_documents_round_trip() -> None:
         "hearts_of_iron_4",
         "cities_skylines",
         "rimworld",
+        "crusader_kings_3",
+        "victoria_3",
+        "workers_resources_soviet_republic",
+        "civilization_7",
+        "age_of_wonders_4",
     }
     for entry in index.cartridges:
         payload = (BOOTSTRAP / entry.asset_name).read_bytes()
@@ -46,7 +51,7 @@ def test_bootstrap_index_and_documents_round_trip() -> None:
 def test_builtin_cartridges_are_built_from_bootstrap_documents() -> None:
     cartridges = {
         item.adapter.descriptor.game_id: item
-        for item in create_builtin_cartridges(BOOTSTRAP)
+        for item in create_builtin_cartridges(BOOTSTRAP, platform="windows")
     }
     assert cartridges["stellaris"].release_tag == "stellaris"
     assert cartridges["civilization_6"].dlc_relative_dir == "DLC"
@@ -63,6 +68,7 @@ def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) ->
         tmp_path / "cache",
         bootstrap_dir=BOOTSTRAP,
         source=object(),  # network must not be touched
+        platform="windows",
     )
     index = service.refresh_index(allow_network=False)
     loaded = service.load_default_cartridge(allow_network=False)
@@ -77,6 +83,7 @@ def test_catalog_lazy_loads_other_games_from_bootstrap(tmp_path: Path) -> None:
         tmp_path / "cache",
         bootstrap_dir=BOOTSTRAP,
         source=object(),
+        platform="windows",
     )
     service.refresh_index(allow_network=False)
     service.load_default_cartridge(allow_network=False)
@@ -156,6 +163,24 @@ def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
             )
         )
         assert document.executable_relative_path
+    hoi4 = CartridgeDocument.from_dict(
+        json.loads(
+            (tmp_path / "output" / "hub" / "cartridge_hearts_of_iron_4.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    assert hoi4.patch_platforms == ("macos", "steamos", "windows")
+    assert hoi4.patch_fields_for("steamos")["unlocker_dll_name"] == "libsteam_api.so"
+    unsupported = CartridgeDocument.from_dict(
+        json.loads(
+            (tmp_path / "output" / "hub" / "cartridge_crusader_kings_3.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="不支持当前平台"):
+        unsupported.patch_fields_for("steamos")
     exported = json.loads(
         (tmp_path / "output" / "hub" / "announcement.json").read_text(
             encoding="utf-8"

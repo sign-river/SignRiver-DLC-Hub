@@ -9,6 +9,8 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from signriver_common.platforms import normalize_architecture
+
 from .constants import FULL_UPDATE_HELPER_VERSION, FULL_UPDATE_SCHEMA_VERSION, MAX_ARCHIVE_FILES, MAX_ARCHIVE_UNCOMPRESSED_BYTES
 from .errors import FullUpdateError, PackageError
 from .jsonio import atomic_write_json, read_json
@@ -30,6 +32,7 @@ class FullUpdateTransaction:
     completed: list[str] = field(default_factory=list)
     error: str | None = None
     activate_version: str | None = None
+    bundle_path: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict) -> "FullUpdateTransaction":
@@ -50,10 +53,13 @@ class FullUpdateTransaction:
             raise FullUpdateError(
                 "full update transaction contains an invalid activation version"
             )
+        bundle_path = value.get("bundle_path")
+        if bundle_path is not None and not isinstance(bundle_path, str):
+            raise FullUpdateError("full update transaction contains an invalid bundle path")
         return cls(
             value["transaction_id"], value["version"], value["stage"],
             value["staging_path"], value["backup_path"], files, completed,
-            error, activate_version,
+            error, activate_version, bundle_path,
         )
 
     def to_dict(self) -> dict:
@@ -68,6 +74,7 @@ class FullUpdateTransaction:
             "completed": self.completed,
             "error": self.error,
             "activate_version": self.activate_version,
+            "bundle_path": self.bundle_path,
         }
 
 
@@ -111,6 +118,7 @@ class FullUpdateManager:
             transaction = FullUpdateTransaction(
                 transaction_id, release.version, "prepared", str(staging),
                 str(backup), files, activate_version=activate_version,
+                bundle_path=manifest.bundle_path,
             )
             self._save(transaction)
             return transaction
@@ -126,6 +134,10 @@ class FullUpdateManager:
         if transaction.stage != "prepared":
             raise FullUpdateError(f"cannot apply full update in stage {transaction.stage}")
         staging, backup = Path(transaction.staging_path), Path(transaction.backup_path)
+        manifest = self._read_manifest(staging, transaction.version)
+        if transaction.bundle_path:
+            return self._apply_macos_bundle(transaction, manifest)
+        modes = {entry.path: entry.mode for entry in manifest.files}
         try:
             for relative in transaction.files:
                 target = self._owned_target(relative)
@@ -139,6 +151,8 @@ class FullUpdateManager:
                     os.replace(old, old_backup)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
+                if modes.get(relative) is not None and os.name != "nt":
+                    target.chmod(modes[relative])
                 transaction.completed.append(relative)
                 self._save(transaction)
             if transaction.activate_version:
@@ -162,10 +176,14 @@ class FullUpdateManager:
         transaction.stage = "confirmed"
         self._save(transaction)
         shutil.rmtree(transaction.staging_path, ignore_errors=True)
+        if transaction.bundle_path:
+            shutil.rmtree(transaction.backup_path, ignore_errors=True)
         self.lock_path.unlink(missing_ok=True)
 
     def rollback(self, transaction_id: str) -> FullUpdateTransaction:
         transaction = self._require(transaction_id)
+        if transaction.bundle_path:
+            return self._rollback_macos_bundle(transaction)
         backup = Path(transaction.backup_path)
         for relative in reversed(transaction.completed):
             target = self._owned_target(relative)
@@ -223,9 +241,81 @@ class FullUpdateManager:
             raise FullUpdateError(f"full release manifest is invalid: {error}") from error
         if manifest.version != expected_version:
             raise FullUpdateError("full release manifest version does not match the update release")
+        if manifest.target_platform and manifest.target_platform != self.paths.platform.value:
+            raise FullUpdateError("full release package targets a different platform")
+        if manifest.target_arch and manifest.target_arch != normalize_architecture():
+            raise FullUpdateError("full release package targets a different architecture")
         for entry in manifest.files:
             self._owned_target(entry.path)
         return manifest
+
+    def _apply_macos_bundle(
+        self,
+        transaction: FullUpdateTransaction,
+        manifest: FullReleaseManifest,
+    ) -> FullUpdateTransaction:
+        if not manifest.bundle_path or manifest.bundle_path != transaction.bundle_path:
+            raise FullUpdateError("macOS bundle transaction does not match its manifest")
+        install = Path(self.paths.install_root or self.paths.root).resolve()
+        if install.suffix != ".app" or install.name != manifest.bundle_path:
+            raise FullUpdateError("macOS update bundle does not match the installed app")
+        staged = Path(transaction.staging_path) / manifest.bundle_path
+        if not staged.is_dir():
+            raise FullUpdateError("staged macOS app bundle is missing")
+        candidate = install.parent / f".{install.name}.signriver-new-{transaction.transaction_id}"
+        backup = install.parent / f".{install.name}.signriver-backup-{transaction.transaction_id}"
+        transaction.backup_path = str(backup)
+        self._save(transaction)
+        try:
+            if candidate.exists() or backup.exists():
+                raise FullUpdateError("macOS update swap path already exists")
+            shutil.copytree(staged, candidate, symlinks=True)
+            os.replace(install, backup)
+            transaction.completed.append(manifest.bundle_path)
+            self._save(transaction)
+            os.replace(candidate, install)
+            if transaction.activate_version:
+                StateStore(self.paths.state_file).activate(transaction.activate_version)
+            transaction.stage = "swapped"
+            self._save(transaction)
+            return transaction
+        except Exception as error:
+            transaction.error = str(error)
+            transaction.stage = "rollback_required"
+            self._save(transaction)
+            if candidate.exists():
+                shutil.rmtree(candidate, ignore_errors=True)
+            self._rollback_macos_bundle(transaction)
+            raise FullUpdateError(f"unable to apply macOS full update: {error}") from error
+
+    def _rollback_macos_bundle(
+        self, transaction: FullUpdateTransaction
+    ) -> FullUpdateTransaction:
+        install = Path(self.paths.install_root or self.paths.root).resolve()
+        backup = Path(transaction.backup_path)
+        candidate = install.parent / f".{install.name}.signriver-new-{transaction.transaction_id}"
+        failed = install.parent / f".{install.name}.signriver-failed-{transaction.transaction_id}"
+        if backup.exists():
+            if install.exists():
+                os.replace(install, failed)
+            os.replace(backup, install)
+            if failed.exists():
+                shutil.rmtree(failed, ignore_errors=True)
+        if candidate.exists():
+            shutil.rmtree(candidate, ignore_errors=True)
+        if transaction.activate_version:
+            store = StateStore(self.paths.state_file)
+            state = store.load()
+            if (
+                state.active_version == transaction.activate_version
+                and state.pending_version == transaction.activate_version
+            ):
+                store.rollback_pending(transaction.activate_version)
+        transaction.stage = "rolled_back"
+        self._save(transaction)
+        shutil.rmtree(transaction.staging_path, ignore_errors=True)
+        self.lock_path.unlink(missing_ok=True)
+        return transaction
 
     def _validate_staged_files(self, staging: Path, manifest: FullReleaseManifest) -> None:
         for entry in manifest.files:
@@ -237,7 +327,12 @@ class FullUpdateManager:
     def _activation_version(
         staging: Path, manifest: FullReleaseManifest
     ) -> str | None:
-        relative = f"app/versions/{manifest.version}/module.json"
+        prefix = (
+            f"{manifest.bundle_path}/Contents/Resources/runtime/"
+            if manifest.bundle_path else
+            ("Contents/Resources/runtime/" if manifest.target_platform == "macos" else "")
+        )
+        relative = f"{prefix}app/versions/{manifest.version}/module.json"
         if not any(entry.path == relative for entry in manifest.files):
             return None
         try:
@@ -252,7 +347,7 @@ class FullUpdateManager:
             raise FullUpdateError(
                 "full update target module version does not match release"
             )
-        entry_relative = f"app/versions/{version}/{entrypoint}"
+        entry_relative = f"{prefix}app/versions/{version}/{entrypoint}"
         if (
             not any(entry.path == entry_relative for entry in manifest.files)
             or not (staging / entry_relative).is_file()
@@ -266,16 +361,29 @@ class FullUpdateManager:
             target = self._owned_target(entry.path)
             if target.is_file():
                 required += target.stat().st_size
-        if shutil.disk_usage(self.paths.root).free < required:
+        disk_target = (
+            Path(self.paths.install_root or self.paths.root).parent
+            if manifest.bundle_path else self.paths.cache_dir
+        )
+        if shutil.disk_usage(disk_target).free < required:
             raise FullUpdateError("insufficient disk space for full update staging and backup")
 
     def _owned_target(self, relative: str) -> Path:
         parts = PurePosixPath(relative).parts
         if not parts or parts[0] in _PROTECTED_ROOTS or relative == "release-manifest.json":
             raise FullUpdateError(f"full update cannot manage path: {relative}")
-        target = self.paths.root.joinpath(*parts).resolve()
-        if self.paths.root.resolve() not in target.parents:
-            raise FullUpdateError(f"full update path escapes installation root: {relative}")
+        bundle_prefix = ""
+        install = Path(self.paths.install_root or self.paths.root)
+        if self.paths.platform.value == "macos" and install.suffix == ".app":
+            bundle_prefix = f"{install.name}/"
+        logical_relative = relative[len(bundle_prefix):] if bundle_prefix and relative.startswith(bundle_prefix) else relative
+        target = self.paths.managed_target(logical_relative).resolve()
+        state_prefixes = ("app/", "config/", "Contents/Resources/runtime/app/", "Contents/Resources/runtime/config/")
+        base = self.paths.root if logical_relative.startswith(state_prefixes) else Path(
+            self.paths.install_root or self.paths.root
+        )
+        if base.resolve() not in target.parents:
+            raise FullUpdateError(f"full update path escapes managed root: {relative}")
         return target
 
     @staticmethod
@@ -297,6 +405,9 @@ class FullUpdateManager:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with package.open(entry) as source, target.open("wb") as output:
                         shutil.copyfileobj(source, output, 1024 * 256)
+                    mode = (entry.external_attr >> 16) & 0o7777
+                    if mode and os.name != "nt":
+                        target.chmod(mode)
 
     @staticmethod
     def _sha256(path: Path) -> str:

@@ -502,6 +502,12 @@ class PatchEngine:
         self._reject_oversized_dll(backup_source, "原版备份 DLL")
         unlocker_bytes = unlocker_source.read_bytes()
         packaged_backup_bytes = backup_source.read_bytes()
+        unlocker_mode = (
+            unlocker_source.stat().st_mode & 0o777 if os.name != "nt" else None
+        )
+        backup_mode = (
+            backup_source.stat().st_mode & 0o777 if os.name != "nt" else None
+        )
         appinfo_bytes = appinfo_source.read_bytes()
         appinfo = parse_appinfo_document(appinfo_bytes)
         config_body = render_patch_config(appinfo, self.profile.template)
@@ -559,7 +565,7 @@ class PatchEngine:
                     # already our patch (its backup was previously removed by
                     # some cleanup).  Drop our packaged backup DLL in place.
                     self._write_file_atomic(
-                        packaged_backup_bytes, backup_path, actions
+                        packaged_backup_bytes, backup_path, actions, mode=backup_mode
                     )
                     backup_created = True
                     backup_origin = "packaged_fallback"
@@ -597,7 +603,7 @@ class PatchEngine:
                     # restore a working original.
                     self._backup_file(backup_path, transaction_root, actions)
                     self._write_file_atomic(
-                        packaged_backup_bytes, backup_path, actions
+                        packaged_backup_bytes, backup_path, actions, mode=backup_mode
                     )
                     backup_replaced = True
                     backup_origin = "packaged_fallback"
@@ -606,13 +612,13 @@ class PatchEngine:
             # ----- install the patch DLL ------------------------------------
             if not unlocker_path.is_file():
                 self._write_file_atomic(
-                    unlocker_bytes, unlocker_path, actions
+                    unlocker_bytes, unlocker_path, actions, mode=unlocker_mode
                 )
                 unlocker_replaced = True
             elif unlocker_path.read_bytes() != unlocker_bytes:
                 self._backup_file(unlocker_path, transaction_root, actions)
                 self._write_file_atomic(
-                    unlocker_bytes, unlocker_path, actions
+                    unlocker_bytes, unlocker_path, actions, mode=unlocker_mode
                 )
                 unlocker_replaced = True
                 replaced_paths.append(self.profile.relative_file_path(unlocker_name))
@@ -906,7 +912,12 @@ class PatchEngine:
         actions.append(_BackedUpFile(path, backup_path))
 
     def _write_file_atomic(
-        self, data: bytes, destination: Path, actions: list[_Action]
+        self,
+        data: bytes,
+        destination: Path,
+        actions: list[_Action],
+        *,
+        mode: int | None = None,
     ) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         prior = destination.exists()
@@ -922,6 +933,8 @@ class PatchEngine:
                 stream.flush()
                 os.fsync(stream.fileno())
                 temporary = Path(stream.name)
+            if mode is not None:
+                os.chmod(temporary, mode)
             self._replace(temporary, destination)
         except Exception:
             try:

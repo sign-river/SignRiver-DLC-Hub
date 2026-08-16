@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import customtkinter as ctk
 from tkinter import BooleanVar, TclError, filedialog, messagebox
+from signriver_common.platforms import open_directory
 
 from .signriver_app.adapters import AdapterRegistry
 from .signriver_app.application import (
@@ -2954,10 +2955,7 @@ class DlcHubApplication:
     def _open_path(self, path: Path) -> None:
         try:
             path.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                os.startfile(path)  # type: ignore[attr-defined]
-            else:
-                webbrowser.open(path.as_uri())
+            open_directory(path)
         except Exception as error:
             messagebox.showerror("无法打开目录", str(error), parent=self.window)
 
@@ -6487,10 +6485,7 @@ class DlcHubApplication:
         if self.current_installation is None:
             return
         try:
-            if os.name == "nt":
-                os.startfile(self.current_installation.root)  # type: ignore[attr-defined]
-            else:
-                webbrowser.open(self.current_installation.root.as_uri())
+            open_directory(self.current_installation.root)
         except Exception as error:
             self._show_game_error(str(error))
 

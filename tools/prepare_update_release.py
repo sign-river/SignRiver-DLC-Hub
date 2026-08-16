@@ -36,11 +36,26 @@ def main() -> int:
     parser.add_argument("--min-launcher-version", default="0.1.0")
     parser.add_argument("--installer-version", type=int, default=1)
     parser.add_argument(
+        "--platform-package",
+        action="append",
+        default=[],
+        metavar="OS-ARCH=ZIP",
+        help="add a validated platform full package (repeatable)",
+    )
+    parser.add_argument(
         "--output", type=Path, default=ROOT / "dist" / "updates"
     )
     args = parser.parse_args()
 
     package = args.package.resolve()
+    platform_packages: dict[str, Path] = {}
+    for item in args.platform_package:
+        key, separator, filename = item.partition("=")
+        if not separator:
+            parser.error("--platform-package must use OS-ARCH=ZIP")
+        if key in platform_packages:
+            parser.error(f"duplicate --platform-package key: {key}")
+        platform_packages[key] = Path(filename).resolve()
     draft = UpdateReleaseDraft(
         version=args.version,
         kind=args.kind,
@@ -49,6 +64,7 @@ def main() -> int:
         notes=args.notes,
         mandatory=args.mandatory,
         installer_version=args.installer_version,
+        platform_packages=platform_packages or None,
     )
     output = args.output.resolve()
     print(f"Update package (upload unchanged to both hosts): {package}")
@@ -60,7 +76,13 @@ def main() -> int:
                 draft.release_dict(
                     release_asset_url(
                         target, owner, repository, package.name
-                    )
+                    ),
+                    {
+                        key: release_asset_url(
+                            target, owner, repository, path.name
+                        )
+                        for key, path in platform_packages.items()
+                    },
                 )
             ],
         )

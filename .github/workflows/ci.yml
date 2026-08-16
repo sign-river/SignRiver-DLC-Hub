@@ -6,7 +6,11 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, macos-15-intel]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,5 +19,10 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
       - run: python tools/restore_module_archives.py --source gitlink
+        if: runner.os == 'Windows'
       - run: python -m ruff check src tests tools app/versions/0.1.0
       - run: python -m pytest
+        if: runner.os != 'Linux'
+      - name: Run tests under Xvfb
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m pytest

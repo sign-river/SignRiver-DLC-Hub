@@ -35,12 +35,18 @@
     "force_offline": false,
     "platforms": {
       "steamos": {
+        "executable_relative_path": "RimWorldLinux",
+        "dlc_relative_dir": "Data",
+        "install_relative_dir": "RimWorldLinux_Data/Plugins/x86_64",
         "unlocker_dll_name": "libsteam_api.so",
         "original_backup_dll_name": "libsteam_api_o.so",
         "ini_target_name": "SmokeAPI.config.json",
         "config_format": "smokeapi_json"
       },
       "macos": {
+        "executable_relative_path": "RimWorldMac.app/Contents/MacOS/RimWorldMac",
+        "dlc_relative_dir": "Data",
+        "install_relative_dir": "RimWorldMac.app/Contents/Plugins",
         "unlocker_dll_name": "libsteam_api.dylib",
         "original_backup_dll_name": "libsteam_api_o.dylib",
         "ini_target_name": "icecream.ini",

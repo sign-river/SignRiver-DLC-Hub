@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "engine": "steam_configured_v1",
+  "game_id": "workers_resources_soviet_republic",
+  "display_name": "工人与资源：苏维埃共和国 (Workers & Resources: Soviet Republic)",
+  "store_app_id": "784150",
+  "release_tag": "workers_resources_soviet_republic",
+  "executable_relative_path": "SOVIET64.exe",
+  "dlc_relative_dir": "media_soviet/sounds",
+  "package_inspector": "directory",
+  "install_directory_from_slug": true,
+  "repository": {
+    "owner": "signriver",
+    "repository": "signriver-dlc-assets"
+  },
+  "repositories": {
+    "gitlink": {
+      "owner": "signriver",
+      "repository": "signriver-dlc-assets"
+    },
+    "github": {
+      "owner": "sign-river",
+      "repository": "signriver-dlc-assets"
+    }
+  },
+  "patch": {
+    "unlocker_dll_name": "steam_api64.dll",
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "appinfo_asset_name": "workers_resources_soviet_republic_appinfo.json",
+    "install_relative_dir": ".",
+    "ini_target_name": "cream_api.ini",
+    "language": "schinese",
+    "unlock_all": true,
+    "extra_protection": false,
+    "force_offline": false
+  }
+}

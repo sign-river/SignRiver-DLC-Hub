@@ -176,6 +176,9 @@ def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_pa
     assert builtins["stellaris"].dlc_import_naming_mode == "manual_prefixed"
     assert builtins["stellaris"].dlc_import_layout_mode == "single_directory"
     assert builtins["hearts_of_iron_4"].dlc_import_naming_mode == "manual_prefixed"
+    assert builtins["hearts_of_iron_4"].patch_platforms["steamos"][
+        "executable_relative_path"
+    ] == "hoi4"
 
 
 def test_rejects_appinfo_name_that_does_not_match_game_id(tmp_path: Path) -> None:

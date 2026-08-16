@@ -1,4 +1,4 @@
-"""Declarative Windows Steam adapter used by non-specialized cartridges."""
+"""Declarative cross-platform Steam adapter used by non-specialized cartridges."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import os
 import subprocess
 from collections.abc import Callable, Iterable
 from pathlib import Path
+
+from signriver_common.platforms import HostPlatform, is_process_running
 
 from ...domain import (
     AdapterCapability, AdapterDescriptor, GameInstallation, GameState,
@@ -57,7 +59,13 @@ class ConfiguredSteamAdapter:
             }),
         )
         self._locator = locator or SteamInstallationLocator()
-        self._process_checker = process_checker or _is_process_running
+        self._process_checker = process_checker or (
+            _is_process_running
+            if self.platform == "windows"
+            else lambda executable: is_process_running(
+                executable, HostPlatform(self.platform)
+            )
+        )
 
     @property
     def descriptor(self) -> AdapterDescriptor:

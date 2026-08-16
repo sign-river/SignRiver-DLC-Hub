@@ -193,8 +193,8 @@ def test_apply_rolls_back_when_written_dll_is_quarantined(tmp_path: Path) -> Non
     unlocker, backup, appinfo = write_patch_sources(tmp_path)
     write_file_atomic = engine._write_file_atomic
 
-    def write_then_quarantine(data, destination, actions):
-        write_file_atomic(data, destination, actions)
+    def write_then_quarantine(data, destination, actions, *, mode=None):
+        write_file_atomic(data, destination, actions, mode=mode)
         if destination.name == "steam_api64.dll":
             destination.unlink()
 

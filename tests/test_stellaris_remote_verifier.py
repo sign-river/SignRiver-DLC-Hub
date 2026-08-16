@@ -64,7 +64,9 @@ def _write_stellaris_package(path: Path) -> None:
 def test_remote_stellaris_cartridge_verifier_accepts_asset_name(
     tmp_path: Path,
 ) -> None:
-    cartridge = build_cartridge_from_document(_stellaris_document())
+    cartridge = build_cartridge_from_document(
+        _stellaris_document(), platform="windows"
+    )
     package = tmp_path / "dlc001_symbols_of_domination.zip"
     _write_stellaris_package(package)
     known = hashlib.sha256(package.read_bytes()).hexdigest()

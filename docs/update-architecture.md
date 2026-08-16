@@ -28,9 +28,11 @@
 │       │   └── ...
 │       └── 0.1.1/
 ├── config/defaults/update.json # 出厂清单地址、通道和超时
-├── cache/                      # 下载缓存，可删除
-└── data/                       # 用户设置、日志和长期数据
+├── cache/                      # Windows 下载缓存，可删除
+└── data/                       # Windows 用户设置、日志和长期数据
 ```
+
+Windows 继续使用程序目录，保证旧用户无需迁移。SteamOS 使用 XDG 数据/缓存目录；macOS 使用 `~/Library/Application Support/SignRiver DLC Hub` 与 `~/Library/Caches/SignRiver DLC Hub`。发行资源和可写状态分离，冻结包首次启动时只复制缺失的初始资源。
 
 `data/` 不属于任何模块更新包，更新和回滚都不会覆盖用户数据。更新设置按
 `data/config/update.json`（用户覆盖）→ `config/update.json`（旧安装兼容覆盖）→
@@ -48,7 +50,7 @@ DLC、卡带、公告、程序清单及更新包始终来自同一平台。
   "schema_version": 1,
   "name": "SignRiver DLC Hub",
   "version": "0.1.1",
-  "api_version": 2,
+  "api_version": 3,
   "entrypoint": "app_entry.py:create_application"
 }
 ```
@@ -72,8 +74,7 @@ def create_application(context):
 
 模块内部文件请使用相对导入（例如 `from .services import updater`）。宿主会为每个版本建立独立的包命名空间，避免新版本初始化失败后污染旧版本的导入缓存。
 
-只有提升 Host API 版本或修改宿主本身时，才需要重新发布 EXE。`0.1.1`
-增加了更新源联动接口，因此 Host API 从 1 升为 2，必须通过全量更新发布。
+只有提升 Host API 版本或修改宿主本身时，才需要重新发布冻结启动器。`0.2.0` 增加平台、架构和原生运行目录能力，Host API 升为 3，因此三个平台必须通过各自的全量更新包发布。
 
 ## 更新清单
 
@@ -91,6 +92,11 @@ def create_application(context):
       "package_url": "https://host/path/module-v0.1.1.zip",
       "sha256": "64位十六进制摘要",
       "size": 123456,
+      "platform_packages": {
+        "windows-x64": {"package_url": "windows.zip", "sha256": "...", "size": 1},
+        "steamos-x64": {"package_url": "steamos.zip", "sha256": "...", "size": 1},
+        "macos-x64": {"package_url": "macos.zip", "sha256": "...", "size": 1}
+      },
       "mandatory": false,
       "notes": "本次更新说明"
     }
@@ -103,7 +109,7 @@ def create_application(context):
 - `module`：普通更新，启动器自动安装；
 - `full`：涉及启动器或运行时的大更新，由临时助手原地替换并自动回滚。
 
-`package_url` 可以是 HTTPS 绝对地址，也可以是相对于清单地址的相对地址。默认拒绝普通 HTTP。
+顶层 `package_url` 继续指向 Windows 包，以便 0.1.7 旧客户端忽略新字段后仍安全升级。0.2.0 使用 `platform_packages` 精确选择当前 `os-arch`；不存在匹配项时拒绝更新，禁止回退下载其他系统包。URL 可以是 HTTPS 绝对地址，也可以是相对于清单地址的相对地址。默认拒绝普通 HTTP。
 
 ## 安装事务
 
@@ -132,10 +138,8 @@ def create_application(context):
 5. 将生成的 `.release.json` 内容加入线上清单；
 6. 确认两边 `update-manifest.json` 分别引用各自平台的同名附件。
 
-全量更新必须使用 `build_release.py` 额外生成的
-`dist/updates/SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip`。首次安装 ZIP
-包含外层产品目录，不能作为全量更新包；发布器会在上传前拒绝这种结构。
+Windows 全量更新使用 `build_release.py`，SteamOS/macOS 使用目标系统上的 `build_native_release.py`。三个更新 ZIP 都必须是 flat 结构，并在 `release-manifest.json` 中声明正确的 `target_platform`、`target_arch` 和 Unix 文件 `mode`。首次安装 ZIP、SFX、`.app.zip` 或 `tar.gz` 不能冒充全量更新包；发布器会在上传前拒绝错误结构。
 
 ## 安全边界
 
-当前实现强制 HTTPS 并验证清单指定的 SHA-256，可防止传输损坏和包被意外替换。SHA-256 本身不能防止“清单与更新包同时被篡改”。正式大规模发布前，应在 Host API 2 中加入离线保存于启动器内的 Ed25519 公钥，并要求清单签名。
+当前实现强制 HTTPS 并验证清单指定的 SHA-256，可防止传输损坏和包被意外替换。SHA-256 本身不能防止“清单与更新包同时被篡改”。正式大规模发布前，应加入离线保存于启动器内的 Ed25519 公钥，并要求清单签名。

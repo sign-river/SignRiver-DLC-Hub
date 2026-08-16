@@ -29,6 +29,8 @@ _PACKAGE_FILENAME = re.compile(
 class UpdatePackageInfo:
     version: str
     kind: str
+    target_platform: str | None = None
+    target_arch: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,7 @@ class UpdateReleaseDraft:
     notes: str = ""
     mandatory: bool = False
     installer_version: int = 1
+    platform_packages: dict[str, Path] | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in {"module", "full"}:
@@ -71,10 +74,24 @@ class UpdateReleaseDraft:
         if self.installer_version < 1:
             raise ValueError("installer version must be positive")
         _validate_package(self.package, self.kind, self.version)
+        if self.platform_packages:
+            if self.kind != "full":
+                raise ValueError("platform packages are only valid for full updates")
+            for key, package in self.platform_packages.items():
+                if key not in {"windows-x64", "steamos-x64", "macos-x64"}:
+                    raise ValueError(f"unsupported platform package key: {key}")
+                if not Path(package).is_file():
+                    raise ValueError(f"platform package does not exist: {package}")
+                platform, arch = key.rsplit("-", 1)
+                _validate_package(package, self.kind, self.version, platform, arch)
 
-    def release_dict(self, package_url: str) -> dict[str, object]:
+    def release_dict(
+        self,
+        package_url: str,
+        platform_package_urls: dict[str, str] | None = None,
+    ) -> dict[str, object]:
         package = Path(self.package)
-        return {
+        payload: dict[str, object] = {
             "version": self.version,
             "kind": self.kind,
             "min_launcher_version": self.min_launcher_version,
@@ -85,9 +102,26 @@ class UpdateReleaseDraft:
             "notes": self.notes,
             "installer_version": self.installer_version,
         }
+        if self.platform_packages:
+            urls = platform_package_urls or {}
+            payload["platform_packages"] = {
+                key: {
+                    "package_url": urls.get(key, Path(path).name),
+                    "sha256": sha256(path),
+                    "size": Path(path).stat().st_size,
+                }
+                for key, path in self.platform_packages.items()
+            }
+        return payload
 
 
-def _validate_package(package: Path, kind: str, version: str) -> None:
+def _validate_package(
+    package: Path,
+    kind: str,
+    version: str,
+    target_platform: str | None = None,
+    target_arch: str | None = None,
+) -> None:
     try:
         with zipfile.ZipFile(package) as archive:
             names = archive.namelist()
@@ -117,6 +151,11 @@ def _validate_package(package: Path, kind: str, version: str) -> None:
             raise ValueError("module update ZIP entrypoint is missing")
     elif metadata.get("schema_version") != 1:
         raise ValueError("full update ZIP has an invalid release manifest")
+    elif target_platform and (
+        metadata.get("target_platform") != target_platform
+        or metadata.get("target_arch") != target_arch
+    ):
+        raise ValueError(f"full update ZIP does not target {target_platform}-{target_arch}")
 
 
 def inspect_update_package(package: Path) -> UpdatePackageInfo:
@@ -158,7 +197,12 @@ def inspect_update_package(package: Path) -> UpdatePackageInfo:
             "update package filename does not match its embedded type/version"
         )
     _validate_package(package, kind, version)
-    return UpdatePackageInfo(version, kind)
+    return UpdatePackageInfo(
+        version,
+        kind,
+        str(metadata.get("target_platform") or "") or None,
+        str(metadata.get("target_arch") or "") or None,
+    )
 
 
 def inspect_module_archive(package: Path) -> ModuleArchiveInfo:

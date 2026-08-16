@@ -62,6 +62,7 @@ class CartridgeCatalogService:
         source=None,
         opener: Callable[[str, float], bytes] | None = None,
         timeout: float = 20,
+        platform: str | None = None,
     ) -> None:
         self.cache_dir = Path(cache_dir)
         self.bootstrap_dir = Path(bootstrap_dir) if bootstrap_dir else None
@@ -69,6 +70,7 @@ class CartridgeCatalogService:
         self.source = source or create_hub_release_source(self.download_source)
         self._open = opener or self._download_bytes
         self.timeout = timeout
+        self.platform = platform
         self.index: CartridgeIndex | None = None
         self.index_source: str | None = None
         self._loaded: dict[str, LoadedCartridge] = {}
@@ -186,7 +188,7 @@ class CartridgeCatalogService:
         loaded = LoadedCartridge(
             entry=entry,
             document=document,
-            cartridge=_build_cartridge(document),
+            cartridge=_build_cartridge(document, platform=self.platform),
             source=source,
         )
         self._loaded[game_id] = loaded

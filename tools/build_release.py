@@ -38,7 +38,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_release_manifest(release: Path, version: str = VERSION) -> Path:
+def write_release_manifest(
+    release: Path,
+    version: str = VERSION,
+    *,
+    target_platform: str = "windows",
+    target_arch: str = "x64",
+    manifest_path: Path | None = None,
+    path_prefix: str = "",
+    bundle_path: str | None = None,
+) -> Path:
     """Write the ownership manifest consumed by the in-place full updater."""
     protected = {
         Path("app/state.json"),
@@ -52,10 +61,27 @@ def write_release_manifest(release: Path, version: str = VERSION) -> Path:
         relative = path.relative_to(release)
         if relative in protected or relative.parts[0] in {"data", "cache"}:
             continue
-        files.append({"path": relative.as_posix(), "size": path.stat().st_size, "sha256": _sha256(path)})
-    manifest = release / "release-manifest.json"
+        stored_relative = (
+            f"{path_prefix.rstrip('/')}/{relative.as_posix()}"
+            if path_prefix else relative.as_posix()
+        )
+        item = {"path": stored_relative, "size": path.stat().st_size, "sha256": _sha256(path)}
+        if target_platform != "windows":
+            item["mode"] = path.stat().st_mode & 0o7777
+        files.append(item)
+    manifest = manifest_path or (release / "release-manifest.json")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "version": version,
+        "target_platform": target_platform,
+        "target_arch": target_arch,
+        "files": files,
+    }
+    if bundle_path:
+        payload["bundle_path"] = bundle_path
     manifest.write_text(
-        json.dumps({"schema_version": 1, "version": version, "files": files}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     return manifest

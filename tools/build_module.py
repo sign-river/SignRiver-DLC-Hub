@@ -46,6 +46,13 @@ def build(source: Path, output_root: Path, base_url: str = "") -> tuple[Path, Pa
     return archive, fragment
 
 
+def remove_unpublished_baseline_artifacts(output_root: Path) -> None:
+    """Remove the tracked source baseline from publishable build output."""
+    for suffix in (".zip", ".release.json"):
+        candidate = output_root / f"SignRiver-DLC-Hub-module-v0.1.0{suffix}"
+        candidate.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a SignRiver DLC Hub module update")
     parser.add_argument("source", nargs="?", type=Path)
@@ -71,6 +78,8 @@ def main() -> int:
         archive, fragment = build(source, output, args.base_url)
         print(f"Module:   {archive}")
         print(f"Manifest: {fragment}")
+    if args.all_versions:
+        remove_unpublished_baseline_artifacts(output)
     return 0
 
 

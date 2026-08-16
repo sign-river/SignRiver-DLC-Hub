@@ -151,9 +151,14 @@ def _activate_confirmed_full_update_module(
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--apply-full-update":
-        if len(argv) != 4:
+        if len(argv) not in {4, 7}:
             return 2
-        apply_full_update(Path(argv[1]), argv[2], int(argv[3]))
+        apply_full_update(
+            Path(argv[1]), argv[2], int(argv[3]),
+            install_root=Path(argv[4]) if len(argv) == 7 else None,
+            platform=argv[5] if len(argv) == 7 else None,
+            cache_root=Path(argv[6]) if len(argv) == 7 else None,
+        )
         return 0
     confirm_transaction = None
     if argv and argv[0] == "--confirm-full-update":
@@ -202,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
                 paths.cache_dir,
                 updater,
                 logger,
+                paths.resources_root,
+                paths.platform.value,
             )
             application = loader.create_application(state.active_version, context)
             store.mark_healthy(state.active_version)
@@ -228,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
                 paths.cache_dir,
                 updater,
                 logger,
+                paths.resources_root,
+                paths.platform.value,
             )
             application = loader.create_application(state.active_version, context)
             _show_rollback_notice(failed_version, state.active_version, error)

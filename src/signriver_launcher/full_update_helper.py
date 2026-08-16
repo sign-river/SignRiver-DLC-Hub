@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .full_update import FullUpdateManager
 from .paths import RuntimePaths
-from .product import RELEASE_EXE_NAME
+from signriver_common.platforms import HostPlatform
 
 
 def _wait_for_parent_windows(pid: int, timeout_seconds: int) -> None:
@@ -72,17 +72,33 @@ def _wait_for_parent(pid: int, timeout_seconds: int = 60) -> None:
     raise RuntimeError("the application did not exit before the full update timeout")
 
 
-def apply_full_update(root: Path, transaction_id: str, parent_pid: int, restart: bool = True) -> None:
+def apply_full_update(
+    root: Path,
+    transaction_id: str,
+    parent_pid: int,
+    restart: bool = True,
+    *,
+    install_root: Path | None = None,
+    platform: str | None = None,
+    cache_root: Path | None = None,
+) -> None:
     _wait_for_parent(parent_pid)
-    paths = RuntimePaths(root.resolve())
+    paths = RuntimePaths(
+        root.resolve(),
+        install_root.resolve() if install_root else None,
+        HostPlatform(platform) if platform else None,
+        cache_root.resolve() if cache_root else None,
+    )
     manager = FullUpdateManager(paths)
     manager.apply(transaction_id)
     if restart:
         if getattr(sys, "frozen", False):
-            executable = root / RELEASE_EXE_NAME
+            executable = paths.resources_root / paths.launcher_relative_path
+            if paths.platform is HostPlatform.MACOS:
+                executable = Path(paths.install_root or root) / paths.launcher_relative_path
             subprocess.Popen(
                 [str(executable), "--confirm-full-update", transaction_id],
-                cwd=root,
+                cwd=paths.resources_root,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

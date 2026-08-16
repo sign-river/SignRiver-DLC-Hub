@@ -22,6 +22,7 @@ from signriver_launcher.paths import RuntimePaths
 from signriver_launcher.product import RELEASE_EXE_NAME
 from signriver_launcher.state import StateStore
 from signriver_launcher.updater import UpdateClient
+from signriver_common.platforms import HostPlatform
 import signriver_launcher.updater as updater_module
 
 
@@ -57,14 +58,18 @@ def release_for(path: Path, version: str = "0.1.1") -> ReleaseInfo:
 
 
 def client_for(tmp_path: Path) -> tuple[UpdateClient, StateStore, RuntimePaths]:
-    paths = RuntimePaths(tmp_path)
+    paths = RuntimePaths(tmp_path, host_platform=HostPlatform.WINDOWS)
     paths.ensure()
     initial = paths.versions_dir / "0.1.0"
     initial.mkdir()
     (initial / "module.json").write_text("{}", encoding="utf-8")
     store = StateStore(paths.state_file)
     store.bootstrap("0.1.0")
-    return UpdateClient(paths, UpdateSettings(), store), store, paths
+    return (
+        UpdateClient(paths, UpdateSettings(), store, host_package_key="windows-x64"),
+        store,
+        paths,
+    )
 
 
 def test_installs_to_new_version_and_atomically_activates(tmp_path) -> None:

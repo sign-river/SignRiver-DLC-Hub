@@ -2,6 +2,15 @@
 
 - 所有对用户的回复一律使用中文（代码、命令、报错原文、专有名词除外）。
 
+# 上下文切换约定（所有 AI 必须遵守）
+
+- 新任务开始并准备修改文件前，依次阅读：`docs/agent/README.md`、`docs/agent/PROJECT_CONTEXT.md`、`docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md`。
+- 读取交接后必须核对当前分支、HEAD、`git status --short` 和相关测试；交接与真实工作区冲突时，以代码、Git 和可重复测试结果为准。
+- 禁止为了“恢复干净状态”而重置、清理或覆盖用户已有未提交改动。
+- 任务结束或准备切换时，更新 `docs/agent/HANDOFF.md` 中的目标、改动范围、验证结果、风险和下一步；长期有效的方案与失败经验同步到 `docs/agent/DECISIONS.md`。
+- `HANDOFF.md` 不得保存密码、令牌、Cookie、Apple/Steam 账号、私有下载凭据或大段原始日志；未执行的测试必须明确标为未执行。
+- 临时任务、一次性报错和短期下一步不得写入 `AGENTS.md`；只有长期规则才能进入本文件。
+
 # Git 提交 / 推送约定（所有 AI 必须遵守）
 
 - **每次代码提交（commit）后，禁止自动推送（push）到 GitHub。**

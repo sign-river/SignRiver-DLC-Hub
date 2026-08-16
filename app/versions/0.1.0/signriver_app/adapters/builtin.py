@@ -13,7 +13,7 @@ from pathlib import Path
 from .cartridge import GameCartridge
 from .document_cartridge import build_cartridge_from_document
 from .protocol import GameAdapter
-from ..domain import CartridgeDocument, CartridgeIndex
+from ..domain import CartridgeDocument, CartridgeIndex, PatchPlatform
 
 
 def bootstrap_cartridges_dir() -> Path:
@@ -30,6 +30,8 @@ def load_bootstrap_index(directory: Path | None = None) -> CartridgeIndex:
 
 def create_builtin_cartridges(
     directory: Path | None = None,
+    *,
+    platform: str | PatchPlatform | None = None,
 ) -> tuple[GameCartridge, ...]:
     root = directory or bootstrap_cartridges_dir()
     index = load_bootstrap_index(root)
@@ -38,15 +40,18 @@ def create_builtin_cartridges(
         document = CartridgeDocument.from_dict(
             json.loads((root / entry.asset_name).read_text(encoding="utf-8"))
         )
-        cartridges.append(build_cartridge_from_document(document))
+        cartridges.append(build_cartridge_from_document(document, platform=platform))
     return tuple(cartridges)
 
 
 def create_builtin_adapters(
     directory: Path | None = None,
+    *,
+    platform: str | PatchPlatform | None = None,
 ) -> tuple[GameAdapter, ...]:
     return tuple(
-        cartridge.adapter for cartridge in create_builtin_cartridges(directory)
+        cartridge.adapter
+        for cartridge in create_builtin_cartridges(directory, platform=platform)
     )
 
 

@@ -1,7 +1,87 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+
+BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
+    "stellaris": {
+        "steamos": {
+            "executable_relative_path": "stellaris", "dlc_relative_dir": "dlc",
+            "unlocker_dll_name": "libsteam_api.so",
+            "original_backup_dll_name": "libsteam_api_o.so",
+            "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
+        },
+        "macos": {
+            "executable_relative_path": "stellaris.app/Contents/MacOS/stellaris",
+            "dlc_relative_dir": "dlc", "install_relative_dir": "stellaris.app/Contents/MacOS",
+            "unlocker_dll_name": "libsteam_api.dylib",
+            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
+        },
+    },
+    "civilization_6": {
+        "steamos": {
+            "executable_relative_path": "Civ6", "dlc_relative_dir": "DLC",
+            "install_relative_dir": ".", "unlocker_dll_name": "libsteam_api.so",
+            "original_backup_dll_name": "libsteam_api_o.so",
+            "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
+        },
+        "macos": {
+            "executable_relative_path": "Civilization VI.app/Contents/MacOS/Civilization VI",
+            "dlc_relative_dir": "DLC", "install_relative_dir": "Civilization VI.app/Contents/MacOS",
+            "unlocker_dll_name": "libsteam_api.dylib",
+            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
+        },
+    },
+    "hearts_of_iron_4": {
+        "steamos": {
+            "executable_relative_path": "hoi4", "dlc_relative_dir": "dlc",
+            "unlocker_dll_name": "libsteam_api.so",
+            "original_backup_dll_name": "libsteam_api_o.so",
+            "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
+        },
+        "macos": {
+            "executable_relative_path": "hoi4.app/Contents/MacOS/hoi4",
+            "dlc_relative_dir": "dlc", "install_relative_dir": "hoi4.app/Contents/MacOS",
+            "unlocker_dll_name": "libsteam_api.dylib",
+            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
+        },
+    },
+    "cities_skylines": {
+        "steamos": {
+            "executable_relative_path": "Cities.x64", "dlc_relative_dir": "Files",
+            "unlocker_dll_name": "libsteam_api.so",
+            "original_backup_dll_name": "libsteam_api_o.so",
+            "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
+        },
+        "macos": {
+            "executable_relative_path": "Cities.app/Contents/MacOS/Cities",
+            "dlc_relative_dir": "Files", "install_relative_dir": "Cities.app/Contents/Plugins",
+            "unlocker_dll_name": "libsteam_api.dylib",
+            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
+        },
+    },
+    "rimworld": {
+        "steamos": {
+            "executable_relative_path": "RimWorldLinux", "dlc_relative_dir": "Data",
+            "install_relative_dir": "RimWorldLinux_Data/Plugins/x86_64",
+            "unlocker_dll_name": "libsteam_api.so",
+            "original_backup_dll_name": "libsteam_api_o.so",
+            "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
+        },
+        "macos": {
+            "executable_relative_path": "RimWorldMac.app/Contents/MacOS/RimWorldMac",
+            "dlc_relative_dir": "Data", "install_relative_dir": "RimWorldMac.app/Contents/Plugins",
+            "unlocker_dll_name": "libsteam_api.dylib",
+            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
+        },
+    },
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +113,18 @@ class PublisherCartridge:
     patch_unlock_all: bool = True
     patch_extra_protection: bool = False
     patch_force_offline: bool = False
+    patch_platforms: dict[str, dict[str, object]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.patch_platforms and self.game_id in BUILTIN_PATCH_PLATFORMS:
+            object.__setattr__(
+                self,
+                "patch_platforms",
+                {
+                    platform: dict(spec)
+                    for platform, spec in BUILTIN_PATCH_PLATFORMS[self.game_id].items()
+                },
+            )
 
     @classmethod
     def create(cls, game_id: str, display_name: str, steam_app_id: str = "") -> "PublisherCartridge":
@@ -51,13 +143,35 @@ class PublisherCartridge:
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "PublisherCartridge":
         game_id = str(value["game_id"])
-        auto_prefix_games = {"civilization_6", "cities_skylines", "rimworld"}
+        raw_patch_platforms = value.get("patch_platforms")
+        patch_platforms = (
+            {
+                str(platform): dict(spec)
+                for platform, spec in raw_patch_platforms.items()
+                if isinstance(spec, dict)
+            }
+            if isinstance(raw_patch_platforms, dict)
+            else {
+                platform: dict(spec)
+                for platform, spec in BUILTIN_PATCH_PLATFORMS.get(game_id, {}).items()
+            }
+        )
+        auto_prefix_games = {
+            "civilization_6", "cities_skylines", "rimworld",
+            "workers_resources_soviet_republic", "civilization_7",
+            "age_of_wonders_4",
+        }
         legacy_steam_ids = {
             "stellaris": "281990",
             "civilization_6": "289070",
             "hearts_of_iron_4": "394360",
             "cities_skylines": "255710",
             "rimworld": "294100",
+            "crusader_kings_3": "1158310",
+            "victoria_3": "529340",
+            "workers_resources_soviet_republic": "784150",
+            "civilization_7": "1295660",
+            "age_of_wonders_4": "1669000",
         }
         builtin_naming_modes = {gid: "auto_prefix" for gid in auto_prefix_games}
         builtin_layout_modes = {gid: "children_if_root" for gid in auto_prefix_games}
@@ -66,10 +180,18 @@ class PublisherCartridge:
             "civilization_6": "DLC",
             "cities_skylines": "Files",
             "rimworld": "Data",
+            "crusader_kings_3": "game/dlc",
+            "victoria_3": "game/dlc",
+            "workers_resources_soviet_republic": "media_soviet/sounds",
+            "civilization_7": "DLC",
+            "age_of_wonders_4": "Content",
         }
         builtin_patch_dirs = {
             "civilization_6": "Base/Binaries/Win64Steam",
             "rimworld": "RimWorldWin64_Data/Plugins/x86_64",
+            "crusader_kings_3": "binaries",
+            "victoria_3": "binaries",
+            "civilization_7": "Base/Binaries/Win64",
         }
         builtin_executables = {
             "stellaris": "stellaris.exe",
@@ -77,6 +199,11 @@ class PublisherCartridge:
             "hearts_of_iron_4": "hoi4.exe",
             "cities_skylines": "Cities.exe",
             "rimworld": "RimWorldWin64.exe",
+            "crusader_kings_3": "binaries/ck3.exe",
+            "victoria_3": "binaries/victoria3.exe",
+            "workers_resources_soviet_republic": "SOVIET64.exe",
+            "civilization_7": "Base/Binaries/Win64/Civ7_Win64_DX12_FinalRelease.exe",
+            "age_of_wonders_4": "AOW4.exe",
         }
         builtin_inspectors = {"stellaris": "stellaris_zip"}
         return cls(
@@ -135,6 +262,7 @@ class PublisherCartridge:
             patch_unlock_all=bool(value.get("patch_unlock_all", True)),
             patch_extra_protection=bool(value.get("patch_extra_protection", False)),
             patch_force_offline=bool(value.get("patch_force_offline", False)),
+            patch_platforms=patch_platforms,
         )
 
 

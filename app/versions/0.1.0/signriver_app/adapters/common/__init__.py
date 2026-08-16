@@ -5,6 +5,7 @@ from .steam import (
     SteamInstallationLocator,
     SteamScanIssue,
     VdfError,
+    discover_steam_roots,
     discover_windows_steam_roots,
     parse_vdf,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "SteamInstallationLocator",
     "SteamScanIssue",
     "VdfError",
+    "discover_steam_roots",
     "discover_windows_steam_roots",
     "parse_vdf",
     "ConfiguredSteamAdapter",

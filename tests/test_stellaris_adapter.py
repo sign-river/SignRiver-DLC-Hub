@@ -229,7 +229,7 @@ def test_stellaris_adapter_rejects_wrong_or_incomplete_directory(
 
 
 def test_builtin_adapter_set_contains_all_prepared_game_cartridges() -> None:
-    adapters = create_builtin_adapters()
+    adapters = create_builtin_adapters(platform="windows")
 
     assert {adapter.descriptor.adapter_id for adapter in adapters} == {
         "stellaris.steam",
@@ -237,6 +237,11 @@ def test_builtin_adapter_set_contains_all_prepared_game_cartridges() -> None:
         "hearts_of_iron_4.steam",
         "cities_skylines.steam",
         "rimworld.steam",
+        "crusader_kings_3.steam",
+        "victoria_3.steam",
+        "workers_resources_soviet_republic.steam",
+        "civilization_7.steam",
+        "age_of_wonders_4.steam",
     }
 
 

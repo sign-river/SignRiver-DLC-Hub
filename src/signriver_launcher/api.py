@@ -11,6 +11,7 @@ from pathlib import Path
 from .constants import HOST_API_VERSION, LAUNCHER_VERSION
 from .models import ReleaseInfo
 from .updater import ProgressCallback, UpdateClient
+from signriver_common.platforms import detect_host_platform, normalize_architecture
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,9 @@ class PublicPaths:
     root: Path
     data: Path
     cache: Path
+    install: Path | None = None
+    platform: str = "windows"
+    architecture: str = "x64"
 
 
 class UpdateService:
@@ -78,7 +82,7 @@ class HostContext:
     def restart(self) -> None:
         """Restart through the stable host so modules do not manage process details."""
         if getattr(sys, "frozen", False):
-            subprocess.Popen([sys.executable], cwd=self.paths.root)
+            subprocess.Popen([sys.executable], cwd=self.paths.install or self.paths.root)
             os._exit(0)
         launcher = self.paths.root / "launcher.py"
         os.execl(sys.executable, sys.executable, str(launcher))
@@ -96,12 +100,21 @@ class HostContext:
         cache: Path,
         updater: UpdateClient,
         logger: logging.Logger,
+        install: Path | None = None,
+        platform: str | None = None,
     ) -> "HostContext":
         return cls(
             app_version=app_version,
             launcher_version=LAUNCHER_VERSION,
             api_version=HOST_API_VERSION,
-            paths=PublicPaths(root=root, data=data, cache=cache),
+            paths=PublicPaths(
+                root=root,
+                data=data,
+                cache=cache,
+                install=install or root,
+                platform=platform or detect_host_platform().value,
+                architecture=normalize_architecture(),
+            ),
             updates=UpdateService(updater, app_version),
             logger=logger,
         )

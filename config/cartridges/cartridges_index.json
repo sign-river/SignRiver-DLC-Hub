@@ -11,36 +11,71 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "05788e63b4228c03331d983259326845fb359f70f3da59f742324df4dfcbe2ec",
-      "size_bytes": 1462
+      "sha256": "71934ccee76595d484a9db97012954ef89406be22424732fcf3c4389aca3a00e",
+      "size_bytes": 1723
     },
     {
       "game_id": "civilization_6",
       "display_name": "文明6 (Civilization VI)",
       "asset_name": "cartridge_civilization_6.json",
-      "sha256": "dae273508998d27b17bb053e69f46f96de47ffd12359632ca3baaa016c6a8387",
-      "size_bytes": 1532
+      "sha256": "d1090f9238cebbd2b4ce7794f832cb5b6667c10a0763bad6b0e2dd741908bcf7",
+      "size_bytes": 1843
     },
     {
       "game_id": "hearts_of_iron_4",
       "display_name": "钢铁雄心4 (Hearts of Iron IV)",
       "asset_name": "cartridge_hearts_of_iron_4.json",
-      "sha256": "c98345218e29fdd2f1d7b372cea85554e05f517a827eb9609ea53079fbe7c655",
-      "size_bytes": 1489
+      "sha256": "c61e15378345ab85b84dc218bba2be05ad85be3e7b99f15eba68dd9b44897048",
+      "size_bytes": 1730
     },
     {
       "game_id": "cities_skylines",
       "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "d0bc68f36a20190db4e16beeba99b189815a7df2bf57edecc34417730da32d2f",
-      "size_bytes": 1546
+      "sha256": "e0479fc00e2323044f99d885838bd8939d8c31cfa4506c060a3accc3ad54d00d",
+      "size_bytes": 1805
     },
     {
       "game_id": "rimworld",
       "display_name": "边缘世界 (RimWorld)",
       "asset_name": "cartridge_rimworld.json",
-      "sha256": "60b5b861236b37c0f8f4f435fa21819ebc00db83d83ceadf9ef8120b7aa105f3",
-      "size_bytes": 1496
+      "sha256": "4b05608fc19fca38df2dbb88b3d3f294553d59afd19c101e9359f61dae5dce24",
+      "size_bytes": 1840
+    },
+    {
+      "game_id": "crusader_kings_3",
+      "display_name": "十字军之王3 (Crusader Kings III)",
+      "asset_name": "cartridge_crusader_kings_3.json",
+      "sha256": "b70b8d9c2fe69adca0f6ad53af89123a3a4f19cf7ffe634c1809f9cdcd34af90",
+      "size_bytes": 1047
+    },
+    {
+      "game_id": "victoria_3",
+      "display_name": "维多利亚3 (Victoria 3)",
+      "asset_name": "cartridge_victoria_3.json",
+      "sha256": "ddd2d3a0204fce19bb2a17a8e7bb26f3af4ceba420d8bcbc523217ac6ec9abf9",
+      "size_bytes": 1023
+    },
+    {
+      "game_id": "workers_resources_soviet_republic",
+      "display_name": "工人与资源：苏维埃共和国 (Workers & Resources: Soviet Republic)",
+      "asset_name": "cartridge_workers_resources_soviet_republic.json",
+      "sha256": "5de392c650e866bcc680015175fd05cb3ee74be61112dffc6bf000dd9e4cdd31",
+      "size_bytes": 1134
+    },
+    {
+      "game_id": "civilization_7",
+      "display_name": "文明7 (Sid Meier's Civilization VII)",
+      "asset_name": "cartridge_civilization_7.json",
+      "sha256": "76ab401e508f956e50a7f144ece449883ca5101b00c2c3ef4a1e3acb29c87e35",
+      "size_bytes": 1083
+    },
+    {
+      "game_id": "age_of_wonders_4",
+      "display_name": "奇迹时代4 (Age of Wonders 4)",
+      "asset_name": "cartridge_age_of_wonders_4.json",
+      "sha256": "f9c16eb14e01f0cc0a1e3868e8900f5bdbde90bc119ef17847d57044afdd225b",
+      "size_bytes": 1025
     }
   ]
 }

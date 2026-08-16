@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from .constants import HOST_API_VERSION
@@ -34,6 +34,27 @@ class ModuleMetadata:
 
 
 @dataclass(frozen=True)
+class PlatformPackage:
+    package_url: str
+    sha256: str
+    size: int | None
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "PlatformPackage":
+        package_url, sha256 = value.get("package_url"), value.get("sha256")
+        size = value.get("size")
+        if not isinstance(package_url, str) or not package_url:
+            raise ManifestError("Platform package is missing package_url")
+        if not isinstance(sha256, str) or len(sha256) != 64 or any(
+            ch not in "0123456789abcdefABCDEF" for ch in sha256
+        ):
+            raise ManifestError("Platform package sha256 must be 64 hexadecimal characters")
+        if size is not None and (not isinstance(size, int) or size < 0):
+            raise ManifestError("Platform package size must be a non-negative integer")
+        return cls(package_url, sha256.lower(), size)
+
+
+@dataclass(frozen=True)
 class ReleaseInfo:
     version: str
     kind: Literal["module", "full"]
@@ -44,6 +65,7 @@ class ReleaseInfo:
     notes: str = ""
     mandatory: bool = False
     installer_version: int = 1
+    platform_packages: dict[str, PlatformPackage] | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ReleaseInfo":
@@ -69,6 +91,18 @@ class ReleaseInfo:
         notes = value.get("notes", "")
         mandatory = value.get("mandatory", False)
         installer_version = value.get("installer_version", 1)
+        raw_platform_packages = value.get("platform_packages")
+        platform_packages: dict[str, PlatformPackage] | None = None
+        if raw_platform_packages is not None:
+            if not isinstance(raw_platform_packages, dict):
+                raise ManifestError("platform_packages must be an object")
+            platform_packages = {}
+            for key, package in raw_platform_packages.items():
+                if not isinstance(key, str) or key not in {
+                    "windows-x64", "steamos-x64", "macos-x64"
+                } or not isinstance(package, dict):
+                    raise ManifestError(f"Invalid platform package: {key!r}")
+                platform_packages[key] = PlatformPackage.from_dict(package)
         if (
             not isinstance(notes, str)
             or not isinstance(mandatory, bool)
@@ -78,7 +112,22 @@ class ReleaseInfo:
             raise ManifestError("Release notes or mandatory flag has an invalid type")
         return cls(
             version, kind, package_url, sha256.lower(), size, min_launcher,
-            notes, mandatory, installer_version,
+            notes, mandatory, installer_version, platform_packages,
+        )
+
+    def for_platform(self, package_key: str) -> "ReleaseInfo | None":
+        if not self.platform_packages:
+            if self.kind == "full" and package_key != "windows-x64":
+                return None
+            return self
+        package = self.platform_packages.get(package_key)
+        if package is None:
+            return None
+        return replace(
+            self,
+            package_url=package.package_url,
+            sha256=package.sha256,
+            size=package.size,
         )
 
 
@@ -87,6 +136,7 @@ class ReleaseFile:
     path: str
     size: int
     sha256: str
+    mode: int | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ReleaseFile":
@@ -97,13 +147,19 @@ class ReleaseFile:
             raise PackageError("release manifest has an invalid file size")
         if not isinstance(sha256, str) or len(sha256) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in sha256):
             raise PackageError("release manifest has an invalid SHA-256")
-        return cls(path.replace("\\", "/"), size, sha256.lower())
+        mode = value.get("mode")
+        if mode is not None and (not isinstance(mode, int) or mode < 0 or mode > 0o7777):
+            raise PackageError("release manifest has an invalid file mode")
+        return cls(path.replace("\\", "/"), size, sha256.lower(), mode)
 
 
 @dataclass(frozen=True)
 class FullReleaseManifest:
     version: str
     files: tuple[ReleaseFile, ...]
+    target_platform: str | None = None
+    target_arch: str | None = None
+    bundle_path: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "FullReleaseManifest":
@@ -116,7 +172,31 @@ class FullReleaseManifest:
         parsed = tuple(ReleaseFile.from_dict(item) for item in files if isinstance(item, dict))
         if len(parsed) != len(files) or len({item.path for item in parsed}) != len(parsed):
             raise PackageError("full release manifest file entries are invalid")
-        return cls(version, parsed)
+        target_platform = value.get("target_platform")
+        target_arch = value.get("target_arch")
+        bundle_path = value.get("bundle_path")
+        if target_platform is not None and target_platform not in {"windows", "steamos", "macos"}:
+            raise PackageError("full release manifest has an invalid target_platform")
+        if target_arch is not None and target_arch != "x64":
+            raise PackageError("full release manifest has an invalid target_arch")
+        if bundle_path is not None:
+            if not isinstance(bundle_path, str):
+                raise PackageError("full release manifest has an invalid bundle_path")
+            bundle = bundle_path.replace("\\", "/")
+            parts = tuple(part for part in bundle.split("/") if part)
+            if (
+                bundle.startswith("/")
+                or len(parts) != 1
+                or parts[0] in {".", ".."}
+                or not parts[0].endswith(".app")
+                or target_platform != "macos"
+            ):
+                raise PackageError("full release manifest has an invalid bundle_path")
+            bundle_path = parts[0]
+            prefix = f"{bundle_path}/"
+            if not parsed or any(not item.path.startswith(prefix) for item in parsed):
+                raise PackageError("macOS bundle manifest contains a path outside the app")
+        return cls(version, parsed, target_platform, target_arch, bundle_path)
 
 
 @dataclass(frozen=True)

@@ -3456,21 +3456,43 @@ class PublisherApplication(ctk.CTk):
         """Publish a built module/full ZIP and its client update manifest."""
         if not self._save_active_settings():
             return
-        package_name = filedialog.askopenfilename(
+        package_names = filedialog.askopenfilenames(
             title="选择程序更新包",
             initialdir=self._update_package_dir(),
             filetypes=[("ZIP 文件", "*.zip")],
         )
-        if not package_name:
+        if not package_names:
             return
-        package = Path(package_name)
+        packages = tuple(Path(name) for name in package_names)
         try:
-            package_info = inspect_update_package(package)
+            inspected = tuple(
+                (candidate, inspect_update_package(candidate))
+                for candidate in packages
+            )
+            identities = {(info.version, info.kind) for _path, info in inspected}
+            if len(identities) != 1:
+                raise ValueError("所选更新包的版本和类型必须一致")
+            version, kind = identities.pop()
+            platform_packages: dict[str, Path] = {}
+            if len(inspected) > 1:
+                if kind != "full":
+                    raise ValueError("只有全量更新可以同时选择多个平台包")
+                for candidate, info in inspected:
+                    if not info.target_platform or not info.target_arch:
+                        raise ValueError(f"包内缺少目标平台/架构：{candidate.name}")
+                    key = f"{info.target_platform}-{info.target_arch}"
+                    if key in platform_packages:
+                        raise ValueError(f"重复的平台包：{key}")
+                    platform_packages[key] = candidate
+                missing = {
+                    "windows-x64", "steamos-x64", "macos-x64"
+                } - platform_packages.keys()
+                if missing:
+                    raise ValueError(f"缺少平台包：{', '.join(sorted(missing))}")
+            package = platform_packages.get("windows-x64", inspected[0][0])
         except ValueError as error:
             messagebox.showerror("程序更新", str(error), parent=self)
             return
-        version = package_info.version
-        kind = package_info.kind
         asked = self._ask_update_notes(version, kind)
         if asked is None:
             return
@@ -3500,20 +3522,38 @@ class PublisherApplication(ctk.CTk):
                 draft = UpdateReleaseDraft(
                     version=version.strip(), kind=kind, package=package,
                     notes=notes, mandatory=mandatory,
+                    platform_packages=platform_packages or None,
                 )
                 self._update_publish_resume = (draft, mirror, target, owner, repository, token)
                 if mirror:
                     self._publish_update_mirror(draft)
                     published_target = "GitLink + GitHub"
                 else:
+                    platform_urls = {
+                        key: release_asset_url(target, owner, repository, path.name)
+                        for key, path in (draft.platform_packages or {}).items()
+                    }
                     manifest = write_update_manifest(
                         self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
                         channel="stable",
-                        releases=[draft.release_dict(release_asset_url(
-                            target, owner, repository, package.name
-                        ))],
+                        releases=[draft.release_dict(
+                            release_asset_url(target, owner, repository, package.name),
+                            platform_urls,
+                        )],
                     )
-                    self._publish_update_target(target, owner, repository, token, package, manifest)
+                    publish_packages = tuple(
+                        (draft.platform_packages or {"windows-x64": package}).values()
+                    )
+                    total = len(publish_packages) + 1
+                    for index, item in enumerate(publish_packages):
+                        self._publish_update_target(
+                            target, owner, repository, token, item, None,
+                            progress_start=index, progress_total=total,
+                        )
+                    self._publish_update_target(
+                        target, owner, repository, token, None, manifest,
+                        progress_start=len(publish_packages), progress_total=total,
+                    )
                     published_target = target
                 self._post_ui(
                     lambda: self._publish_update_done(version.strip(), published_target)
@@ -3539,31 +3579,33 @@ class PublisherApplication(ctk.CTk):
             raise ValueError("双源镜像发布需要在本地配置中填写 GitLink 和 GitHub 的完整凭据")
         manifests = []
         for target, owner, repository, _token in targets:
+            platform_urls = {
+                key: release_asset_url(target, owner, repository, path.name)
+                for key, path in (draft.platform_packages or {}).items()
+            }
             manifests.append((target, owner, repository, _token, write_update_manifest(
                 self.workspace.output_dir / "updates" / target / UPDATE_MANIFEST_ASSET,
                 channel="stable",
-                releases=[draft.release_dict(release_asset_url(
-                    target, owner, repository, draft.package.name
-                ))],
+                releases=[draft.release_dict(
+                    release_asset_url(target, owner, repository, draft.package.name),
+                    platform_urls,
+                )],
             )))
         # Package first: a newly visible manifest can never reference an asset
         # that has not reached its source Release yet.
-        for index, (target, owner, repository, token, _manifest) in enumerate(
-            manifests, start=1
-        ):
-            self._publish_update_target(
-                target,
-                owner,
-                repository,
-                token,
-                draft.package,
-                None,
-                progress_start=index - 1,
-                progress_total=4,
-            )
-        for index, (target, owner, repository, token, manifest) in enumerate(
-            manifests, start=3
-        ):
+        publish_packages = tuple(
+            (draft.platform_packages or {"windows-x64": draft.package}).values()
+        )
+        total = len(targets) * (len(publish_packages) + 1)
+        completed = 0
+        for target, owner, repository, token, _manifest in manifests:
+            for package in publish_packages:
+                self._publish_update_target(
+                    target, owner, repository, token, package, None,
+                    progress_start=completed, progress_total=total,
+                )
+                completed += 1
+        for target, owner, repository, token, manifest in manifests:
             self._publish_update_target(
                 target,
                 owner,
@@ -3571,9 +3613,10 @@ class PublisherApplication(ctk.CTk):
                 token,
                 None,
                 manifest,
-                progress_start=index - 1,
-                progress_total=4,
+                progress_start=completed,
+                progress_total=total,
             )
+            completed += 1
 
     def publish_module_archive(self, *, mirror: bool = False) -> None:
         """Publish every verified module snapshot from the standard archive directory."""
@@ -3860,16 +3903,30 @@ class PublisherApplication(ctk.CTk):
                     self._publish_update_mirror(draft)
                     published_target = "GitLink + GitHub"
                 else:
+                    platform_urls = {
+                        key: release_asset_url(target, owner, repository, path.name)
+                        for key, path in (draft.platform_packages or {}).items()
+                    }
                     manifest = write_update_manifest(
                         self.workspace.output_dir / "updates" / UPDATE_MANIFEST_ASSET,
                         channel="stable",
-                        releases=[draft.release_dict(release_asset_url(
-                            target, owner, repository, draft.package.name
-                        ))],
+                        releases=[draft.release_dict(
+                            release_asset_url(target, owner, repository, draft.package.name),
+                            platform_urls,
+                        )],
                     )
+                    publish_packages = tuple(
+                        (draft.platform_packages or {"windows-x64": draft.package}).values()
+                    )
+                    total = len(publish_packages) + 1
+                    for index, package in enumerate(publish_packages):
+                        self._publish_update_target(
+                            target, owner, repository, token, package, None,
+                            progress_start=index, progress_total=total,
+                        )
                     self._publish_update_target(
-                        target, owner, repository, token,
-                        draft.package, manifest,
+                        target, owner, repository, token, None, manifest,
+                        progress_start=len(publish_packages), progress_total=total,
                     )
                     published_target = target
                 self._post_ui(

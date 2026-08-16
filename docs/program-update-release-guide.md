@@ -2,10 +2,11 @@
 
 ## 当前发布基线
 
-- 当前正式版本：`0.1.7`
+- 当前线上正式版本：`0.1.7`
+- 当前待发布版本：`0.2.0`
 - 当前更新类型：`full`
 - 最低可自动全量更新的启动器版本：`0.1.2`
-- 模块维护基线：`0.1.5`、`0.1.6`、`0.1.7`
+- 模块维护基线：`0.1.6`、`0.1.7`、`0.2.0`
 
 后续发布必须使用高于线上版本的新版本号。业务模块的唯一受控源码是 `app/versions/0.1.0/`；修改完成后复制到新的目标版本目录，不能直接把旧的已发布版本目录作为新源码继续修改。
 
@@ -22,12 +23,15 @@
 
 ## 构建与准备
 
-`build_release.py` 会自动从 PATH 查找 UPX，也可以用 `--upx-dir` 显式指定。未找到 UPX 时启动器不会压缩，构建会给出警告。
+`build_release.py` 只构建 Windows 包，会自动从 PATH 查找 UPX，也可以用 `--upx-dir` 显式指定。SteamOS 与 macOS 必须在对应的 x64 系统中运行 `build_native_release.py`，PyInstaller 不支持交叉编译。
 
 ```powershell
 .\.venv\Scripts\python.exe tools\build_module.py --all-versions app\versions
 .\.venv\Scripts\python.exe tools\build_release.py `
   --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
+# 分别在 SteamOS x64 / macOS Intel x64 中执行
+python tools/build_native_release.py --platform steamos
+python tools/build_native_release.py --platform macos
 ```
 
 `build_module.py --all-versions` 会构建所有本地版本，再清理 `dist/modules` 中不应发布的 `0.1.0` 产物。构建后将 `config/module-archives.json` 更新为最近三个发布版本的文件名、大小和 SHA-256。
@@ -49,6 +53,9 @@ subprocess.run(
         "--min-launcher-version", "0.1.2",
         "--notes", notes,
         "--mandatory",
+        "--platform-package", rf"windows-x64=dist\updates\SignRiver-DLC-Hub-full-v{version}-windows-x64.zip",
+        "--platform-package", rf"steamos-x64=dist\updates\SignRiver-DLC-Hub-full-v{version}-steamos-x64.zip",
+        "--platform-package", rf"macos-x64=dist\updates\SignRiver-DLC-Hub-full-v{version}-macos-x64.zip",
     ],
     check=True,
 )
@@ -61,16 +68,18 @@ subprocess.run(
 - GitLink：`signriver/signriver-dlc-assets`
 - GitHub：`sign-river/signriver-dlc-assets`
 
-每个平台上传：
+每个资源源上传：
 
 1. `dist/updates/SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip`
-2. 对应平台目录中的 `update-manifest.json`
+2. `dist/updates/SignRiver-DLC-Hub-full-v<版本>-steamos-x64.zip`
+3. `dist/updates/SignRiver-DLC-Hub-full-v<版本>-macos-x64.zip`
+4. 对应资源源目录中的 `update-manifest.json`
 
 发布顺序必须是：
 
-1. GitLink 上传更新 ZIP。
-2. GitHub 上传更新 ZIP。
-3. 确认两个 ZIP 均可下载，且大小和 SHA-256 正确。
+1. GitLink 上传三个更新 ZIP。
+2. GitHub 上传三个更新 ZIP。
+3. 确认六个 ZIP 均可下载，且大小、SHA-256、平台和架构正确。
 4. 上传 GitLink 清单。
 5. 上传 GitHub 清单。
 
@@ -80,7 +89,7 @@ subprocess.run(
 
 - 带外层安装目录的首次安装 ZIP。
 - 首次安装自解压 EXE。
-- 另一个平台的清单；GitLink 与 GitHub 的 `package_url` 不同。
+- 另一个资源源的清单；GitLink 与 GitHub 的 URL 不同。
 
 ## `modules` Release
 

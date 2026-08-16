@@ -4,7 +4,7 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 
 ## 核心设计
 
-发布包中的启动器 EXE（发行名为「唏嘘南溪DLC一键解锁工具.exe」）是稳定宿主；真正的界面和业务代码位于 `app/versions/<version>/`。常规更新会下载一个模块包，校验 SHA-256 后解压到新的版本目录，再通过原子写入 `app/state.json` 切换版本。旧版本会保留，以便新模块启动失败时自动回滚。
+Windows 发布包中的启动器 EXE（发行名为「唏嘘南溪DLC一键解锁工具.exe」）是稳定宿主；SteamOS 和 macOS 使用各自的原生冻结启动器。真正的界面和业务代码位于 `app/versions/<version>/`。常规更新会下载一个模块包，校验 SHA-256 后解压到新的版本目录，再通过原子写入 `app/state.json` 切换版本。旧版本会保留，以便新模块启动失败时自动回滚。
 
 ```text
 唏嘘南溪DLC一键解锁工具/
@@ -13,9 +13,9 @@ SignRiver DLC Hub 是一个面向多款游戏的桌面 DLC 管理器。目前项
 │   ├── state.json
 │   └── versions/
 │       ├── 0.1.0/               # Git 跟踪的模块源码
-│       ├── 0.1.5/               # 回滚版本
-│       ├── 0.1.6/               # 上一版本
-│       └── 0.1.7/               # 当前版本
+│       ├── 0.1.6/               # 维护基线
+│       ├── 0.1.7/               # 线上 Windows 基线
+│       └── 0.2.0/               # 当前跨平台构建版本
 ├── config/
 │   ├── update.json
 │   ├── announcement.json        # 出厂公告（可被远程 hub 覆盖）
@@ -64,12 +64,15 @@ python -m pytest
 ```bash
 python tools/build_release.py  # 需要 PATH 中有 UPX（或 --upx-dir 指定），否则 EXE 约 177MB
 python tools/build_module.py --all-versions app/versions
+# 以下命令必须分别在对应的 x64 系统执行，不能交叉编译
+python tools/build_native_release.py --platform steamos
+python tools/build_native_release.py --platform macos
 ```
 
 `build_release.py` 会同时生成首次安装包和根目录结构不同的专用全量更新包。首次安装 ZIP/SFX 不能上传为 `kind: full` 更新。为同一个更新包生成匹配的 GitLink/GitHub 清单：
 
 ```bash
-python tools/prepare_update_release.py dist/updates/SignRiver-DLC-Hub-full-v0.1.7-windows-x64.zip --version 0.1.7 --kind full --min-launcher-version 0.1.2 --notes "启动自动检查重要更新并优化更新提示" --mandatory
+python tools/prepare_update_release.py dist/updates/SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip --version 0.2.0 --kind full --min-launcher-version 0.1.2 --notes "<与 update-notes.json 一致>" --mandatory --platform-package windows-x64=dist/updates/SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip --platform-package steamos-x64=dist/updates/SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip --platform-package macos-x64=dist/updates/SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip
 ```
 
 把专用全量更新 ZIP 原样上传到两个平台的 `updates` Release；GitLink 上传 `dist/updates/gitlink/update-manifest.json`，GitHub 上传 `dist/updates/github/update-manifest.json`。详细的保留和删除规则见 [程序更新发布指南](docs/program-update-release-guide.md)。

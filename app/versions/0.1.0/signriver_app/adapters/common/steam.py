@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from signriver_common.platforms import HostPlatform, detect_host_platform
+
 
 MAX_VDF_BYTES = 4 * 1024 * 1024
 MAX_VDF_DEPTH = 64
@@ -40,7 +42,7 @@ class SteamInstallationLocator:
 
     def __init__(self, steam_roots: Iterable[Path] | None = None) -> None:
         roots = (
-            discover_windows_steam_roots()
+            discover_steam_roots()
             if steam_roots is None
             else tuple(Path(root) for root in steam_roots)
         )
@@ -135,6 +137,39 @@ def discover_windows_steam_roots() -> tuple[Path, ...]:
         base = os.environ.get(variable)
         if base:
             candidates.append(Path(base) / "Steam")
+    return tuple(path for path in _deduplicate_paths(candidates) if path.is_dir())
+
+
+def discover_steam_roots(
+    host: HostPlatform | str | None = None,
+    *,
+    home: Path | None = None,
+) -> tuple[Path, ...]:
+    """Return existing Steam roots for the selected desktop platform."""
+    selected = detect_host_platform() if host is None else HostPlatform(str(host))
+    if selected is HostPlatform.WINDOWS:
+        return discover_windows_steam_roots()
+    base = Path.home() if home is None else Path(home)
+    candidates: list[Path] = []
+    environment_path = os.environ.get("STEAM_PATH")
+    if environment_path:
+        candidates.append(Path(environment_path))
+    if selected is HostPlatform.MACOS:
+        candidates.append(base / "Library" / "Application Support" / "Steam")
+    else:
+        candidates.extend(
+            (
+                base / ".steam" / "steam",
+                base / ".local" / "share" / "Steam",
+                base
+                / ".var"
+                / "app"
+                / "com.valvesoftware.Steam"
+                / ".local"
+                / "share"
+                / "Steam",
+            )
+        )
     return tuple(path for path in _deduplicate_paths(candidates) if path.is_dir())
 
 
@@ -335,5 +370,6 @@ __all__ = [
     "SteamScanIssue",
     "VdfError",
     "discover_windows_steam_roots",
+    "discover_steam_roots",
     "parse_vdf",
 ]

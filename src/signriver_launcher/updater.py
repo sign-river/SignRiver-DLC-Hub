@@ -18,6 +18,8 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
+from signriver_common.platforms import HostPlatform, platform_package_key
+
 from .config import UpdateSettings
 from .constants import (
     LAUNCHER_VERSION,
@@ -37,7 +39,6 @@ from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest
 from .net_errors import describe_network_error
 from .paths import RuntimePaths
-from .product import RELEASE_EXE_NAME
 from .state import StateStore
 from .versioning import Version
 
@@ -54,11 +55,13 @@ class UpdateClient:
         settings: UpdateSettings,
         state_store: StateStore,
         launcher_version: str = LAUNCHER_VERSION,
+        host_package_key: str | None = None,
     ) -> None:
         self.paths = paths
         self.settings = settings
         self.state_store = state_store
         self.launcher_version = launcher_version
+        self.host_package_key = host_package_key or platform_package_key()
 
     @property
     def enabled(self) -> bool:
@@ -78,13 +81,22 @@ class UpdateClient:
         current = Version.parse(current_version)
         launcher = Version.parse(self.launcher_version)
         bad_versions = set(self.state_store.load().bad_versions)
-        candidates = [
-            release
+        unsupported_platform_update = any(
+            Version.parse(release.version) > current
+            and release.kind == "full"
+            and release.for_platform(self.host_package_key) is None
             for release in manifest.releases
+        )
+        candidates = [
+            selected
+            for release in manifest.releases
+            if (selected := release.for_platform(self.host_package_key)) is not None
             if Version.parse(release.version) > current
             and (release.version not in bad_versions or release.kind == "full")
         ]
         if not candidates:
+            if unsupported_platform_update:
+                raise ManifestError("当前平台暂无此更新")
             return None
         compatible_modules = [
             release
@@ -142,17 +154,31 @@ class UpdateClient:
         cancel: CancelCallback | None = None,
     ) -> FullUpdateTransaction:
         transaction = self.prepare_full_update(release, progress, cancel)
-        helper = Path(transaction.staging_path) / "full-update-helper.exe"
+        is_windows = self.paths.platform is HostPlatform.WINDOWS
+        helper_name = "full-update-helper.exe" if is_windows else "full-update-helper"
+        helper = (
+            Path(transaction.staging_path) / helper_name
+            if is_windows
+            else self.paths.cache_dir / helper_name
+        )
         if getattr(sys, "frozen", False):
-            staged_launcher = (
-                Path(transaction.staging_path) / RELEASE_EXE_NAME
-            )
+            staged_launcher = Path(transaction.staging_path)
+            if bundle_path := getattr(transaction, "bundle_path", None):
+                staged_launcher /= bundle_path
+            staged_launcher /= self.paths.launcher_relative_path
             if not staged_launcher.is_file():
                 raise PackageError(
                     "full update package does not contain the launcher executable"
                 )
             shutil.copy2(staged_launcher, helper)
-            command = [str(helper), "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
+            if not is_windows:
+                helper.chmod(0o755)
+            command = [
+                str(helper), "--apply-full-update", str(self.paths.root),
+                transaction.transaction_id, str(os.getpid()),
+                str(self.paths.resources_root), self.paths.platform.value,
+                str(self.paths.cache_dir),
+            ]
         else:
             command = [sys.executable, "-m", "signriver_launcher.main", "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
         subprocess.Popen(
@@ -316,7 +342,18 @@ class UpdateClient:
         for release in manifest.releases:
             package_url = urllib.parse.urljoin(url, release.package_url)
             self._validate_remote_url(package_url)
-            releases.append(replace(release, package_url=package_url))
+            platform_packages = None
+            if release.platform_packages:
+                platform_packages = {}
+                for key, package in release.platform_packages.items():
+                    nested_url = urllib.parse.urljoin(url, package.package_url)
+                    self._validate_remote_url(nested_url)
+                    platform_packages[key] = replace(package, package_url=nested_url)
+            releases.append(replace(
+                release,
+                package_url=package_url,
+                platform_packages=platform_packages,
+            ))
         return UpdateManifest(manifest.channel, tuple(releases))
 
     def _safe_extract(self, archive: Path, destination: Path) -> None:

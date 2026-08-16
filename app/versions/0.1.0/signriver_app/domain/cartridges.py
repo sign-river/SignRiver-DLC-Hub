@@ -315,6 +315,8 @@ class CartridgeDocument:
         platform = str(platform or "").strip().lower()
         if platform not in _SUPPORTED_PLATFORMS:
             raise ValueError(f"unsupported patch platform: {platform!r}")
+        if platform != "windows" and platform not in self.patch_platforms:
+            raise ValueError(f"{self.display_name} 不支持当前平台：{platform}")
         fields: dict[str, object] = {
             "unlocker_dll_name": self.unlocker_dll_name,
             "original_backup_dll_name": self.original_backup_dll_name,
@@ -515,6 +517,14 @@ class CartridgeDocument:
                         "unlock_all": variant.unlock_all,
                         "extra_protection": variant.extra_protection,
                         "force_offline": variant.force_offline,
+                        **(
+                            {"executable_relative_path": variant.executable_relative_path}
+                            if variant.executable_relative_path else {}
+                        ),
+                        **(
+                            {"dlc_relative_dir": variant.dlc_relative_dir}
+                            if variant.dlc_relative_dir else {}
+                        ),
                     }
                     for variant in self.patch_variants
                 },

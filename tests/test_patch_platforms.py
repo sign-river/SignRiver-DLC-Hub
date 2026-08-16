@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -229,6 +230,7 @@ def test_engine_apply_steamos_promotes_elf_original_and_writes_json(
     appinfo = tmp_path / "release" / "stellaris_appinfo.json"
     unlocker.parent.mkdir(parents=True, exist_ok=True)
     unlocker.write_bytes(UNLOCKER_SO)
+    unlocker.chmod(0o755)
     backup.write_bytes(BACKUP_SO)
     appinfo.write_text(json.dumps(APPINFO_PAYLOAD), encoding="utf-8")
 
@@ -248,6 +250,8 @@ def test_engine_apply_steamos_promotes_elf_original_and_writes_json(
     assert config["default_app_status"] == "unlocked"
     assert result.receipt.backup_origin == "promoted_game_original"
     assert result.audit_after.health is PatchHealth.HEALTHY
+    if os.name != "nt":
+        assert (game_root / "libsteam_api.so").stat().st_mode & 0o777 == 0o755
 
 
 def test_engine_remove_steamos_restores_original(tmp_path: Path) -> None:

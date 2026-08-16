@@ -50,3 +50,27 @@ def test_full_update_archive_is_flat_and_contains_only_managed_files(
             "release-manifest.json",
             "app/managed.txt",
         ]
+
+
+def test_macos_manifest_stays_outside_signed_bundle(tmp_path) -> None:
+    bundle = tmp_path / "SignRiver-DLC-Hub.app"
+    binary = bundle / "Contents" / "MacOS" / "SignRiver-DLC-Hub"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"signed app")
+    manifest_path = tmp_path / "payload" / "release-manifest.json"
+
+    write_release_manifest(
+        bundle,
+        "0.2.0",
+        target_platform="macos",
+        manifest_path=manifest_path,
+        path_prefix=bundle.name,
+        bundle_path=bundle.name,
+    )
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["bundle_path"] == bundle.name
+    assert payload["files"][0]["path"] == (
+        "SignRiver-DLC-Hub.app/Contents/MacOS/SignRiver-DLC-Hub"
+    )
+    assert not (bundle / "release-manifest.json").exists()

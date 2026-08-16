@@ -64,6 +64,10 @@ def build_client_cartridge_document(
             "unlock_all": bool(profile.patch_unlock_all),
             "extra_protection": bool(profile.patch_extra_protection),
             "force_offline": bool(profile.patch_force_offline),
+            "platforms": {
+                platform: dict(spec)
+                for platform, spec in sorted(profile.patch_platforms.items())
+            },
         },
     }
     if freshness:
