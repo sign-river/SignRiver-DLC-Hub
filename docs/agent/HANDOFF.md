@@ -2,11 +2,11 @@
 
 > 最后更新：2026-08-16（Asia/Shanghai）
 > 当前分支：`main`
-> 核对时 HEAD：`66ed8ae`（`整理 Windows 端收尾状态与 0.1.7 发布文档`）
+> 本轮修复基线 HEAD：`d018e08`（`完成 0.2.0 跨平台适配与上下文交接`，已推送到 `origin/main`）
 
 ## 开始前必须注意
 
-当前工作区包含大量尚未提交的 `0.2.0` 跨平台实现、配置、测试和文档修改，并非干净工作区。新任务不得执行 `git reset --hard`、`git clean`、整目录覆盖或其他会丢失未提交内容的操作。
+`0.2.0` 跨平台实现已在 `d018e08` 整体提交并推送。该提交触发的 GitHub Actions 中 Windows 通过，Ubuntu/macOS 因测试污染全局 `os.name` 而失败；本轮已将平台模拟限制在 `configured_steam` 模块内部。新任务仍不得执行 `git reset --hard`、`git clean`、整目录覆盖或其他会丢失未提交内容的操作。
 
 `HANDOFF.md` 是交接摘要，不是最终事实。开始工作后先运行：
 
@@ -48,20 +48,15 @@ git status --short
 
 ## 当前工作区范围
 
-当前未提交改动覆盖以下类别：
-
-- 启动器、全量更新和跨平台路径处理；
-- 客户端卡带、Steam 发现、补丁事务与平台适配；
-- 发布器三平台资源和清单；
-- 多款游戏卡带配置；
-- 构建工具、Steam 目录探针和 CI；
-- 自动化测试、项目进度和两份虚拟机复现文档。
-
-不要仅凭本摘要判断文件是否属于当前改动，必须以 `git status --short` 和 `git diff -- <path>` 为准。
+- `d018e08` 已收录此前全部 `0.2.0` 跨平台实现、配置、测试与文档，并已推送；
+- 本轮后续修复仅涉及 `tests/test_multi_game_cartridges.py` 的跨平台测试隔离，以及本交接记录；
+- 不要仅凭本摘要判断工作区状态，继续工作前仍须执行 `git status --short` 和 `git diff -- <path>`。
 
 ## 最近验证状态
 
-- 2026-08-16 在 Windows 工作区执行 `python -m pytest`：`524 passed`；
+- `d018e08` 推送后，GitHub Actions 运行 `31937127430`：Windows 成功，Ubuntu 24.04 与 macOS 15 Intel 因 `tests/test_multi_game_cartridges.py` 修改全局 `os.name` 导致 pytest 内部 `pathlib` 创建 `WindowsPath` 失败；
+- 2026-08-16 已把该测试改为替换 `configured_steam.os` 模块绑定，不再污染全局平台状态；定向测试 `10 passed`；
+- 2026-08-16 在 Windows 工作区重新执行 `python -m pytest`：`524 passed`；
 - 同日执行 `python -m ruff check .`、`python -m compileall -q src app\versions\0.1.0 tools tests` 和 `git diff --check`，均通过；
 - 同日重新执行 `python tools\build_module.py --all-versions app\versions`，0.2.0 模块归档仍为 `191187` 字节，SHA-256 仍为 `896c2bbb2f8d2fc1f091a1065a0bfb75cc4d8dc2918004f2031055f63a493b34`；
 - 同日已在线核验 GitLink 与 GitHub `modules` Release 中的 0.2.0 模块归档：均为 `191187` 字节，SHA-256 均为 `896c2bbb2f8d2fc1f091a1065a0bfb75cc4d8dc2918004f2031055f63a493b34`；

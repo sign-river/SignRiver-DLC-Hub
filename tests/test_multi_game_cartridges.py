@@ -150,7 +150,11 @@ def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> N
 def test_configured_process_check_has_a_clear_five_second_timeout(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(configured_steam.os, "name", "nt")
+    monkeypatch.setattr(
+        configured_steam,
+        "os",
+        SimpleNamespace(name="nt"),
+    )
 
     def timeout(*_args, **kwargs):
         assert kwargs["timeout"] == 5
