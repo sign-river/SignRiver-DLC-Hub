@@ -176,7 +176,7 @@ class UpdateClient:
             command = [
                 str(helper), "--apply-full-update", str(self.paths.root),
                 transaction.transaction_id, str(os.getpid()),
-                str(self.paths.resources_root), self.paths.platform.value,
+                str(self.paths.install_root or self.paths.root), self.paths.platform.value,
                 str(self.paths.cache_dir),
             ]
         else:

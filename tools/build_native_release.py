@@ -13,11 +13,32 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from signriver_common.platforms import HostPlatform, detect_host_platform  # noqa: E402
 from signriver_launcher.constants import LAUNCHER_VERSION  # noqa: E402
-from build_release import application_hidden_imports  # noqa: E402
+from tools.build_release import application_hidden_imports  # noqa: E402
+
+
+def _validate_release_metadata(root: Path, launcher_version: str) -> None:
+    state_path = root / "app" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("active_version") != launcher_version:
+        raise SystemExit(
+            "active module and launcher versions must match: "
+            f"{state.get('active_version')!r} != {launcher_version!r}"
+        )
+
+    module_path = root / "app" / "versions" / launcher_version / "module.json"
+    if not module_path.is_file():
+        raise SystemExit(f"active module metadata does not exist: {module_path}")
+    module = json.loads(module_path.read_text(encoding="utf-8"))
+    if module.get("version") != launcher_version:
+        raise SystemExit(
+            "active module metadata and launcher versions must match: "
+            f"{module.get('version')!r} != {launcher_version!r}"
+        )
 
 
 def _copy_runtime(destination: Path) -> None:
@@ -78,9 +99,7 @@ def main() -> int:
         raise SystemExit(f"{args.platform} package must be built on {args.platform}")
     if os.uname().machine.lower() not in {"x86_64", "amd64"}:
         raise SystemExit("0.2.0 supports x64 hosts only")
-    state = json.loads((ROOT / "app" / "state.json").read_text(encoding="utf-8"))
-    if state.get("active_version") != LAUNCHER_VERSION:
-        raise SystemExit("active module and launcher versions must match")
+    _validate_release_metadata(ROOT, LAUNCHER_VERSION)
 
     dist, work = ROOT / "dist", ROOT / "build"
     name = "SignRiver-DLC-Hub"

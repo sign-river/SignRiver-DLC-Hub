@@ -21,7 +21,7 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 0.2.0 的固定上游基线：
 
 - SmokeAPI：`v4.1.3`，Unlicense；SteamOS x64 官方 `libsmoke_api64.so` 的 SHA-256 为 `dcb21dc733d38c51b5d673c581edd31f995bbdbaff5582540ece7981eb94b6d2`。
-- icecream：[`krnya/icecream`](https://github.com/krnya/icecream) 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d`，MIT；源码归档 SHA-256 为 `49aca4f18cb5a2aedc18d577936d9342a3ff1d937eb2e16b157793c4c85c4b80`。macOS 原生构建完成后，发布记录还必须补充实际 `libsteam_api.dylib` 的 SHA-256。
+- icecream：[`krnya/icecream`](https://github.com/krnya/icecream) 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d`，MIT；源码归档 SHA-256 为 `49aca4f18cb5a2aedc18d577936d9342a3ff1d937eb2e16b157793c4c85c4b80`；macOS 原生 x86_64 `libsteam_api.dylib` 大小为 `612,912` 字节，SHA-256 为 `68a32d893a00df57010396e439116f33193f44de0d0a817361b4bf1550936daa`。
 
 ## 卡带平台字段
 
@@ -48,6 +48,10 @@ python tools/build_native_release.py --platform macos
 ```
 
 SteamOS 输出便携 `tar.gz` 和 flat 全量更新 ZIP；macOS 输出 ad-hoc 签名的 `.app.zip`，自动更新 ZIP 的根目录保存外置清单和完整签名 `.app`。macOS 更新助手先在安装目录旁准备新 bundle，再原子交换整个 `.app`，失败时恢复旧 bundle；清单不会写进已签名应用。清单 schema 保持为 1，并记录 `target_platform`、`target_arch`、可选 `bundle_path` 和 Unix `mode`。
+
+原生构建在启动 PyInstaller 前必须验证 `LAUNCHER_VERSION`、`app/state.json.active_version` 和 `app/versions/<version>/module.json.version` 三者一致，且活动模块元数据存在，避免生成启动器与模块版本错配的发布包。
+
+冻结版 macOS 启动更新助手时，`install_root` 必须是完整 `.app` 路径（`RuntimePaths.install_root`），不能传 `Contents/Resources/runtime`；后者只是可写运行资源来源，不满足整个 bundle 原子交换的前置条件。
 
 ## 更新清单
 
