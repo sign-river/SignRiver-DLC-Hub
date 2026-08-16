@@ -1,15 +1,17 @@
 import json
 import zipfile
 
-from tools.build_release import (
-    application_hidden_imports,
-    build_full_update_archive,
-    write_release_manifest,
-)
+from tools import build_release
+from tools.build_release import build_full_update_archive, write_release_manifest
 
 
-def test_release_build_analyzes_external_application_dependencies() -> None:
-    imports = application_hidden_imports()
+def test_release_build_analyzes_external_application_dependencies(monkeypatch) -> None:
+    monkeypatch.setattr(
+        build_release,
+        "APP_VERSION_ROOT",
+        build_release.ROOT / "app" / "versions" / "0.1.0",
+    )
+    imports = build_release.application_hidden_imports()
     assert "webbrowser" in imports
     assert "signriver_app.infrastructure.persistence.database" in imports
     assert "signriver_app.infrastructure.installs.engine" in imports

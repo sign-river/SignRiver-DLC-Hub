@@ -6,7 +6,7 @@
 
 ## 开始前必须注意
 
-`0.2.0` 跨平台实现已在 `d018e08` 整体提交并推送。该提交触发的 GitHub Actions 中 Windows 通过，Ubuntu/macOS 因测试污染全局 `os.name` 而失败；本轮已将平台模拟限制在 `configured_steam` 模块内部。新任务仍不得执行 `git reset --hard`、`git clean`、整目录覆盖或其他会丢失未提交内容的操作。
+`0.2.0` 跨平台实现已在 `d018e08` 整体提交并推送。后续 CI 修复正在以独立提交追加：全局 `os.name` 污染已修复，发布构建测试对本地忽略目录的依赖也已改为显式使用 Git 跟踪的 `0.1.0` 源码目录。新任务仍不得执行 `git reset --hard`、`git clean`、整目录覆盖或其他会丢失未提交内容的操作。
 
 `HANDOFF.md` 是交接摘要，不是最终事实。开始工作后先运行：
 
@@ -49,13 +49,15 @@ git status --short
 ## 当前工作区范围
 
 - `d018e08` 已收录此前全部 `0.2.0` 跨平台实现、配置、测试与文档，并已推送；
-- 本轮后续修复仅涉及 `tests/test_multi_game_cartridges.py` 的跨平台测试隔离，以及本交接记录；
+- 本轮后续修复涉及 `tests/test_multi_game_cartridges.py` 的跨平台测试隔离、`tests/test_release_build.py` 的干净 checkout 隔离，以及本交接记录；
 - 不要仅凭本摘要判断工作区状态，继续工作前仍须执行 `git status --short` 和 `git diff -- <path>`。
 
 ## 最近验证状态
 
 - `d018e08` 推送后，GitHub Actions 运行 `31937127430`：Windows 成功，Ubuntu 24.04 与 macOS 15 Intel 因 `tests/test_multi_game_cartridges.py` 修改全局 `os.name` 导致 pytest 内部 `pathlib` 创建 `WindowsPath` 失败；
-- 2026-08-16 已把该测试改为替换 `configured_steam.os` 模块绑定，不再污染全局平台状态；定向测试 `10 passed`；
+- 2026-08-16 已把该测试改为替换 `configured_steam.os` 模块绑定，不再污染全局平台状态；定向测试 `10 passed`；该修复提交为 `7aaf498`；
+- `7aaf498` 推送后的 GitHub Actions 运行 `31937438378`：Windows 成功，Ubuntu/macOS 均只剩 `tests/test_release_build.py` 失败；根因是测试默认扫描被 Git 忽略、只存在于本地发布工作区的 `app/versions/0.2.0`，干净 checkout 中只能得到两个基础 hidden imports；
+- 该发布构建测试已显式把 `APP_VERSION_ROOT` 指向唯一受 Git 跟踪的模块源码 `app/versions/0.1.0`，不再依赖本地发布产物；
 - 2026-08-16 在 Windows 工作区重新执行 `python -m pytest`：`524 passed`；
 - 同日执行 `python -m ruff check .`、`python -m compileall -q src app\versions\0.1.0 tools tests` 和 `git diff --check`，均通过；
 - 同日重新执行 `python tools\build_module.py --all-versions app\versions`，0.2.0 模块归档仍为 `191187` 字节，SHA-256 仍为 `896c2bbb2f8d2fc1f091a1065a0bfb75cc4d8dc2918004f2031055f63a493b34`；
