@@ -335,6 +335,7 @@ def test_frozen_full_update_uses_staged_new_launcher_as_helper(
     assert calls[0][0][0] == str(helper)
     assert calls[0][1]["cwd"] == paths.root
     assert calls[0][1]["stdin"] == subprocess.DEVNULL
+    assert calls[0][1]["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
 
 
 

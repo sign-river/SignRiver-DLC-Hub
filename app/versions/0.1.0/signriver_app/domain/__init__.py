@@ -11,7 +11,13 @@ from .games import (
     ValidationResult,
 )
 from .catalog import DlcCatalogEntry, NormalizedRelease, ReleaseAsset
-from .downloads import DownloadSnapshot, DownloadSpec, DownloadState
+from .downloads import (
+    DownloadPurpose,
+    DownloadSnapshot,
+    DownloadSpec,
+    DownloadStage,
+    DownloadState,
+)
 from .installs import (
     DiskSpaceRequirement,
     InstallAudit,
@@ -68,8 +74,10 @@ __all__ = [
     "DlcCatalogEntry",
     "NormalizedRelease",
     "ReleaseAsset",
+    "DownloadPurpose",
     "DownloadSnapshot",
     "DownloadSpec",
+    "DownloadStage",
     "DownloadState",
     "InstallPhase",
     "InstallHealth",

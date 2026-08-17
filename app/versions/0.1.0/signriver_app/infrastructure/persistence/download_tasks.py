@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from ...domain import DownloadSnapshot, DownloadSpec, DownloadState
+from ...domain import (
+    DownloadPurpose,
+    DownloadSnapshot,
+    DownloadSpec,
+    DownloadStage,
+    DownloadState,
+)
 from .database import Database
 from .errors import PersistenceError
 
@@ -24,7 +30,9 @@ class DownloadTaskRepository:
             int(snapshot.spec.supports_range), snapshot.state.value,
             snapshot.bytes_downloaded, snapshot.total_bytes, snapshot.attempt,
             str(snapshot.result_path) if snapshot.result_path else None,
-            snapshot.sha256, snapshot.error,
+            snapshot.sha256, snapshot.error, snapshot.spec.purpose.value,
+            snapshot.failure_code,
+            snapshot.failure_stage.value if snapshot.failure_stage else None,
             datetime.now(timezone.utc).isoformat(),
         )
         try:
@@ -33,8 +41,9 @@ class DownloadTaskRepository:
                     """INSERT INTO download_tasks (
                         task_id, url, filename, game_id, expected_size, expected_sha256,
                         supports_range, state, bytes_downloaded, total_bytes,
-                        attempt, result_path, actual_sha256, error, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        attempt, result_path, actual_sha256, error, purpose,
+                        failure_code, failure_stage, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(task_id) DO UPDATE SET
                         url=excluded.url, filename=excluded.filename,
                         game_id=excluded.game_id,
@@ -45,6 +54,9 @@ class DownloadTaskRepository:
                         total_bytes=excluded.total_bytes, attempt=excluded.attempt,
                         result_path=excluded.result_path,
                         actual_sha256=excluded.actual_sha256, error=excluded.error,
+                        purpose=excluded.purpose,
+                        failure_code=excluded.failure_code,
+                        failure_stage=excluded.failure_stage,
                         updated_at=excluded.updated_at""",
                     values,
                 )
@@ -124,6 +136,7 @@ class DownloadTaskRepository:
             expected_sha256=row["expected_sha256"],
             supports_range=bool(row["supports_range"]),
             part_urls=part_urls,
+            purpose=DownloadPurpose(row["purpose"]),
         )
         return DownloadSnapshot(
             spec=spec, state=DownloadState(row["state"]),
@@ -131,6 +144,12 @@ class DownloadTaskRepository:
             total_bytes=row["total_bytes"], attempt=row["attempt"],
             result_path=Path(row["result_path"]) if row["result_path"] else None,
             sha256=row["actual_sha256"], error=row["error"],
+            failure_code=row["failure_code"],
+            failure_stage=(
+                DownloadStage(row["failure_stage"])
+                if row["failure_stage"]
+                else None
+            ),
         )
 
     @staticmethod

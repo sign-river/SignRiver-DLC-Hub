@@ -12,33 +12,56 @@ import pytest
 
 from signriver_launcher.errors import FullUpdateError
 from signriver_launcher.full_update import FullUpdateManager
-from signriver_launcher.full_update_helper import _wait_for_parent
-from signriver_launcher.main import _activate_confirmed_full_update_module
+from signriver_launcher.full_update_helper import (
+    _wait_for_parent,
+    cleanup_full_update_helper,
+    frozen_child_environment,
+    rollback_full_update,
+)
+from signriver_launcher.main import (
+    _activate_confirmed_full_update_module,
+    _defer_windows_full_update_rollback,
+)
 from signriver_launcher.models import ReleaseInfo
 from signriver_launcher.paths import RuntimePaths
 from signriver_launcher.state import StateStore
+from signriver_common.platforms import HostPlatform
 
 
 def _digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _archive(path: Path, version: str = "0.2.0", files: dict[str, bytes] | None = None) -> ReleaseInfo:
+def _archive(
+    path: Path, version: str = "0.2.0", files: dict[str, bytes] | None = None
+) -> ReleaseInfo:
     files = files or {"launcher.exe": b"new launcher", "app/new.txt": b"new app"}
     manifest = {
         "schema_version": 1,
         "version": version,
-        "files": [{"path": name, "size": len(value), "sha256": _digest(value)} for name, value in files.items()],
+        "files": [
+            {"path": name, "size": len(value), "sha256": _digest(value)}
+            for name, value in files.items()
+        ],
     }
     with zipfile.ZipFile(path, "w") as package:
         package.writestr("release-manifest.json", json.dumps(manifest))
         for name, value in files.items():
             package.writestr(name, value)
     data = path.read_bytes()
-    return ReleaseInfo(version, "full", "https://example.test/full.zip", _digest(data), len(data), "0.1.0")
+    return ReleaseInfo(
+        version,
+        "full",
+        "https://example.test/full.zip",
+        _digest(data),
+        len(data),
+        "0.1.0",
+    )
 
 
-def test_full_update_swaps_only_manifest_owned_files_and_preserves_user_state(tmp_path: Path) -> None:
+def test_full_update_swaps_only_manifest_owned_files_and_preserves_user_state(
+    tmp_path: Path,
+) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
     (tmp_path / "launcher.exe").write_bytes(b"old launcher")
@@ -56,7 +79,9 @@ def test_full_update_swaps_only_manifest_owned_files_and_preserves_user_state(tm
     assert (tmp_path / "launcher.exe").read_bytes() == b"new launcher"
     assert (tmp_path / "app" / "new.txt").read_bytes() == b"new app"
     assert (tmp_path / "app" / "old.txt").read_bytes() == b"old app"
-    assert (paths.data_dir / "settings.json").read_text(encoding="utf-8") == '{"keep": true}'
+    assert (paths.data_dir / "settings.json").read_text(
+        encoding="utf-8"
+    ) == '{"keep": true}'
     assert (paths.cache_dir / "dlc.zip").read_bytes() == b"cached"
     assert manager.load() is not None and manager.load().stage == "swapped"
 
@@ -77,7 +102,9 @@ def test_full_update_rolls_back_replaced_files(tmp_path: Path) -> None:
     assert manager.load() is not None and manager.load().stage == "rolled_back"
 
 
-def test_full_update_confirmation_keeps_backup_for_later_cleanup(tmp_path: Path) -> None:
+def test_full_update_confirmation_keeps_backup_for_later_cleanup(
+    tmp_path: Path,
+) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
     (tmp_path / "launcher.exe").write_bytes(b"old launcher")
@@ -89,7 +116,9 @@ def test_full_update_confirmation_keeps_backup_for_later_cleanup(tmp_path: Path)
     manager.confirm(transaction.transaction_id)
 
     assert manager.load() is not None and manager.load().stage == "confirmed"
-    assert (Path(transaction.backup_path) / "launcher.exe").read_bytes() == b"old launcher"
+    assert (
+        Path(transaction.backup_path) / "launcher.exe"
+    ).read_bytes() == b"old launcher"
     assert not manager.lock_path.exists()
 
 
@@ -121,7 +150,9 @@ def test_full_update_recovers_when_helper_exits_before_apply(tmp_path: Path) -> 
     assert not manager.lock_path.exists()
 
 
-def test_full_update_allows_a_new_transaction_after_confirmation(tmp_path: Path) -> None:
+def test_full_update_allows_a_new_transaction_after_confirmation(
+    tmp_path: Path,
+) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
     package = tmp_path / "full.zip"
@@ -135,7 +166,9 @@ def test_full_update_allows_a_new_transaction_after_confirmation(tmp_path: Path)
     assert second.transaction_id != first.transaction_id
 
 
-def test_full_update_rejects_user_data_paths_without_touching_installation(tmp_path: Path) -> None:
+def test_full_update_rejects_user_data_paths_without_touching_installation(
+    tmp_path: Path,
+) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
     package = tmp_path / "unsafe.zip"
@@ -146,7 +179,9 @@ def test_full_update_rejects_user_data_paths_without_touching_installation(tmp_p
     assert not (paths.data_dir / "evil.txt").exists()
 
 
-def test_full_update_rejects_manifest_hash_mismatch_before_swapping(tmp_path: Path) -> None:
+def test_full_update_rejects_manifest_hash_mismatch_before_swapping(
+    tmp_path: Path,
+) -> None:
     paths = RuntimePaths(tmp_path)
     paths.ensure()
     old = tmp_path / "launcher.exe"
@@ -270,10 +305,175 @@ def test_new_launcher_activates_module_after_legacy_helper_swap(
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process wait regression")
 def test_full_update_helper_waits_without_terminating_parent_process() -> None:
-    process = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(0.2)"]
-    )
+    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2)"])
 
     _wait_for_parent(process.pid, timeout_seconds=5)
 
     assert process.wait(timeout=1) == 0
+
+
+def test_defer_windows_full_update_rollback_copies_and_starts_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import signriver_launcher.main as launcher_main
+
+    install = tmp_path / "install"
+    cache = tmp_path / "cache"
+    install.mkdir()
+    executable = install / "launcher.exe"
+    executable.write_bytes(b"new launcher")
+    paths = RuntimePaths(
+        install,
+        install,
+        host_platform=HostPlatform.WINDOWS,
+        cache_root=cache,
+    )
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    monkeypatch.setattr(launcher_main.sys, "platform", "win32")
+    monkeypatch.setattr(launcher_main.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(launcher_main.sys, "executable", str(executable))
+    monkeypatch.setattr(
+        "subprocess.Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert _defer_windows_full_update_rollback(paths, "transaction-1") is True
+
+    helper = cache / "update-helpers" / "rollback-transaction-1.exe"
+    assert helper.read_bytes() == b"new launcher"
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command == [
+        str(helper),
+        "--rollback-full-update",
+        str(install),
+        "transaction-1",
+        str(os.getpid()),
+        str(install),
+        "windows",
+        str(cache),
+    ]
+    assert kwargs["cwd"] == install
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.DEVNULL
+    assert kwargs["stderr"] == subprocess.DEVNULL
+    assert kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+
+def test_rollback_full_update_waits_rolls_back_and_starts_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import signriver_launcher.full_update_helper as helper_module
+
+    install = tmp_path / "install"
+    cache = tmp_path / "cache"
+    install.mkdir()
+    helper_executable = cache / "update-helpers" / "rollback-transaction-1.exe"
+    restored_executable = (
+        install
+        / RuntimePaths(
+            install, install, host_platform=HostPlatform.WINDOWS
+        ).launcher_relative_path
+    )
+    waited: list[int] = []
+    rolled_back: list[str] = []
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class FakeManager:
+        def __init__(self, paths: RuntimePaths) -> None:
+            assert paths.root == install.resolve()
+            assert paths.install_root == install.resolve()
+            assert paths.cache_dir == cache.resolve()
+
+        def rollback(self, transaction_id: str) -> None:
+            rolled_back.append(transaction_id)
+
+    monkeypatch.setattr(helper_module, "_wait_for_parent", waited.append)
+    monkeypatch.setattr(helper_module, "FullUpdateManager", FakeManager)
+    monkeypatch.setattr(helper_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(helper_module.sys, "executable", str(helper_executable))
+    monkeypatch.setattr(
+        helper_module.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    rollback_full_update(
+        install,
+        "transaction-1",
+        1234,
+        install_root=install,
+        platform="windows",
+        cache_root=cache,
+    )
+
+    assert waited == [1234]
+    assert rolled_back == ["transaction-1"]
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command == [
+        str(restored_executable),
+        "--cleanup-full-update-helper",
+        str(helper_executable),
+        str(os.getpid()),
+    ]
+    assert kwargs["cwd"] == install
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.DEVNULL
+    assert kwargs["stderr"] == subprocess.DEVNULL
+    assert kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+
+def test_cleanup_full_update_helper_waits_deletes_and_restarts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import signriver_launcher.full_update_helper as helper_module
+
+    install = tmp_path / "install"
+    helper_dir = tmp_path / "cache" / "update-helpers"
+    install.mkdir()
+    helper_dir.mkdir(parents=True)
+    helper_executable = helper_dir / "rollback-transaction-1.exe"
+    helper_executable.write_bytes(b"helper")
+    restored_executable = install / "launcher.exe"
+    waited: list[int] = []
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    monkeypatch.setattr(helper_module, "_wait_for_parent", waited.append)
+    monkeypatch.setattr(helper_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(helper_module.sys, "executable", str(restored_executable))
+    monkeypatch.setattr(
+        helper_module.subprocess,
+        "Popen",
+        lambda args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    cleanup_full_update_helper(helper_executable, 5678)
+
+    assert waited == [5678]
+    assert not helper_executable.exists()
+    assert not helper_dir.exists()
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command == [str(restored_executable)]
+    assert kwargs["cwd"] == install
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.DEVNULL
+    assert kwargs["stderr"] == subprocess.DEVNULL
+    assert kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+
+def test_frozen_child_environment_preserves_normal_python_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import signriver_launcher.full_update_helper as helper_module
+
+    monkeypatch.delattr(helper_module.sys, "frozen", raising=False)
+    monkeypatch.delenv("PYINSTALLER_RESET_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("SIGNRIVER_TEST_ENVIRONMENT", "preserved")
+
+    environment = frozen_child_environment()
+
+    assert environment["SIGNRIVER_TEST_ENVIRONMENT"] == "preserved"
+    assert "PYINSTALLER_RESET_ENVIRONMENT" not in environment

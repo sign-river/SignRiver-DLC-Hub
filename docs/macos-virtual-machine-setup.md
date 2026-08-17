@@ -1,7 +1,7 @@
 # macOS Sequoia（Darwin 24）VMware 虚拟机复现手册
 
-> 最后核对：2026-08-16
-> 当前状态：macOS Sequoia 已完成安装，首次设置界面已从俄语改为简体中文；本地账户已创建并进入桌面，尚未安装 VMware Tools、开发工具链、Steam 或 SignRiver。
+> 最后核对：2026-08-17
+> 当前状态：macOS Sequoia 已完成安装并进入简体中文桌面；VMware Tools、Steam 与 SignRiver 已安装，Steam 和 Paradox Launcher 可启动。Stellaris 与 Hearts of Iron IV 的原版图形启动未通过，已确认受 VMware macOS 来宾不支持加速 3D 图形的产品限制影响。
 
 ## 1. 文档目的与适用范围
 
@@ -15,7 +15,7 @@ D:\Downloads\SignRiver-Test-OS\vmware\macOS Tahoe.vmx
 
 虽然文件名和 `displayName` 仍写着 `macOS Tahoe`，实际恢复镜像、安装器和已安装系统均为 **macOS Sequoia（Darwin 24）**。为避免破坏脚本和快照引用，当前不重命名。
 
-本文所说“虚拟机可运行”仅表示系统已安装、完成首次设置并能进入桌面，不代表 VMware Tools、SSH、Python、Rust、Steam、游戏和 SignRiver 的 macOS 端验收已经完成。
+本文所说“虚拟机可运行”仅表示系统已安装、完成首次设置并能进入桌面。VMware Tools、SSH、Python/Rust 构建环境、Steam 和 SignRiver 的验证状态应分别记录；尤其不能把 Steam/Launcher 可启动等同于游戏能够创建 OpenGL 上下文并进入游戏内。
 
 > **许可与支持风险：** 在非 Apple 硬件上运行 macOS，以及使用第三方工具修改 Windows 版 VMware 的 macOS 来宾支持，可能不受 Apple 或 VMware 官方支持，也可能受软件许可条款限制。复现前请自行确认授权、合规性和风险。
 
@@ -56,12 +56,15 @@ D:\Downloads\SignRiver-Test-OS\vmware\macOS Tahoe.vmx
 | CPU | 4 vCPU，2 cores/socket |
 | 内存 | 8192 MB |
 | 显存 | 256 MiB |
-| 3D 加速 | 关闭 |
+| 3D 加速 | VMX 已设置 `mks.enable3d = "TRUE"`；宿主启用 DX12 renderer，但 macOS 来宾不提供加速 3D/OpenGL |
 | 网络 | NAT + `vmxnet3` |
 | 键鼠 | VMware 虚拟 USB 键盘、虚拟 USB 鼠标、xHCI |
 | VNC | 仅监听 `127.0.0.1:5901`，当前无认证 |
 | 安装目标盘 | 102400 MiB；macOS 显示约 107.16 GB；GUID + APFS |
 | 当前界面 | 简体中文 macOS 桌面，首次设置已完成 |
+| VMware Tools | 已安装，服务状态为 `running` |
+| Steam / SignRiver | 已安装并可启动；Paradox Launcher 可打开 |
+| 游戏图形能力（非发布验收） | Stellaris 启动闪退、HOI4 黑屏无响应；均在 OpenGL 上下文初始化阶段失败 |
 | 当前推荐快照 | `pre-account-setup-zh` |
 
 当前 VMX 已连接四层快照链中的差分盘：
@@ -422,10 +425,10 @@ vmmouse.present = "TRUE"
 usb.generic.allowHID = "TRUE"
 
 svga.vramSize = "268435456"
-mks.enable3d = "FALSE"
+mks.enable3d = "TRUE"
 ```
 
-`256 MiB = 268435456 bytes`。当前关闭 3D 是为了稳定性；本文目标是系统和项目功能验证，不是图形性能测试。
+`256 MiB = 268435456 bytes`。`mks.enable3d = "TRUE"` 只表示请求 VMware 使用宿主 3D renderer，不代表 macOS 来宾获得了可供游戏使用的加速 OpenGL 设备。
 
 编辑时应替换同名旧键，而不是在文件末尾不断追加重复键。保存后可检查关键项：
 
@@ -433,6 +436,35 @@ mks.enable3d = "FALSE"
 Select-String -Path $vmx -Pattern `
   '^(guestOS|firmware|sata0|ethernet0|pciBridge[4-7]|usb|usb_xhci|keyboard|mouse|vmmouse|mks)'
 ```
+
+### 8.4 游戏内运行不纳入当前发布验收
+
+当前实际 VMX 已启用：
+
+```ini
+mks.enable3d = "TRUE"
+svga.vramSize = "268435456"
+```
+
+宿主 `vmware.log` 能看到 `DX12Renderer`，但 macOS 来宾只枚举 VMware SVGA framebuffer，没有可供游戏创建图形上下文的 macOS OpenGL 加速器。Stellaris 与 Hearts of Iron IV 的原版日志均出现：
+
+```text
+SDL_GL_CreateContext failed: Failed creating OpenGL pixel format
+glewInit failed: Missing GL version
+```
+
+Broadcom 官方说明 macOS 虚拟机不支持 accelerated 3D graphics：
+
+- [Broadcom KB 315260：Running VMware Tools in macOS guests limitations](https://knowledge.broadcom.com/external/article/315260)
+
+由于目前无法取得能够正常打开 P 社游戏的 macOS 虚拟机或真实物理 Mac，`0.2.0` 的 macOS 发布验收范围调整为：
+
+- SignRiver 客户端能够启动并完成必要初始化、路径识别和更新流程；
+- DLC 文件能够正常下载，文件大小和 SHA-256 与清单一致；
+- 补丁能够正常安装，目标 dylib/文件存在，Unix 权限和 SHA-256 符合预期；
+- 补丁失败时原文件能够恢复；条件允许时再确认卸载/原版恢复流程。
+
+Steam/Paradox Launcher 或游戏本体能否进入画面、游戏内渲染以及 DLC 解锁效果不再是 `0.2.0` 发布阻塞项，也不应被标记为兼容性通过。增大 VRAM、切换窗口模式、添加 `-opengl`、绕过 Paradox Launcher、重装 VMware Tools 或反复切换 `mks.enable3d` 都不能补足来宾缺失的图形加速器；不要为此修改快照链、Recovery NVRAM、VMDK 或继续寻找设备作为当前发布前置条件。未来若另立游戏内兼容性专项，再单独准备合适硬件和验收计划。
 
 ## 9. 启用仅限本机的 VNC 控制（推荐但可选）
 
@@ -920,7 +952,13 @@ RemoteDisplay.vnc.port = "5901"
 - [x] Setup Assistant 是简体中文，并已完成首次设置进入桌面；
 - [ ] VNC 若启用，只监听 `127.0.0.1`；
 - [ ] 已建立安装前、账户设置前和中文修复后的快照；
-- [ ] 当前 VMX 仍引用最新差分盘，没有误退回基础 VMDK。
+- [ ] 当前 VMX 仍引用最新差分盘，没有误退回基础 VMDK；
+- [ ] SignRiver macOS 原生候选从当前源码重建，客户端能够启动并完成初始化；
+- [ ] 手动下载至少一个 DLC 文件，大小与 SHA-256 和清单一致；
+- [ ] 手动安装补丁，确认目标 dylib/文件存在、Unix 权限正确且 SHA-256 符合预期；
+- [ ] 注入或模拟补丁失败后，原目标文件能够恢复且没有半安装残留；
+- [ ] 可选：执行补丁卸载/原版恢复，并确认恢复文件的权限与 SHA-256；
+- [ ] 验收记录明确注明“游戏内运行与兼容性未纳入本次验收范围”，不将 Steam/Launcher 启动当作游戏内通过。
 
 ## 16. 失败路线与排障记录
 
@@ -1070,11 +1108,13 @@ SHA256 c33595575b08d04ab3cd1d7bc0339fc7ffa473d5969ce29a2a206d08dc4f42a4
 
 ## 17. 已知限制与后续工作
 
-1. 虚拟机已完成简体中文首次设置并进入桌面，但尚未形成可 SSH 的日常开发环境；
+1. 虚拟机已完成简体中文首次设置并进入桌面，SSH、构建环境、VMware Shared Folder 等日常开发链路已经过验证；
 2. 当前 VNC 无认证，必须继续只监听 `127.0.0.1`，用完后关闭；
 3. VMX 名称和部分快照仍写 `Tahoe`，实际系统是 Sequoia；暂不重命名以免影响脚本和快照；
-4. 当前快照链叶子为 `BaseSystem-000004.vmdk` 与 `macos-disk-000004.vmdk`，以后编号会变化；禁止手工移动、重命名或替换快照盘；
-5. macOS 内的 VMware Tools、Python、Rust、Steam、icecream、HOI4 和 SignRiver 客户端真实验收尚未完成；
-6. Windows 宿主不能替代 Intel macOS 环境构建最终 dylib，必须在这台 VM 或其他合规 Intel macOS 环境中完成；
-7. 首次设置阶段的 1024×768 画面可操作；进入桌面后的最终分辨率和 VMware Tools 状态仍待验证；
-8. Apple Recovery 和完整安装器 CDN URL 可能变化，未来应优先通过 `macrecovery.py` 或 Apple 软件目录重新解析，而不是只依赖本文记录的固定地址。
+4. 当前快照链叶子会随快照继续变化；禁止依据本文旧编号手工移动、重命名或替换快照盘；
+5. VMware Tools、Steam、SignRiver 和 Paradox Launcher 已可运行；macOS 来宾仍无 accelerated 3D/OpenGL，因此 Stellaris/HOI4 游戏内运行与渲染不纳入 `0.2.0` 发布验收；
+6. Windows 宿主不能替代 Intel macOS 环境构建最终 dylib；最终 dylib 和 `.app` 仍须在这台 VM 或其他合规 Intel macOS 环境中从当前源码构建；
+7. 当前发布验收只要求 DLC 下载与大小/SHA-256、补丁安装、目标文件权限/哈希、失败恢复，并可选确认卸载/原版恢复；完成这些项目不等于游戏内兼容性通过；
+8. VMware Tools 服务状态为 `running`，当前来宾显示路径仍是 VMware SVGA framebuffer；增加显存或启用宿主 renderer 不会使其成为可用的 macOS OpenGL 加速器；
+9. Apple Recovery 和完整安装器 CDN URL 可能变化，未来应优先通过 `macrecovery.py` 或 Apple 软件目录重新解析，而不是只依赖本文记录的固定地址；
+10. 不得把 Steam/Launcher 成功启动记作游戏内验收通过，也不要为图形限制修改快照链、Recovery NVRAM、VMDK 或继续寻找设备作为当前发布前置条件。

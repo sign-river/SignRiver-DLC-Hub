@@ -12,6 +12,7 @@ class ReleaseAsset:
     download_url: str
     display_size: str | None = None
     size_bytes: int | None = None
+    sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -107,6 +107,7 @@ class StaticManifestReleaseSource:
                 download_url=self.asset_url(tag, name),
                 display_size=None if size_bytes is None else f"{size_bytes} B",
                 size_bytes=size_bytes,
+                sha256=digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None,
             ))
         return NormalizedRelease(
             release_id=f"static:{self.provider}:{tag}", tag=tag,

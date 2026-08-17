@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from signriver_app.domain import DownloadSnapshot, DownloadSpec, DownloadState
+from signriver_app.domain import (
+    DownloadPurpose,
+    DownloadSnapshot,
+    DownloadSpec,
+    DownloadStage,
+    DownloadState,
+)
 from signriver_app.infrastructure.persistence import Database, DownloadTaskRepository
 
 
@@ -35,3 +41,24 @@ def test_download_repository_can_clear_all_states(tmp_path: Path) -> None:
 
     assert repository.delete_all() == 2
     assert repository.list_all() == ()
+
+
+def test_download_failure_metadata_and_purpose_round_trip(tmp_path: Path) -> None:
+    repository = DownloadTaskRepository(Database(tmp_path / "hub.db"))
+    snapshot = DownloadSnapshot(
+        spec=DownloadSpec(
+            "patch-dll",
+            "https://example.test/patch.dll",
+            "patch.dll",
+            "stellaris",
+            purpose=DownloadPurpose.PATCH_BINARY,
+        ),
+        state=DownloadState.FAILED,
+        error="write failed",
+        failure_code="PATCH-SECURITY-INTERFERENCE-SUSPECTED",
+        failure_stage=DownloadStage.WRITE,
+    )
+
+    repository.save(snapshot)
+
+    assert repository.list_all() == (snapshot,)

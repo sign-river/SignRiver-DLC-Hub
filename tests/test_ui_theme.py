@@ -881,8 +881,8 @@ def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
         "def _patch_asset_for", 1
     )[0]
 
-    assert "expected_size=None" in method
-    assert "expected_size=asset.size_bytes" not in method
+    assert "expected_size=asset.size_bytes" in method
+    assert "expected_sha256=asset.sha256" in method
 
 
 def test_patch_workflow_detects_security_software_quarantine() -> None:
@@ -890,7 +890,8 @@ def test_patch_workflow_detects_security_software_quarantine() -> None:
 
     assert "def _missing_ready_patch_asset" in source
     assert "def _patch_security_software_message" in source
-    assert "Windows 安全中心或其他杀毒软件隔离" in source
+    assert "不要关闭整机防护" in source
+    assert "不要添加整目录排除项" in source
     assert "self.download_queue.forget((spec.task_id,))" in source
     assert "Post-apply patch audit failed" in source
     assert "self.patch_engine.restore_original" in source
@@ -899,7 +900,7 @@ def test_patch_workflow_detects_security_software_quarantine() -> None:
 def test_patch_health_uses_recorded_content_hashes() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     method = source.split("def _patch_is_healthy", 1)[1].split(
-        "def _start_patch_downloads", 1
+        "def _valid_sha256", 1
     )[0]
 
     assert "audit_recorded" in method

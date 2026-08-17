@@ -18,7 +18,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from signriver_common.platforms import HostPlatform, detect_host_platform  # noqa: E402
 from signriver_launcher.constants import LAUNCHER_VERSION  # noqa: E402
-from tools.build_release import application_hidden_imports  # noqa: E402
+from tools.build_release import (  # noqa: E402
+    application_hidden_imports,
+    pyinstaller_exclude_args,
+)
 
 
 def _validate_release_metadata(root: Path, launcher_version: str) -> None:
@@ -108,6 +111,7 @@ def main() -> int:
         "--onefile", "--windowed", "--name", name,
         "--paths", str(ROOT / "src"),
         "--paths", str(ROOT / "app" / "versions" / LAUNCHER_VERSION),
+        *pyinstaller_exclude_args(),
         "--collect-all", "customtkinter", "--collect-all", "PIL",
         *(
             argument

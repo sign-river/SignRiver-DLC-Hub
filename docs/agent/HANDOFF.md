@@ -1,91 +1,74 @@
 # 当前任务交接
 
-> 最后更新：2026-08-16（Asia/Shanghai）
+> 最后更新：2026-08-17（Asia/Shanghai）
 > 分支：`main`
-> 本轮提交：`b7aa825`、`4a6289c`、`19e175a`、`abffa7f`
-> 远端：已按用户明确指令推送，`origin/main` 已更新到 `abffa7f`
+> 基线 HEAD（本轮提交前）：`f31b978f256d1daeedbbe53af2c184cf2c968d9c`
+> 状态：本轮改动已完成并验证；按用户要求仅创建本地提交，不推送
 
-## 当前有效结论
+## 当前目标与结论
 
-- `0.2.0` 跨平台实现、既有 CI 修复和 SteamOS 验收保持有效；GitHub Actions 运行 `31937836027` 的 Windows、Ubuntu 24.04、macOS 15 Intel 三个任务均成功。
-- macOS Sequoia 15.7.9（Darwin 24.6.0，x86_64）VMware 环境已完成 SSH、VMware Shared Folder、高速源码/产物传输、Xcode/Rust/Python 构建环境准备。
-- Intel icecream 已按上游 `krnya/icecream` 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d` 原生构建；`libsteam_api.dylib` 为 `612,912` 字节，SHA-256 `68a32d893a00df57010396e439116f33193f44de0d0a817361b4bf1550936daa`，MIT 许可证已保留在 Git 忽略验收目录。
-- 最新 macOS 首装包 `SignRiver-DLC-Hub-v0.2.0-macos-x64.app.zip`：`21,587,550` 字节，SHA-256 `fcfdb50822f8b535dfe2100719f5c5a9b307d149d27617237db62d0fd93d6daf`。
-- 最新 macOS 全量更新包 `SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip`：`21,593,680` 字节，SHA-256 `4eccd3641f219f75a2e9c760762178d773b00777bb4a23dab662f22183ce5982`。
-- macOS 包已验证 Mach-O x86_64 与 `codesign --verify --deep --strict`；最新源码在 macOS 为 `528 passed, 1 skipped`，Ruff、compileall 通过。
-- macOS `0.1.7 -> 0.2.0` 全量更新成功 E2E 已通过：下载和 SHA-256、平台/架构/完整清单、整个 `.app` 原子交换、自动重启、事务 `confirmed`、用户数据与 `0755` 权限保留、确认后备份清理均验证成功。
-- macOS 注入第二次 `os.replace` 失败的回滚 E2E 已通过：事务 `rolled_back`，原 `.app`、签名和用户数据恢复，candidate/backup/failed 路径无残留。
-- Steam for macOS 已安装并完成客户端自更新，当前停在登录窗口；HOI4 与 icecream 真实游戏验收尚未执行。
+- 已按 `C:\Users\32173\Downloads\PLAN.md` 完成尚未发布的 `0.2.0`“统一问题中心与补丁健壮性优化”；内部发布器未纳入问题中心改造。
+- 任务开始时已读取根目录 `AGENTS.md` 及 `docs/agent/README.md`、`PROJECT_CONTEXT.md`、`DECISIONS.md`、`HANDOFF.md`，并核对分支、HEAD、工作区和测试。开始改动前交接与真实工作区无实质冲突，已有未提交改动均被保留。
+- 共享层已增加结构化问题模型、异常分类、原子问题存储、30 天/100 条清理、重复事件合并和固定动作允许列表；客户端已增加问题中心、未解决徽标、详情/复制/诊断/重试/解决/删除/清空能力。
+- 启动器的模块加载失败、更新下载/应用失败、自动回滚和致命错误已接入统一问题记录；启动器轻量错误窗口提供复制详情、打开日志目录和退出。
+- 下载任务已持久化用途、失败阶段和错误码；网络、本地文件、完整性、补丁、更新和内部错误使用稳定分类，不再把本地文件故障统一显示为网络失败。
+- 补丁二进制与元数据必须具有 SHA-256；下载提交、应用前、应用后均校验完整性。应用后文件缺失或变化时执行事务恢复/原版恢复并生成问题记录。
+- 疑似安全软件拦截会停止当前补丁工作流的无效自动重试并收束同批补丁任务；程序不会关闭 Defender、添加排除项、恢复隔离文件或执行任意 PowerShell，只提供固定的 Windows 安全中心/官方复检动作。macOS 和 SteamOS 不显示 Windows 专属动作。
+- 问题存储是非关键诊断副作用；写入失败不会遮蔽已经成功的主业务结果。
+- `app/versions/0.1.0/` 已同步到 Git 忽略的 `app/versions/0.2.0/`，除 `module.json` 外内容一致；目标元数据为 `version=0.2.0`、`api_version=3`。
+- `publisher-workspace/update-notes.json` 的 `0.2.0` 中文说明已补充问题中心、错误分类、安全软件拦截处理和补丁完整性校验，并以“建议尽快更新。”结尾。
+- macOS `0.2.0` 发布验收已按用户决定去除游戏内运行验证；原生重建后的手动门槛为 DLC 下载与大小/SHA-256、补丁安装、目标文件权限/哈希和失败恢复，可选补充卸载/原版恢复，并明确不代表游戏内兼容性通过。
 
-## 修改范围
+## 发布输入与本地产物
 
-- 任务开始前已存在且必须保留的未提交修改：工人与资源卡带/索引、发布器卡带与模型、`tests/test_multi_game_cartridges.py`、`docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md`。
-- 本轮代码修改：`tools/build_native_release.py` 增加原生构建版本元数据预检；`src/signriver_launcher/updater.py` 修复 macOS helper 安装根目录；新增 `tests/test_build_native_release.py`、`tests/test_macos_update_helper.py`。
-- 本轮文档修改：`docs/current-progress.md`、`docs/cross-platform-patch.md`、`docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md`。
-- 未提交、未推送；macOS/SteamOS 二进制只保存在 `dist/` 或 `publisher-workspace/` 等 Git 忽略目录，不进入源码仓库。
+- 模块归档：`dist/modules/SignRiver-DLC-Hub-module-v0.2.0.zip`
+  - 大小：`199,755` 字节
+  - SHA-256：`28ef829933955893d4a4ad6667cc737fc1493c2bd8748993adc3ec98a3ed23dd`
+  - `config/module-archives.json` 已同步，维护版本仍为 `0.1.6`、`0.1.7`、`0.2.0`。
+- Windows launcher：`dist/bin/SignRiver-DLC-Hub.exe`
+  - 大小：`16,927,805` 字节
+  - SHA-256：`89ae7fc6a0979e2d889fef4e47a9ede70453a5e2978c7ae11f20d9add9a79271`
+- Windows 全量更新包：`dist/updates/SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip`
+  - 大小：`18,791,906` 字节
+  - SHA-256：`16683e3e80cf75ff287b5194d3c32ddeeb0105e2c357169e10cf94b6a5f554bc`
+- Windows 初次重建曾因构建环境中的可选 NumPy/MKL 被 `PyInstaller --collect-all PIL` 间接冻结，产生约 `173 MB` 启动器和约 `174 MB` 更新包。`tools/build_release.py` 与 `tools/build_native_release.py` 现统一传入 `--exclude-module numpy`，重建后体积恢复正常，并有构建命令回归测试。
+- GitLink/GitHub 双源清单已于 `2026-08-17T11:25:27Z` 重新生成并核验；当前 `platform_packages` **仅含 `windows-x64`**，顶层兼容字段和平台字段均指向上述新 Windows 包，中文 notes 与本地 `update-notes.json` 完全一致。
+- 现有 macOS 包（`21,596,182` 字节，SHA-256 `95c81026a782297e9dfe0e2f081ed83aed5dcc22dbe454bc5fdebaab4820fad3`）和 SteamOS 包（`35,508,372` 字节，SHA-256 `91bb1fd54d452b34bae521ccd6e1830317547a51d8c276cfc3da45d9bfef1c6e`）早于本轮问题中心代码，不能作为最终 `0.2.0` 候选，因此已从当前清单排除。
 
 ## 验证结果
 
-- Windows 在构建预检修改后曾完成：`528 passed in 9.55s`、Ruff 通过、compileall 通过、`git diff --check` 通过。
-- 加入 macOS helper 修复后的 Windows 定向测试：`tests/test_macos_update_helper.py tests/test_updater.py tests/test_cross_platform_runtime.py`，`25 passed`。
-- macOS 同步最新源码后的完整测试：`528 passed, 1 skipped`；Ruff、compileall 通过。
-- Windows 最新全量验证已完成：`python -m pytest` 为 `529 passed in 9.42s`；`python -m ruff check .`、compileall 和 `git diff --check` 均通过。
+- `python -m pytest -q`：当前收集 `583` 个测试，完整执行通过。
+- `python -m ruff check .`：通过。
+- `python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0`：通过。
+- `git diff --check`：通过；仅显示 `docs/macos-virtual-machine-setup.md` 和 `src/signriver_common/__init__.py` 的既有 LF/CRLF 提示，无差异错误。
+- 发布专项：模块 ZIP 元数据、`config/module-archives.json` 的大小/哈希、两个清单的 notes/平台集合/大小/SHA-256，以及 `0.1.0` 到 `0.2.0` 的源码同步均已用断言脚本复核通过。
 
-## 已确认失败路线
+## 修改范围
 
-- 不得通过修改共享 `os` 模块的 `os.name` 模拟 Windows；应替换被测模块自己的平台依赖或使用局部 helper。
-- 测试不得默认依赖被 Git 忽略的 `app/versions/0.2.0/`；源码级测试使用 `app/versions/0.1.0/`，发布集成测试需先恢复目标归档。
-- SteamOS 测试入口不得改回 `/usr/bin/steam-jupiter`；继续使用 `/usr/lib/steam/steam`。
-- macOS 不再重复 VirtualBox + OpenCore、`e1000e`/`e1000`、桥接网络或强制 Recovery 标志路线；已验证 VMware + Apple Recovery + NAT + `vmxnet3`。
-- macOS 更新 helper 不能把 `Contents/Resources/runtime` 当安装根目录；必须传完整 `.app`。
-- 原生发布构建不能只检查 `app/state.json`；必须同时检查活动模块 `module.json` 存在且版本一致。
+当前工作区中的所有修改均未提交，必须整体保留，不得为了恢复干净状态执行 `reset`、`clean`、`checkout` 或覆盖：
 
-## 风险
+- 客户端问题中心与下载/补丁健壮性：`app/versions/0.1.0/app_entry.py` 及 `app/versions/0.1.0/signriver_app/` 下相关 domain、application、downloads、persistence、diagnostics 文件。
+- 共享问题模型：`src/signriver_common/problems.py`（新文件）、`src/signriver_common/__init__.py`。
+- 启动器问题记录与更新/回滚：`src/signriver_launcher/problem_reporting.py`（新文件）、`api.py`、`full_update_helper.py`、`main.py`、`updater.py`。
+- 构建可重复性：`tools/build_release.py`、`tools/build_native_release.py`。
+- 测试：`tests/test_problems.py`、`test_launcher_problem_reporting.py`、`test_client_problem_center.py`、`test_api.py`（新文件）以及下载、持久化、诊断、更新、UI、构建等既有测试扩展。
+- 发布元数据与文档：`config/module-archives.json`、`docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md`，以及工作区中原有的 `docs/current-progress.md`、`docs/macos-virtual-machine-setup.md` 修改。
+- Git 忽略但必须保留的发布输入/产物：`app/versions/0.2.0/`、`publisher-workspace/update-notes.json`、`dist/`。
 
-- Steam 登录、Steam Guard、HOI4 许可/下载和游戏内 DLC 状态需要用户账户授权或人工判断；不得把账户信息或凭据写入文档、脚本、日志或回复。
-- macOS 的构建与更新 E2E 已通过，但真实 HOI4/icecream 补丁生命周期仍未验收，0.2.0 暂不能发布。
-- `app/versions/*`、`dist/` 和发布器工作区包含 Git 忽略产物，不能仅凭本机存在判断干净 checkout 或线上资产完整性。
-- macOS 虚拟机依赖 Unlocker、特定 VMX 拓扑和快照链；虚拟机名称可能显示 Tahoe，但实际系统是 Sequoia，禁止据此替换快照叶子 VMDK。
-- 推送会立即触发线上模块归档恢复和 SHA-256 校验；发布资产未先上传并核验时不得推送。
+## 已知失败路线与安全边界
 
-## 2026-08-16：提交整理与总体验证
+- 不得让问题记录携带或执行命令、脚本、任意 URL；动作只能通过代码内允许列表解析。
+- 不得关闭或暂停 Defender，不得自动添加排除目录，不得自动恢复被隔离文件；只能引导用户核对来源与哈希后在系统界面手动处理。
+- 疑似安全软件拦截后不得继续复用 `.part` 文件或无限重试；用户确认处理后必须从头重新下载并验证。
+- Windows frozen 进程不能直接原地覆盖当前运行中的 EXE；延迟 helper 及超过 onefile 父进程生命周期的子进程必须设置 `PYINSTALLER_RESET_ENVIRONMENT=1`。
+- 三平台清单不能分三次写入同一输出位置；原生包全部重建后，必须一次调用同时传入三个 `--platform-package`。
+- PowerShell 直接传中文更新说明可能乱码；继续使用 Python 以 UTF-8 读取 JSON，并通过 `subprocess.run([...])` 传参。
+- 构建机的可选依赖会影响 PyInstaller 分析；项目未使用 NumPy 时必须保留显式排除及其回归测试。
 
-- `b7aa825`：修复 macOS 全量更新安装根目录，并增加原生构建版本元数据预检；
-- `4a6289c`：修正工人与资源 DLC 安装根目录；
-- `19e175a`：融合 Steam 目录分析、DLL 收集、缺失游戏明细和 DLC 根候选报告；
-- 总体验证：`python -m pytest` 为 `533 passed in 11.36s`；`python -m ruff check .`、`python -m compileall -q src tools tests` 和 `git diff --check` 通过；
-- 上述功能和交接记录已推送至 `origin/main`；工作区在最终交接状态提交前无其他未提交改动。
+## 风险与下一步
 
-## 下一步
-
-1. 用户在 macOS Steam 登录窗口完成登录及可能的 Steam Guard。
-2. 安装 HOI4；若账户无许可或 macOS depot 不可用，暂停并由用户决定。
-3. 验证原版 HOI4 启动，随后完成 icecream 安装、配置、ad-hoc 签名、日志/DLC 状态、审计、损坏识别、修复、安全卸载和原版恢复闭环。
-4. 核对三平台最终候选包和双源清单；先上传并验证发布资产，再按用户明确指令提交或推送。
-
-## 2026-08-16：工人与资源 DLC 根目录修复
-
-- 根据本地真实 DLC 包 `D:\下载\待下载\工人与资源 苏维埃共和国\media_soviet` 核对，内容为 `dlc1`、`dlc2`、`dlc3`、`dlc4` 四个一级目录；
-- 已将工人与资源卡带的 `dlc_relative_dir` 从错误的 `media_soviet/sounds` 修正为 `media_soviet`；
-- 已同步 `config/cartridges`、发布器内置卡带、默认模型映射、相关测试和本地 `publisher-workspace` 游戏配置；
-- 已同步 `cartridges_index.json`：SHA-256 为 `22c84c54657cac9efc1c8f4957a5156baff1ef9f0934a07437a94c649562e157`，字节数为 `1127`；
-- 验证：`python -m pytest tests/test_multi_game_cartridges.py tests/test_cartridge_catalog.py tests/test_publisher_workspace.py`，`89 passed`；
-- 验证：`python -m ruff check src/signriver_publisher/cartridges.py src/signriver_publisher/models.py tests/test_multi_game_cartridges.py`，通过；
-- 卡带修复已提交为 `4a6289c`；未单独构建或发布卡带。
-
-## 2026-08-16：Steam 目录分析与 API64 DLL 收集融合工具
-
-- 目标：把原有 Steam 全游戏目录分析工具与 `steam_api64.dll` 自动收集、归类和压缩能力合并为一个入口。
-- 新增 `tools/collect_steam_api64.py`，复用 `tools/steam_directory_probe.py` 的注册表、`libraryfolders.vdf`、manifest 和目录分析逻辑；同一次完整目录扫描同时产出诊断报告并定位 DLL，不重复遍历全部游戏。
-- 原有双击入口 `tools/probe_steam_games.bat` 已切换到融合脚本；不再保留单独的 `collect_steam_api64.bat`，避免用户面对两个入口。
-- `tools/build_steam_directory_probe.py` 已改为把融合脚本构建进原有 `Steam游戏目录扫描器.exe`；`tools/steam_directory_probe_README.txt` 已同步新的输出结构和隐私说明。
-- 每次成功运行会创建时间戳外层文件夹及同名 ZIP；其中包含 TXT/JSON 目录诊断报告、`收集清单.json`、按游戏名建立的子目录和所有找到的 `steam_api64.dll`。
-- 多个同名 DLL 会保留游戏内相对路径，避免覆盖；游戏名会清理 Windows 非法字符，同名游戏目录追加 AppID。未找到 DLL 的游戏既记录在清单中，也会在控制台直接列出名称、AppID 和目录。
-- 目录诊断报告格式升级为 `report_format: 3`：`dlc_directories` 保留当前安装中真实命中的全部路径，新增 `dlc_root_candidates` 保存上层根目录候选、证据路径及未验证的投影路径；TXT 同样分为“实际命中路径”和“可能的 DLC 安装根目录（仅供人工判断）”。
-- 对 `media_soviet/sounds/dlc1` 这类误导案例，报告会同时保留实际路径、`media_soviet` 与 `media_soviet/sounds` 根候选，以及明确标为“未验证存在”的 `media_soviet/dlc1`，不会再用嵌套命中覆盖其他判断可能。
-- 新增/更新测试，覆盖融合报告、单次扫描复用、多 DLL、相对路径、大小写、非法/重复游戏名、无 DLL 明细输出、DLC 实际路径与根候选并存。
-- 验证：`python -m pytest tests/test_steam_directory_probe.py tests/test_collect_steam_api64.py`，`7 passed`。
-- 验证：`python -m ruff check tools/steam_directory_probe.py tools/collect_steam_api64.py tools/build_steam_directory_probe.py tests/test_steam_directory_probe.py tests/test_collect_steam_api64.py`，通过。
-- 验证：相关脚本 `compileall`、`python tools/collect_steam_api64.py --help`、冻结 EXE `--help` 和 `git diff --check`，通过；`git diff --check` 仅显示工作区既有 LF/CRLF 转换提示。
-- 已重新构建融合版 Windows EXE：`python tools/build_steam_directory_probe.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64`，成功；EXE `7,242,476` 字节，分发 ZIP `7,084,450` 字节。
-- Steam 工具改动已提交为 `19e175a`；未执行真实本机 Steam 全库收集，避免未经用户确认生成包含游戏 DLL 的本地归档；构建产物位于 Git 忽略的 `dist/`。
+1. 当前只完成了 Windows 原生发布候选。必须在 macOS Intel x64 和 SteamOS x64 原生主机上从当前源码重新构建并验证全量更新包；完成前不得宣称 `0.2.0` 三平台发布就绪。
+2. 三个平台的新包齐备后，用一次 `prepare_update_release.py` 调用同时传入三个 `--platform-package`，再核对两个清单的 URL、size、SHA-256 和中文 notes。
+3. 正式发布顺序仍为：先上传并核验模块归档、三个全量更新包及首装包，最后上传双源清单。线上资产未就绪前禁止 push，否则 CI 会立即从 GitLink 恢复归档并因哈希/资产缺失失败。
+4. 当前线上正式版本仍为 `0.1.7`；`0.2.0` 只是本地候选，尚未上传、commit 或 push。
+5. macOS `0.2.0` 已正式移除游戏内运行验收门槛：原生包从当前源码重建后，手动确认 DLC 下载及大小/SHA-256、补丁安装、目标文件权限/哈希、失败恢复，并可选确认卸载/原版恢复。Steam/Paradox Launcher 或游戏本体能否进入画面不再阻塞发布，但必须明确标记“游戏内兼容性未纳入验收范围”，不得宣称已通过。

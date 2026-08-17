@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from .errors import MigrationError
 
 
-LATEST_SCHEMA_VERSION = 12
+LATEST_SCHEMA_VERSION = 13
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: (
@@ -158,6 +158,18 @@ _MIGRATIONS: dict[int, Sequence[str]] = {
     # finalized.  New databases already create download_tasks with game_id in
     # migration 2, so no data transformation is required here.
     12: (),
+    13: (
+        """
+        ALTER TABLE download_tasks ADD COLUMN purpose TEXT NOT NULL
+        DEFAULT 'dlc_package'
+        """,
+        """
+        ALTER TABLE download_tasks ADD COLUMN failure_code TEXT
+        """,
+        """
+        ALTER TABLE download_tasks ADD COLUMN failure_stage TEXT
+        """,
+    ),
 }
 
 

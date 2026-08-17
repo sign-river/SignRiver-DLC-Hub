@@ -20,6 +20,22 @@ class DownloadState(StrEnum):
     CORRUPT = "corrupt"
 
 
+class DownloadPurpose(StrEnum):
+    DLC_PACKAGE = "dlc_package"
+    PATCH_BINARY = "patch_binary"
+    PATCH_METADATA = "patch_metadata"
+
+
+class DownloadStage(StrEnum):
+    PREPARE = "prepare"
+    CONNECT = "connect"
+    READ = "read"
+    WRITE = "write"
+    FLUSH = "flush"
+    VERIFY = "verify"
+    COMMIT = "commit"
+
+
 @dataclass(frozen=True, slots=True)
 class DownloadSpec:
     task_id: str
@@ -30,6 +46,7 @@ class DownloadSpec:
     expected_sha256: str | None = None
     supports_range: bool = False
     part_urls: tuple[str, ...] = ()
+    purpose: DownloadPurpose = DownloadPurpose.DLC_PACKAGE
 
     @property
     def urls(self) -> tuple[str, ...]:
@@ -48,6 +65,8 @@ class DownloadSnapshot:
     error: str | None = None
     speed_bytes_per_second: float | None = None
     eta_seconds: float | None = None
+    failure_code: str | None = None
+    failure_stage: DownloadStage | None = None
 
     def evolve(self, **changes) -> "DownloadSnapshot":
         return replace(self, **changes)

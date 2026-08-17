@@ -94,6 +94,7 @@ def test_static_manifest_avoids_api_and_builds_direct_asset_urls(tmp_path) -> No
     release = source.get_release_by_tag("cities_skylines")
 
     assert release.assets[0].asset_id == "a" * 64
+    assert release.assets[0].sha256 == "a" * 64
     assert release.assets[0].download_url == (
         "https://github.com/sign-river/signriver-dlc-assets/releases/download/"
         "cities_skylines/dlc001_demo.zip"

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from signriver_common.problems import sanitize_technical_details
+
 
 class DiagnosticExporter:
     def __init__(self, app_root: Path, data_root: Path) -> None:
@@ -26,6 +28,7 @@ class DiagnosticExporter:
         settings,
         snapshots,
         log_path: Path,
+        problems=(),
     ) -> Path:
         output_dir = self.data_root / "diagnostics"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -34,12 +37,26 @@ class DiagnosticExporter:
         tasks = [{
             "task_id": item.spec.task_id,
             "filename": item.spec.filename,
+            "purpose": item.spec.purpose.value,
             "state": item.state.value,
             "bytes_downloaded": item.bytes_downloaded,
             "total_bytes": item.total_bytes,
             "attempt": item.attempt,
+            "failure_code": item.failure_code,
+            "failure_stage": (
+                item.failure_stage.value if item.failure_stage is not None else None
+            ),
+            "expected_sha256": item.spec.expected_sha256,
+            "actual_sha256": item.sha256,
             "error": self.sanitize(item.error or "") or None,
         } for item in snapshots]
+        problem_items = []
+        for problem in problems:
+            item = problem.to_dict()
+            item["technical_details"] = self.sanitize(
+                str(item.get("technical_details", ""))
+            )
+            problem_items.append(item)
         report = {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -55,6 +72,7 @@ class DiagnosticExporter:
                 "bandwidth_limit_kib": settings.bandwidth_limit_kib,
             },
             "tasks": tasks,
+            "problems": problem_items,
         }
         log_content = ""
         try:
@@ -78,6 +96,7 @@ class DiagnosticExporter:
         # impossible to recognize once the parent has already been redacted.
         result = text.replace(str(self.app_root), "<APP_ROOT>")
         result = result.replace(str(self.user_home), "<USER_HOME>")
+        result = sanitize_technical_details(result)
         result = re.sub(
             r"(?i)\b(authorization|token|password|cookie)\s*[:=]\s*[^\s,;]+",
             lambda match: match.group(1) + "=<REDACTED>",

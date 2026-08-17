@@ -94,8 +94,54 @@ def test_catalog_lazy_loads_other_games_from_bootstrap(tmp_path: Path) -> None:
     )
 
 
+def test_catalog_uses_platform_compatible_bootstrap_when_cache_lags(
+    tmp_path: Path,
+) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    for source in BOOTSTRAP.glob("*.json"):
+        (bootstrap / source.name).write_bytes(source.read_bytes())
+
+    stale_document = json.loads(
+        (bootstrap / "cartridge_stellaris.json").read_text(encoding="utf-8")
+    )
+    stale_document["patch"].pop("platforms")
+    stale_payload = (
+        json.dumps(stale_document, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "cartridge_stellaris.json").write_bytes(stale_payload)
+
+    stale_index = json.loads((bootstrap / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    entry = next(
+        item for item in stale_index["cartridges"] if item["game_id"] == "stellaris"
+    )
+    entry["sha256"] = hashlib.sha256(stale_payload).hexdigest()
+    entry["size_bytes"] = len(stale_payload)
+    (cache / INDEX_ASSET_NAME).write_text(
+        json.dumps(stale_index, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    service = CartridgeCatalogService(
+        cache,
+        bootstrap_dir=bootstrap,
+        source=object(),
+        platform="macos",
+    )
+    service.refresh_index(allow_network=False)
+    loaded = service.load_default_cartridge(allow_network=False)
+
+    assert loaded.source == "bootstrap-platform-fallback"
+    assert loaded.cartridge.patch_profile.unlocker_dll_name == "libsteam_api.dylib"
+    assert loaded.cartridge.executable_name == "stellaris.app/Contents/MacOS/stellaris"
+
+
 def test_catalog_rejects_tampered_remote_cartridge(tmp_path: Path) -> None:
-    index_payload = json.loads((BOOTSTRAP / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    index_payload = json.loads(
+        (BOOTSTRAP / INDEX_ASSET_NAME).read_text(encoding="utf-8")
+    )
     assets = {
         INDEX_ASSET_NAME: json.dumps(index_payload).encode("utf-8"),
         "cartridge_stellaris.json": b'{"not":"a cartridge"}',
@@ -104,15 +150,23 @@ def test_catalog_rejects_tampered_remote_cartridge(tmp_path: Path) -> None:
     class FakeSource:
         def get_release_by_tag(self, tag: str):
             assert tag == "hub"
-            return type("Release", (), {
-                "assets": [
-                    type("Asset", (), {
-                        "name": name,
-                        "download_url": f"https://example.test/{name}",
-                    })()
-                    for name in assets
-                ],
-            })()
+            return type(
+                "Release",
+                (),
+                {
+                    "assets": [
+                        type(
+                            "Asset",
+                            (),
+                            {
+                                "name": name,
+                                "download_url": f"https://example.test/{name}",
+                            },
+                        )()
+                        for name in assets
+                    ],
+                },
+            )()
 
     def opener(url: str, _timeout: float) -> bytes:
         name = url.rsplit("/", 1)[-1]
@@ -148,9 +202,9 @@ def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
     assert "cartridge_stellaris.json" in names
     assert "announcement.json" in names
     index = CartridgeIndex.from_dict(
-        json.loads((tmp_path / "output" / "hub" / INDEX_ASSET_NAME).read_text(
-            encoding="utf-8"
-        ))
+        json.loads(
+            (tmp_path / "output" / "hub" / INDEX_ASSET_NAME).read_text(encoding="utf-8")
+        )
     )
     assert index.default_game_id == "stellaris"
     # Exported documents must also be accepted by the client parser.
@@ -182,9 +236,7 @@ def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="不支持当前平台"):
         unsupported.patch_fields_for("steamos")
     exported = json.loads(
-        (tmp_path / "output" / "hub" / "announcement.json").read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "output" / "hub" / "announcement.json").read_text(encoding="utf-8")
     )
     assert exported["id"] == "export-test"
 
@@ -197,8 +249,7 @@ def test_publisher_snapshots_complete_hub_as_publish_assets(tmp_path: Path) -> N
 
     assert assets
     assert {asset.name for asset in assets} == {
-        path.name
-        for path in workspace.export_client_hub(default_game_id="stellaris")
+        path.name for path in workspace.export_client_hub(default_game_id="stellaris")
     }
     for asset in assets:
         assert asset.path.parent == tmp_path / "output" / "hub"
@@ -242,7 +293,9 @@ def test_export_hub_cartridges_helper_writes_digest_index(tmp_path: Path) -> Non
     index_path = next(path for path in written if path.name == INDEX_ASSET_NAME)
     index = CartridgeIndex.from_dict(json.loads(index_path.read_text(encoding="utf-8")))
     for entry in index.cartridges:
-        digest = hashlib.sha256((tmp_path / "hub" / entry.asset_name).read_bytes()).hexdigest()
+        digest = hashlib.sha256(
+            (tmp_path / "hub" / entry.asset_name).read_bytes()
+        ).hexdigest()
         assert digest == entry.sha256
     assert not stale_cartridge.exists()
     assert not stale_announcement.exists()

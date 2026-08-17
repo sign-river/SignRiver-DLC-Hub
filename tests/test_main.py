@@ -1,4 +1,6 @@
-from signriver_launcher.main import format_rollback_notice
+import pytest
+
+from signriver_launcher.main import format_rollback_notice, main
 
 
 def test_rollback_notice_mentions_versions_and_recovery_path() -> None:
@@ -40,3 +42,20 @@ def test_find_usable_module_skips_broken_and_excluded(tmp_path) -> None:
     assert _find_usable_module(versions, set()) == "0.1.1"
     assert _find_usable_module(versions, {"0.1.1"}) == "0.1.0"
     assert _find_usable_module(versions, {"0.1.0", "0.1.1"}) is None
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--apply-full-update"],
+        ["--apply-full-update", "root", "transaction", "1", "extra"],
+        ["--rollback-full-update"],
+        ["--rollback-full-update", "root", "transaction", "1", "extra"],
+        ["--cleanup-full-update-helper"],
+        ["--cleanup-full-update-helper", "helper", "1", "extra"],
+    ],
+)
+def test_full_update_helper_cli_rejects_invalid_argument_counts(
+    argv: list[str],
+) -> None:
+    assert main(argv) == 2

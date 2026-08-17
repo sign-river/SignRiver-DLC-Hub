@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .constants import HOST_API_VERSION, LAUNCHER_VERSION
+from .full_update_helper import frozen_child_environment
 from .models import ReleaseInfo
 from .updater import ProgressCallback, UpdateClient
 from signriver_common.platforms import detect_host_platform, normalize_architecture
@@ -82,7 +83,11 @@ class HostContext:
     def restart(self) -> None:
         """Restart through the stable host so modules do not manage process details."""
         if getattr(sys, "frozen", False):
-            subprocess.Popen([sys.executable], cwd=self.paths.install or self.paths.root)
+            subprocess.Popen(
+                [sys.executable],
+                cwd=self.paths.install or self.paths.root,
+                env=frozen_child_environment(),
+            )
             os._exit(0)
         launcher = self.paths.root / "launcher.py"
         os.execl(sys.executable, sys.executable, str(launcher))

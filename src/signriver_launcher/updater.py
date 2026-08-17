@@ -19,6 +19,7 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from signriver_common.platforms import HostPlatform, platform_package_key
+from signriver_common.problems import ProblemCode
 
 from .config import UpdateSettings
 from .constants import (
@@ -35,10 +36,12 @@ from .errors import (
     PackageError,
 )
 from .full_update import FullUpdateManager, FullUpdateTransaction
+from .full_update_helper import frozen_child_environment
 from .jsonio import read_json
 from .models import ModuleMetadata, ReleaseInfo, UpdateManifest
 from .net_errors import describe_network_error
 from .paths import RuntimePaths
+from .problem_reporting import record_update_problem
 from .state import StateStore
 from .versioning import Version
 
@@ -101,22 +104,34 @@ class UpdateClient:
         compatible_modules = [
             release
             for release in candidates
-            if release.kind == "module" and Version.parse(release.min_launcher_version) <= launcher
+            if release.kind == "module"
+            and Version.parse(release.min_launcher_version) <= launcher
         ]
         full_updates = [release for release in candidates if release.kind == "full"]
         incompatible_modules = [
             release
             for release in candidates
-            if release.kind == "module" and Version.parse(release.min_launcher_version) > launcher
+            if release.kind == "module"
+            and Version.parse(release.min_launcher_version) > launcher
         ]
         # A full update takes priority when the newest module cannot run on this launcher.
         if incompatible_modules and full_updates:
-            newest_incompatible = max(incompatible_modules, key=lambda item: Version.parse(item.version))
-            newest_full = max(full_updates, key=lambda item: Version.parse(item.version))
-            if Version.parse(newest_full.version) >= Version.parse(newest_incompatible.version):
+            newest_incompatible = max(
+                incompatible_modules, key=lambda item: Version.parse(item.version)
+            )
+            newest_full = max(
+                full_updates, key=lambda item: Version.parse(item.version)
+            )
+            if Version.parse(newest_full.version) >= Version.parse(
+                newest_incompatible.version
+            ):
                 return newest_full
         available = [*compatible_modules, *full_updates]
-        return max(available, key=lambda item: Version.parse(item.version)) if available else None
+        return (
+            max(available, key=lambda item: Version.parse(item.version))
+            if available
+            else None
+        )
 
     def install(
         self,
@@ -128,7 +143,16 @@ class UpdateClient:
             return self.prepare_full_update(release, progress, cancel).version
         archive = self.download(release, progress, cancel)
         try:
-            self.install_archive(archive, release)
+            try:
+                self.install_archive(archive, release)
+            except BaseException as error:
+                self._record_update_problem(
+                    ProblemCode.UPDATE_APPLY_FAILED,
+                    "update.install_module",
+                    error,
+                    release,
+                )
+                raise
         finally:
             archive.unlink(missing_ok=True)
         return release.version
@@ -140,10 +164,21 @@ class UpdateClient:
         cancel: CancelCallback | None = None,
     ) -> FullUpdateTransaction:
         if release.kind != "full":
-            raise PackageError("only full releases can be prepared for in-place replacement")
+            raise PackageError(
+                "only full releases can be prepared for in-place replacement"
+            )
         archive = self.download(release, progress, cancel)
         try:
-            return FullUpdateManager(self.paths).prepare(archive, release)
+            try:
+                return FullUpdateManager(self.paths).prepare(archive, release)
+            except BaseException as error:
+                self._record_update_problem(
+                    ProblemCode.UPDATE_APPLY_FAILED,
+                    "update.prepare_full",
+                    error,
+                    release,
+                )
+                raise
         finally:
             archive.unlink(missing_ok=True)
 
@@ -154,6 +189,21 @@ class UpdateClient:
         cancel: CancelCallback | None = None,
     ) -> FullUpdateTransaction:
         transaction = self.prepare_full_update(release, progress, cancel)
+        try:
+            self._launch_full_update_helper(transaction)
+        except BaseException as error:
+            self._record_update_problem(
+                ProblemCode.UPDATE_APPLY_FAILED,
+                "update.launch_helper",
+                error,
+                release,
+            )
+            raise
+        return transaction
+
+    def _launch_full_update_helper(
+        self, transaction: FullUpdateTransaction
+    ) -> None:
         is_windows = self.paths.platform is HostPlatform.WINDOWS
         helper_name = "full-update-helper.exe" if is_windows else "full-update-helper"
         helper = (
@@ -174,23 +224,54 @@ class UpdateClient:
             if not is_windows:
                 helper.chmod(0o755)
             command = [
-                str(helper), "--apply-full-update", str(self.paths.root),
-                transaction.transaction_id, str(os.getpid()),
-                str(self.paths.install_root or self.paths.root), self.paths.platform.value,
+                str(helper),
+                "--apply-full-update",
+                str(self.paths.root),
+                transaction.transaction_id,
+                str(os.getpid()),
+                str(self.paths.install_root or self.paths.root),
+                self.paths.platform.value,
                 str(self.paths.cache_dir),
             ]
         else:
-            command = [sys.executable, "-m", "signriver_launcher.main", "--apply-full-update", str(self.paths.root), transaction.transaction_id, str(os.getpid())]
+            command = [
+                sys.executable,
+                "-m",
+                "signriver_launcher.main",
+                "--apply-full-update",
+                str(self.paths.root),
+                transaction.transaction_id,
+                str(os.getpid()),
+            ]
         subprocess.Popen(
             command,
             cwd=self.paths.root,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=frozen_child_environment(),
         )
-        return transaction
 
     def download(
+        self,
+        release: ReleaseInfo,
+        progress: ProgressCallback | None = None,
+        cancel: CancelCallback | None = None,
+    ) -> Path:
+        try:
+            return self._download(release, progress, cancel)
+        except DownloadCancelled:
+            raise
+        except BaseException as error:
+            self._record_update_problem(
+                ProblemCode.UPDATE_DOWNLOAD_FAILED,
+                "update.download",
+                error,
+                release,
+            )
+            raise
+
+    def _download(
         self,
         release: ReleaseInfo,
         progress: ProgressCallback | None = None,
@@ -200,7 +281,9 @@ class UpdateClient:
         self._validate_remote_url(url)
         self.paths.cache_dir.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(
-            prefix=f"module-{release.version}-", suffix=".zip.part", dir=self.paths.cache_dir
+            prefix=f"module-{release.version}-",
+            suffix=".zip.part",
+            dir=self.paths.cache_dir,
         )
         os.close(fd)
         target = Path(temp_name)
@@ -209,13 +292,24 @@ class UpdateClient:
             headers={"User-Agent": f"SignRiver-DLC-Hub/{self.launcher_version}"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response, target.open(
-                "wb"
-            ) as output:
+            with (
+                urllib.request.urlopen(
+                    request, timeout=self.settings.timeout_seconds
+                ) as response,
+                target.open("wb") as output,
+            ):
                 self._validate_remote_url(response.geturl())
                 response_size = response.headers.get("Content-Length")
-                total = int(response_size) if response_size and response_size.isdigit() else release.size
-                if release.size is not None and total is not None and total != release.size:
+                total = (
+                    int(response_size)
+                    if response_size and response_size.isdigit()
+                    else release.size
+                )
+                if (
+                    release.size is not None
+                    and total is not None
+                    and total != release.size
+                ):
                     raise IntegrityError("服务器报告的更新包大小与清单不一致")
                 digest = hashlib.sha256()
                 downloaded = 0
@@ -317,7 +411,9 @@ class UpdateClient:
         last_error: Exception | None = None
         for attempt in range(max_attempts):
             try:
-                with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
+                with urllib.request.urlopen(
+                    request, timeout=self.settings.timeout_seconds
+                ) as response:
                     self._validate_remote_url(response.geturl())
                     raw = response.read(MAX_MANIFEST_BYTES + 1)
                 break
@@ -349,11 +445,13 @@ class UpdateClient:
                     nested_url = urllib.parse.urljoin(url, package.package_url)
                     self._validate_remote_url(nested_url)
                     platform_packages[key] = replace(package, package_url=nested_url)
-            releases.append(replace(
-                release,
-                package_url=package_url,
-                platform_packages=platform_packages,
-            ))
+            releases.append(
+                replace(
+                    release,
+                    package_url=package_url,
+                    platform_packages=platform_packages,
+                )
+            )
         return UpdateManifest(manifest.channel, tuple(releases))
 
     def _safe_extract(self, archive: Path, destination: Path) -> None:
@@ -374,7 +472,10 @@ class UpdateClient:
                     raise PackageError(f"不允许包含符号链接：{entry.filename}")
                 target = destination.joinpath(*member.parts)
                 resolved_target = target.resolve()
-                if destination.resolve() not in resolved_target.parents and resolved_target != destination.resolve():
+                if (
+                    destination.resolve() not in resolved_target.parents
+                    and resolved_target != destination.resolve()
+                ):
                     raise PackageError(f"压缩包条目越出了临时目录：{entry.filename}")
                 if entry.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
@@ -382,6 +483,29 @@ class UpdateClient:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with package.open(entry) as source, target.open("wb") as output:
                     shutil.copyfileobj(source, output, length=1024 * 256)
+
+    def _record_update_problem(
+        self,
+        code: ProblemCode,
+        stage: str,
+        error: BaseException,
+        release: ReleaseInfo,
+    ) -> None:
+        try:
+            app_version = self.state_store.load().active_version
+        except Exception:
+            app_version = None
+        filename = Path(urllib.parse.urlparse(release.package_url).path).name or None
+        record_update_problem(
+            self.paths,
+            code=code,
+            stage=stage,
+            error=error,
+            app_version=app_version,
+            target_version=release.version,
+            filename=filename,
+            expected_sha256=release.sha256,
+        )
 
     @staticmethod
     def _validate_module(directory: Path, expected_version: str) -> ModuleMetadata:

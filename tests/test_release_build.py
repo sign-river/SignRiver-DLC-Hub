@@ -18,6 +18,13 @@ def test_release_build_analyzes_external_application_dependencies(monkeypatch) -
     assert "signriver_app.application.download_queue" in imports
 
 
+def test_release_build_excludes_unused_numpy_runtime() -> None:
+    assert build_release.pyinstaller_exclude_args() == [
+        "--exclude-module",
+        "numpy",
+    ]
+
+
 def test_full_release_manifest_excludes_user_state(tmp_path) -> None:
     (tmp_path / "app").mkdir()
     (tmp_path / "config").mkdir()

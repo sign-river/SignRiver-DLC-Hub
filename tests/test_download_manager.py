@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 from pathlib import Path
 
-from signriver_app.domain import DownloadSpec, DownloadState
+from signriver_app.domain import (
+    DownloadPurpose,
+    DownloadSpec,
+    DownloadStage,
+    DownloadState,
+)
 from signriver_app.infrastructure.downloads import DownloadControl, DownloadManager, DownloadPolicy
 
 
@@ -412,3 +418,69 @@ def test_rejects_unsafe_url_and_filename(tmp_path: Path) -> None:
             pass
         else:
             raise AssertionError("unsafe spec was accepted")
+
+
+def test_patch_file_disappearing_after_flush_stops_retry(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    opens = 0
+    original_is_file = Path.is_file
+
+    def opener(*_args):
+        nonlocal opens
+        opens += 1
+        return io.BytesIO(DATA)
+
+    def remove_completed_part(path: Path) -> bool:
+        if path.suffix == ".part" and original_is_file(path):
+            path.unlink()
+            return False
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", remove_completed_part)
+    result = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(attempts=3, retry_delay=0),
+        opener=opener,
+    ).run(spec(purpose=DownloadPurpose.PATCH_BINARY))
+
+    assert opens == 1
+    assert result.state is DownloadState.FAILED
+    assert result.failure_code == "PATCH-SECURITY-INTERFERENCE-SUSPECTED"
+    assert result.failure_stage is DownloadStage.VERIFY
+    assert "疑似被安全软件拦截" in (result.error or "")
+    assert not list((tmp_path / "downloads").rglob("*.part"))
+
+
+def test_patch_write_einval_with_inaccessible_part_stops_retry(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    opens = 0
+    original_open = Path.open
+
+    class RejectedOutput(io.BytesIO):
+        def write(self, _block):
+            raise OSError(errno.EINVAL, "security product removed temporary file")
+
+    def reject_part_open(path: Path, *args, **kwargs):
+        if path.suffix == ".part":
+            return RejectedOutput()
+        return original_open(path, *args, **kwargs)
+
+    def opener(*_args):
+        nonlocal opens
+        opens += 1
+        return io.BytesIO(DATA)
+
+    monkeypatch.setattr(Path, "open", reject_part_open)
+    result = DownloadManager(
+        tmp_path,
+        policy=DownloadPolicy(attempts=3, retry_delay=0),
+        opener=opener,
+    ).run(spec(purpose=DownloadPurpose.PATCH_BINARY))
+
+    assert opens == 1
+    assert result.state is DownloadState.FAILED
+    assert result.failure_code == "PATCH-SECURITY-INTERFERENCE-SUSPECTED"
+    assert result.failure_stage is DownloadStage.WRITE
+    assert not list((tmp_path / "downloads").rglob("*.part"))

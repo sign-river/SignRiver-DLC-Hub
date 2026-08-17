@@ -161,7 +161,9 @@ class CartridgeCatalogService:
                         f"期望 {entry.sha256}，实际 {digest}"
                     )
                 cache_path.write_bytes(payload)
-                document = CartridgeDocument.from_dict(json.loads(payload.decode("utf-8")))
+                document = CartridgeDocument.from_dict(
+                    json.loads(payload.decode("utf-8"))
+                )
                 source = "remote"
             except Exception as error:
                 if document is None:
@@ -175,7 +177,8 @@ class CartridgeCatalogService:
                 source = "cache-fallback"
                 LOGGER.warning(
                     "Using local cartridge for %s after remote failure: %s",
-                    game_id, error,
+                    game_id,
+                    error,
                 )
         if document is None:
             document = self._load_local_document(entry, cache_path, bootstrap_path)
@@ -185,6 +188,28 @@ class CartridgeCatalogService:
             raise CartridgeCatalogError(
                 f"卡带 game_id 与主表不一致：{document.game_id} != {entry.game_id}"
             )
+
+        # A published hub index can briefly lag behind a newer client bootstrap.
+        # Do not let an otherwise valid cached or remote Windows-only document
+        # brick startup on macOS/SteamOS when the bundled document supports the
+        # current platform. Bootstrap documents intentionally may have a newer
+        # digest than the remote index, so load them through the normal local
+        # reader and select the compatible one only for this fallback.
+        if not self._supports_current_platform(document):
+            bootstrap_document = self._load_bootstrap_document(entry, bootstrap_path)
+            if (
+                bootstrap_document is not None
+                and bootstrap_document.game_id == entry.game_id
+                and self._supports_current_platform(bootstrap_document)
+            ):
+                LOGGER.warning(
+                    "Using bootstrap cartridge %s because %s lacks %s support",
+                    game_id,
+                    source,
+                    self._current_platform_name(),
+                )
+                document = bootstrap_document
+                source = "bootstrap-platform-fallback"
         loaded = LoadedCartridge(
             entry=entry,
             document=document,
@@ -200,7 +225,8 @@ class CartridgeCatalogService:
         assert self.index is not None
         try:
             return self.load_cartridge(
-                self.index.default_game_id, allow_network=allow_network,
+                self.index.default_game_id,
+                allow_network=allow_network,
             )
         except CartridgeCatalogError:
             pass
@@ -215,9 +241,7 @@ class CartridgeCatalogService:
                 return self.load_cartridge(entry.game_id, allow_network=False)
             except CartridgeCatalogError:
                 continue
-        raise CartridgeCatalogError(
-            f"????????????{self.index.default_game_id}"
-        )
+        raise CartridgeCatalogError(f"????????????{self.index.default_game_id}")
 
     def get_loaded(self, game_id: str) -> LoadedCartridge | None:
         return self._loaded.get(game_id)
@@ -243,9 +267,7 @@ class CartridgeCatalogService:
 
     def _fetch_remote_asset(self, asset_name: str) -> bytes:
         return self._open(
-            fixed_release_asset_url(
-                self.download_source, HUB_RELEASE_TAG, asset_name
-            ),
+            fixed_release_asset_url(self.download_source, HUB_RELEASE_TAG, asset_name),
             self.timeout,
         )
 
@@ -278,6 +300,40 @@ class CartridgeCatalogService:
             except Exception as error:
                 LOGGER.warning("Ignoring unusable cartridge file %s: %s", path, error)
         return None
+
+    def _supports_current_platform(self, document: CartridgeDocument) -> bool:
+        try:
+            document.patch_fields_for(self._current_platform_name())
+        except ValueError:
+            return False
+        return True
+
+    def _current_platform_name(self) -> str:
+        if self.platform:
+            return str(self.platform)
+        from ..domain import host_patch_platform
+
+        return host_patch_platform().value
+
+    @staticmethod
+    def _load_bootstrap_document(
+        entry: CartridgeIndexEntry,
+        bootstrap_path: Path | None,
+    ) -> CartridgeDocument | None:
+        if bootstrap_path is None or not bootstrap_path.is_file():
+            return None
+        try:
+            document = CartridgeDocument.from_dict(
+                json.loads(bootstrap_path.read_text(encoding="utf-8"))
+            )
+        except Exception as error:
+            LOGGER.warning(
+                "Ignoring unusable bootstrap cartridge file %s: %s",
+                bootstrap_path,
+                error,
+            )
+            return None
+        return document if document.game_id == entry.game_id else None
 
     def _index_cache_path(self) -> Path:
         return self.cache_dir / INDEX_ASSET_NAME

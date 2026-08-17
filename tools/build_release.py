@@ -24,6 +24,21 @@ from signriver_launcher.product import (  # noqa: E402
 )
 
 VERSION = LAUNCHER_VERSION
+PYINSTALLER_EXCLUDED_MODULES = ("numpy",)
+
+
+def pyinstaller_exclude_args() -> list[str]:
+    """Keep optional image-library dependencies out of frozen launchers.
+
+    Pillow can discover NumPy through optional plugins when the build environment
+    happens to provide it. The application does not use NumPy, and collecting it
+    also pulls large BLAS/MKL runtimes into otherwise identical release builds.
+    """
+    return [
+        argument
+        for module in PYINSTALLER_EXCLUDED_MODULES
+        for argument in ("--exclude-module", module)
+    ]
 APP_VERSION = json.loads(
     (ROOT / "app" / "state.json").read_text(encoding="utf-8")
 )["active_version"]
@@ -320,6 +335,7 @@ def main() -> int:
             "--paths",
             str(APP_VERSION_ROOT),
             *hidden_import_args,
+            *pyinstaller_exclude_args(),
             "--collect-all",
             "customtkinter",
             "--collect-all",

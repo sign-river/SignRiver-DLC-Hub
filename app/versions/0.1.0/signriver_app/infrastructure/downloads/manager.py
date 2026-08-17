@@ -14,7 +14,14 @@ from typing import BinaryIO, Callable
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from ...domain import DownloadSnapshot, DownloadSpec, DownloadState
+from signriver_common.problems import ProblemCategory, classify_exception
+
+from ...domain import (
+    DownloadSnapshot,
+    DownloadSpec,
+    DownloadStage,
+    DownloadState,
+)
 from ..net_errors import describe_network_error
 
 _SAFE_FILENAME = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]+$")
@@ -90,6 +97,7 @@ class DownloadManager:
         self._validate_spec(spec)
         control = control or DownloadControl()
         notify = on_change or (lambda _snapshot: None)
+        stage = DownloadStage.PREPARE
         downloads = self.cache_root / "downloads"
         packages = self.cache_root / "packages"
         quarantine = self.cache_root / "quarantine"
@@ -110,11 +118,13 @@ class DownloadManager:
                 part.unlink(missing_ok=True)
                 return self._emit(snapshot.evolve(
                     state=DownloadState.CANCELLED, attempt=attempt, error=None,
+                    failure_code=None, failure_stage=None,
                     speed_bytes_per_second=None, eta_seconds=None,
                 ), notify)
             if control.pause_requested:
                 return self._emit(snapshot.evolve(
                     state=DownloadState.PAUSED, attempt=attempt, error=None,
+                    failure_code=None, failure_stage=None,
                     speed_bytes_per_second=None, eta_seconds=None,
                 ), notify)
             snapshot = self._emit(snapshot.evolve(
@@ -122,6 +132,8 @@ class DownloadManager:
                 attempt=attempt,
                 bytes_downloaded=0,
                 error=None,
+                failure_code=None,
+                failure_stage=None,
                 speed_bytes_per_second=None,
                 eta_seconds=None,
             ), notify)
@@ -129,12 +141,15 @@ class DownloadManager:
             downloaded = 0
             cancelled = False
             paused = False
+            write_started = False
             started_at = self._clock()
             active_url = ""
             try:
+                stage = DownloadStage.WRITE
                 with part.open("wb") as output:
                     for part_url in spec.urls:
                         active_url = part_url
+                        stage = DownloadStage.CONNECT
                         with closing(self._opener(part_url, self.policy.timeout)) as response:
                             while True:
                                 if control.cancel_requested:
@@ -143,10 +158,13 @@ class DownloadManager:
                                 if control.pause_requested:
                                     paused = True
                                     break
+                                stage = DownloadStage.READ
                                 block = response.read(self.policy.chunk_size)
                                 if not block:
                                     break
+                                stage = DownloadStage.WRITE
                                 output.write(block)
+                                write_started = True
                                 digest.update(block)
                                 downloaded += len(block)
                                 elapsed = max(self._clock() - started_at, 0.000001)
@@ -166,6 +184,7 @@ class DownloadManager:
                         if cancelled or paused:
                             break
                     if not cancelled and not paused:
+                        stage = DownloadStage.FLUSH
                         output.flush()
                         os.fsync(output.fileno())
                 if cancelled:
@@ -174,6 +193,8 @@ class DownloadManager:
                         state=DownloadState.CANCELLED,
                         bytes_downloaded=downloaded,
                         error=None,
+                        failure_code=None,
+                        failure_stage=None,
                         speed_bytes_per_second=None,
                         eta_seconds=None,
                     ), notify)
@@ -185,6 +206,8 @@ class DownloadManager:
                         state=DownloadState.PAUSED,
                         bytes_downloaded=0,
                         error=None,
+                        failure_code=None,
+                        failure_stage=None,
                         speed_bytes_per_second=None,
                         eta_seconds=None,
                     ), notify)
@@ -198,11 +221,23 @@ class DownloadManager:
                 )
                 if requested is not None:
                     return requested
+                stage = DownloadStage.VERIFY
+                if not part.is_file():
+                    raise FileNotFoundError(part)
                 actual_hash = digest.hexdigest()
-                snapshot = self._emit(snapshot.evolve(state=DownloadState.VERIFYING, bytes_downloaded=downloaded, sha256=actual_hash), notify)
+                snapshot = self._emit(snapshot.evolve(
+                    state=DownloadState.VERIFYING,
+                    bytes_downloaded=downloaded,
+                    sha256=actual_hash,
+                ), notify)
                 if spec.expected_size is not None and downloaded != spec.expected_size:
-                    raise ValueError(f"size mismatch: expected {spec.expected_size}, got {downloaded}")
-                if spec.expected_sha256 and actual_hash.casefold() != spec.expected_sha256.casefold():
+                    raise ValueError(
+                        f"size mismatch: expected {spec.expected_size}, got {downloaded}"
+                    )
+                if (
+                    spec.expected_sha256
+                    and actual_hash.casefold() != spec.expected_sha256.casefold()
+                ):
                     raise ValueError("SHA-256 mismatch")
                 requested = self._finish_requested_control(
                     control=control,
@@ -226,6 +261,7 @@ class DownloadManager:
                 )
                 if requested is not None:
                     return requested
+                stage = DownloadStage.COMMIT
                 target_dir = packages / spec.game_id / actual_hash
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target = target_dir / spec.filename
@@ -240,8 +276,14 @@ class DownloadManager:
                 if requested is not None:
                     return requested
                 os.replace(part, target)
-                return self._emit(snapshot.evolve(state=DownloadState.READY, result_path=target), notify)
-            except ValueError as error:
+                return self._emit(snapshot.evolve(
+                    state=DownloadState.READY,
+                    result_path=target,
+                    error=None,
+                    failure_code=None,
+                    failure_stage=None,
+                ), notify)
+            except (OSError, TimeoutError, ValueError) as error:
                 requested = self._finish_requested_control(
                     control=control,
                     part=part,
@@ -252,58 +294,86 @@ class DownloadManager:
                 )
                 if requested is not None:
                     return requested
-                # Keep only the newest rejected attempt for a task.  Retrying
-                # a multi-gigabyte package must not multiply cache usage.
-                isolated = quarantine / spec.game_id / f"{spec.task_id}-latest.bad"
-                isolated.parent.mkdir(parents=True, exist_ok=True)
-                if part.exists():
-                    os.replace(part, isolated)
-                if attempt < self.policy.attempts:
+                classification = classify_exception(
+                    error,
+                    stage=stage.value,
+                    purpose=spec.purpose.value,
+                    temporary_path=part,
+                    write_started=write_started,
+                )
+                code = classification.code.value
+                message = self._describe_failure(
+                    error,
+                    classification.category,
+                    classification.summary,
+                    classification.suggestion,
+                    active_url=active_url,
+                    retrying=(
+                        attempt < self.policy.attempts
+                        and not classification.stop_retry
+                        and classification.category
+                        in {ProblemCategory.NETWORK, ProblemCategory.INTEGRITY}
+                    ),
+                )
+                should_retry = (
+                    attempt < self.policy.attempts
+                    and not classification.stop_retry
+                    and classification.category
+                    in {ProblemCategory.NETWORK, ProblemCategory.INTEGRITY}
+                )
+                if classification.category is ProblemCategory.INTEGRITY:
+                    isolated = quarantine / spec.game_id / f"{spec.task_id}-latest.bad"
+                    isolated.parent.mkdir(parents=True, exist_ok=True)
+                    if part.exists():
+                        os.replace(part, isolated)
+                else:
+                    part.unlink(missing_ok=True)
+                if should_retry:
                     snapshot = self._emit(snapshot.evolve(
                         state=DownloadState.RETRYING,
-                        bytes_downloaded=0,
-                        error=f"包校验失败，准备重新下载：{error}",
+                        bytes_downloaded=0 if classification.category is ProblemCategory.INTEGRITY else downloaded,
+                        error=message,
+                        failure_code=code,
+                        failure_stage=stage,
                         speed_bytes_per_second=None,
                         eta_seconds=None,
                     ), notify)
                     self._sleep(self.policy.retry_delay * attempt)
                     continue
-                return self._emit(snapshot.evolve(state=DownloadState.CORRUPT, bytes_downloaded=downloaded, error=str(error)), notify)
-            except (OSError, TimeoutError) as error:
-                part.unlink(missing_ok=True)
-                if control.cancel_requested:
-                    return self._emit(snapshot.evolve(
-                        state=DownloadState.CANCELLED,
-                        bytes_downloaded=0,
-                        error=None,
-                        speed_bytes_per_second=None,
-                        eta_seconds=None,
-                    ), notify)
-                if control.pause_requested:
-                    return self._emit(snapshot.evolve(
-                        state=DownloadState.PAUSED,
-                        bytes_downloaded=0,
-                        error=None,
-                        speed_bytes_per_second=None,
-                        eta_seconds=None,
-                    ), notify)
-                if attempt == self.policy.attempts:
-                    return self._emit(snapshot.evolve(
-                        state=DownloadState.FAILED,
-                        bytes_downloaded=downloaded,
-                        error=describe_network_error(
-                            error, url=active_url, action="下载资源",
-                        ),
-                    ), notify)
-                snapshot = self._emit(snapshot.evolve(
-                    state=DownloadState.RETRYING,
+                terminal_state = (
+                    DownloadState.CORRUPT
+                    if classification.category is ProblemCategory.INTEGRITY
+                    else DownloadState.FAILED
+                )
+                return self._emit(snapshot.evolve(
+                    state=terminal_state,
                     bytes_downloaded=downloaded,
-                    error=describe_network_error(
-                        error, url=active_url, action="下载资源，准备重试",
-                    ),
+                    error=message,
+                    failure_code=code,
+                    failure_stage=stage,
+                    speed_bytes_per_second=None,
+                    eta_seconds=None,
                 ), notify)
-                self._sleep(self.policy.retry_delay * attempt)
         raise AssertionError("unreachable")
+
+    @staticmethod
+    def _describe_failure(
+        error: BaseException,
+        category: ProblemCategory,
+        summary: str,
+        suggestion: str,
+        *,
+        active_url: str,
+        retrying: bool,
+    ) -> str:
+        if category is ProblemCategory.NETWORK:
+            action = "下载资源，准备重试" if retrying else "下载资源"
+            return describe_network_error(error, url=active_url, action=action)
+        if category is ProblemCategory.INTEGRITY:
+            if retrying:
+                return f"包校验失败，准备重新下载：{error}"
+            return str(error)
+        return f"{summary}：{suggestion}"
 
     @classmethod
     def _finish_requested_control(

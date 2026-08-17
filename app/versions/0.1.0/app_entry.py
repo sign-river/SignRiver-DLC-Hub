@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -12,6 +13,15 @@ from urllib.parse import urlparse
 import customtkinter as ctk
 from tkinter import BooleanVar, TclError, filedialog, messagebox
 from signriver_common.platforms import open_directory
+from signriver_common.problems import (
+    ProblemAction,
+    ProblemCategory,
+    ProblemCode,
+    ProblemReport,
+    ProblemSeverity,
+    ProblemStatus,
+    ProblemStore,
+)
 
 from .signriver_app.adapters import AdapterRegistry
 from .signriver_app.application import (
@@ -27,6 +37,7 @@ from .signriver_app.application import (
 )
 from .signriver_app.domain import (
     Announcement,
+    DownloadPurpose,
     DownloadSpec,
     DownloadState,
     InstallHealth,
@@ -90,6 +101,17 @@ AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
 USAGE_TUTORIAL_URL = "https://sign-river.github.io/p/signriver-dlc-hub/getting-started/"
 BILIBILI_TUTORIAL_URL = "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
+MICROSOFT_FALSE_POSITIVE_URL = "https://www.microsoft.com/en-us/wdsi/filesubmission"
+WINDOWS_SECURITY_URI = "windowsdefender://threatsettings/"
+
+
+class _PatchAssetVerificationError(RuntimeError):
+    def __init__(
+        self, code: ProblemCode, message: str, *, actual_sha256: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.actual_sha256 = actual_sha256
 
 
 def _card(parent, **kwargs):
@@ -309,6 +331,10 @@ class DlcHubApplication:
         self.diagnostic_exporter = DiagnosticExporter(
             self.context.paths.root, self.context.paths.data
         )
+        self.problem_store = ProblemStore(self.context.paths.data / "problems")
+        self.recorded_download_failures: set[tuple[object, ...]] = set()
+        self.selected_problem_event_id: str | None = None
+        self.problem_rows: list[object] = []
         self.last_log_content = ""
         self.catalog_entries = ()
         self.catalog_rows = {}
@@ -460,6 +486,7 @@ class DlcHubApplication:
         except Exception:
             self.context.logger.exception("Unable to initialize game discovery")
         self._build_ui()
+        self._update_problem_badge()
         self.main_window_origin = self._center_on_desktop(
             self.window, width=1120, height=840,
         )
@@ -640,7 +667,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=19, pady=(0, 20))
         self.navigation_buttons = {}
-        for page_name in ("DLC 库", "下载任务", "日志", "设置"):
+        for page_name in ("DLC 库", "下载任务", "问题中心", "日志", "设置"):
             button = ctk.CTkButton(
                 sidebar, text=page_name, anchor="w", width=130, height=38,
                 fg_color="transparent", text_color=UI["text_secondary"],
@@ -1312,9 +1339,52 @@ class DlcHubApplication:
         self.log_preview.configure(state="disabled")
         self.window.after(50, self._refresh_log_preview)
 
+        self.problem_card = _card(self.page_host)
+        problem_header = ctk.CTkFrame(self.problem_card, fg_color="transparent")
+        problem_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            problem_header, text="问题中心", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            problem_header, text="清空全部", width=88,
+            fg_color=UI["danger"], hover_color=UI["danger_hover"],
+            command=self._clear_problems,
+        ).pack(side="right")
+        ctk.CTkButton(
+            problem_header, text="刷新", width=72,
+            command=self._refresh_problem_center,
+        ).pack(side="right", padx=(0, 8))
+        problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
+        problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        problem_body.grid_columnconfigure(0, weight=2)
+        problem_body.grid_columnconfigure(1, weight=3)
+        problem_body.grid_rowconfigure(0, weight=1)
+        self.problem_list = ctk.CTkScrollableFrame(
+            problem_body, fg_color=UI["panel"], corner_radius=10,
+            border_width=1, border_color=UI["border"],
+        )
+        self.problem_list.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        problem_detail_panel = ctk.CTkFrame(
+            problem_body, fg_color=UI["panel"], corner_radius=10,
+            border_width=1, border_color=UI["border"],
+        )
+        problem_detail_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self.problem_detail = ctk.CTkTextbox(
+            problem_detail_panel, wrap="word", fg_color=UI["panel"],
+            text_color=UI["text_secondary"], border_width=0,
+        )
+        self.problem_detail.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+        self.problem_detail.configure(state="disabled")
+        self.problem_actions = ctk.CTkFrame(
+            problem_detail_panel, fg_color="transparent"
+        )
+        self.problem_actions.pack(fill="x", padx=12, pady=(6, 12))
+
         self.page_sections = {
             "DLC 库": (self.game_card, self.catalog_card),
             "下载任务": (self.task_card,),
+            "问题中心": (self.problem_card,),
             "日志": (self.log_card,),
             "设置": (self.settings_list,),
         }
@@ -1799,7 +1869,7 @@ class DlcHubApplication:
         for index, section in enumerate(sections):
             if page_name == "DLC 库" and section is self.catalog_card:
                 section.pack(fill="both", expand=True)
-            elif page_name in {"下载任务", "日志", "设置"}:
+            elif page_name in {"下载任务", "问题中心", "日志", "设置"}:
                 section.pack(fill="both", expand=True)
             else:
                 bottom = 18 if index < len(sections) - 1 else 0
@@ -1812,6 +1882,8 @@ class DlcHubApplication:
             )
         if page_name == "下载任务":
             self._refresh_task_page()
+        elif page_name == "问题中心":
+            self._refresh_problem_center()
         elif page_name == "日志":
             self._refresh_log_preview()
 
@@ -3026,6 +3098,7 @@ class DlcHubApplication:
                     settings=settings,
                     snapshots=snapshots,
                     log_path=self.context.paths.data / "logs" / "launcher.log",
+                    problems=self.problem_store.list_reports(),
                 )
                 self._post_ui(
                     lambda output=output: self._finish_diagnostic_export(output)
@@ -3061,6 +3134,259 @@ class DlcHubApplication:
             state="normal", text="导出诊断包"
         )
         messagebox.showerror("诊断导出失败", message, parent=self.window)
+
+    def _problem_detail_text(self, report: ProblemReport) -> str:
+        status = "未解决" if report.status is ProblemStatus.OPEN else "已解决"
+        lines = [
+            f"{report.summary}",
+            "",
+            f"错误码：{report.code.value}",
+            f"事件 ID：{report.event_id}",
+            f"状态：{status}",
+            f"严重程度：{report.severity.value}",
+            f"阶段：{report.stage or '-'}",
+            f"首次发生：{report.occurred_at}",
+            f"最近发生：{report.last_occurred_at}",
+            f"重试次数：{report.retry_count}",
+        ]
+        if report.task_id:
+            lines.append(f"任务 ID：{report.task_id}")
+        if report.filename:
+            lines.append(f"文件：{report.filename}")
+        if report.expected_sha256:
+            lines.append(f"预期 SHA-256：{report.expected_sha256}")
+        if report.actual_sha256:
+            lines.append(f"实际 SHA-256：{report.actual_sha256}")
+        lines.extend(("", "建议：", report.suggestion or "请导出诊断信息后反馈。"))
+        if report.technical_details:
+            lines.extend(("", "技术详情：", report.technical_details))
+        return "\n".join(lines)
+
+    def _record_problem(self, report: ProblemReport) -> ProblemReport:
+        try:
+            stored = self.problem_store.record(report)
+        except Exception:
+            self.context.logger.exception("Unable to persist problem report")
+            return report
+        self._update_problem_badge()
+        if getattr(self, "current_page", None) == "问题中心":
+            self._refresh_problem_center(select_event_id=stored.event_id)
+        return stored
+
+    def _update_problem_badge(self) -> None:
+        button = getattr(self, "navigation_buttons", {}).get("问题中心")
+        if button is None:
+            return
+        try:
+            count = self.problem_store.unresolved_count()
+        except Exception:
+            self.context.logger.exception("Unable to count unresolved problems")
+            count = 0
+        button.configure(text=f"问题中心 ({count})" if count else "问题中心")
+
+    def _refresh_problem_center(self, select_event_id: str | None = None) -> None:
+        if not hasattr(self, "problem_list"):
+            return
+        try:
+            reports = self.problem_store.list_reports()
+        except Exception as error:
+            self.context.logger.exception("Unable to load problem reports")
+            reports = []
+            self._notify(f"问题记录读取失败：{error}", error=True)
+        self.problem_rows = reports
+        for child in self.problem_list.winfo_children():
+            child.destroy()
+        if not reports:
+            ctk.CTkLabel(
+                self.problem_list, text="当前没有问题记录", text_color=UI["muted"]
+            ).pack(anchor="w", padx=12, pady=12)
+            self.selected_problem_event_id = None
+            self._set_problem_detail(None)
+            self._update_problem_badge()
+            return
+        for report in reports:
+            status = "未解决" if report.status is ProblemStatus.OPEN else "已解决"
+            button = ctk.CTkButton(
+                self.problem_list,
+                text=(
+                    f"[{status}] {report.summary}\n"
+                    f"{report.code.value} · {report.last_occurred_at}"
+                ),
+                anchor="w",
+                fg_color=(
+                    UI["primary_surface"]
+                    if report.event_id == (select_event_id or self.selected_problem_event_id)
+                    else "transparent"
+                ),
+                text_color=UI["text_secondary"],
+                hover_color=UI["primary_surface_hover"],
+                command=lambda event_id=report.event_id: self._select_problem(event_id),
+            )
+            button.pack(fill="x", padx=6, pady=4)
+        selected = select_event_id or self.selected_problem_event_id
+        if not selected or not any(item.event_id == selected for item in reports):
+            selected = reports[0].event_id
+        self._select_problem(selected, refresh_list=False)
+        self._update_problem_badge()
+
+    def _set_problem_detail(self, report: ProblemReport | None) -> None:
+        self.problem_detail.configure(state="normal")
+        self.problem_detail.delete("1.0", "end")
+        if report is not None:
+            self.problem_detail.insert("1.0", self._problem_detail_text(report))
+        self.problem_detail.configure(state="disabled")
+        self._render_problem_actions(report)
+
+    def _select_problem(self, event_id: str, *, refresh_list: bool = True) -> None:
+        report = self.problem_store.get(event_id)
+        if report is None:
+            self.selected_problem_event_id = None
+            self._set_problem_detail(None)
+            return
+        self.selected_problem_event_id = report.event_id
+        self._set_problem_detail(report)
+        if refresh_list:
+            self._refresh_problem_center(select_event_id=report.event_id)
+
+    def _render_problem_actions(self, report: ProblemReport | None) -> None:
+        for child in self.problem_actions.winfo_children():
+            child.destroy()
+        if report is None:
+            return
+        labels = {
+            ProblemAction.COPY_DETAILS: "复制详情",
+            ProblemAction.COPY_HASH_INFO: "复制哈希",
+            ProblemAction.OPEN_LOG_DIRECTORY: "打开日志目录",
+            ProblemAction.OPEN_CACHE_DIRECTORY: "打开缓存目录",
+            ProblemAction.EXPORT_DIAGNOSTICS: "导出诊断",
+            ProblemAction.RETRY_TASK: "安全重试",
+            ProblemAction.MARK_RESOLVED: "标记已解决",
+            ProblemAction.DELETE: "删除",
+            ProblemAction.OPEN_WINDOWS_SECURITY: "打开 Windows 安全中心",
+            ProblemAction.OPEN_MICROSOFT_FALSE_POSITIVE: "提交误报",
+        }
+        for action in report.allowed_actions:
+            if (
+                action is ProblemAction.OPEN_WINDOWS_SECURITY
+                and self.context.paths.platform != "windows"
+            ):
+                continue
+            ctk.CTkButton(
+                self.problem_actions,
+                text=labels[action],
+                width=116,
+                command=lambda action=action, report=report: (
+                    self._execute_problem_action(report, action)
+                ),
+            ).pack(side="left", padx=(0, 6), pady=3)
+
+    def _copy_problem_text(self, text: str) -> None:
+        self.window.clipboard_clear()
+        self.window.clipboard_append(text)
+        self.window.update_idletasks()
+        self._notify("已复制问题信息")
+
+    def _retry_problem_task(self, report: ProblemReport) -> None:
+        if self.download_queue is None or not report.task_id:
+            raise ValueError("该问题没有可重试的下载任务")
+        snapshot = next(
+            (item for item in self.download_queue.snapshots()
+             if item.spec.task_id == report.task_id),
+            None,
+        )
+        if snapshot is None:
+            raise ValueError("下载任务记录不存在，请刷新目录后重试")
+        if snapshot.state in {DownloadState.PAUSED, DownloadState.FAILED}:
+            future = self.download_queue.resume(report.task_id)
+        elif snapshot.state is DownloadState.CORRUPT:
+            self.download_queue.forget((report.task_id,), delete_cached_packages=True)
+            future = self.download_queue.enqueue(snapshot.spec)
+        elif (
+            snapshot.state is DownloadState.READY
+            and (snapshot.result_path is None or not snapshot.result_path.is_file())
+        ):
+            self.download_queue.forget((report.task_id,))
+            future = self.download_queue.enqueue(snapshot.spec)
+        else:
+            raise ValueError(f"任务当前状态不可重试：{snapshot.state.value}")
+        future.add_done_callback(self._download_finished)
+        self._notify(f"已重新开始下载：{snapshot.spec.filename}")
+
+    def _execute_problem_action(
+        self, report: ProblemReport, action: ProblemAction | str
+    ) -> None:
+        try:
+            normalized = ProblemAction(action)
+        except ValueError:
+            self.context.logger.warning("Rejected unknown problem action: %r", action)
+            return
+        if normalized not in report.allowed_actions:
+            self.context.logger.warning(
+                "Rejected non-allowlisted problem action: %s event=%s",
+                normalized.value, report.event_id,
+            )
+            return
+        if (
+            normalized is ProblemAction.OPEN_WINDOWS_SECURITY
+            and self.context.paths.platform != "windows"
+        ):
+            return
+        try:
+            if normalized is ProblemAction.COPY_DETAILS:
+                self._copy_problem_text(self._problem_detail_text(report))
+            elif normalized is ProblemAction.COPY_HASH_INFO:
+                self._copy_problem_text(
+                    f"文件：{report.filename or '-'}\n"
+                    f"预期 SHA-256：{report.expected_sha256 or '-'}\n"
+                    f"实际 SHA-256：{report.actual_sha256 or '-'}"
+                )
+            elif normalized is ProblemAction.OPEN_LOG_DIRECTORY:
+                self._open_path(self.context.paths.data / "logs")
+            elif normalized is ProblemAction.OPEN_CACHE_DIRECTORY:
+                self._open_path(self.context.paths.cache)
+            elif normalized is ProblemAction.EXPORT_DIAGNOSTICS:
+                self._export_diagnostics()
+            elif normalized is ProblemAction.RETRY_TASK:
+                self._retry_problem_task(report)
+            elif normalized is ProblemAction.MARK_RESOLVED:
+                self.problem_store.mark_resolved(report.event_id)
+                self._refresh_problem_center()
+            elif normalized is ProblemAction.DELETE:
+                self.problem_store.delete(report.event_id)
+                self._refresh_problem_center()
+            elif normalized is ProblemAction.OPEN_WINDOWS_SECURITY:
+                if not webbrowser.open(WINDOWS_SECURITY_URI):
+                    raise RuntimeError("系统未接受 Windows 安全中心链接")
+            elif normalized is ProblemAction.OPEN_MICROSOFT_FALSE_POSITIVE:
+                if not webbrowser.open(MICROSOFT_FALSE_POSITIVE_URL):
+                    raise RuntimeError("浏览器未接受 Microsoft 误报提交页面")
+        except Exception as error:
+            self.context.logger.exception(
+                "Problem action failed: action=%s event=%s",
+                normalized.value, report.event_id,
+            )
+            fallback = (
+                "请手动打开“Windows 安全中心 → 病毒和威胁防护 → 保护历史记录”核对该文件。"
+                if normalized is ProblemAction.OPEN_WINDOWS_SECURITY
+                else str(error)
+            )
+            messagebox.showwarning("操作未完成", fallback, parent=self.window)
+
+    def _clear_problems(self) -> None:
+        if not messagebox.askyesno(
+            "清空问题记录",
+            "确定清空全部问题记录吗？此操作不会删除日志、缓存或下载文件。",
+            parent=self.window,
+        ):
+            return
+        try:
+            self.problem_store.clear()
+        except Exception as error:
+            self.context.logger.exception("Unable to clear problem reports")
+            messagebox.showerror("清空失败", str(error), parent=self.window)
+            return
+        self.selected_problem_event_id = None
+        self._refresh_problem_center()
 
     def _freshness_status_text(self, *, catalog_count: int | None = None) -> str:
         freshness = getattr(self.cartridge, "freshness", None)
@@ -4380,7 +4706,99 @@ class DlcHubApplication:
         with self.pending_download_lock:
             self.pending_download_snapshots[snapshot.spec.task_id] = snapshot
 
+    def _record_download_problem(self, snapshot) -> None:
+        if snapshot.state not in {DownloadState.FAILED, DownloadState.CORRUPT}:
+            return
+        if not snapshot.failure_code:
+            return
+        key = (
+            snapshot.spec.task_id,
+            snapshot.state.value,
+            snapshot.failure_code,
+            snapshot.attempt,
+        )
+        if key in self.recorded_download_failures:
+            return
+        self.recorded_download_failures.add(key)
+        try:
+            code = ProblemCode(snapshot.failure_code)
+        except ValueError:
+            code = ProblemCode.APP_UNEXPECTED
+        if code.value.startswith("NET-"):
+            category = ProblemCategory.NETWORK
+        elif code.value.startswith("FS-"):
+            category = ProblemCategory.FILESYSTEM
+        elif code.value.startswith("PKG-"):
+            category = ProblemCategory.INTEGRITY
+        elif code.value.startswith("PATCH-"):
+            category = ProblemCategory.PATCH
+        else:
+            category = ProblemCategory.APPLICATION
+        security_interference = (
+            code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED
+        )
+        actions = [
+            ProblemAction.COPY_DETAILS,
+            ProblemAction.OPEN_LOG_DIRECTORY,
+            ProblemAction.OPEN_CACHE_DIRECTORY,
+            ProblemAction.EXPORT_DIAGNOSTICS,
+            ProblemAction.RETRY_TASK,
+            ProblemAction.MARK_RESOLVED,
+            ProblemAction.DELETE,
+        ]
+        if security_interference:
+            actions.extend((
+                ProblemAction.COPY_HASH_INFO,
+                ProblemAction.OPEN_MICROSOFT_FALSE_POSITIVE,
+            ))
+            if self.context.paths.platform == "windows":
+                actions.append(ProblemAction.OPEN_WINDOWS_SECURITY)
+        summary = (
+            "补丁文件疑似被安全软件拦截"
+            if security_interference
+            else (snapshot.error or f"下载任务失败：{snapshot.spec.filename}")
+        )
+        suggestion = (
+            "请在系统安全软件界面核对文件来源和 SHA-256；确认误报后仅处理该次检测，"
+            "再返回程序重试。不要关闭整机防护，也不要添加整目录排除项。"
+            if security_interference
+            else "请按问题详情检查网络、磁盘和缓存后安全重试。"
+        )
+        self._record_problem(ProblemReport.create(
+            code=code,
+            category=category,
+            severity=ProblemSeverity.ERROR,
+            stage=(
+                snapshot.failure_stage.value
+                if snapshot.failure_stage is not None
+                else "download"
+            ),
+            summary=summary,
+            suggestion=suggestion,
+            technical_details=snapshot.error or "",
+            app_version=self.context.app_version,
+            launcher_version=self.context.launcher_version,
+            platform=self.context.paths.platform,
+            task_id=snapshot.spec.task_id,
+            filename=snapshot.spec.filename,
+            expected_sha256=snapshot.spec.expected_sha256,
+            actual_sha256=snapshot.sha256,
+            allowed_actions=actions,
+        ))
+
     def _apply_download_event(self, snapshot) -> None:
+        if snapshot.state is DownloadState.READY:
+            try:
+                resolved = self.problem_store.resolve_matching(
+                    task_id=snapshot.spec.task_id
+                )
+            except Exception:
+                self.context.logger.exception("Unable to resolve download problems")
+            else:
+                if resolved:
+                    self._update_problem_badge()
+        else:
+            self._record_download_problem(snapshot)
         is_patch_task = snapshot.spec.task_id in self.patch_task_roles
         if not is_patch_task:
             self._show_download_state(snapshot)
@@ -5162,12 +5580,14 @@ class DlcHubApplication:
             url=asset.download_url,
             filename=asset.name,
             game_id=self.cartridge.adapter.descriptor.game_id,
-            # GitLink only exposes a rounded display value (for example
-            # "5.0 MB"), not the byte-exact attachment length. Treating that
-            # estimate as exact quarantines valid files with a size mismatch.
-            expected_size=None,
-            expected_sha256=None,
+            expected_size=asset.size_bytes,
+            expected_sha256=asset.sha256,
             supports_range=False,
+            purpose=(
+                DownloadPurpose.PATCH_METADATA
+                if asset.name.lower().endswith(".json")
+                else DownloadPurpose.PATCH_BINARY
+            ),
         )
 
     def _patch_asset_for(self, task_id: str):
@@ -5229,9 +5649,10 @@ class DlcHubApplication:
     @staticmethod
     def _patch_security_software_message(filename: str) -> str:
         return (
-            f"补丁文件 {filename} 在下载完成后消失或无法访问。\n\n"
-            "文件可能被 Windows 安全中心或其他杀毒软件隔离。请先检查保护历史记录，"
-            "确认文件来源后将本程序缓存目录和游戏目录加入允许范围，再刷新目录重试。"
+            f"补丁文件 {filename} 在写入后消失或无法访问，疑似被安全软件拦截。\n\n"
+            "启发式检测既可能是误报，也可能是真实威胁。请先在系统安全软件中核对"
+            "文件来源和 SHA-256；如确认属于误报，请仅在系统界面处理该次检测，然后"
+            "返回程序重新下载。不要关闭整机防护，也不要添加整目录排除项。"
         )
 
     def _patch_is_healthy(self) -> bool:
@@ -5247,8 +5668,120 @@ class DlcHubApplication:
             return False
         return audit.health is PatchHealth.HEALTHY
 
+    @staticmethod
+    def _valid_sha256(value: str | None) -> bool:
+        if value is None or len(value) != 64:
+            return False
+        try:
+            int(value, 16)
+        except ValueError:
+            return False
+        return True
+
+    def _patch_assets_missing_hash(self) -> tuple[object, ...]:
+        if self.patch_bundle is None:
+            return ()
+        assets = (
+            self.patch_bundle.unlocker_dll,
+            self.patch_bundle.original_backup_dll,
+            self.patch_bundle.appinfo_json,
+        )
+        return tuple(asset for asset in assets if not self._valid_sha256(asset.sha256))
+
+    def _record_patch_problem(
+        self,
+        *,
+        code: ProblemCode,
+        stage: str,
+        summary: str,
+        suggestion: str,
+        technical_details: str = "",
+        asset=None,
+        actual_sha256: str | None = None,
+        task_id: str | None = None,
+    ) -> ProblemReport:
+        actions = [
+            ProblemAction.COPY_DETAILS,
+            ProblemAction.OPEN_LOG_DIRECTORY,
+            ProblemAction.OPEN_CACHE_DIRECTORY,
+            ProblemAction.EXPORT_DIAGNOSTICS,
+            ProblemAction.MARK_RESOLVED,
+            ProblemAction.DELETE,
+        ]
+        if task_id:
+            actions.append(ProblemAction.RETRY_TASK)
+        if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
+            actions.extend((
+                ProblemAction.COPY_HASH_INFO,
+                ProblemAction.OPEN_MICROSOFT_FALSE_POSITIVE,
+            ))
+            if self.context.paths.platform == "windows":
+                actions.append(ProblemAction.OPEN_WINDOWS_SECURITY)
+        category = (
+            ProblemCategory.INTEGRITY
+            if code.value.startswith("PKG-")
+            else ProblemCategory.PATCH
+        )
+        return self._record_problem(ProblemReport.create(
+            code=code,
+            category=category,
+            severity=ProblemSeverity.ERROR,
+            stage=stage,
+            summary=summary,
+            suggestion=suggestion,
+            technical_details=technical_details,
+            app_version=self.context.app_version,
+            launcher_version=self.context.launcher_version,
+            platform=self.context.paths.platform,
+            task_id=task_id,
+            filename=getattr(asset, "name", None),
+            expected_sha256=getattr(asset, "sha256", None),
+            actual_sha256=actual_sha256,
+            allowed_actions=actions,
+        ))
+
+    @staticmethod
+    def _verify_patch_asset(path: Path, asset) -> str:
+        expected_hash = str(asset.sha256).lower()
+        digest = hashlib.sha256()
+        size = 0
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                size += len(chunk)
+                digest.update(chunk)
+        actual_hash = digest.hexdigest()
+        if asset.size_bytes is not None and size != asset.size_bytes:
+            raise _PatchAssetVerificationError(
+                ProblemCode.PKG_SIZE_MISMATCH,
+                f"size mismatch: expected {asset.size_bytes}, actual {size}",
+                actual_sha256=actual_hash,
+            )
+        if actual_hash != expected_hash:
+            raise _PatchAssetVerificationError(
+                ProblemCode.PKG_HASH_MISMATCH,
+                f"sha256 mismatch: expected {expected_hash}, actual {actual_hash}",
+                actual_sha256=actual_hash,
+            )
+        return actual_hash
+
     def _start_patch_downloads(self) -> None:
         if self.download_queue is None or self.patch_bundle is None:
+            return
+        missing_hash = self._patch_assets_missing_hash()
+        if missing_hash:
+            names = "、".join(asset.name for asset in missing_hash)
+            self._record_patch_problem(
+                code=ProblemCode.PATCH_MISSING_HASH,
+                stage="prepare",
+                summary="补丁目录缺少可信 SHA-256，已拒绝开始",
+                suggestion="请刷新静态目录或切换下载源后重试。",
+                technical_details=f"缺少或非法 SHA-256：{names}",
+                asset=missing_hash[0],
+            )
+            self._on_patch_workflow_failed(
+                "补丁资源缺少有效 SHA-256，已拒绝下载和应用。"
+                "请刷新目录或切换下载源后重试。"
+            )
             return
         self.patch_workflow_state = "downloading"
         self._set_batch_download_state("patch_downloading")
@@ -5331,9 +5864,99 @@ class DlcHubApplication:
         game_root = self.current_installation.root
         engine = self.patch_engine
         game_id = self.current_installation.game_id
+        bundle = self.patch_bundle
+        assets_by_role = {
+            "unlocker_dll": bundle.unlocker_dll,
+            "original_backup_dll": bundle.original_backup_dll,
+            "appinfo_json": bundle.appinfo_json,
+        }
+        task_by_role = {role: task_id for task_id, role in self.patch_task_roles.items()}
+
+        def fail_with_problem(
+            *, code: ProblemCode, stage: str, message: str, asset=None,
+            actual_sha256: str | None = None, task_id: str | None = None,
+        ) -> None:
+            self._record_patch_problem(
+                code=code,
+                stage=stage,
+                summary=(
+                    "补丁文件疑似被安全软件拦截"
+                    if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED
+                    else message
+                ),
+                suggestion=(
+                    "请在系统安全软件界面核对文件来源和 SHA-256；确认误报后仅处理该次检测，"
+                    "再返回程序重试。不要关闭整机防护，也不要添加整目录排除项。"
+                    if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED
+                    else "请刷新静态目录或切换下载源后重新下载。"
+                ),
+                technical_details=message,
+                asset=asset,
+                actual_sha256=actual_sha256,
+                task_id=task_id,
+            )
+            self._on_patch_workflow_failed(message)
 
         def worker() -> None:
             try:
+                for role, path in ready_paths.items():
+                    asset = assets_by_role[role]
+                    try:
+                        self._verify_patch_asset(path, asset)
+                    except _PatchAssetVerificationError as error:
+                        message = (
+                            f"补丁资源完整性校验失败（{asset.name}）：{error}"
+                        )
+                        self._post_ui(
+                            lambda error=error, message=message, asset=asset,
+                            task_id=task_by_role.get(role): fail_with_problem(
+                                code=error.code,
+                                stage="verify",
+                                message=message,
+                                asset=asset,
+                                actual_sha256=error.actual_sha256,
+                                task_id=task_id,
+                            )
+                        )
+                        return
+                    except OSError as error:
+                        self.context.logger.exception("Patch asset became unavailable")
+                        if self.download_queue is not None:
+                            try:
+                                self.download_queue.cancel_many(self.patch_task_ids)
+                            except Exception:
+                                self.context.logger.exception(
+                                    "Unable to stop patch downloads after file disappearance"
+                                )
+                        message = self._patch_security_software_message(asset.name)
+                        details = f"{message}\n{type(error).__name__}: {error}"
+                        task_id = task_by_role.get(role)
+
+                        def finish_security_failure(
+                            message=message,
+                            details=details,
+                            asset=asset,
+                            task_id=task_id,
+                        ) -> None:
+                            self._record_patch_problem(
+                                code=(
+                                    ProblemCode
+                                    .PATCH_SECURITY_INTERFERENCE_SUSPECTED
+                                ),
+                                stage="verify",
+                                summary="补丁文件疑似被安全软件拦截",
+                                suggestion=(
+                                    "请在系统安全软件界面核对文件来源和 SHA-256；"
+                                    "不要关闭整机防护，也不要添加整目录排除项。"
+                                ),
+                                technical_details=details,
+                                asset=asset,
+                                task_id=task_id,
+                            )
+                            self._on_patch_workflow_failed(message)
+
+                        self._post_ui(finish_security_failure)
+                        return
                 result = engine.apply(
                     game_root,
                     unlocker_dll_source=ready_paths["unlocker_dll"],
@@ -5344,22 +5967,34 @@ class DlcHubApplication:
                 self._post_ui(lambda result=result: self._on_patch_applied(result))
             except PatchError as error:
                 self.context.logger.exception("Patch apply failed")
-                message = str(error)
+                message = str(error) or "补丁应用失败"
                 self._post_ui(
-                    lambda message=message: self._on_patch_workflow_failed(message)
+                    lambda message=message: fail_with_problem(
+                        code=ProblemCode.PATCH_APPLY_FAILED,
+                        stage="apply",
+                        message=message,
+                    )
                 )
             except (FileNotFoundError, PermissionError) as error:
                 self.context.logger.exception("Patch asset became unavailable")
                 filename = getattr(error, "filename", None) or "补丁资源"
                 message = self._patch_security_software_message(Path(filename).name)
                 self._post_ui(
-                    lambda message=message: self._on_patch_workflow_failed(message)
+                    lambda message=message: fail_with_problem(
+                        code=ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED,
+                        stage="apply",
+                        message=message,
+                    )
                 )
             except Exception as error:
                 self.context.logger.exception("Patch apply crashed")
                 message = str(error) or "补丁应用失败"
                 self._post_ui(
-                    lambda message=message: self._on_patch_workflow_failed(message)
+                    lambda message=message: fail_with_problem(
+                        code=ProblemCode.PATCH_APPLY_FAILED,
+                        stage="apply",
+                        message=message,
+                    )
                 )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -5370,30 +6005,84 @@ class DlcHubApplication:
         if self.current_installation is None:
             self._on_patch_workflow_failed("补丁应用后游戏目录不可用")
             return
+        audit = None
+        audit_error: Exception | None = None
         try:
             audit = self.patch_engine.audit_recorded(
                 self.current_installation.root
             )
             incomplete = audit.health is not PatchHealth.HEALTHY
-        except (OSError, PatchError):
+        except (OSError, PatchError) as error:
             self.context.logger.exception("Post-apply patch audit failed")
+            audit_error = error
             incomplete = True
         if incomplete:
             # Best-effort restoration prevents a quarantined loader DLL from
-            # leaving the game in a half-patched state.  Failure is still
-            # reported even if restoration itself cannot complete.
+            # leaving the game in a half-patched state. Failure is included in
+            # the same structured event without obscuring the audit failure.
+            restore_error: Exception | None = None
             try:
                 self.patch_engine.restore_original(self.current_installation.root)
-            except Exception:
+            except Exception as error:
+                restore_error = error
                 self.context.logger.exception(
                     "Unable to restore original files after patch quarantine"
                 )
-            self._on_patch_workflow_failed(
-                self._patch_security_software_message(
-                    self.patch_profile.unlocker_dll_name
-                )
+            security_suspected = (
+                isinstance(audit_error, (FileNotFoundError, PermissionError))
+                or (audit_error is None and bool(getattr(audit, "missing", ())))
             )
+            code = (
+                ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED
+                if security_suspected
+                else ProblemCode.PATCH_AUDIT_FAILED
+            )
+            details = []
+            if audit_error is not None:
+                details.append(f"audit: {type(audit_error).__name__}: {audit_error}")
+            elif audit is not None:
+                details.append(
+                    f"missing={audit.missing!r}; modified={audit.modified!r}"
+                )
+            if restore_error is not None:
+                details.append(
+                    f"restore: {type(restore_error).__name__}: {restore_error}"
+                )
+            message = self._patch_security_software_message(
+                self.patch_profile.unlocker_dll_name
+            )
+            self._record_patch_problem(
+                code=code,
+                stage="audit",
+                summary=(
+                    "补丁应用后文件疑似被安全软件移除"
+                    if security_suspected
+                    else "补丁应用后审计未通过"
+                ),
+                suggestion=(
+                    "请核对安全软件保护历史记录和文件 SHA-256 后重新下载；"
+                    "不要关闭整机防护，也不要添加整目录排除项。"
+                    if security_suspected
+                    else "请导出诊断信息并重新执行补丁流程。"
+                ),
+                technical_details="\n".join(details),
+            )
+            self._on_patch_workflow_failed(message)
             return
+        try:
+            for task_id in tuple(self.patch_task_roles):
+                self.problem_store.resolve_matching(task_id=task_id)
+            for code in (
+                ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED,
+                ProblemCode.PATCH_APPLY_FAILED,
+                ProblemCode.PATCH_AUDIT_FAILED,
+            ):
+                self.problem_store.resolve_matching(code=code)
+        except Exception:
+            self.context.logger.exception(
+                "Unable to resolve patch problems after successful apply"
+            )
+        self._update_problem_badge()
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
         detail_parts = []
