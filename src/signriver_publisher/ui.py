@@ -1156,7 +1156,6 @@ class PublisherApplication(ctk.CTk):
             ("AppInfo 文件", "appinfo_name"),
             ("可执行文件", "executable_relative_path"),
             ("补丁 DLL", "patch_unlocker_name"),
-            ("原版备份 DLL", "patch_original_backup_name"),
             ("DLC 安装目录", "dlc_relative_dir"),
             ("补丁安装目录", "patch_relative_dir"),
             ("包校验方式", "package_inspector"),

@@ -925,18 +925,18 @@ def test_repair_prepares_every_resource_before_destructive_cleanup() -> None:
     assert "def _one_click_repair" in source
     assert 'self._set_batch_download_state("repairing")' in source
     assert "先准备并校验补丁与全部 DLC" in source
-    assert "确认资源完整且磁盘空间充足后，才移除旧 DLC" in source
+    assert "固化并校验当前安装的原生库保险库" in source
+    assert "不批量预卸载" in source
     assert "def _poll_repair_preparation" in source
     assert "service.engine.ensure_disk_space(plan, replaced_existing=False)" in source
-    assert "self.patch_engine.reset(game_root)" in source
+    assert "self.patch_engine.reset(game_root)" not in source
+    assert "engine.repair_patch" in source
     repair_method = source.split("def _one_click_repair", 1)[1].split(
         "def _continue_repair_after_patch", 1
     )[0]
     assert "delete_cached_packages=True" not in repair_method
     assert "self.auto_install_attempted.discard" in repair_method
-    assert repair_method.index("service.engine.ensure_disk_space") < repair_method.index(
-        "cartridge.remove_installed_dlc"
-    )
+    assert "cartridge.remove_installed_dlc" not in repair_method
     assert "def _continue_repair_after_patch" in source
     assert "def _maybe_finish_repair_workflow" in source
 

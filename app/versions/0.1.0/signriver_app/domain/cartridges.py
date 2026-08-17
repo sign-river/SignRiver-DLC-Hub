@@ -208,7 +208,7 @@ class CartridgePatchVariant:
 
     platform: str
     unlocker_dll_name: str
-    original_backup_dll_name: str
+    runtime_original_library_name: str
     appinfo_asset_name: str
     install_relative_dir: str = "."
     ini_target_name: str = "cream_api.ini"
@@ -231,7 +231,7 @@ class CartridgePatchVariant:
             )
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
             raise ValueError("unlocker name must be a plain filename")
-        if not self.original_backup_dll_name or "/" in self.original_backup_dll_name or "\\" in self.original_backup_dll_name:
+        if not self.runtime_original_library_name or "/" in self.runtime_original_library_name or "\\" in self.runtime_original_library_name:
             raise ValueError("original backup name must be a plain filename")
         if not self.appinfo_asset_name.endswith(".json"):
             raise ValueError("appinfo asset name must reference a .json file")
@@ -239,7 +239,7 @@ class CartridgePatchVariant:
     def patch_fields(self) -> dict[str, object]:
         fields: dict[str, object] = {
             "unlocker_dll_name": self.unlocker_dll_name,
-            "original_backup_dll_name": self.original_backup_dll_name,
+            "runtime_original_library_name": self.runtime_original_library_name,
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.install_relative_dir,
             "ini_target_name": self.ini_target_name,
@@ -270,7 +270,7 @@ class CartridgeDocument:
     dlc_relative_dir: str
     package_inspector: str
     unlocker_dll_name: str
-    original_backup_dll_name: str
+    runtime_original_library_name: str
     appinfo_asset_name: str
     patch_install_relative_dir: str
     ini_target_name: str = "cream_api.ini"
@@ -319,7 +319,7 @@ class CartridgeDocument:
             raise ValueError(f"{self.display_name} 不支持当前平台：{platform}")
         fields: dict[str, object] = {
             "unlocker_dll_name": self.unlocker_dll_name,
-            "original_backup_dll_name": self.original_backup_dll_name,
+            "runtime_original_library_name": self.runtime_original_library_name,
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.patch_install_relative_dir,
             "ini_target_name": self.ini_target_name,
@@ -386,9 +386,10 @@ class CartridgeDocument:
                         merged.get("unlocker_dll_name"),
                         field=f"patch.platforms[{platform}].unlocker_dll_name",
                     ),
-                    original_backup_dll_name=_require_nonempty(
-                        merged.get("original_backup_dll_name"),
-                        field=f"patch.platforms[{platform}].original_backup_dll_name",
+                    runtime_original_library_name=_require_nonempty(
+                        (merged.get("runtime_original_library_name")
+                         or merged.get("original_backup_dll_name")),
+                        field=f"patch.platforms[{platform}].runtime_original_library_name",
                     ),
                     appinfo_asset_name=_require_nonempty(
                         merged.get("appinfo_asset_name"),
@@ -446,9 +447,10 @@ class CartridgeDocument:
             unlocker_dll_name=_require_nonempty(
                 patch.get("unlocker_dll_name"), field="unlocker_dll_name"
             ),
-            original_backup_dll_name=_require_nonempty(
-                patch.get("original_backup_dll_name"),
-                field="original_backup_dll_name",
+            runtime_original_library_name=_require_nonempty(
+                (patch.get("runtime_original_library_name")
+                 or patch.get("original_backup_dll_name")),
+                field="runtime_original_library_name",
             ),
             appinfo_asset_name=_require_nonempty(
                 patch.get("appinfo_asset_name"), field="appinfo_asset_name"
@@ -496,7 +498,7 @@ class CartridgeDocument:
             "repositories": self.repositories,
             "patch": {
                 "unlocker_dll_name": self.unlocker_dll_name,
-                "original_backup_dll_name": self.original_backup_dll_name,
+                "runtime_original_library_name": self.runtime_original_library_name,
                 "appinfo_asset_name": self.appinfo_asset_name,
                 "install_relative_dir": self.patch_install_relative_dir,
                 "ini_target_name": self.ini_target_name,
@@ -508,7 +510,7 @@ class CartridgeDocument:
                 "platforms": {
                     variant.platform: {
                         "unlocker_dll_name": variant.unlocker_dll_name,
-                        "original_backup_dll_name": variant.original_backup_dll_name,
+                        "runtime_original_library_name": variant.runtime_original_library_name,
                         "appinfo_asset_name": variant.appinfo_asset_name,
                         "install_relative_dir": variant.install_relative_dir,
                         "ini_target_name": variant.ini_target_name,

@@ -26,6 +26,22 @@ from signriver_app.infrastructure.patching import (
 )
 
 
+def elf_x64(payload: bytes = b"") -> bytes:
+    data = bytearray(64)
+    data[:4] = b"\x7fELF"
+    data[4] = 2
+    data[5] = 1
+    data[18:20] = (0x3E).to_bytes(2, "little")
+    return bytes(data) + payload
+
+
+def macho_x64(payload: bytes = b"") -> bytes:
+    data = bytearray(32)
+    data[:4] = b"\xcf\xfa\xed\xfe"
+    data[4:8] = (0x01000007).to_bytes(4, "little")
+    return bytes(data) + payload
+
+
 APPINFO_PAYLOAD = {
     "app_id": "281990",
     "name": "Stellaris",
@@ -105,13 +121,13 @@ def _hoi4_document() -> CartridgeDocument:
             "package_inspector": "directory",
             "patch": {
                 "unlocker_dll_name": "steam_api64.dll",
-                "original_backup_dll_name": "steam_api64_o.dll",
+                "runtime_original_library_name": "steam_api64_o.dll",
                 "appinfo_asset_name": "hearts_of_iron_4_appinfo.json",
                 "ini_target_name": "cream_api.ini",
                 "platforms": {
                     "steamos": {
                         "unlocker_dll_name": "libsteam_api.so",
-                        "original_backup_dll_name": "libsteam_api_o.so",
+                        "runtime_original_library_name": "libsteam_api_o.so",
                         "ini_target_name": "SmokeAPI.config.json",
                         "config_format": "smokeapi_json",
                         "executable_relative_path": "hoi4",
@@ -119,7 +135,7 @@ def _hoi4_document() -> CartridgeDocument:
                     },
                     "macos": {
                         "unlocker_dll_name": "libsteam_api.dylib",
-                        "original_backup_dll_name": "libsteam_api_o.dylib",
+                        "runtime_original_library_name": "libsteam_api_o.dylib",
                         "ini_target_name": "icecream.ini",
                     },
                 },
@@ -136,7 +152,7 @@ def test_cartridge_document_parses_platform_variants() -> None:
     assert windows["ini_target_name"] == "cream_api.ini"
     steamos = document.patch_fields_for("steamos")
     assert steamos["unlocker_dll_name"] == "libsteam_api.so"
-    assert steamos["original_backup_dll_name"] == "libsteam_api_o.so"
+    assert steamos["runtime_original_library_name"] == "libsteam_api_o.so"
     assert steamos["ini_target_name"] == "SmokeAPI.config.json"
     assert steamos["config_format"] == "smokeapi_json"
     assert steamos["executable_relative_path"] == "hoi4"
@@ -162,7 +178,7 @@ def test_cartridge_document_rejects_unknown_platform() -> None:
                 "package_inspector": "directory",
                 "patch": {
                     "unlocker_dll_name": "a.dll",
-                    "original_backup_dll_name": "a_o.dll",
+                    "runtime_original_library_name": "a_o.dll",
                     "appinfo_asset_name": "x_appinfo.json",
                     "platforms": {"solaris": {}},
                 },
@@ -197,15 +213,14 @@ def test_host_patch_platform_returns_supported_value() -> None:
 # ---- engine integration for a SteamOS-style profile -----------------------
 
 
-UNLOCKER_SO = b"\x7fELF" + b"\x00" * 16 + b"smoke-api-unlocker"
-BACKUP_SO = b"\x7fELF" + b"\x00" * 16 + b"packaged-original-backup"
-VANILLA_SO = b"\x7fELF" + b"\x00" * 16 + b"vanilla-libsteam-api"
+UNLOCKER_SO = elf_x64(b"smoke-api-unlocker")
+VANILLA_SO = elf_x64(b"vanilla-libsteam-api")
 
 
 def _steamos_engine(tmp_path: Path) -> PatchEngine:
     profile = PatchProfile(
         unlocker_dll_name="libsteam_api.so",
-        original_backup_dll_name="libsteam_api_o.so",
+        runtime_original_library_name="libsteam_api_o.so",
         appinfo_asset_name="stellaris_appinfo.json",
         template=PatchTemplate(
             ini_target_name="SmokeAPI.config.json",
@@ -226,18 +241,15 @@ def test_engine_apply_steamos_promotes_elf_original_and_writes_json(
     game_root.mkdir()
     (game_root / "libsteam_api.so").write_bytes(VANILLA_SO)
     unlocker = tmp_path / "release" / "libsteam_api.so"
-    backup = tmp_path / "release" / "libsteam_api_o.so"
     appinfo = tmp_path / "release" / "stellaris_appinfo.json"
     unlocker.parent.mkdir(parents=True, exist_ok=True)
     unlocker.write_bytes(UNLOCKER_SO)
     unlocker.chmod(0o755)
-    backup.write_bytes(BACKUP_SO)
     appinfo.write_text(json.dumps(APPINFO_PAYLOAD), encoding="utf-8")
 
     result = engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
-        original_backup_dll_source=backup,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
@@ -248,7 +260,7 @@ def test_engine_apply_steamos_promotes_elf_original_and_writes_json(
     assert not config_bytes.startswith(b"\xef\xbb\xbf")
     config = json.loads(config_bytes.decode("utf-8"))
     assert config["default_app_status"] == "unlocked"
-    assert result.receipt.backup_origin == "promoted_game_original"
+    assert result.receipt.backup_origin == "game_primary_original"
     assert result.audit_after.health is PatchHealth.HEALTHY
     if os.name != "nt":
         assert (game_root / "libsteam_api.so").stat().st_mode & 0o777 == 0o755
@@ -260,16 +272,13 @@ def test_engine_remove_steamos_restores_original(tmp_path: Path) -> None:
     game_root.mkdir()
     (game_root / "libsteam_api.so").write_bytes(VANILLA_SO)
     unlocker = tmp_path / "release" / "libsteam_api.so"
-    backup = tmp_path / "release" / "libsteam_api_o.so"
     appinfo = tmp_path / "release" / "stellaris_appinfo.json"
     unlocker.parent.mkdir(parents=True, exist_ok=True)
     unlocker.write_bytes(UNLOCKER_SO)
-    backup.write_bytes(BACKUP_SO)
     appinfo.write_text(json.dumps(APPINFO_PAYLOAD), encoding="utf-8")
     engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
-        original_backup_dll_source=backup,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )

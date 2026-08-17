@@ -1,5 +1,11 @@
 """Crash-safe CreamAPI-style patch engine and helpers."""
 
+from .original_library import (
+    OriginalLibraryEntry,
+    OriginalLibraryError,
+    OriginalLibraryVault,
+)
+from .repair_journal import RepairJournal, RepairJournalState
 from .engine import (
     PatchApplyResult,
     PatchEngine,
@@ -12,6 +18,11 @@ from .engine import (
 )
 
 __all__ = [
+    "OriginalLibraryEntry",
+    "OriginalLibraryError",
+    "OriginalLibraryVault",
+    "RepairJournal",
+    "RepairJournalState",
     "PatchApplyResult",
     "PatchEngine",
     "PatchError",

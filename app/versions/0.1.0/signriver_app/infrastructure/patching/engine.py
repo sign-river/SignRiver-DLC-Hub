@@ -1,24 +1,18 @@
-"""Crash-safe, idempotent CreamAPI-style patch installer.
+"""Fail-closed, transactional patch lifecycle for one game installation.
 
-The engine performs three related operations for a single game root:
+Published bundles contain only the program-provided proxy library and AppInfo.
+The game-owned original library is captured from the current installation into
+``data/original-libraries/v1`` and is later resolved from that persistent vault
+(or from a credential-matching runtime ``_o`` copy).  Applying a patch deploys
+the verified runtime original and configuration before atomically replacing the
+primary library with the proxy.  Removing a patch restores and verifies the
+primary library first, then deletes only credential-matching managed files.
 
-* ``apply``    — install the patch DLL and render ``cream_api.ini`` from the
-  published Steam AppInfo JSON, keeping any pre-existing original DLL as
-  ``steam_api64_o.dll`` and refusing to overwrite that backup with a patched
-  DLL.  Repeated runs are idempotent when the on-disk sizes already match
-  the bundle we would install.
-* ``remove``   — undo an apply: delete the patch DLL and the ini file, then
-  rename ``steam_api64_o.dll`` back to ``steam_api64.dll`` so the game boots
-  against its untouched original.
-* ``reset``    — wipe all three patch files without restoring anything.
-  This is what "一键修复" uses right before it re-downloads the assets and
-  applies them again.
-
-All writes go through ``write-temp + os.replace`` so a crash halfway leaves
-either the pre-change file or the fully written new file in place.  Backups
-of files we are about to destroy are stored under a per-transaction folder
-inside the shared ``data`` root; successful operations delete their backup
-folder while errors trigger an in-memory rollback that restores it.
+All destructive operations are serialized by a per-installation cross-process
+lock.  File changes use same-filesystem temporary files and ``os.replace``;
+transaction backups support rollback, while a verified vault entry is retained
+across repairs and process restarts.  Ambiguous or missing original libraries
+are never guessed, replaced, or deleted.
 """
 
 from __future__ import annotations
@@ -32,6 +26,8 @@ import tempfile
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from functools import wraps
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -45,6 +41,11 @@ from ...domain.patches import (
     PatchTemplate,
 )
 from ...domain.paths import resolve_game_directory
+from .original_library import (
+    OriginalLibraryEntry,
+    OriginalLibraryError,
+    OriginalLibraryVault,
+)
 
 
 # Any AppInfo JSON above this size is almost certainly malformed or hostile;
@@ -64,6 +65,15 @@ _UTF8_BOM = b"\xef\xbb\xbf"
 
 class PatchError(RuntimeError):
     """Raised when a patch operation cannot complete safely."""
+
+
+def _with_installation_lock(method):
+    """Serialize destructive operations for one game installation."""
+    @wraps(method)
+    def locked(self, game_root, *args, **kwargs):
+        with self._installation_lock(Path(game_root)):
+            return method(self, game_root, *args, **kwargs)
+    return locked
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,8 +282,55 @@ class PatchEngine:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
         self._clock = clock
+        self.original_library_vault = OriginalLibraryVault(self.data_root, clock=clock)
 
     # ---- persistent installation evidence ---------------------------------
+
+    def _installation_identity(self, game_root: Path) -> str:
+        identity = "|".join(
+            (
+                os.path.normcase(str(Path(game_root).resolve())),
+                self.profile.install_relative_dir.casefold(),
+            )
+        )
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    @contextmanager
+    def _installation_lock(self, game_root: Path):
+        """Acquire a non-blocking cross-process lock for one installation."""
+        lock_root = self.data_root / "patch-locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_root / f"{self._installation_identity(game_root)}.lock"
+        stream = lock_path.open("a+b")
+        try:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"0")
+                stream.flush()
+            stream.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (OSError, BlockingIOError) as error:
+                raise PatchError(
+                    "该游戏目录正在被另一个补丁操作占用，请等待其完成后重试"
+                ) from error
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        finally:
+            stream.close()
 
     def _receipt_path(self, game_root: Path) -> Path:
         identity = "|".join(
@@ -306,24 +363,39 @@ class PatchEngine:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, json.JSONDecodeError):
             return None
-        if not isinstance(value, dict) or value.get("schema") != 1:
+        if not isinstance(value, dict) or value.get("schema") not in {1, 2}:
             return None
+        schema = int(value["schema"])
         expected_layout = {
             "install_relative_dir": self.profile.install_relative_dir,
             "unlocker_name": self.profile.unlocker_dll_name,
-            "backup_name": self.profile.original_backup_dll_name,
+            ("backup_name" if schema == 1 else "runtime_original_name"):
+                self.profile.runtime_original_library_name,
             "ini_name": self.profile.template.ini_target_name,
         }
         if any(value.get(key) != expected for key, expected in expected_layout.items()):
             return None
-        hashes = (
-            value.get("unlocker_sha256"),
-            value.get("backup_sha256"),
-            value.get("ini_sha256"),
+        runtime_hash = value.get(
+            "backup_sha256" if schema == 1 else "runtime_original_sha256"
         )
-        if any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{64}", item) for item in hashes):
+        hashes = (value.get("unlocker_sha256"), runtime_hash, value.get("ini_sha256"))
+        if any(
+            not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{64}", item)
+            for item in hashes
+        ):
             return None
-        return value
+        normalized = dict(value)
+        normalized["runtime_original_sha256"] = runtime_hash
+        normalized["runtime_original_name"] = self.profile.runtime_original_library_name
+        normalized["original_library_cache_key"] = str(
+            value.get("original_library_cache_key") or ""
+        )
+        normalized["original_library_source"] = str(
+            value.get("original_library_source")
+            or value.get("backup_origin")
+            or "legacy_receipt"
+        )
+        return normalized
 
     def _write_installation_record(
         self,
@@ -336,17 +408,18 @@ class PatchEngine:
         if path.is_file():
             self._backup_file(path, transaction_root, actions)
         document = {
-            "schema": 1,
+            "schema": 2,
             "game_id": receipt.game_id,
             "game_root": str(Path(game_root).resolve()),
             "install_relative_dir": self.profile.install_relative_dir,
             "unlocker_name": self.profile.unlocker_dll_name,
-            "backup_name": self.profile.original_backup_dll_name,
+            "runtime_original_name": self.profile.runtime_original_library_name,
             "ini_name": self.profile.template.ini_target_name,
             "unlocker_sha256": receipt.unlocker_sha256,
-            "backup_sha256": receipt.original_backup_sha256,
+            "runtime_original_sha256": receipt.runtime_original_sha256,
             "ini_sha256": receipt.ini_sha256,
-            "backup_origin": receipt.backup_origin,
+            "original_library_cache_key": receipt.original_library_cache_key,
+            "original_library_source": receipt.original_library_source,
             "applied_at": self._clock(),
         }
         payload = json.dumps(
@@ -361,8 +434,6 @@ class PatchEngine:
             if path.parent.is_dir() and not any(path.parent.iterdir()):
                 path.parent.rmdir()
         except OSError:
-            # A stale record is harmless: content verification will mark it
-            # modified instead of trusting it after files are removed.
             pass
 
     def audit_recorded(self, game_root: Path) -> PatchAudit:
@@ -374,7 +445,7 @@ class PatchEngine:
         patch_root = self._patch_root(game_root)
         expected = (
             (self.profile.unlocker_dll_name, str(record["unlocker_sha256"])),
-            (self.profile.original_backup_dll_name, str(record["backup_sha256"])),
+            (self.profile.runtime_original_library_name, str(record["runtime_original_sha256"])),
             (self.profile.template.ini_target_name, str(record["ini_sha256"])),
         )
         missing: list[str] = []
@@ -420,7 +491,7 @@ class PatchEngine:
         game_root = Path(game_root)
         patch_root = self._patch_root(game_root)
         unlocker_name = self.profile.unlocker_dll_name
-        backup_name = self.profile.original_backup_dll_name
+        backup_name = self.profile.runtime_original_library_name
         ini_name = self.profile.template.ini_target_name
         unlocker = patch_root / unlocker_name
         backup = patch_root / backup_name
@@ -481,204 +552,194 @@ class PatchEngine:
 
     # ---- apply --------------------------------------------------------------
 
+    def _resolve_original_library(
+        self,
+        *,
+        game_root: Path,
+        game_id: str,
+        unlocker_path: Path,
+        runtime_path: Path,
+        ini_path: Path,
+        new_unlocker_hash: str,
+        prior_record: dict[str, object] | None,
+    ) -> OriginalLibraryEntry:
+        if prior_record is not None:
+            original_hash = str(prior_record["runtime_original_sha256"])
+            cache_key = str(prior_record.get("original_library_cache_key") or "")
+            if cache_key:
+                try:
+                    return self.original_library_vault.resolve(
+                        installation_key=cache_key,
+                        sha256=original_hash,
+                        profile=self.profile,
+                    )
+                except OriginalLibraryError:
+                    pass
+            if runtime_path.is_file() and self._sha256_file(runtime_path) == original_hash:
+                return self.original_library_vault.capture(
+                    runtime_path,
+                    game_id=game_id,
+                    profile=self.profile,
+                    game_root=game_root,
+                    source="receipt_runtime_original",
+                )
+            raise PatchError(
+                "原生库保险库不可用，且运行时原生库与安装凭据不匹配；请通过游戏平台验证游戏文件"
+            )
+
+        if runtime_path.exists() or ini_path.exists():
+            complete_legacy = (
+                runtime_path.is_file()
+                and ini_path.is_file()
+                and unlocker_path.is_file()
+                and self._sha256_file(unlocker_path) == new_unlocker_hash
+                and self._sha256_file(runtime_path) != new_unlocker_hash
+            )
+            if not complete_legacy:
+                raise PatchError(
+                    "检测到无法确认来源的旧补丁布局；为避免损坏原生库，已阻止操作，请先通过游戏平台验证游戏文件"
+                )
+            return self.original_library_vault.capture(
+                runtime_path,
+                game_id=game_id,
+                profile=self.profile,
+                game_root=game_root,
+                source="legacy_runtime_original",
+            )
+
+        if not unlocker_path.is_file():
+            raise PatchError("游戏主库缺失；请先通过游戏平台验证游戏文件")
+        if self._sha256_file(unlocker_path) == new_unlocker_hash:
+            raise PatchError(
+                "游戏主库已是代理库，但没有可信原生库；请先通过游戏平台验证游戏文件"
+            )
+        return self.original_library_vault.capture(
+            unlocker_path,
+            game_id=game_id,
+            profile=self.profile,
+            game_root=game_root,
+            source="game_primary_original",
+        )
+
+    @_with_installation_lock
     def apply(
         self,
         game_root: Path,
         *,
         unlocker_dll_source: Path,
-        original_backup_dll_source: Path,
         appinfo_json_source: Path,
         game_id: str,
     ) -> PatchApplyResult:
-        """Install the patch DLL, keep a genuine original backup and render ini."""
+        """Apply or repair a patch using only a user-owned original library."""
         game_root = Path(game_root).resolve(strict=True)
         if not game_root.is_dir():
             raise PatchError("目标游戏目录不存在")
         unlocker_source = Path(unlocker_dll_source).resolve(strict=True)
-        backup_source = Path(original_backup_dll_source).resolve(strict=True)
         appinfo_source = Path(appinfo_json_source).resolve(strict=True)
-
-        self._reject_oversized_dll(unlocker_source, "补丁 DLL")
-        self._reject_oversized_dll(backup_source, "原版备份 DLL")
+        self._reject_oversized_dll(unlocker_source, "补丁库")
         unlocker_bytes = unlocker_source.read_bytes()
-        packaged_backup_bytes = backup_source.read_bytes()
-        unlocker_mode = (
-            unlocker_source.stat().st_mode & 0o777 if os.name != "nt" else None
-        )
-        backup_mode = (
-            backup_source.stat().st_mode & 0o777 if os.name != "nt" else None
-        )
-        appinfo_bytes = appinfo_source.read_bytes()
-        appinfo = parse_appinfo_document(appinfo_bytes)
+        if not _looks_like_binary(unlocker_bytes[:4096]):
+            raise PatchError("补丁库二进制格式无效")
+        unlocker_hash = self._sha256_bytes(unlocker_bytes)
+        unlocker_mode = unlocker_source.stat().st_mode & 0o777 if os.name != "nt" else None
+        appinfo = parse_appinfo_document(appinfo_source.read_bytes())
         config_body = render_patch_config(appinfo, self.profile.template)
-        if self.profile.template.config_format == PatchConfigFormat.CREAM_INI:
-            # CreamAPI tolerates a UTF-8 BOM and Windows editors expect one.
-            ini_payload = _UTF8_BOM + config_body.encode("utf-8")
-        else:
-            ini_payload = config_body.encode("utf-8")
+        ini_payload = (
+            _UTF8_BOM + config_body.encode("utf-8")
+            if self.profile.template.config_format == PatchConfigFormat.CREAM_INI
+            else config_body.encode("utf-8")
+        )
 
-        our_unlocker_size = len(unlocker_bytes)
-        our_backup_size = len(packaged_backup_bytes)
+        patch_root = self._patch_root(game_root)
+        unlocker_name = self.profile.unlocker_dll_name
+        runtime_name = self.profile.runtime_original_library_name
+        ini_name = self.profile.template.ini_target_name
+        unlocker_path = patch_root / unlocker_name
+        runtime_path = patch_root / runtime_name
+        ini_path = patch_root / ini_name
         prior_record = self._load_installation_record(game_root)
+
+        if prior_record is not None and unlocker_path.is_file():
+            current_hash = self._sha256_file(unlocker_path)
+            allowed = {
+                str(prior_record["unlocker_sha256"]),
+                str(prior_record["runtime_original_sha256"]),
+                unlocker_hash,
+            }
+            if current_hash not in allowed:
+                raise PatchError("游戏主库已被外部修改，拒绝自动覆盖")
+
+        try:
+            original = self._resolve_original_library(
+                game_root=game_root,
+                game_id=game_id,
+                unlocker_path=unlocker_path,
+                runtime_path=runtime_path,
+                ini_path=ini_path,
+                new_unlocker_hash=unlocker_hash,
+                prior_record=prior_record,
+            )
+        except OriginalLibraryError as error:
+            raise PatchError(str(error)) from error
 
         audit_before = self.audit(
             game_root,
-            expected_unlocker_size=our_unlocker_size,
-            expected_backup_size=our_backup_size,
+            expected_unlocker_size=len(unlocker_bytes),
+            expected_backup_size=original.size_bytes,
         )
-
-        unlocker_name = self.profile.unlocker_dll_name
-        backup_name = self.profile.original_backup_dll_name
-        ini_name = self.profile.template.ini_target_name
-        patch_root = self._patch_root(game_root)
-        unlocker_path = patch_root / unlocker_name
-        backup_path = patch_root / backup_name
-        ini_path = patch_root / ini_name
-
+        original_bytes = original.path.read_bytes()
+        original_mode = original.path.stat().st_mode & 0o777 if os.name != "nt" else None
         actions: list[_Action] = []
         transaction_root = self._make_transaction_root("apply")
-
+        replaced_paths: list[str] = []
+        runtime_changed = False
+        unlocker_changed = False
+        ini_written = False
         try:
-            backup_created = False
-            backup_replaced = False
-            unlocker_replaced = False
-            replaced_paths: list[str] = []
-            backup_origin = "unknown"
+            if not runtime_path.is_file() or self._sha256_file(runtime_path) != original.sha256:
+                if runtime_path.is_file():
+                    self._backup_file(runtime_path, transaction_root, actions)
+                    replaced_paths.append(self.profile.relative_file_path(runtime_name))
+                self._write_file_atomic(original_bytes, runtime_path, actions, mode=original_mode)
+                runtime_changed = True
+            if self._sha256_file(runtime_path) != original.sha256:
+                raise PatchError("运行时原生库写入后校验失败")
 
-            # ----- ensure the original backup exists and matches ours -------
-            if not backup_path.is_file():
-                # No backup yet.  If the on-disk unlocker looks like an untouched
-                # game DLL (different content from our patch), promote it to the
-                # backup before we drop our patched DLL in place.
-                if (
-                    unlocker_path.is_file()
-                    and unlocker_path.read_bytes() != unlocker_bytes
-                ):
-                    self._backup_file(unlocker_path, transaction_root, actions)
-                    self._move_atomic(unlocker_path, backup_path, actions)
-                    backup_created = True
-                    # Now the unlocker slot is empty, so we always write ours below.
-                    unlocker_replaced = True
-                    backup_origin = "promoted_game_original"
-                else:
-                    # Either there is no unlocker at all, or the existing one is
-                    # already our patch (its backup was previously removed by
-                    # some cleanup).  Drop our packaged backup DLL in place.
-                    self._write_file_atomic(
-                        packaged_backup_bytes, backup_path, actions, mode=backup_mode
-                    )
-                    backup_created = True
-                    backup_origin = "packaged_fallback"
-            else:
-                existing_backup_bytes = backup_path.read_bytes()
-                existing_backup_hash = self._sha256_bytes(existing_backup_bytes)
-                recorded_backup_hash = (
-                    str(prior_record.get("backup_sha256"))
-                    if prior_record is not None
-                    else ""
-                )
-                keep_recorded_backup = (
-                    bool(recorded_backup_hash)
-                    and existing_backup_hash == recorded_backup_hash
-                )
-                keep_complete_legacy_backup = (
-                    prior_record is None
-                    and unlocker_path.is_file()
-                    and unlocker_path.read_bytes() == unlocker_bytes
-                    and ini_path.is_file()
-                    and ini_path.read_bytes() == ini_payload
-                    and _looks_like_binary(existing_backup_bytes)
-                )
-                if existing_backup_bytes == packaged_backup_bytes:
-                    backup_origin = "packaged_fallback"
-                elif keep_recorded_backup:
-                    backup_origin = str(
-                        prior_record.get("backup_origin") or "recorded_original"
-                    )
-                elif keep_complete_legacy_backup:
-                    backup_origin = "legacy_preserved_original"
-                else:
-                    # The existing "backup" is not ours; back it up first, then
-                    # replace with our known-good copy so removal later can
-                    # restore a working original.
-                    self._backup_file(backup_path, transaction_root, actions)
-                    self._write_file_atomic(
-                        packaged_backup_bytes, backup_path, actions, mode=backup_mode
-                    )
-                    backup_replaced = True
-                    backup_origin = "packaged_fallback"
-                    replaced_paths.append(self.profile.relative_file_path(backup_name))
-
-            # ----- install the patch DLL ------------------------------------
-            if not unlocker_path.is_file():
-                self._write_file_atomic(
-                    unlocker_bytes, unlocker_path, actions, mode=unlocker_mode
-                )
-                unlocker_replaced = True
-            elif unlocker_path.read_bytes() != unlocker_bytes:
-                self._backup_file(unlocker_path, transaction_root, actions)
-                self._write_file_atomic(
-                    unlocker_bytes, unlocker_path, actions, mode=unlocker_mode
-                )
-                unlocker_replaced = True
-                replaced_paths.append(self.profile.relative_file_path(unlocker_name))
-            else:
-                # Content already matches; skip rewriting to keep the operation
-                # idempotent even on filesystems with poor write endurance.
-                pass
-
-            # ----- write cream_api.ini --------------------------------------
-            ini_written = False
-            if ini_path.is_file():
-                existing = ini_path.read_bytes()
-                if existing != ini_payload:
+            if not ini_path.is_file() or ini_path.read_bytes() != ini_payload:
+                if ini_path.is_file():
                     self._backup_file(ini_path, transaction_root, actions)
-                    self._write_file_atomic(ini_payload, ini_path, actions)
-                    ini_written = True
                     replaced_paths.append(self.profile.relative_file_path(ini_name))
-            else:
                 self._write_file_atomic(ini_payload, ini_path, actions)
                 ini_written = True
 
+            if not unlocker_path.is_file() or self._sha256_file(unlocker_path) != unlocker_hash:
+                if unlocker_path.is_file():
+                    self._backup_file(unlocker_path, transaction_root, actions)
+                    replaced_paths.append(self.profile.relative_file_path(unlocker_name))
+                self._write_file_atomic(unlocker_bytes, unlocker_path, actions, mode=unlocker_mode)
+                unlocker_changed = True
+
+            if not unlocker_path.is_file():
+                raise PatchError("代理库写入后缺失，可能已被安全软件隔离")
+            if self._sha256_file(unlocker_path) != unlocker_hash:
+                raise PatchError("代理库写入后校验失败")
+            if not ini_path.is_file() or self._sha256_file(ini_path) != self._sha256_bytes(ini_payload):
+                raise PatchError("补丁配置写入后校验失败")
+
             receipt = PatchReceipt(
                 game_id=game_id,
-                unlocker_dll_size=our_unlocker_size,
-                original_backup_dll_size=backup_path.stat().st_size,
+                unlocker_dll_size=len(unlocker_bytes),
+                runtime_original_library_size=original.size_bytes,
                 ini_bytes=len(ini_payload),
-                backup_created=backup_created or backup_replaced,
+                backup_created=runtime_changed,
                 replaced_files=tuple(replaced_paths),
-                unlocker_sha256=self._sha256_bytes(unlocker_bytes),
-                original_backup_sha256=self._sha256_file(backup_path),
+                unlocker_sha256=unlocker_hash,
+                runtime_original_sha256=original.sha256,
                 ini_sha256=self._sha256_bytes(ini_payload),
-                backup_origin=backup_origin,
+                original_library_cache_key=original.installation_key,
+                original_library_source=original.source,
             )
-
-            # Security software can remove or quarantine a DLL immediately
-            # after the atomic rename succeeds.  Treat the write as committed
-            # only after all required files can still be observed on disk.
-            # The backup DLL is intentionally checked for presence only: when
-            # a vanilla game DLL is promoted to the backup slot its size may
-            # legitimately differ from the packaged fallback DLL.
-            if not unlocker_path.is_file():
-                raise PatchError(
-                    f"补丁写入后 {unlocker_name} 消失；文件可能被安全软件隔离"
-                )
-            if unlocker_path.read_bytes() != unlocker_bytes:
-                raise PatchError(
-                    f"补丁写入后 {unlocker_name} 内容异常；文件可能被安全软件修改或拦截"
-                )
-            if not backup_path.is_file():
-                raise PatchError(
-                    f"补丁写入后 {backup_name} 消失；文件可能被安全软件隔离"
-                )
-            if not ini_path.is_file() or ini_path.read_bytes() != ini_payload:
-                raise PatchError(
-                    f"补丁写入后 {ini_name} 缺失或内容不完整；文件可能被安全软件拦截"
-                )
-
-            self._write_installation_record(
-                game_root, receipt, transaction_root, actions
-            )
+            self._write_installation_record(game_root, receipt, transaction_root, actions)
             audit_after = self.audit_recorded(game_root)
             if audit_after.health is not PatchHealth.HEALTHY:
                 raise PatchError("补丁安装凭据校验失败，已回滚本次操作")
@@ -693,127 +754,133 @@ class PatchEngine:
             receipt=receipt,
             audit_before=audit_before,
             audit_after=audit_after,
-            unlocker_replaced=unlocker_replaced,
-            backup_created=backup_created,
-            backup_replaced=backup_replaced,
+            unlocker_replaced=unlocker_changed,
+            backup_created=runtime_changed,
+            backup_replaced=runtime_changed and self.profile.relative_file_path(runtime_name) in replaced_paths,
             ini_written=ini_written,
         )
 
+    def repair_patch(self, game_root: Path, **sources) -> PatchApplyResult:
+        """Idempotently repair managed files without clearing the game directory."""
+        return self.apply(game_root, **sources)
+
     # ---- remove -------------------------------------------------------------
 
+    def _resolve_recorded_original(
+        self,
+        game_root: Path,
+        record: dict[str, object],
+    ) -> OriginalLibraryEntry:
+        original_hash = str(record["runtime_original_sha256"])
+        cache_key = str(record.get("original_library_cache_key") or "")
+        if cache_key:
+            try:
+                return self.original_library_vault.resolve(
+                    installation_key=cache_key,
+                    sha256=original_hash,
+                    profile=self.profile,
+                )
+            except OriginalLibraryError:
+                pass
+        runtime_path = self._patch_root(game_root) / self.profile.runtime_original_library_name
+        if runtime_path.is_file() and self._sha256_file(runtime_path) == original_hash:
+            game_id = str(record.get("game_id") or "unknown")
+            try:
+                return self.original_library_vault.capture(
+                    runtime_path,
+                    game_id=game_id,
+                    profile=self.profile,
+                    game_root=game_root,
+                    source="receipt_runtime_original",
+                )
+            except OriginalLibraryError as error:
+                raise PatchError(str(error)) from error
+        raise PatchError("可信原生库缺失；请先通过游戏平台验证游戏文件")
+
     def inspect_original_restore(self, game_root: Path) -> PatchRestoreReadiness:
-        """Preflight a safe return to the game's original loader DLL."""
+        """Preflight a fail-closed return to the original primary library."""
         game_root = Path(game_root).resolve(strict=True)
         patch_root = self._patch_root(game_root)
         unlocker = patch_root / self.profile.unlocker_dll_name
-        backup = patch_root / self.profile.original_backup_dll_name
+        runtime = patch_root / self.profile.runtime_original_library_name
         ini = patch_root / self.profile.template.ini_target_name
         record_path = self._receipt_path(game_root)
         record = self._load_installation_record(game_root)
-        if record_path.is_file() and record is None:
-            return PatchRestoreReadiness(
-                False,
-                True,
-                backup.is_file(),
-                "补丁安装凭据已损坏，无法证明原版备份可信；请先执行一键修复或通过游戏平台验证文件",
+        patch_detected = record_path.is_file() or runtime.is_file() or ini.is_file()
+        if record is None:
+            if not patch_detected and unlocker.is_file():
+                return PatchRestoreReadiness(True, False, False)
+            reason = (
+                "补丁安装凭据缺失或损坏，无法证明主库和原生库来源；请通过游戏平台验证游戏文件"
+                if patch_detected
+                else "游戏主库缺失；请通过游戏平台验证游戏文件"
             )
-        if backup.is_file():
-            try:
-                size = backup.stat().st_size
-            except OSError as error:
-                return PatchRestoreReadiness(
-                    False, True, True, f"无法读取原版 DLL 备份：{error}"
-                )
-            if size <= 0 or size > MAX_PATCH_DLL_BYTES:
-                return PatchRestoreReadiness(
-                    False, True, True, "原版 DLL 备份大小异常，拒绝自动恢复"
-                )
-            if record is not None:
-                try:
-                    backup_hash = self._sha256_file(backup)
-                except OSError as error:
-                    return PatchRestoreReadiness(
-                        False, True, True, f"无法校验原版 DLL 备份：{error}"
-                    )
-                if backup_hash != record["backup_sha256"]:
-                    return PatchRestoreReadiness(
-                        False,
-                        True,
-                        True,
-                        "原版 DLL 备份内容与安装凭据不一致，拒绝自动恢复；请执行一键修复或通过游戏平台验证文件",
-                    )
-            return PatchRestoreReadiness(True, True, True)
-        if record is not None:
-            return PatchRestoreReadiness(
-                False,
-                True,
-                False,
-                "补丁安装凭据存在，但原版 DLL 备份缺失；请先通过游戏平台验证游戏文件",
-            )
-        if ini.is_file():
-            return PatchRestoreReadiness(
-                False,
-                True,
-                False,
-                "检测到补丁配置，但原版 DLL 备份缺失；请先通过游戏平台验证游戏文件",
-            )
-        if unlocker.is_file():
-            return PatchRestoreReadiness(True, False, False)
-        return PatchRestoreReadiness(
-            False,
-            False,
-            False,
-            "原版 DLL 与备份均不存在；请先通过游戏平台验证游戏文件",
-        )
+            return PatchRestoreReadiness(False, patch_detected, runtime.is_file(), reason)
+        try:
+            original = self._resolve_recorded_original(game_root, record)
+        except (PatchError, OSError) as error:
+            return PatchRestoreReadiness(False, True, runtime.is_file(), str(error))
+        if not unlocker.is_file():
+            return PatchRestoreReadiness(False, True, True, "游戏主库缺失，拒绝猜测恢复状态")
+        try:
+            if self._sha256_file(unlocker) != record["unlocker_sha256"]:
+                return PatchRestoreReadiness(False, True, True, "游戏主库已被外部修改，拒绝自动恢复")
+        except OSError as error:
+            return PatchRestoreReadiness(False, True, True, f"无法校验游戏主库：{error}")
+        return PatchRestoreReadiness(True, True, original.path.is_file())
 
-    def restore_original(self, game_root: Path) -> tuple[str, ...]:
-        """Undo our patch only when an original loader can be proven present."""
+    @_with_installation_lock
+    def remove(self, game_root: Path) -> tuple[str, ...]:
+        """Restore the primary library first, then remove only verified managed files."""
+        game_root = Path(game_root).resolve(strict=True)
         readiness = self.inspect_original_restore(game_root)
+        if not readiness.patch_detected:
+            if readiness.ready:
+                return ()
+            raise PatchError(readiness.reason)
         if not readiness.ready:
             raise PatchError(readiness.reason)
-        if not readiness.patch_detected:
-            return ()
-        return self.remove(game_root)
-
-    def remove(self, game_root: Path) -> tuple[str, ...]:
-        """Delete patch files and restore the original DLL, if we have a backup.
-
-        Returns the list of files that were removed or restored so the UI can
-        report the exact operation to the user.
-        """
-        game_root = Path(game_root).resolve(strict=True)
-        unlocker_name = self.profile.unlocker_dll_name
-        backup_name = self.profile.original_backup_dll_name
-        ini_name = self.profile.template.ini_target_name
+        record = self._load_installation_record(game_root)
+        if record is None:
+            raise PatchError("补丁安装凭据不可用，拒绝自动恢复")
+        original = self._resolve_recorded_original(game_root, record)
         patch_root = self._patch_root(game_root)
+        unlocker_name = self.profile.unlocker_dll_name
+        runtime_name = self.profile.runtime_original_library_name
+        ini_name = self.profile.template.ini_target_name
         unlocker = patch_root / unlocker_name
-        backup = patch_root / backup_name
+        runtime = patch_root / runtime_name
         ini = patch_root / ini_name
+
+        if not unlocker.is_file() or self._sha256_file(unlocker) != str(record["unlocker_sha256"]):
+            raise PatchError("代理库缺失或已被外部修改，拒绝自动恢复")
+
+        removable_managed_files = tuple(
+            (path, name)
+            for path, name, expected in (
+                (ini, ini_name, str(record["ini_sha256"])),
+                (runtime, runtime_name, str(record["runtime_original_sha256"])),
+            )
+            if path.is_file() and self._sha256_file(path) == expected
+        )
 
         actions: list[_Action] = []
         transaction_root = self._make_transaction_root("remove")
         touched: list[str] = []
         try:
-            if ini.is_file():
-                self._backup_file(ini, transaction_root, actions)
-                ini.unlink()
-                actions.append(_DeletedFile(ini, actions[-1].backup_path))  # noqa: E501 - see below
-                touched.append(self.profile.relative_file_path(ini_name))
-            if backup.is_file():
-                # Restoring the backup as the primary DLL is the safest recovery
-                # path: even if our patch DLL has been altered by something else,
-                # the game will boot again against a legitimate original.
-                if unlocker.is_file():
-                    self._backup_file(unlocker, transaction_root, actions)
-                    unlocker.unlink()
-                    touched.append(self.profile.relative_file_path(unlocker_name))
-                self._backup_file(backup, transaction_root, actions)
-                self._move_atomic(backup, unlocker, actions)
-                touched.append(self.profile.relative_file_path(backup_name))
-            elif unlocker.is_file():
-                self._backup_file(unlocker, transaction_root, actions)
-                unlocker.unlink()
-                touched.append(self.profile.relative_file_path(unlocker_name))
+            original_bytes = original.path.read_bytes()
+            original_mode = original.path.stat().st_mode & 0o777 if os.name != "nt" else None
+            self._backup_file(unlocker, transaction_root, actions)
+            self._write_file_atomic(original_bytes, unlocker, actions, mode=original_mode)
+            if self._sha256_file(unlocker) != original.sha256:
+                raise PatchError("恢复主库后校验失败")
+            touched.append(self.profile.relative_file_path(unlocker_name))
+
+            for path, name in removable_managed_files:
+                self._backup_file(path, transaction_root, actions)
+                path.unlink()
+                actions.append(_DeletedFile(path, actions[-1].backup_path))
+                touched.append(self.profile.relative_file_path(name))
         except Exception:
             self._rollback(actions)
             self._cleanup_transaction(transaction_root)
@@ -821,44 +888,11 @@ class PatchEngine:
         else:
             self._cleanup_transaction(transaction_root)
         self._delete_installation_record(game_root)
-        # De-dup while preserving order for a nicer UI message.
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for name in touched:
-            if name not in seen:
-                seen.add(name)
-                ordered.append(name)
-        return tuple(ordered)
+        return tuple(dict.fromkeys(touched))
 
-    # ---- reset (used by "一键修复") ----------------------------------------
-
-    def reset(self, game_root: Path) -> tuple[str, ...]:
-        """Delete every patch file without restoring the game DLL.
-
-        The caller (``一键修复``) will immediately re-download and re-apply
-        the patch, so we want to start from a known-empty slate; keeping the
-        original around would only complicate the re-apply path.
-        """
-        game_root = Path(game_root).resolve(strict=True)
-        removed: list[str] = []
-        transaction_root = self._make_transaction_root("reset")
-        actions: list[_Action] = []
-        try:
-            patch_root = self._patch_root(game_root)
-            for name in self.profile.patch_file_names:
-                path = patch_root / name
-                if path.is_file():
-                    self._backup_file(path, transaction_root, actions)
-                    path.unlink()
-                    removed.append(self.profile.relative_file_path(name))
-        except Exception:
-            self._rollback(actions)
-            self._cleanup_transaction(transaction_root)
-            raise
-        else:
-            self._cleanup_transaction(transaction_root)
-        self._delete_installation_record(game_root)
-        return tuple(removed)
+    def restore_original(self, game_root: Path) -> tuple[str, ...]:
+        """Compatibility name for the fail-closed original restore transaction."""
+        return self.remove(game_root)
 
     # ---- internal helpers ---------------------------------------------------
 

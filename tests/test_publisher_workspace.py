@@ -33,7 +33,7 @@ def built_minimal_workspace(tmp_path: Path) -> tuple[PublisherWorkspace, GamePro
     profile = workspace.initialize()
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).write_bytes(b"new")
-    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"old")
     workspace.build(profile)
     return workspace, profile
 
@@ -90,7 +90,7 @@ def test_build_removes_large_full_zip_and_reuses_only_parts(tmp_path: Path, monk
     (dlc / "payload.bin").write_bytes(random.Random(7).randbytes(20000))
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).write_bytes(b"new")
-    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"old")
 
     workspace.build(profile)
     output = workspace.output_dir / profile.game_id
@@ -135,14 +135,13 @@ def test_server_cartridge_owns_release_and_patch_contract(tmp_path: Path) -> Non
     workspace.save_game(cartridge)
     patches = workspace.game_dir(cartridge.game_id) / "patches"
     (patches / cartridge.patch_unlocker_name).write_bytes(b"new")
-    (patches / cartridge.patch_original_backup_name).write_bytes(b"old")
+    (patches / cartridge.patch_runtime_original_name).write_bytes(b"old")
 
     workspace.build(cartridge)
 
     output_names = {path.name for path in workspace.publish_files(cartridge)}
     assert output_names == {
-        "catalog.json", "custom_api64.dll", "custom_api64_original.dll",
-        "other_game_appinfo.json",
+        "catalog.json", "custom_api64.dll", "other_game_appinfo.json",
     }
     restored = workspace.list_games()[0]
     assert restored.patch_asset_names == cartridge.patch_asset_names
@@ -169,7 +168,7 @@ def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_pa
     selected = workspace.initialize()
 
     assert selected == create_builtin_cartridges()[0]
-    assert selected.patch_asset_names == ("steam_api64.dll", "steam_api64_o.dll")
+    assert selected.patch_asset_names == ("steam_api64.dll",)
     builtins = {item.game_id: item for item in workspace.list_games()}
     assert builtins["civilization_6"].dlc_import_naming_mode == "auto_prefix"
     assert builtins["civilization_6"].dlc_import_layout_mode == "children_if_root"
@@ -223,8 +222,6 @@ def test_builds_each_dlc_and_patch_and_generates_appinfo(tmp_path: Path) -> None
         "dlc001_symbols_of_domination.zip",
         "stellaris_appinfo.json",
         "steam_api64.dll",
-        "steam_api64_o.dll",
-        "unlock_patch.txt",
     ]
     package = workspace.output_dir / "stellaris" / "dlc001_symbols_of_domination.zip"
     with zipfile.ZipFile(package) as archive:
@@ -330,7 +327,7 @@ def test_publish_rejects_missing_release_part(
     (dlc / "payload.bin").write_bytes(random.Random(9).randbytes(20000))
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).write_bytes(b"new")
-    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"old")
     workspace.build(profile)
     parts = tuple(
         sorted((workspace.output_dir / profile.game_id).glob("*.part*-of-*"))
@@ -373,7 +370,7 @@ def test_build_rejects_non_dlc_attachment_over_safe_limit(
     profile = workspace.initialize()
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).write_bytes(b"x" * 1024)
-    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"old")
 
     with pytest.raises(WorkspaceError, match="安全上限"):
         workspace.build(profile)
@@ -674,7 +671,7 @@ def test_grouped_leaf_import_merges_same_dlc_across_declared_branches(
 
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).write_bytes(b"new")
-    (patches / profile.patch_original_backup_name).write_bytes(b"old")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"old")
     workspace.build(profile)
     package = workspace.output_dir / profile.game_id / "dlc001_AlpineTunes.zip"
     with zipfile.ZipFile(package) as archive:

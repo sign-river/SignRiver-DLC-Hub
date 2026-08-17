@@ -788,9 +788,10 @@ class PublisherWorkspace:
         records.append(self._record("appinfo", appinfo.app_id, appinfo.name, appinfo_output, appinfo_output))
         expected.add(profile.appinfo_name)
 
-        for source in patches:
-            if source.name.lower() in {profile.appinfo_name.lower(), "cream_api.ini"}:
-                continue
+        # New releases contain only the program proxy library.  A legacy
+        # runtime-original file may still exist in publisher-workspace, but it
+        # is deliberately ignored and removed from regenerated output.
+        for source in (patch_by_name[profile.patch_unlocker_name.lower()],):
             if progress is not None:
                 progress("正在整理补丁", 0, total_dlcs, source.name, "")
             if source.is_symlink():

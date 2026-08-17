@@ -4,7 +4,7 @@
 
 ## 游戏机 / 卡带模型
 
-发布器相当于服务端“制卡机”，`publisher-workspace/games` 下的每个游戏目录都是一张独立卡带。卡带的 `game.json` 声明游戏 ID、Steam App ID、Release 标签、AppInfo 文件名以及该游戏使用的两个补丁 DLL 文件名；构建、增量发布和远程资源管理始终只操作当前卡带。
+发布器相当于服务端“制卡机”，`publisher-workspace/games` 下的每个游戏目录都是一张独立卡带。卡带的 `game.json` 声明游戏 ID、Steam App ID、Release 标签、AppInfo 文件名、代理库文件名以及运行时原生库文件名；运行时原生库字段只描述客户端目录布局，不是发布资产；构建、增量发布和远程资源管理始终只操作当前卡带。
 
 客户端游戏列表来自资源仓库的 `hub` Release：先下载很小的 `cartridges_index.json` 主表，再按用户选择按需下载 `cartridge_<game_id>.json`。启动公告来自同一 Release 的 `announcement.json`；发布器工作区根目录若存在该文件，生成卡带中心时会一并写入 `output/hub`。客户端设置可在 GitLink（默认）与 GitHub 间切换；两边使用相同的标签与文件名，GitHub 默认仓库为 `sign-river/signriver-dlc-assets`。
 
@@ -36,12 +36,10 @@ publisher-workspace/
 │     ├─ dlc/
 │     │  └─ dlc001_symbols_of_domination/
 │     └─ patches/
-│        ├─ steam_api64.dll
-│        └─ steam_api64_o.dll
+│        └─ steam_api64.dll
 └─ output/
    └─ stellaris/
       ├─ steam_api64.dll
-      ├─ steam_api64_o.dll
       └─ stellaris_appinfo.json
 ```
 
@@ -57,7 +55,7 @@ publisher-workspace/
 - 点击“生成全部发布文件”后，每个 DLC 文件夹会生成一个同名 ZIP。
 - DLC ZIP 采用增量构建：新增或源文件发生变化时才重新压缩，未变化的 ZIP 直接复用。旧版本已经生成且与源目录匹配的 ZIP 会在首次新版构建时自动纳入缓存。
 - GitLink 单附件限制为 300 MB；发布器会把超过 280 MiB 的 DLC ZIP 自动拆成 `原文件.zip.part001-of-XXX` 分卷，随后删除本地超限完整 ZIP，只保留可增量复用的分卷。Release 只上传分卷。客户端会检查卷号是否连续，按顺序下载并还原成原始 ZIP 后再校验和安装；缺少任意一卷时不会向用户展示该 DLC。
-- `patches` 下只需放入该游戏适用的 `steam_api64.dll` 和原版备份 `steam_api64_o.dll`。
+- `patches` 下只放该游戏、平台适用的代理库，例如 Windows 的 `steam_api64.dll`；不得放入游戏原生库或 `_o` 运行时副本。
 - 发布器根据游戏配置中的 Steam App ID 主动查询 Steam，构建并上传 `<game_id>_appinfo.json`；无需人工准备该文件。
 - AppInfo 文件名由游戏 ID 自动确定且不会跨游戏混用：`stellaris` 生成 `stellaris_appinfo.json`，例如 `europa_universalis_4` 会生成 `europa_universalis_4_appinfo.json`。
 - “刷新 Steam 数据”可以单独重新生成 AppInfo；“生成全部发布文件”也会自动刷新一次，避免发布旧 DLC 信息。
@@ -69,13 +67,14 @@ publisher-workspace/
 
 ## 补丁数据与客户端流程
 
-以 Stellaris 为例，服务端最终发布以下三个补丁资源：
+以 Stellaris Windows 卡带为例，服务端最终只发布两个补丁资源：
 
 ```text
-steam_api64.dll       # 新补丁 DLL
-steam_api64_o.dll     # 与当前游戏版本对应的原版 DLL / 恢复文件
+steam_api64.dll       # 程序提供的代理库
 stellaris_appinfo.json
 ```
+
+`steam_api64_o.dll` 仍是代理库运行时需要的同目录文件，但其内容必须由客户端从当前用户游戏安装或持久原生库保险库取得，绝不是发布资产。旧 Release 中已经存在的原生库附件继续保留以兼容旧客户端；新客户端读取旧 Release 时忽略该附件，新 Release 不再上传它。
 
 客户端根据 `stellaris_appinfo.json` 生成 `cream_api.ini`。字段映射为：
 
@@ -85,28 +84,23 @@ stellaris_appinfo.json
 - DLC 顺序保持与 AppInfo 一致
 - 默认模板为 `language=schinese`、`unlockall=True`、`extraprotection=False`、`forceoffline=False`
 
-客户端补丁安装做成可回滚事务：先审计游戏目录中现有 `steam_api64.dll` 与 `steam_api64_o.dll` 的大小并与发布器产物比对，判定 `HEALTHY / ORIGINAL / MODIFIED / UNKNOWN` 四种状态；随后按下列规则处理：
+客户端补丁安装采用 fail-closed 事务：先审计主库、运行时 `_o`、配置、安装凭据和 `data/original-libraries/v1` 保险库。首次应用只有在主库明确处于原版状态时才采集；有有效凭据时优先使用匹配保险库条目，其次允许把凭据哈希匹配的 `_o` 导入保险库。来源不明、凭据损坏或第三方修改嫌疑均安全阻断，不使用发布器资源强制覆盖。
 
-- `HEALTHY`（补丁 DLL 与原版备份都与我们的一致）跳过替换，仅在 INI 需要更新时以原子写覆盖 `cream_api.ini`。
-- `ORIGINAL`（当前只有原版 DLL，尺寸与 `steam_api64_o.dll` 一致）把它重命名为 `steam_api64_o.dll`，再原子写入我们的补丁 DLL。
-- `MODIFIED` / `UNKNOWN`（同名文件大小与我们的产物差距过大，或备份缺失）判定为损坏或第三方补丁，用发布器的 DLL 强制替换并在必要时补建原版备份。
-- 所有替换都通过 `write-temp + os.replace` 完成，失败时按操作顺序逆序回滚到事务开始前的状态。
-
-`cream_api.ini` 使用发布器上传的 `<game>_appinfo.json` 及各游戏独立的 INI 模板渲染，AppInfo 中的 `appid` 与 `dlcs` 与模板占位符组合后以 UTF-8 BOM 落盘；模板不再硬编码 Stellaris 的 App ID，可为每个游戏在客户端侧提供独立的 `PatchTemplate`。
+应用时先完整固化并回读验证原生库，再部署运行时 `_o`、配置，最后原子替换主库为代理库并写 schema 2 凭据。卸载时顺序相反：仅当主库仍匹配受管代理哈希时，先从保险库恢复并校验主库，再删除哈希匹配的 `_o` 和配置，最后移除凭据。详细状态和迁移规则见 [原生库生命周期、迁移与修复操作手册](original-library-lifecycle.md)。
 
 客户端主入口是简洁视图上的三枚按钮：
 
-- **一键解锁**：先做补丁审计，若不健康就把三件补丁下载到内容寻址缓存并顺序应用（下载补丁 → 应用补丁 → 依次下载安装勾选的 DLC）；补丁已健康则直接跳到 DLC 下载/安装阶段。按钮文本会随阶段变成“正在下载补丁… / 正在应用补丁…”，并阻塞其他破坏性操作。
-- **一键修复**：二次确认后先把补丁与全部 DLC 准备到内容寻址缓存，逐包校验并预检磁盘空间；只有全部资源就绪后才清理卡带确认的旧 DLC、重置补丁并立即从缓存重装，最后复检补丁与 DLC。准备失败不会先改动游戏文件。
-- **缓存复用**：卸载游戏不会删除客户端缓存，重新安装游戏后，同一 DLC 可直接从内容寻址缓存恢复并安装。补丁 DLL 和 AppInfo 使用 Release 附件 ID 作为缓存版本；服务端重新发布附件后客户端会下载新版本，不会把旧的同名补丁当作当前版本。
-- **一键移除补丁**：只做卸载：删除补丁 DLL 与 `cream_api.ini`，把 `steam_api64_o.dll` 恢复为 `steam_api64.dll`。任一步骤失败都回滚到操作前状态。
+- **一键解锁**：准备并校验代理库和 AppInfo，解析或采集当前安装的可信原生库，再事务应用补丁；补丁健康后依次下载安装勾选的 DLC。
+- **一键修复**：先准备并验证代理库、AppInfo、全部目标 DLC、磁盘空间和原生库保险库；随后调用幂等 `repair_patch()` 原地修复补丁，并逐项事务重装 DLC。流程不再调用 `reset()`，也不预先批量卸载 DLC。中断日志会保留，用户再次点击时从安全预检阶段幂等续作。
+- **缓存复用**：普通下载缓存可复用 DLC、代理库和 AppInfo；原生库保险库独立存在，不受常规缓存清理影响。
+- **一键移除补丁**：从保险库或凭据匹配的 `_o` 解析原生库，先恢复并校验主库，再清理受管 `_o`、配置和凭据；缺少可信原生库或主库被外部修改时阻断。
 
 ## 卡带中的安装位置
 
 每个游戏卡带独立声明客户端安装位置，路径均相对于该游戏的根目录：
 
 - `dlc_relative_dir`：DLC 目录，例如 Stellaris 为 `dlc`，其他游戏可以是 `content/addons`。
-- `patch_relative_dir`：补丁三件套所在目录，例如根目录用 `.`，也可以是 `bin/win64`。
+- `patch_relative_dir`：代理主库、运行时 `_o` 和配置所在目录，例如根目录用 `.`，也可以是 `bin/win64`。
 
 客户端的安装、已安装扫描、卸载和修复会统一读取这两个字段。服务端的“游戏卡带配置”页面也保存相同字段，便于新增游戏时完整记录发布协议。两者都拒绝绝对路径和包含 `..` 的越界路径。
 
@@ -123,7 +117,7 @@ stellaris_appinfo.json
 首次启动新版服务端管理器时，会为缺失的内置卡带自动创建本地工作区，不覆盖已有游戏配置。为新游戏准备资源时：
 
 1. 在游戏卡带对应的 `dlc` 工作区中放入 DLC 文件夹；服务端会将每个文件夹单独压缩。`manual_prefixed` 卡带要求使用 `dlcNNN_英文名称`，`auto_prefix` 卡带可直接通过“导入 DLC”选择原始目录并由服务端分配稳定编号。
-2. 在对应 `patches` 工作区放入该游戏自己的 `steam_api64.dll` 和 `steam_api64_o.dll`。
+2. 在对应 `patches` 工作区只放入该游戏、平台适用的代理库；不要复制、上传或维护游戏原生库。
 3. 点击构建，让服务端从 Steam 获取并生成该卡带对应的 `xxx_appinfo.json`。
 4. 在 GitLink 仓库创建与表格一致的 Release 标签，再执行发布。
 
@@ -233,6 +227,6 @@ publisher-workspace/
 4. 启动客户端验证预期行为；测完后点「恢复测试环境」。
 5. 「安全软件隔离」无法在程序内安全模拟，仍需人工操作。
 
-当前自动场景包括：干净首次安装、当前 DLL 缺失、原版备份 DLL 缺失、INI 缺失、当前 DLL 内容异常。安全软件隔离等无法可靠控制的场景仍保持人工操作。
+当前自动场景包括：干净首次安装、受管代理库缺失、凭据匹配的运行时 `_o` 缺失、配置缺失和受管文件内容异常。原生库来源不明、主库外部修改或安全软件隔离等无法可靠证明来源的场景保持人工操作并安全阻断。
 
 执行准备前会再次确认当前文件与基线一致；如果记录基线后文件已经变化，程序拒绝执行，避免覆盖新的用户内容。环境准备先写入“待恢复”标记再修改文件；任一步失败会自动回滚，只有完整恢复后才清除标记。发布管理器重新启动后仍会识别未恢复环境，关闭程序时也会显示警告。

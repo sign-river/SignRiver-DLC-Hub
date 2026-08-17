@@ -28,7 +28,7 @@
   },
   "patch": {
     "unlocker_dll_name": "steam_api64.dll",
-    "original_backup_dll_name": "steam_api64_o.dll",
+    "runtime_original_library_name": "steam_api64_o.dll",
     "appinfo_asset_name": "cities_skylines_appinfo.json",
     "install_relative_dir": ".",
     "ini_target_name": "cream_api.ini",
@@ -41,7 +41,7 @@
         "executable_relative_path": "Cities.x64",
         "dlc_relative_dir": "Files",
         "unlocker_dll_name": "libsteam_api.so",
-        "original_backup_dll_name": "libsteam_api_o.so",
+        "runtime_original_library_name": "libsteam_api_o.so",
         "ini_target_name": "SmokeAPI.config.json",
         "config_format": "smokeapi_json"
       },
@@ -50,7 +50,7 @@
         "dlc_relative_dir": "Files",
         "install_relative_dir": "Cities.app/Contents/Plugins",
         "unlocker_dll_name": "libsteam_api.dylib",
-        "original_backup_dll_name": "libsteam_api_o.dylib",
+        "runtime_original_library_name": "libsteam_api_o.dylib",
         "ini_target_name": "icecream.ini",
         "config_format": "cream_ini"
       }

@@ -1,6 +1,6 @@
 # 跨平台客户端与补丁约定
 
-0.2.0 首批支持 `windows-x64`、`steamos-x64` 和 `macos-x64`。Windows 行为与原数据目录保持不变；SteamOS 与 macOS 将可写状态放入用户目录，发行包只保存初始模块和配置。
+0.2.0 首批支持 `windows-x64`、`steamos-x64` 和 `macos-x64`。Windows 行为与原数据目录保持兼容；SteamOS 与 macOS 将可写状态放入用户目录，发行包只保存初始模块和配置。本阶段不扩展 Apple Silicon 原生支持。
 
 ## 运行目录
 
@@ -10,15 +10,29 @@
 
 macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首次启动只复制缺失内容，后续模块更新不会修改已签名 bundle。
 
-## 补丁资产
+三个平台的持久原生库保险库均位于 `context.paths.data/original-libraries/v1`，不属于普通下载缓存；一键修复、常规缓存清理、客户端升级和版本回滚不得清除它。
 
-- Windows：CreamAPI，`steam_api64.dll`，原版备份为 `steam_api64_o.dll`。
-- SteamOS：SmokeAPI 64 位 proxy 模式，`libsmoke_api64.so` 发布时命名为 `libsteam_api.so`，原版备份为 `libsteam_api_o.so`，配置为 v4 `SmokeAPI.config.json`。
-- macOS Intel：icecream 构建 `libsteam_api.dylib`，原版备份为 `libsteam_api_o.dylib`，配置为 `icecream.ini`。动态库和 `.app` 使用 ad-hoc 签名。
+## 补丁资产与运行时原生库
 
-平台二进制不得提交到源码仓库。资源发布记录必须包含上游版本或提交号、SHA-256 与许可证。SmokeAPI Linux 支持和 icecream 均按实验性功能处理；HOI4 是 0.2.0 唯一要求真实游戏验收的非 Windows 卡带。
+发布合同统一为两项：**程序提供的代理库 + AppInfo**。游戏原生库不是发布资产；新客户端遇到旧 Release 中遗留的原生库附件时忽略它。
 
-0.2.0 的固定上游基线：
+| 平台 | 发布的代理库 | 运行时原生库名 | 格式校验 |
+| --- | --- | --- | --- |
+| Windows x64 | CreamAPI `steam_api64.dll` | `steam_api64_o.dll` | PE x86_64 |
+| SteamOS x64 | SmokeAPI 64 位 proxy，发布名 `libsteam_api.so` | `libsteam_api_o.so` | ELF x86_64 |
+| macOS Intel x64 | icecream `libsteam_api.dylib` | `libsteam_api_o.dylib` | Mach-O x86_64 |
+
+代理库运行时仍要求同目录 `_o`，但内容只能来自：
+
+1. 与有效凭据匹配的当前用户原生库保险库；
+2. 与有效凭据匹配的游戏目录 `_o`，导入保险库后使用；
+3. 首次应用时明确处于原版状态的当前用户游戏主库，先采集保险库再使用。
+
+不得从发布资产、其他游戏、其他安装或其他用户复制原生库。完整生命周期见 [原生库生命周期、迁移与修复操作手册](original-library-lifecycle.md)。
+
+平台二进制不得提交到源码仓库。代理资源发布记录必须包含上游版本或提交号、SHA-256 与许可证。SmokeAPI Linux 支持和 icecream 均按实验性功能处理；HOI4 是 0.2.0 唯一要求真实游戏验收的非 Windows 卡带。
+
+0.2.0 的固定代理库上游基线：
 
 - SmokeAPI：`v4.1.3`，Unlicense；SteamOS x64 官方 `libsmoke_api64.so` 的 SHA-256 为 `dcb21dc733d38c51b5d673c581edd31f995bbdbaff5582540ece7981eb94b6d2`。
 - icecream：[`krnya/icecream`](https://github.com/krnya/icecream) 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d`，MIT；源码归档 SHA-256 为 `49aca4f18cb5a2aedc18d577936d9342a3ff1d937eb2e16b157793c4c85c4b80`；macOS 原生 x86_64 `libsteam_api.dylib` 大小为 `612,912` 字节，SHA-256 为 `68a32d893a00df57010396e439116f33193f44de0d0a817361b4bf1550936daa`。
@@ -30,10 +44,33 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 - `executable_relative_path`
 - `dlc_relative_dir`
 - `install_relative_dir`
-- 补丁文件名、备份文件名和配置文件名
-- `config_format`
+- `unlocker_dll_name`
+- `runtime_original_library_name`
+- 配置文件名和 `config_format`
+
+`runtime_original_library_name` 只定义代理库运行时需要的同目录文件名，不代表发布资源。解析器暂时接受 `original_backup_dll_name` 和 `patch_original_backup_name` 作为兼容别名，受跟踪卡带应统一写新字段。
 
 严禁在 Unix 平台缺少布局时回退到 Windows `.exe` 路径。卡带 JSON 修改后必须同步 `cartridges_index.json` 中的 SHA-256 和字节数。
+
+## 平台文件操作与签名
+
+### Windows x64
+
+- 文件被游戏、Steam 或启动器占用时立即阻断，提示退出相关进程。
+- 所有替换使用同卷临时文件和原子替换。
+- 路径检查拒绝符号链接和 reparse point；不能依据约 283 KB 的经验大小判断原生库。
+
+### SteamOS x64
+
+- 严格区分路径大小写，拒绝符号链接越界。
+- 部署运行时原生库时保留可用 Unix mode，不以放宽整个目录权限作为修复手段。
+- 真实验收覆盖只读、权限拒绝、文件所有权和进程中断。
+
+### macOS Intel x64
+
+- 不修改、不重签用户原生库，采集、部署和应用签名前后均核对其 SHA-256。
+- 只对程序提供的代理库及既有要求的应用层执行 ad-hoc 签名。
+- 原生库保险库存放在用户 Application Support 数据目录，不写入已签名 `.app` bundle。
 
 ## 构建
 
@@ -68,4 +105,4 @@ python tools/prepare_update_release.py `
   --platform-package macos-x64=dist\updates\SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip
 ```
 
-必须先把三个包上传到 GitLink 和 GitHub 并校验，再替换两端清单。
+必须先把三个包上传到 GitLink 和 GitHub 并校验，再替换两端清单。补丁 Release 与客户端全量更新包是两个合同：前者只含平台代理库和 AppInfo，后者仍按目标平台分别构建完整客户端。

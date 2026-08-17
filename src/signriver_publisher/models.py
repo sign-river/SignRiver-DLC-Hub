@@ -9,14 +9,14 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
         "steamos": {
             "executable_relative_path": "stellaris", "dlc_relative_dir": "dlc",
             "unlocker_dll_name": "libsteam_api.so",
-            "original_backup_dll_name": "libsteam_api_o.so",
+            "runtime_original_library_name": "libsteam_api_o.so",
             "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
         },
         "macos": {
             "executable_relative_path": "stellaris.app/Contents/MacOS/stellaris",
             "dlc_relative_dir": "dlc", "install_relative_dir": "stellaris.app/Contents/MacOS",
             "unlocker_dll_name": "libsteam_api.dylib",
-            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
@@ -24,14 +24,14 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
         "steamos": {
             "executable_relative_path": "Civ6", "dlc_relative_dir": "DLC",
             "install_relative_dir": ".", "unlocker_dll_name": "libsteam_api.so",
-            "original_backup_dll_name": "libsteam_api_o.so",
+            "runtime_original_library_name": "libsteam_api_o.so",
             "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
         },
         "macos": {
             "executable_relative_path": "Civilization VI.app/Contents/MacOS/Civilization VI",
             "dlc_relative_dir": "DLC", "install_relative_dir": "Civilization VI.app/Contents/MacOS",
             "unlocker_dll_name": "libsteam_api.dylib",
-            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
@@ -39,14 +39,14 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
         "steamos": {
             "executable_relative_path": "hoi4", "dlc_relative_dir": "dlc",
             "unlocker_dll_name": "libsteam_api.so",
-            "original_backup_dll_name": "libsteam_api_o.so",
+            "runtime_original_library_name": "libsteam_api_o.so",
             "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
         },
         "macos": {
             "executable_relative_path": "hoi4.app/Contents/MacOS/hoi4",
             "dlc_relative_dir": "dlc", "install_relative_dir": "hoi4.app/Contents/MacOS",
             "unlocker_dll_name": "libsteam_api.dylib",
-            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
@@ -54,14 +54,14 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
         "steamos": {
             "executable_relative_path": "Cities.x64", "dlc_relative_dir": "Files",
             "unlocker_dll_name": "libsteam_api.so",
-            "original_backup_dll_name": "libsteam_api_o.so",
+            "runtime_original_library_name": "libsteam_api_o.so",
             "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
         },
         "macos": {
             "executable_relative_path": "Cities.app/Contents/MacOS/Cities",
             "dlc_relative_dir": "Files", "install_relative_dir": "Cities.app/Contents/Plugins",
             "unlocker_dll_name": "libsteam_api.dylib",
-            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
@@ -70,14 +70,14 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "executable_relative_path": "RimWorldLinux", "dlc_relative_dir": "Data",
             "install_relative_dir": "RimWorldLinux_Data/Plugins/x86_64",
             "unlocker_dll_name": "libsteam_api.so",
-            "original_backup_dll_name": "libsteam_api_o.so",
+            "runtime_original_library_name": "libsteam_api_o.so",
             "ini_target_name": "SmokeAPI.config.json", "config_format": "smokeapi_json",
         },
         "macos": {
             "executable_relative_path": "RimWorldMac.app/Contents/MacOS/RimWorldMac",
             "dlc_relative_dir": "Data", "install_relative_dir": "RimWorldMac.app/Contents/Plugins",
             "unlocker_dll_name": "libsteam_api.dylib",
-            "original_backup_dll_name": "libsteam_api_o.dylib",
+            "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
@@ -94,7 +94,7 @@ class PublisherCartridge:
     appinfo_name: str
     steam_app_id: str = ""
     patch_unlocker_name: str = "steam_api64.dll"
-    patch_original_backup_name: str = "steam_api64_o.dll"
+    patch_runtime_original_name: str = "steam_api64_o.dll"
     dlc_relative_dir: str = "dlc"
     patch_relative_dir: str = "."
     dlc_archive_root_mode: str = "source"
@@ -132,8 +132,9 @@ class PublisherCartridge:
         return cls(game_id, display_name, game_id, f"{game_id}_appinfo.json", steam_app_id)
 
     @property
-    def patch_asset_names(self) -> tuple[str, str]:
-        return self.patch_unlocker_name, self.patch_original_backup_name
+    def patch_asset_names(self) -> tuple[str, ...]:
+        """Names shipped in a patch release (the user original is never published)."""
+        return (self.patch_unlocker_name,)
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -156,6 +157,10 @@ class PublisherCartridge:
                 for platform, spec in BUILTIN_PATCH_PLATFORMS.get(game_id, {}).items()
             }
         )
+        for spec in patch_platforms.values():
+            if "runtime_original_library_name" not in spec and spec.get("original_backup_dll_name"):
+                spec["runtime_original_library_name"] = spec.pop("original_backup_dll_name")
+
         auto_prefix_games = {
             "civilization_6", "cities_skylines", "rimworld",
             "workers_resources_soviet_republic", "civilization_7",
@@ -213,8 +218,10 @@ class PublisherCartridge:
             appinfo_name=str(value.get("appinfo_name") or f"{game_id}_appinfo.json"),
             steam_app_id=str(value.get("steam_app_id") or legacy_steam_ids.get(game_id, "")),
             patch_unlocker_name=str(value.get("patch_unlocker_name") or "steam_api64.dll"),
-            patch_original_backup_name=str(
-                value.get("patch_original_backup_name") or "steam_api64_o.dll"
+            patch_runtime_original_name=str(
+                value.get("patch_runtime_original_name")
+                or value.get("patch_original_backup_name")
+                or "steam_api64_o.dll"
             ),
             dlc_relative_dir=str(
                 value.get("dlc_relative_dir") or builtin_dlc_dirs.get(game_id, "dlc")

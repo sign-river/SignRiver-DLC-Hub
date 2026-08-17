@@ -198,7 +198,7 @@ def test_patch_test_environment_can_be_previewed_applied_and_restored(
     game = tmp_path / "game"
     game.mkdir()
     unlocker = game / profile.patch_unlocker_name
-    backup = game / profile.patch_original_backup_name
+    backup = game / profile.patch_runtime_original_name
     ini = game / "cream_api.ini"
     unlocker.write_bytes(b"current dll")
     backup.write_bytes(b"original dll")
@@ -275,7 +275,7 @@ def test_patch_baseline_restore_removes_files_that_did_not_exist_before_test(
         "patch.clean-install",
         "patch.clean-original",
     )
-    backup = game / profile.patch_original_backup_name
+    backup = game / profile.patch_runtime_original_name
     ini = game / "cream_api.ini"
     backup.write_bytes(b"created during test")
     ini.write_text("created during test", encoding="utf-8")
@@ -379,8 +379,8 @@ def test_patch_environment_tools_follow_each_cartridge_patch_directory(
     patch_dir = game / Path(profile.patch_relative_dir)
     patch_dir.mkdir(parents=True)
     nested_unlocker = patch_dir / profile.patch_unlocker_name
-    nested_backup = patch_dir / profile.patch_original_backup_name
-    root_decoy = game / profile.patch_original_backup_name
+    nested_backup = patch_dir / profile.patch_runtime_original_name
+    root_decoy = game / profile.patch_runtime_original_name
     nested_unlocker.write_bytes(b"nested current")
     nested_backup.write_bytes(b"nested backup")
     root_decoy.write_bytes(b"must not be touched")

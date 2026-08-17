@@ -13,7 +13,6 @@ class PatchAssetRole(StrEnum):
     """Semantic role of a patch asset published by the resource repository."""
 
     UNLOCKER_DLL = "unlocker_dll"
-    ORIGINAL_BACKUP_DLL = "original_backup_dll"
     APPINFO_JSON = "appinfo_json"
 
 
@@ -82,7 +81,7 @@ class PatchProfile:
     """
 
     unlocker_dll_name: str
-    original_backup_dll_name: str
+    runtime_original_library_name: str
     appinfo_asset_name: str
     template: PatchTemplate
     install_relative_dir: str = "."
@@ -92,13 +91,13 @@ class PatchProfile:
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
             raise ValueError("unlocker DLL name must be a plain filename")
         if (
-            not self.original_backup_dll_name
-            or "/" in self.original_backup_dll_name
-            or "\\" in self.original_backup_dll_name
+            not self.runtime_original_library_name
+            or "/" in self.runtime_original_library_name
+            or "\\" in self.runtime_original_library_name
         ):
-            raise ValueError("original backup DLL name must be a plain filename")
-        if self.unlocker_dll_name.casefold() == self.original_backup_dll_name.casefold():
-            raise ValueError("unlocker and original backup names must differ")
+            raise ValueError("runtime original library name must be a plain filename")
+        if self.unlocker_dll_name.casefold() == self.runtime_original_library_name.casefold():
+            raise ValueError("unlocker and runtime original library names must differ")
         if not self.appinfo_asset_name.endswith(".json"):
             raise ValueError("appinfo asset name must reference a .json file")
         if self.appinfo_asset_name.casefold() == self.template.ini_target_name.casefold():
@@ -117,7 +116,7 @@ class PatchProfile:
         """Plain filenames installed together in the configured patch directory."""
         return (
             self.unlocker_dll_name,
-            self.original_backup_dll_name,
+            self.runtime_original_library_name,
             self.template.ini_target_name,
         )
 
@@ -132,11 +131,10 @@ class PatchProfile:
 
 @dataclass(frozen=True, slots=True)
 class PatchBundle:
-    """Release-side view of the three patch assets shipped for a game."""
+    """Release-side view of the two assets shipped for a game patch."""
 
     profile: PatchProfile
     unlocker_dll: ReleaseAsset
-    original_backup_dll: ReleaseAsset
     appinfo_json: ReleaseAsset
     release_tag: str
 
@@ -162,14 +160,20 @@ class PatchReceipt:
 
     game_id: str
     unlocker_dll_size: int
-    original_backup_dll_size: int
+    runtime_original_library_size: int
     ini_bytes: int
     backup_created: bool
     replaced_files: tuple[str, ...] = ()
     unlocker_sha256: str = ""
-    original_backup_sha256: str = ""
+    runtime_original_sha256: str = ""
     ini_sha256: str = ""
-    backup_origin: str = "unknown"
+    original_library_cache_key: str = ""
+    original_library_source: str = "unknown"
+
+    @property
+    def backup_origin(self) -> str:
+        """Compatibility alias for callers that still display the old label."""
+        return self.original_library_source
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "replaced_files", tuple(self.replaced_files))

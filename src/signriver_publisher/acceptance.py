@@ -608,7 +608,11 @@ class AcceptanceManager:
             else []
         )
         patch_files: dict[str, object] = {}
-        for name in (*profile.patch_asset_names, "cream_api.ini"):
+        for name in (
+            profile.patch_unlocker_name,
+            profile.patch_runtime_original_name,
+            profile.ini_target_name,
+        ):
             path = patch_dir / name if patch_dir else None
             patch_files[name] = self._file_summary(path)
         log_path = self.find_client_log(paths.client_path)
@@ -703,7 +707,7 @@ class AcceptanceManager:
         )
         return {
             "unlocker": patch_dir / profile.patch_unlocker_name,
-            "backup": patch_dir / profile.patch_original_backup_name,
+            "backup": patch_dir / profile.patch_runtime_original_name,
             "ini": patch_dir / "cream_api.ini",
         }
 
@@ -922,7 +926,7 @@ _PREPARATION_VARIANTS = {
             "patch.clean-original",
             "patch.clean-install",
             "首次安装：仅保留当前 DLL",
-            "暂时移走原版备份 DLL 和 cream_api.ini，用于验证只有当前原版 DLL 的首次安装流程。",
+            "暂时移走运行时原生库副本和 cream_api.ini，用于验证只有当前原版主库的首次安装流程。",
             (("backup", "remove"), ("ini", "remove")),
         ),
     ),
@@ -937,8 +941,8 @@ _PREPARATION_VARIANTS = {
         PreparationVariant(
             "patch.backup-missing",
             "patch.damaged-state",
-            "原版备份 DLL 缺失",
-            "暂时移走原版备份 DLL，验证客户端不会伪造不可信备份。",
+            "运行时原生库缺失",
+            "暂时移走运行时原生库副本，验证客户端不会伪造不可信原生库。",
             (("backup", "remove"),),
         ),
         PreparationVariant(
@@ -977,9 +981,9 @@ _PATCH_FAILURE_SCENARIOS = (
     PatchFailureScenario(
         "patch.backup-missing",
         "patch.damaged-state",
-        "原版备份 DLL 缺失",
-        "移走 steam_api64_o.dll（或卡带配置的备份 DLL）。",
-        "审计会报备份缺失；客户端不得伪造不可信备份，应按流程重建。",
+        "运行时原生库缺失",
+        "移走 steam_api64_o.dll（或卡带配置的运行时原生库）。",
+        "审计会报可信原生库缺失；客户端不得伪造不可信原生库，应提示通过游戏平台验证文件后重新采集。",
     ),
     PatchFailureScenario(
         "patch.ini-missing",

@@ -31,7 +31,7 @@ def _stellaris_document() -> CartridgeDocument:
             "package_inspector": "stellaris_zip",
             "patch": {
                 "unlocker_dll_name": "steam_api64.dll",
-                "original_backup_dll_name": "steam_api64_o.dll",
+                "runtime_original_library_name": "steam_api64_o.dll",
                 "appinfo_asset_name": "stellaris_appinfo.json",
                 "install_relative_dir": ".",
                 "ini_target_name": "cream_api.ini",

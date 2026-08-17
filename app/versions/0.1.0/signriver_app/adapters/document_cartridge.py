@@ -51,7 +51,7 @@ def build_cartridge_from_document(
         platform=selected.value,
         patch_profile=PatchProfile(
             unlocker_dll_name=str(fields["unlocker_dll_name"]),
-            original_backup_dll_name=str(fields["original_backup_dll_name"]),
+            runtime_original_library_name=str(fields["runtime_original_library_name"]),
             appinfo_asset_name=str(fields["appinfo_asset_name"]),
             install_relative_dir=str(fields["install_relative_dir"]),
             template=PatchTemplate(

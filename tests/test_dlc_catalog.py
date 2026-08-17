@@ -98,7 +98,6 @@ def test_catalog_snapshot_returns_dlc_and_patch_bundle_together() -> None:
     assert snapshot.patch_bundle is not None
     bundle = snapshot.patch_bundle
     assert bundle.unlocker_dll.name == "steam_api64.dll"
-    assert bundle.original_backup_dll.name == "steam_api64_o.dll"
     assert bundle.appinfo_json.name == "stellaris_appinfo.json"
     assert snapshot.missing_patch_assets == ()
     assert snapshot.release_tag == "ste"
@@ -110,8 +109,8 @@ def test_catalog_snapshot_reports_missing_patch_assets() -> None:
     )
     snapshot = service.refresh_snapshot()
     assert snapshot.patch_bundle is None
-    # We only have the appinfo file in the small payload; both DLLs are missing.
-    assert set(snapshot.missing_patch_assets) == {"steam_api64.dll", "steam_api64_o.dll"}
+    # We only have the AppInfo file in the small payload; the proxy library is missing.
+    assert set(snapshot.missing_patch_assets) == {"steam_api64.dll"}
 
 
 def test_catalog_snapshot_without_profile_never_returns_patch_bundle() -> None:
@@ -173,7 +172,6 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     bundle = PatchBundle(
         profile=STELLARIS_PATCH_PROFILE,
         unlocker_dll=ReleaseAsset("101", "steam_api64.dll", "https://example.test/steam_api64.dll"),
-        original_backup_dll=ReleaseAsset("102", "steam_api64_o.dll", "https://example.test/steam_api64_o.dll"),
         appinfo_json=ReleaseAsset("103", "stellaris_appinfo.json", "https://example.test/stellaris_appinfo.json"),
         release_tag="stellaris",
     )
@@ -186,7 +184,7 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     assert cartridge.patch_profile.install_relative_dir == "."
     assert cartridge.adapter.descriptor.game_id == "stellaris"
     assert set(roles.values()) == {
-        "unlocker_dll", "original_backup_dll", "appinfo_json",
+        "unlocker_dll", "appinfo_json",
     }
     assert all(
         task_id.startswith("stellaris.steam-patch-")
@@ -197,10 +195,9 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     updated_bundle = PatchBundle(
         profile=bundle.profile,
         unlocker_dll=ReleaseAsset("201", bundle.unlocker_dll.name, bundle.unlocker_dll.download_url),
-        original_backup_dll=bundle.original_backup_dll,
         appinfo_json=bundle.appinfo_json,
         release_tag=bundle.release_tag,
     )
     updated_roles = cartridge.patch_task_roles(updated_bundle)
     assert set(roles) != set(updated_roles)
-    assert len(set(roles) & set(updated_roles)) == 2
+    assert len(set(roles) & set(updated_roles)) == 1

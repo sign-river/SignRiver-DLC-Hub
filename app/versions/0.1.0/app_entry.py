@@ -58,7 +58,11 @@ from .signriver_app.infrastructure.installs import (
     InstallConflictError,
 )
 from .signriver_app.infrastructure.log_reader import read_tail_lines
-from .signriver_app.infrastructure.patching import PatchEngine, PatchError
+from .signriver_app.infrastructure.patching import (
+    PatchEngine,
+    PatchError,
+    RepairJournal,
+)
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.persistence import (
     Database,
@@ -317,6 +321,7 @@ class DlcHubApplication:
         self.repair_game_selection_generation = -1
         self.repair_cartridge_id = ""
         self.repair_game_root: Path | None = None
+        self.repair_journal = RepairJournal(self.context.paths.data)
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids: tuple[str, ...] = ()
         self.unlock_failed_dlc_ids: set[str] = set()
@@ -4892,13 +4897,16 @@ class DlcHubApplication:
                 # file cannot be parsed here it will not become a valid ini.
                 from .signriver_app.infrastructure.patching import parse_appinfo_document
                 parse_appinfo_document(data)
-            elif role in {"unlocker_dll", "original_backup_dll"}:
-                # Windows PE DLLs must start with the MZ magic; anything else
-                # (usually an error page) would silently corrupt the game.
+            elif role == "unlocker_dll":
                 with path.open("rb") as stream:
-                    header = stream.read(2)
-                if header != b"MZ":
-                    raise ValueError(f"patch DLL {expected_filename} is not a valid PE file")
+                    header = stream.read(8)
+                binary_magic = (
+                    header.startswith(b"MZ")
+                    or header.startswith(b"\x7fELF")
+                    or header[:4] in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}
+                )
+                if not binary_magic:
+                    raise ValueError(f"patch library {expected_filename} has an invalid binary format")
             return None
 
         return verify
@@ -5560,13 +5568,12 @@ class DlcHubApplication:
     # ---- Patch workflow (一键解锁工具 / 一键修复 / 一键移除补丁) ------------
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
-        """Materialize the three patch download specs when the bundle is known."""
+        """Materialize the two release-side patch assets when available."""
         bundle = self.patch_bundle
         if bundle is None:
             return ()
         assets_by_role = {
             "unlocker_dll": bundle.unlocker_dll,
-            "original_backup_dll": bundle.original_backup_dll,
             "appinfo_json": bundle.appinfo_json,
         }
         return tuple(
@@ -5597,7 +5604,6 @@ class DlcHubApplication:
             return None
         return {
             "unlocker_dll": self.patch_bundle.unlocker_dll,
-            "original_backup_dll": self.patch_bundle.original_backup_dll,
             "appinfo_json": self.patch_bundle.appinfo_json,
         }[role]
 
@@ -5611,7 +5617,7 @@ class DlcHubApplication:
         }
 
     def _patch_ready_paths(self) -> dict[str, Path] | None:
-        """Return {role: cached_path} when all three patch assets are ready."""
+        """Return {role: cached_path} when both release-side patch assets are ready."""
         if self.patch_bundle is None:
             return None
         snapshots = self._patch_snapshots_by_task()
@@ -5683,7 +5689,6 @@ class DlcHubApplication:
             return ()
         assets = (
             self.patch_bundle.unlocker_dll,
-            self.patch_bundle.original_backup_dll,
             self.patch_bundle.appinfo_json,
         )
         return tuple(asset for asset in assets if not self._valid_sha256(asset.sha256))
@@ -5867,7 +5872,6 @@ class DlcHubApplication:
         bundle = self.patch_bundle
         assets_by_role = {
             "unlocker_dll": bundle.unlocker_dll,
-            "original_backup_dll": bundle.original_backup_dll,
             "appinfo_json": bundle.appinfo_json,
         }
         task_by_role = {role: task_id for task_id, role in self.patch_task_roles.items()}
@@ -5957,10 +5961,12 @@ class DlcHubApplication:
 
                         self._post_ui(finish_security_failure)
                         return
-                result = engine.apply(
+                patch_operation = (
+                    engine.repair_patch if self.repair_workflow_active else engine.apply
+                )
+                result = patch_operation(
                     game_root,
                     unlocker_dll_source=ready_paths["unlocker_dll"],
-                    original_backup_dll_source=ready_paths["original_backup_dll"],
                     appinfo_json_source=ready_paths["appinfo_json"],
                     game_id=game_id,
                 )
@@ -6342,6 +6348,30 @@ class DlcHubApplication:
             "补丁移除失败", message, parent=self.window,
         )
 
+    def _update_repair_journal(
+        self, phase: str, *, status: str = "active", message: str = ""
+    ) -> None:
+        if self.repair_game_root is None or not self.repair_cartridge_id:
+            return
+        completed: list[str] = []
+        try:
+            self._refresh_installed_dlc_paths()
+            completed = [
+                dlc_id for dlc_id in self.repair_requested_dlc_ids
+                if self._installed_dlc_path(dlc_id) is not None
+            ]
+            self.repair_journal.update(
+                self.repair_cartridge_id,
+                self.repair_game_root,
+                phase=phase,
+                requested_dlc_ids=self.repair_requested_dlc_ids,
+                completed_dlc_ids=completed,
+                status=status,
+                message=message,
+            )
+        except Exception:
+            self.context.logger.exception("Unable to persist repair journal")
+
     def _one_click_repair(self) -> None:
         if self.current_installation is None:
             messagebox.showwarning(
@@ -6363,15 +6393,23 @@ class DlcHubApplication:
             self._show_catalog_error(catalog_error)
             return
         patch_paths = "、".join(self.patch_profile.patch_file_paths)
+        prior_repair = self.repair_journal.load(
+            self.cartridge.cartridge_id, self.current_installation.root
+        )
+        resume_note = (
+            "\n检测到上次未完成的修复日志，本次将从安全预检阶段继续。\n"
+            if prior_repair is not None else ""
+        )
         if not messagebox.askyesno(
             "确认一键修复",
             "一键修复会执行以下操作：\n\n"
             "1. 先准备并校验补丁与全部 DLC，缓存缺失时才下载；\n"
-            "2. 确认资源完整且磁盘空间充足后，才移除旧 DLC；\n"
-            f"3. 重置现有补丁文件（{patch_paths}）；\n"
-            "4. 立即从已校验缓存应用补丁并重新安装全部 DLC；\n"
-            "5. 最后复检 DLC 与补丁状态。\n\n"
-            "准备阶段失败不会改动当前游戏文件。此过程可能下载大量数据，是否继续？",
+            "2. 固化并校验当前安装的原生库保险库，不预先删除任何文件；\n"
+            f"3. 原地事务修复补丁文件（{patch_paths}）；\n"
+            "4. 从已校验缓存逐项事务重装 DLC，不批量预卸载；\n"
+            "5. 最后复检 DLC、补丁和原生库状态。\n\n"
+            "准备阶段失败不会改动当前游戏文件。此过程可能下载大量数据，是否继续？"
+            + resume_note,
             parent=self.window,
         ):
             return
@@ -6388,6 +6426,7 @@ class DlcHubApplication:
         self.repair_game_selection_generation = self.game_selection_generation
         self.repair_cartridge_id = self.cartridge.cartridge_id
         self.repair_game_root = self.current_installation.root
+        self._update_repair_journal("preparing")
         self.game_selector.configure(state="disabled")
         self._start_repair_preparation()
 
@@ -6602,39 +6641,11 @@ class DlcHubApplication:
                 )
             )
             return
-        self.repair_phase = "cleaning"
-        errors: list[str] = []
-        try:
-            installed = cartridge.discover_installed_dlc(
-                game_root, entries
-            )
-            for dlc_id in installed:
-                try:
-                    cartridge.remove_installed_dlc(game_root, dlc_id)
-                    if self.install_repository is not None:
-                        receipt = self.install_repository.find_active(
-                            cartridge.adapter.descriptor.game_id, dlc_id
-                        )
-                        if receipt is not None:
-                            self.install_repository.mark_uninstalled(
-                                receipt.transaction_id, restore_previous=False
-                            )
-                except Exception as error:
-                    self.context.logger.exception(
-                        "Repair failed to remove installed DLC: %s", dlc_id
-                    )
-                    errors.append(f"DLC {dlc_id}: {error}")
-            try:
-                self.patch_engine.reset(game_root)
-            except Exception as error:
-                self.context.logger.exception("Repair failed to reset patch files")
-                errors.append(f"补丁清理：{error}")
-        except Exception as error:
-            self.context.logger.exception("Repair cleanup crashed")
-            errors.append(str(error) or "清理失败")
-        self._post_ui(
-            lambda errors=errors: self._start_repair_reinstall(errors)
-        )
+        # All resources are ready and the original library will be solidified
+        # by PatchEngine before any game file changes. Never pre-delete DLC or
+        # patch files: repair is an in-place, fail-closed transaction.
+        self._post_ui(lambda: self._update_repair_journal("preflight_complete"))
+        self._post_ui(lambda: self._start_repair_reinstall([]))
 
     def _start_repair_reinstall(self, cleanup_errors: list[str]) -> None:
         if not self._repair_context_is_current():
@@ -6664,6 +6675,7 @@ class DlcHubApplication:
             self._dlc_task_id(entry.dlc_id) for entry in self.catalog_entries
         )
         self.repair_phase = "patching"
+        self._update_repair_journal("patching")
         self._start_patch_downloads()
 
     def _continue_repair_after_patch(self) -> None:
@@ -6680,11 +6692,13 @@ class DlcHubApplication:
                 text="一键修复：补丁已就绪，没有需要下载或重新安装的 DLC"
             )
             self.repair_phase = "installing"
+            self._update_repair_journal("installing")
             self._maybe_finish_repair_workflow()
             return
         # Start the DLC batch; auto-install is already wired into the queue's
         # completion callback, so nothing more to do here.
         self.repair_phase = "installing"
+        self._update_repair_journal("installing")
         self._start_dlc_batch(selected_entries)
         self.catalog_preview.configure(
             text=f"一键修复：补丁已应用，正在复用缓存或下载并安装 {len(selected_entries)} 个 DLC"
@@ -6713,6 +6727,8 @@ class DlcHubApplication:
                 patch_healthy = audit.health is PatchHealth.HEALTHY
             except Exception:
                 self.context.logger.exception("Final repair patch audit failed")
+        repair_game_root = self.repair_game_root
+        repair_cartridge_id = self.repair_cartridge_id
         self.repair_workflow_active = False
         self.repair_phase = "idle"
         self.repair_prepare_task_ids = ()
@@ -6733,6 +6749,16 @@ class DlcHubApplication:
                 problems.append(f"清理阶段有 {len(cleanup_errors)} 项未完成")
             detail = "；".join(problems)
             self.catalog_preview.configure(text=f"一键修复未完整完成：{detail}")
+            if repair_game_root is not None and repair_cartridge_id:
+                try:
+                    self.repair_journal.update(
+                        repair_cartridge_id, repair_game_root, phase="verification_failed",
+                        requested_dlc_ids=requested,
+                        completed_dlc_ids=(dlc_id for dlc_id in requested if dlc_id not in missing),
+                        status="failed", message=detail,
+                    )
+                except Exception:
+                    self.context.logger.exception("Unable to persist failed repair journal")
             self._notify("一键修复未完整完成", error=True)
             messagebox.showwarning(
                 "一键修复未完整完成",
@@ -6741,11 +6767,19 @@ class DlcHubApplication:
             )
             return
         detail = f"补丁健康，{len(requested)} 个 DLC 均已安装并通过最终识别。"
+        if repair_game_root is not None and repair_cartridge_id:
+            try:
+                self.repair_journal.complete(repair_cartridge_id, repair_game_root)
+            except Exception:
+                self.context.logger.exception("Unable to clear completed repair journal")
         self.catalog_preview.configure(text=f"一键修复完成：{detail}")
         self._notify("一键修复完成")
         messagebox.showinfo("一键修复完成", detail, parent=self.window)
 
     def _on_repair_failed(self, message: str) -> None:
+        self._update_repair_journal(
+            self.repair_phase or "failed", status="failed", message=message
+        )
         if self.download_queue is not None and self.repair_prepare_task_ids:
             try:
                 self.download_queue.cancel_many(self.repair_prepare_task_ids)

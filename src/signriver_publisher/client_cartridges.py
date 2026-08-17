@@ -56,7 +56,7 @@ def build_client_cartridge_document(
         },
         "patch": {
             "unlocker_dll_name": profile.patch_unlocker_name,
-            "original_backup_dll_name": profile.patch_original_backup_name,
+            "runtime_original_library_name": profile.patch_runtime_original_name,
             "appinfo_asset_name": profile.appinfo_name,
             "install_relative_dir": profile.patch_relative_dir,
             "ini_target_name": profile.ini_target_name,

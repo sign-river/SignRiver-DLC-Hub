@@ -14,7 +14,7 @@ from ...domain.patches import PatchProfile, PatchTemplate
 
 STELLARIS_PATCH_PROFILE = PatchProfile(
     unlocker_dll_name="steam_api64.dll",
-    original_backup_dll_name="steam_api64_o.dll",
+    runtime_original_library_name="steam_api64_o.dll",
     appinfo_asset_name="stellaris_appinfo.json",
     install_relative_dir=".",
     template=PatchTemplate(
