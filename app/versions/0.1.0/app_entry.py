@@ -11,7 +11,7 @@ from queue import Empty, SimpleQueue
 from urllib.parse import urlparse
 
 import customtkinter as ctk
-from tkinter import BooleanVar, TclError, filedialog, messagebox
+from tkinter import BooleanVar, StringVar, TclError, filedialog, messagebox
 from signriver_common.platforms import open_directory
 from signriver_common.problems import (
     ProblemAction,
@@ -165,22 +165,63 @@ def _blue_switch(parent, **kwargs):
     )
 
 
-def _settings_header(parent, title: str):
-    """Full-width title row with a three-slot action grid on the right."""
+def _settings_header(parent, title: str, description: str):
+    """Compact section heading for grouped settings."""
     header = ctk.CTkFrame(parent, fg_color="transparent")
-    header.pack(fill="x", padx=24, pady=(18, 8))
-    header.grid_columnconfigure(0, weight=1)
-    for column in range(1, 4):
-        header.grid_columnconfigure(
-            column, weight=0, minsize=118, uniform="settings-action"
-        )
+    header.pack(fill="x", padx=22, pady=(18, 4))
     ctk.CTkLabel(
         header,
         text=title,
         text_color=UI["primary"],
-        font=ctk.CTkFont(size=18, weight="bold"),
-    ).grid(row=0, column=0, sticky="w")
+        font=ctk.CTkFont(size=17, weight="bold"),
+        anchor="w",
+    ).pack(fill="x")
+    ctk.CTkLabel(
+        header,
+        text=description,
+        text_color=UI["muted"],
+        font=ctk.CTkFont(size=12),
+        anchor="w",
+    ).pack(fill="x", pady=(3, 0))
     return header
+
+
+def _settings_group_body(parent):
+    body = ctk.CTkFrame(parent, fg_color="transparent")
+    body.pack(fill="x", padx=22, pady=(6, 8))
+    return body
+
+
+def _settings_row(parent, title: str, description: str, *, last: bool = False):
+    """A desktop-style setting row: explanation on the left, control on the right."""
+    row = ctk.CTkFrame(parent, fg_color="transparent")
+    row.pack(fill="x", pady=(0, 0))
+    row.grid_columnconfigure(0, weight=1)
+    row.grid_columnconfigure(1, minsize=238)
+    ctk.CTkLabel(
+        row,
+        text=title,
+        text_color=UI["text"],
+        font=ctk.CTkFont(size=14, weight="bold"),
+        anchor="w",
+    ).grid(row=0, column=0, sticky="w")
+    description_label = ctk.CTkLabel(
+        row,
+        text=description,
+        text_color=UI["text_secondary"],
+        font=ctk.CTkFont(size=12),
+        anchor="w",
+        justify="left",
+        wraplength=620,
+    )
+    description_label.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+    action = ctk.CTkFrame(row, fg_color="transparent")
+    action.grid(row=0, column=1, rowspan=2, sticky="e", padx=(18, 0))
+    if not last:
+        ctk.CTkFrame(row, height=1, fg_color=UI["border"]).grid(
+            row=4, column=0, columnspan=2, sticky="ew", pady=(16, 16)
+        )
+    return row, action, description_label
 
 
 def _combo_box(parent, *, values, width, command=None):
@@ -290,6 +331,10 @@ class DlcHubApplication:
         )
         self.current_announcement: Announcement | None = None
         self.announcement_dialog = None
+        # The searchable game picker is created only while the selector is open,
+        # so the home page keeps its compact game-detection layout.
+        self.game_picker = None
+        self.game_picker_query: StringVar | None = None
         self.cartridge_loading = False
         self.cartridges: dict[str, object] = {}
         self.supported_games: dict[str, dict[str, str]] = {}
@@ -782,17 +827,35 @@ class DlcHubApplication:
         selector_row = ctk.CTkFrame(game_card, fg_color="transparent")
         selector_row.pack(fill="x", padx=24, pady=(0, 2))
         ctk.CTkLabel(selector_row, text="当前游戏").pack(side="left")
-        self.game_selector = _combo_box(
-            selector_row, values=list(self.supported_games), width=220,
-            command=self._select_game,
+        self.game_selector = ctk.CTkButton(
+            selector_row,
+            text="",
+            command=self._toggle_game_picker,
+            width=220,
+            height=34,
+            anchor="w",
+            fg_color=UI["card"],
+            hover_color=UI["primary_surface"],
+            border_color=UI["input_border"],
+            border_width=1,
+            text_color=UI["text"],
+            corner_radius=8,
+            font=ctk.CTkFont(size=13),
         )
-        self.game_selector.set(self.selected_game_name)
+        self._set_game_selector_text(self.selected_game_name)
         self.game_selector.pack(side="left", padx=(10, 0))
         self.export_games_button = ctk.CTkButton(
             selector_row,
             text="导出支持列表",
             command=self._export_supported_games,
-            width=104,
+            width=92,
+            height=30,
+            fg_color="transparent",
+            hover_color=UI["primary_surface"],
+            border_color=UI["primary_border"],
+            border_width=1,
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=12),
         )
         self.export_games_button.pack(side="left", padx=(10, 0))
         self.platform_status = ctk.CTkLabel(
@@ -1051,200 +1114,228 @@ class DlcHubApplication:
             scrollbar_button_hover_color=UI["muted"],
         )
         self.settings_list = settings_list
+        self.settings_description_boxes = []
 
-        speed_test_card = _card(settings_list)
-        self.speed_test_card = speed_test_card
-        speed_header = _settings_header(speed_test_card, "网络测速")
-        self.speed_test_button = ctk.CTkButton(
-            speed_header, text="开始测速",
-            command=self._run_speed_test,
+        settings_hint = ctk.CTkLabel(
+            settings_list,
+            text="管理下载、程序与日常偏好；更改会自动保存。",
+            text_color=UI["text_secondary"],
+            font=ctk.CTkFont(size=13),
+            anchor="w",
         )
-        self.speed_test_button.grid(row=0, column=3, sticky="ew")
-        self.settings_description_boxes = [
-            _settings_description(
-                speed_test_card,
-                "从当前下载源下载一小段测试文件，看看当前网络是否适合下载；测速文件不会保留。",
-            )
-        ]
-        self.speed_test_status = ctk.CTkLabel(
-            speed_test_card, text="尚未测速", text_color=UI["muted"], anchor="w"
-        )
-        self.speed_test_status.pack(fill="x", padx=24, pady=(8, 18))
+        settings_hint.pack(fill="x", padx=4, pady=(2, 14))
 
-        resilience_card = _card(settings_list)
-        self.resilience_card = resilience_card
-        resilience_header = _settings_header(resilience_card, "超时控制")
-        self.download_never_timeout_var = BooleanVar(
-            value=self.user_settings.download_never_timeout
-        )
-        self.download_never_timeout_switch = _blue_switch(
-            resilience_header,
-            text="关闭超时检测",
-            variable=self.download_never_timeout_var,
-            command=self._toggle_download_never_timeout,
-        )
-        self.download_never_timeout_switch.grid(
-            row=0, column=2, columnspan=2, sticky="e"
-        )
-        self.settings_description_boxes.append(
-            _settings_description(
-                resilience_card,
-                (
-                    "默认开启超时检测。网络较慢或使用代理时，可以打开“关闭超时检测”，"
-                    "让下载继续等待；网络完全断开时仍可手动取消。"
-                ),
-                pady=(0, 18),
-            )
-        )
+        network_card = _card(settings_list)
+        self.source_card = network_card
+        self.speed_test_card = network_card
+        self.resilience_card = network_card
+        _settings_header(network_card, "下载与网络", "下载源、连接质量与等待策略")
+        network_body = _settings_group_body(network_card)
 
-        announcement_card = _card(settings_list)
-        self.announcement_card = announcement_card
-        announcement_header = _settings_header(announcement_card, "公告")
-        self.announcement_mute_var = BooleanVar(
-            value=self.user_settings.announcement_mute_until_update
+        source_row, source_action, source_description = _settings_row(
+            network_body,
+            "下载源",
+            "用于读取资源、公告和程序更新；切换后会刷新本地资源目录。",
         )
-        self.announcement_mute_switch = _blue_switch(
-            announcement_header,
-            text="下次公告更新前不再显示",
-            variable=self.announcement_mute_var,
-            command=self._toggle_announcement_mute,
-        )
-        self.announcement_mute_switch.grid(
-            row=0, column=2, columnspan=2, sticky="e"
-        )
-        self.settings_description_boxes.append(
-            _settings_description(
-                announcement_card,
-                (
-                    "启动时会显示最新公告。打开开关后，同一条公告不再重复弹出；"
-                    "有新公告时仍会显示。"
-                ),
-                pady=(0, 18),
-            )
-        )
-
-        source_card = _card(settings_list)
-        self.source_card = source_card
-        source_header = _settings_header(source_card, "下载源")
+        self.settings_description_boxes.append(source_description)
         self.download_source_menu = _combo_box(
-            source_header,
+            source_action,
             values=["GitLink", "GitHub"],
-            width=140,
+            width=148,
             command=self._on_download_source_selected,
         )
         self.download_source_menu.set(
             provider_display_name(self.user_settings.download_source)
         )
-        self.download_source_menu.grid(row=0, column=3, sticky="ew")
-        self.settings_description_boxes.append(
-            _settings_description(
-                source_card,
-                (
-                    "国内用户建议使用 GitLink；海外用户建议使用 GitHub。"
-                    "国内用户使用代理时，也可以选择 GitHub。切换后会重新加载资源。"
-                ),
-                pady=(0, 8),
-            )
-        )
+        self.download_source_menu.pack(anchor="e")
         self.resource_repository_link = ctk.CTkLabel(
-            source_card,
-            text="资源仓库（当前下载源）",
+            source_row,
+            text="打开当前下载源的资源仓库",
             text_color=UI["primary"],
             cursor="hand2",
-            font=ctk.CTkFont(size=13, underline=True),
+            font=ctk.CTkFont(size=12, underline=True),
+            anchor="w",
+        )
+        self.resource_repository_link.grid(
+            row=2, column=0, sticky="w", pady=(8, 0)
         )
         self.resource_repository_link.bind(
             "<Button-1>", lambda _event: self._open_resource_repository()
         )
-        self.resource_repository_link.pack(anchor="w", padx=24, pady=(0, 18))
 
-        cache_card = _card(settings_list)
-        self.cache_card = cache_card
-        cache_header = _settings_header(cache_card, "缓存管理")
-        ctk.CTkButton(
-            cache_header, text="打开缓存目录",
-            command=lambda: self._open_path(self.context.paths.cache),
-        ).grid(row=0, column=3, sticky="ew")
-        self.cache_cleanup_button = ctk.CTkButton(
-            cache_header, text="分析并清理", command=self._cleanup_cache,
+        speed_row, speed_action, speed_description = _settings_row(
+            network_body,
+            "网络测速",
+            "从当前下载源获取短测试文件，帮助判断当前网络是否适合下载；文件不会保留。",
         )
-        self.cache_cleanup_button.grid(
-            row=0, column=2, sticky="ew", padx=(0, 8)
+        self.settings_description_boxes.append(speed_description)
+        self.speed_test_button = ctk.CTkButton(
+            speed_action,
+            text="开始测速",
+            command=self._run_speed_test,
+            width=108,
         )
-        self.game_cache_cleanup_button = ctk.CTkButton(
-            cache_header, text="清理当前游戏缓存", command=self._cleanup_current_game_cache,
+        self.speed_test_button.pack(anchor="e")
+        self.speed_test_status = ctk.CTkLabel(
+            speed_row,
+            text="尚未测速",
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=12),
+            anchor="w",
         )
-        self.game_cache_cleanup_button.grid(
-            row=0, column=1, sticky="ew", padx=(0, 8)
+        self.speed_test_status.grid(
+            row=2, column=0, sticky="w", pady=(8, 0)
         )
-        self.settings_description_boxes.append(
-            _settings_description(
-                cache_card,
-                (
-                    "缓存会保存已下载的资源和未完成下载，方便继续下载。"
-                    "需要释放空间时，使用“分析并清理”即可，不必手动删除文件。"
-                ),
-            )
-        )
-        self.cache_status = ctk.CTkLabel(
-            cache_card, text="缓存用量将在后台统计", text_color=UI["muted"], anchor="w"
-        )
-        self.cache_status.pack(fill="x", padx=24, pady=(8, 18))
 
-        update_card = _card(settings_list)
-        self.update_card = update_card
-        update_header = _settings_header(update_card, "程序与更新")
-        self.update_button = ctk.CTkButton(
-            update_header, text="检查更新", command=self._check_update,
+        timeout_row, timeout_action, timeout_description = _settings_row(
+            network_body,
+            "超时检测",
+            "默认会在长时间无响应时提醒。网络较慢或使用代理时，可关闭超时检测以继续等待。",
+            last=True,
         )
-        self.update_button.grid(row=0, column=3, sticky="ew")
+        self.settings_description_boxes.append(timeout_description)
+        self.download_never_timeout_var = BooleanVar(
+            value=self.user_settings.download_never_timeout
+        )
+        self.download_never_timeout_switch = _blue_switch(
+            timeout_action,
+            text="",
+            width=54,
+            variable=self.download_never_timeout_var,
+            command=self._toggle_download_never_timeout,
+        )
+        self.download_never_timeout_switch.pack(anchor="e")
+
+        program_card = _card(settings_list)
+        self.update_card = program_card
+        self.cache_card = program_card
+        _settings_header(program_card, "程序与存储", "程序更新、下载缓存与本地空间")
+        program_body = _settings_group_body(program_card)
+
+        update_row, update_action, update_description = _settings_row(
+            program_body,
+            "程序更新",
+            "检查当前程序是否有可用更新；更新不会删除已下载的 DLC、游戏或本地缓存。",
+        )
+        self.settings_description_boxes.append(update_description)
+        update_action.grid_columnconfigure(0, weight=1)
+        update_action.grid_columnconfigure(1, weight=1)
         self.update_cancel_button = ctk.CTkButton(
-            update_header,
+            update_action,
             text="取消下载",
             command=self._cancel_update_download,
-            fg_color=UI["danger"],
-            hover_color=UI["danger_hover"],
+            width=96,
+            fg_color=UI["danger_surface"],
+            hover_color=UI["danger_surface_hover"],
+            text_color=UI["danger"],
+            border_width=1,
+            border_color="#F3BBB5",
             state="disabled",
         )
-        self.update_cancel_button.grid(row=0, column=2, sticky="ew", padx=(0, 8))
-        self.settings_description_boxes.append(
-            _settings_description(
-                update_card,
-                (
-                    "显示当前程序版本。点击“检查更新”可获取新版本；"
-                    "更新不会删除游戏、DLC 或下载缓存。"
-                ),
-            )
+        self.update_cancel_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.update_button = ctk.CTkButton(
+            update_action,
+            text="检查更新",
+            command=self._check_update,
+            width=108,
         )
-        self.progress = ctk.CTkProgressBar(update_card, mode="determinate")
+        self.update_button.grid(row=0, column=1, sticky="ew")
+        self.progress = ctk.CTkProgressBar(update_row, mode="determinate")
         self.progress.set(0)
-        self.progress.pack(fill="x", padx=24, pady=(12, 6))
+        self.progress.grid(row=2, column=0, sticky="ew", pady=(12, 6))
         self.status = ctk.CTkLabel(
-            update_card,
+            update_row,
             text=(
                 f"当前程序 v{self.context.app_version} · "
                 f"启动器 v{self.context.launcher_version} · 尚未检查更新"
             ),
             text_color=UI["muted"],
+            font=ctk.CTkFont(size=12),
             anchor="w",
         )
-        self.status.pack(fill="x", padx=24, pady=(0, 18))
+        self.status.grid(row=3, column=0, sticky="w")
 
-        # Settings remain one full-width card per row. Only each header's
-        # action area uses a normalized three-slot grid.
-        setting_cards = (
-            self.source_card,
-            self.speed_test_card,
-            self.update_card,
-            self.cache_card,
-            self.announcement_card,
-            self.resilience_card,
+        cache_row, cache_action, cache_description = _settings_row(
+            program_body,
+            "缓存管理",
+            "缓存会保留已下载的资源，便于下次使用；需要释放空间时再清理，无需手动删除文件。",
+            last=True,
         )
-        for index, card in enumerate(setting_cards):
+        self.settings_description_boxes.append(cache_description)
+        for column in range(3):
+            cache_action.grid_columnconfigure(column, weight=1)
+        self.game_cache_cleanup_button = ctk.CTkButton(
+            cache_action,
+            text="清理当前游戏",
+            command=self._cleanup_current_game_cache,
+            width=104,
+            fg_color=UI["primary_surface"],
+            hover_color=UI["primary_surface_hover"],
+            text_color=UI["primary"],
+            border_width=1,
+            border_color=UI["primary_border"],
+        )
+        self.game_cache_cleanup_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.cache_cleanup_button = ctk.CTkButton(
+            cache_action,
+            text="清理全部缓存",
+            command=self._cleanup_cache,
+            width=104,
+            fg_color=UI["danger_surface"],
+            hover_color=UI["danger_surface_hover"],
+            text_color=UI["danger"],
+            border_width=1,
+            border_color="#F3BBB5",
+        )
+        self.cache_cleanup_button.grid(row=0, column=1, sticky="ew", padx=3)
+        ctk.CTkButton(
+            cache_action,
+            text="打开目录",
+            command=lambda: self._open_path(self.context.paths.cache),
+            width=86,
+            fg_color=UI["primary_surface"],
+            hover_color=UI["primary_surface_hover"],
+            text_color=UI["primary"],
+            border_width=1,
+            border_color=UI["primary_border"],
+        ).grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.cache_status = ctk.CTkLabel(
+            cache_row,
+            text="缓存空间正在后台统计",
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+        )
+        self.cache_status.grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+        general_card = _card(settings_list)
+        self.announcement_card = general_card
+        _settings_header(general_card, "常规设置", "日常提示与后续普通偏好")
+        general_body = _settings_group_body(general_card)
+        announcement_row, announcement_action, announcement_description = _settings_row(
+            general_body,
+            "公告提醒",
+            "启动时会显示最新公告。关闭后，同一条公告不会重复弹出；有新公告时仍会显示。",
+            last=True,
+        )
+        self.settings_description_boxes.append(announcement_description)
+        self.announcement_mute_var = BooleanVar(
+            value=self.user_settings.announcement_mute_until_update
+        )
+        self.announcement_mute_switch = _blue_switch(
+            announcement_action,
+            text="",
+            width=54,
+            variable=self.announcement_mute_var,
+            command=self._toggle_announcement_mute,
+        )
+        self.announcement_mute_switch.pack(anchor="e")
+
+        for index, card in enumerate((network_card, program_card, general_card)):
             card.pack(
                 fill="x",
                 padx=(0, 8),
-                pady=(0, 14 if index < len(setting_cards) - 1 else 0),
+                pady=(0, 12 if index < 2 else 0),
             )
 
         self.task_card = _card(self.page_host)
@@ -1575,16 +1666,174 @@ class DlcHubApplication:
             )
         self._refresh_catalog_freshness_label()
 
+    def _set_game_selector_text(self, display_name: str) -> None:
+        self.game_selector.configure(text=f"{display_name}    ▾")
+
     def _sync_game_selector_values(self) -> None:
         values = list(self.supported_games)
         if not values:
             return
         current = self.selected_game_name
-        self.game_selector.configure(values=values)
-        if current in self.supported_games:
-            self.game_selector.set(current)
+        self._set_game_selector_text(
+            current if current in self.supported_games else values[0]
+        )
+        self._refresh_game_picker_results()
+
+    def _toggle_game_picker(self) -> None:
+        if str(self.game_selector.cget("state")) == "disabled":
+            return
+        if self.game_picker is None:
+            self._show_game_picker()
         else:
-            self.game_selector.set(values[0])
+            self._hide_game_picker()
+
+    def _show_game_picker(self) -> None:
+        if self.game_picker is not None:
+            self.game_picker.lift()
+            return
+        popup = ctk.CTkToplevel(self.window)
+        self.game_picker = popup
+        popup.withdraw()
+        popup.overrideredirect(True)
+        popup.transient(self.window)
+        popup.configure(fg_color=UI["page"])
+        popup.bind("<Escape>", lambda _event: self._hide_game_picker())
+        popup.bind("<FocusOut>", self._schedule_game_picker_focus_check, add="+")
+
+        shell = ctk.CTkFrame(
+            popup,
+            fg_color=UI["card"],
+            border_color=UI["border"],
+            border_width=1,
+            corner_radius=12,
+        )
+        shell.pack(fill="both", expand=True, padx=1, pady=1)
+        header = ctk.CTkFrame(shell, fg_color="transparent")
+        header.pack(fill="x", padx=14, pady=(12, 8))
+        ctk.CTkLabel(
+            header,
+            text="选择游戏",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkLabel(
+            header,
+            text="支持中文、英文和游戏标识搜索",
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=11),
+        ).pack(side="right")
+
+        self.game_picker_query = StringVar(value="")
+        self.game_picker_query.trace_add(
+            "write", lambda *_args: self._refresh_game_picker_results()
+        )
+        search = ctk.CTkEntry(
+            shell,
+            textvariable=self.game_picker_query,
+            placeholder_text="搜索游戏名称……",
+            height=34,
+            fg_color=UI["panel"],
+            border_color=UI["input_border"],
+            border_width=1,
+            text_color=UI["text"],
+            corner_radius=8,
+        )
+        search.pack(fill="x", padx=14, pady=(0, 10))
+        self.game_picker_results = ctk.CTkScrollableFrame(
+            shell,
+            fg_color="transparent",
+            scrollbar_button_color=UI["primary_border"],
+            scrollbar_button_hover_color=UI["primary"],
+            corner_radius=0,
+        )
+        self.game_picker_results.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self._refresh_game_picker_results()
+
+        self.window.update_idletasks()
+        popup_width, popup_height = 410, 400
+        screen_width = self.window.winfo_screenwidth()
+        screen_height = self.window.winfo_screenheight()
+        x = min(
+            self.game_selector.winfo_rootx(),
+            max(8, screen_width - popup_width - 8),
+        )
+        y = self.game_selector.winfo_rooty() + self.game_selector.winfo_height() + 4
+        if y + popup_height > screen_height - 8:
+            y = max(8, self.game_selector.winfo_rooty() - popup_height - 4)
+        popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
+        popup.deiconify()
+        popup.lift()
+        search.focus_set()
+
+    def _schedule_game_picker_focus_check(self, _event=None) -> None:
+        popup = self.game_picker
+        if popup is not None:
+            popup.after(80, lambda target=popup: self._hide_game_picker_if_unfocused(target))
+
+    def _hide_game_picker_if_unfocused(self, popup) -> None:
+        if popup is not self.game_picker:
+            return
+        focused = popup.focus_get()
+        if focused is None or focused.winfo_toplevel() is not popup:
+            self._hide_game_picker()
+
+    def _hide_game_picker(self) -> None:
+        popup = self.game_picker
+        self.game_picker = None
+        self.game_picker_query = None
+        if popup is not None and popup.winfo_exists():
+            popup.destroy()
+
+    def _refresh_game_picker_results(self, *_args) -> None:
+        popup = self.game_picker
+        results = getattr(self, "game_picker_results", None)
+        if popup is None or results is None or not popup.winfo_exists():
+            return
+        query = self.game_picker_query.get().strip().casefold() if self.game_picker_query else ""
+        for child in results.winfo_children():
+            child.destroy()
+        matches: list[tuple[str, dict[str, str]]] = []
+        for selection_name, game in self.supported_games.items():
+            searchable = " ".join(
+                (
+                    selection_name,
+                    game.get("display_name", ""),
+                    game.get("game_id", ""),
+                )
+            ).casefold()
+            if not query or query in searchable:
+                matches.append((selection_name, game))
+        if not matches:
+            ctk.CTkLabel(
+                results,
+                text="没有找到匹配的游戏\n可尝试中文名、英文名或游戏标识",
+                text_color=UI["muted"],
+                justify="center",
+                font=ctk.CTkFont(size=13),
+            ).pack(fill="x", padx=12, pady=36)
+            return
+        for selection_name, game in matches:
+            display_name = game.get("display_name") or selection_name
+            is_current = selection_name == self.selected_game_name
+            detail = "✓ 当前选择" if is_current else game.get("game_id", "")
+            ctk.CTkButton(
+                results,
+                text=f"{display_name}\n{detail}",
+                command=lambda value=selection_name: self._choose_game_from_picker(value),
+                anchor="w",
+                height=54,
+                fg_color=UI["primary_surface"] if is_current else UI["card"],
+                hover_color=UI["primary_surface_hover"],
+                border_color=UI["primary_border"] if is_current else UI["border"],
+                border_width=1,
+                text_color=UI["primary"] if is_current else UI["text"],
+                corner_radius=8,
+                font=ctk.CTkFont(size=13, weight="bold" if is_current else "normal"),
+            ).pack(fill="x", padx=6, pady=3)
+
+    def _choose_game_from_picker(self, display_name: str) -> None:
+        self._hide_game_picker()
+        self._select_game(display_name)
 
     def _refresh_remote_cartridge_index(self) -> None:
         if self.cartridge_loading:
@@ -1635,7 +1884,7 @@ class DlcHubApplication:
             display_name != self.selected_game_name
             and self._content_work_is_active()
         ):
-            self.game_selector.set(self.selected_game_name)
+            self._set_game_selector_text(self.selected_game_name)
             self._notify("请先取消或结束当前下载/安装任务，再切换游戏", error=True)
             return
         try:
@@ -1645,7 +1894,7 @@ class DlcHubApplication:
         cartridge = self.cartridges.get(display_name)
         if cartridge is None:
             if self.cartridge_loading:
-                self.game_selector.set(self.selected_game_name)
+                self._set_game_selector_text(self.selected_game_name)
                 self._notify("正在加载其他游戏卡带，请稍候", error=True)
                 return
             self._start_lazy_cartridge_load(display_name, game["game_id"])
@@ -1705,7 +1954,7 @@ class DlcHubApplication:
         self.cartridge_loading = False
         self.game_selector.configure(state="normal")
         self._set_game_buttons("normal")
-        self.game_selector.set(self.selected_game_name)
+        self._set_game_selector_text(self.selected_game_name)
         self.catalog_preview.configure(text="游戏卡带加载失败")
         messagebox.showerror(
             "无法加载游戏卡带",
@@ -1755,6 +2004,7 @@ class DlcHubApplication:
                 state="disabled", text="正在读取目录……"
             )
         self.selected_game_name = display_name
+        self._set_game_selector_text(display_name)
         self.platform_status.configure(
             text=f"{game['platform']} · App {game['store_app_id']}"
         )
@@ -2690,7 +2940,7 @@ class DlcHubApplication:
             return False
         self._activate_loaded_cartridge(loaded, rebuild_services=True)
         self._sync_game_selector_values()
-        self.game_selector.set(self.selected_game_name)
+        self._set_game_selector_text(self.selected_game_name)
         self.platform_status.configure(
             text=(
                 f"{self.cartridge.platform_name} · App "
@@ -6851,6 +7101,7 @@ class DlcHubApplication:
                 parent=self.window,
             )
             return
+        self._hide_game_picker()
         self.ui_event_pump_running = False
         if self.download_queue is not None:
             self.download_queue.shutdown(wait=False)
