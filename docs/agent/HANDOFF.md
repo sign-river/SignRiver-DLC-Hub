@@ -2,9 +2,9 @@
 
 > 最后更新：2026-08-17（Asia/Shanghai）
 > 分支：`main`
-> HEAD：`0af58d799a67db947499d3289f9da82abdefddf3`（`0af58d7 docs: 添加上下文切换与交接技能`）
-> 上游状态：未在本次交接中重新查询；不得据旧记录推断可推送状态
-> 工作区：`docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md` 已修改；另有 4 个未跟踪项目技能目录（运行客户端、运行发布器、本地提交、提交并推送）。本次仅更新本交接文档，未重置、清理、提交或推送。
+> HEAD：`a57c43ca5690ac4e4e304754a975ab34b029cb41`（`a57c43c feat: 重构原生库生命周期并完善项目技能`）
+> 上游状态：`main` 相对 `origin/main` 领先 3、落后 0；仍不得在发布资产上传并核验前推送
+> 工作区：本轮新增 `docs/publisher-refactor-plan.md`，并修改 `docs/agent/DECISIONS.md`、`docs/agent/HANDOFF.md`；未修改业务代码，未重置、清理、提交或推送。
 
 ## 当前有效结论
 
@@ -132,3 +132,535 @@
 - 未运行完整 pytest，未构建客户端、发布器、模块归档或更新包，未修改版本号，未提交，未推送。
 - 尚未在合法的 Windows x64、SteamOS x64、macOS Intel x64 游戏安装中执行真实启停、应用、修复和恢复验收；发布前必须按 `docs/original-library-lifecycle.md` 的平台清单完成。
 - 真实平台验收必须重点确认：任何失败路径不删除唯一可信原生库；Windows 文件占用时阻断；SteamOS 权限位和符号链接处理正确；macOS 不修改或重签用户原生库。
+## 2026-08-17 切换对话前最终状态
+
+- 当前分支：`main`。
+- 当前 HEAD：`a57c43c`（`feat: 重构原生库生命周期并完善项目技能`）。
+- 原生库生命周期重构、相关测试/文档以及 4 个项目 Skill 已纳入该本地提交；本节覆盖上文“尚未提交 Skill”和“本轮未提交”的旧进度描述。
+- `main` 相对 `origin/main` 领先 3 个提交，尚未推送。除本次交接对 `docs/agent/HANDOFF.md` 的更新外，提交后工作区原本为空。
+
+### 已验证
+
+- 补丁引擎、三平台路径与格式、修复日志测试：48 passed。
+- 客户端目录、卡带、问题中心、原版恢复和主题相关定向测试：全部通过。
+- 发布器工作区、验收和 UI 线程相关定向测试：全部通过。
+- Python 编译检查和 `git diff --check`：通过；仅有换行符转换警告。
+
+### 下一窗口直接执行
+
+1. 先运行 `project-context-switch`，核对 `main@a57c43c`、工作区和本交接内容。
+2. 若继续发布准备，先完成合法 Windows x64、SteamOS x64、macOS Intel x64 安装上的真实应用、修复、恢复验收；当前不能宣称真实三平台游戏验收完成。
+3. 尚未运行完整 pytest，尚未构建客户端、发布器、模块归档或更新包，也未修改版本号。
+4. 在发布资产上传并核验前不得推送；只有用户明确要求“推送”或“提交并推送”后才可执行 `git push origin main`。
+
+## 2026-08-17：发布器重构规划交接
+
+### 本轮结论与文档
+
+- 本轮只完成发布器现状调研、目标架构确认和实施计划落文档，没有修改任何业务代码、测试代码、版本号、构建产物或远端资源。
+- 完整计划已写入 `docs/publisher-refactor-plan.md`，内容覆盖四区任务导航、三类独立流水线、持久化发布批次、分级硬门禁、双源安全顺序、重启恢复、模块边界、分阶段迁移和验收矩阵。
+- 长期方案已同步到 `docs/agent/DECISIONS.md`：三端原生构建、Windows 汇总发布、数据包先就绪再切换清单、任务式导航、高风险功能隔离和分阶段替换。
+- 当前发布器“臃肿”的核心判断是界面信息架构和控制层职责过度集中，而不是现有业务能力应被大幅删除。
+
+### 已确认的实施边界
+
+- 一键发布采用受控流水线：自动预检、校验、双源上传和清单切换，真正发布前保留一次集中确认，不做完全无人值守。
+- Windows、SteamOS x64、macOS Intel x64 包继续在各自原生环境构建；Windows 发布器只负责汇总、严格校验和统一发布。
+- 程序版本、游戏内容、Hub 与公告使用三类独立流水线；主界面重组为发布中心、内容与卡带、验收中心、高级维护。
+- 发布批次保存输入指纹、预检、阶段检查点、错误和审计事件，但不保存凭据，也不长期复制三端大包。
+- 版本、平台、架构、包结构、哈希、三端一致性和双源配置是硬门禁；人工验收仅作参考，未完整通过只显示警告，不阻止确认或执行；验收快照变化仍会使预检和确认失效。
+- 单源发布、远程删除、采用远端附件和手动修复保留在高级维护，不进入普通发布主路径。
+
+### 本轮验证
+
+以下发布器专项测试在规划调研阶段已运行并通过：
+
+- `tests/test_publisher_main.py`
+- `tests/test_publisher_workspace.py`
+- `tests/test_publisher_updates.py`
+- `tests/test_publisher_github.py`
+- `tests/test_publisher_announcements.py`
+- `tests/test_publisher_acceptance.py`
+- `tests/test_publisher_ui_threading.py`
+
+本轮未运行完整 pytest、Ruff、客户端/发布器构建、模块归档构建、更新包构建或 GUI 人工验收。不得将本轮文档规划视为重构功能已经实现或发布就绪。
+
+### 下一窗口直接执行
+
+1. 必须先运行项目 `project-context-switch`，重新读取项目规则和本交接，并核对实际分支、HEAD、工作区和相关测试；以真实 Git 与可重复测试为准。
+2. 首个实施阶段只建立发布批次领域模型、集中状态转换、`ReleaseStore`、事件记录、基础预检和编排/远端接口骨架；不要先大改 UI，也不要移动或删除旧实现。
+3. 将首批改动拆成可独立验证的小步，优先覆盖序列化、原子保存、非法状态转换、输入指纹失效和 `running` 重启后转 `interrupted`。
+4. 保留现有发布能力和七个发布器专项测试；新路径达到测试对等并完成人工验收前，不删除旧入口。
+5. 首轮不实现远程 VM、共享目录监听、CI 构建调度或跨平台交叉构建。
+6. 除非用户明确要求，不执行提交；任何提交后也不得自动推送。发布资产上传并核验前尤其不得执行 `git push`。
+
+
+## 2026-08-17：发布器重构阶段 1 实施交接
+
+### 已完成
+
+- 已新增 `release_models.py`：批次、产物、预检、阶段、事件、顶层状态枚举，以及集中状态转换和冻结输入失效逻辑。
+- 已新增 `release_store.py`：按批次目录保存 `plan.json`、`artifacts.json`、`preflight.json`、`stages.json`，采用临时文件与 `os.replace` 原子写入；`events.jsonl` 追加写入并按敏感键脱敏。
+- `ReleaseStore` 支持活动索引、损坏批次隔离，以及启动时把遗留 `running` 批次转为 `interrupted` 并记录恢复事件。
+- 已新增 `artifact_collector.py` 和 `release_preflight.py`：发现 Windows、SteamOS x64、macOS Intel x64 程序包，冻结大小、mtime 与 SHA-256，检查路径、指纹、双源配置、三端齐全、版本一致和更新说明。
+- 已新增 `release_interfaces.py` 与 `release_orchestrator.py`：定义远端源和流水线阶段边界；编排器可执行预检、集中确认、持久化阶段检查点、失败记录、重试入口和完成状态，不依赖 GUI 或真实网络。
+- 旧 UI、旧按钮和现有远端实现均未改动；没有删除或移动旧流程。
+
+### 验证
+
+- `python -m pytest -q tests/test_publisher_release_batches.py`：9 项通过。
+- 七个原有发布器专项测试加新增批次测试：全部通过（140 项）。
+- 新增文件定向 `python -m ruff check ...`：通过。
+- `python -m compileall -q src/signriver_publisher tests/test_publisher_release_batches.py`：通过。
+- 未运行完整 pytest、全项目 Ruff、发布器构建、模块/更新包构建、GUI 人工验收或真实 GitLink/GitHub 测试。
+
+### 当前状态与风险
+
+- 当前分支仍为 `main`，HEAD 仍为 `a57c43c`；本轮未提交、未推送。
+- 上一轮三个规划文档改动仍保留，并叠加本轮新增实现和测试。
+- 新基础设施尚未接入 `PublisherApplication` 启动流程，因此不会自动扫描并恢复批次；这应在新发布中心接入时完成。
+- 当前编排器是阶段 1 骨架，尚未表达“双源数据包全部核验后才切换清单”的具体程序流水线，也未适配暂停请求和 degraded 补齐动作；不得视为可替代现有正式发布流程。
+
+### 下一窗口直接执行
+
+1. 先运行 `project-context-switch`，核对本交接、未提交文件和新增测试。
+2. 进入阶段 2：为程序版本定义明确阶段（收集/预检/确认、GitLink 包上传、GitHub 包上传、双源回读、GitLink 清单、GitHub 清单、最终回读），把“清单最后切换”编码为不可越过的阶段依赖。
+3. 通过适配器复用现有 `updates.py`、`github.py`、`gitlink.py`，不要在新编排器中复制 HTTP/CLI 细节；先用 fake provider 写顺序、重试、已核验附件复用和 degraded 测试，再接真实实现。
+4. 新路径达到测试对等并完成人工验收前，继续保留旧 UI 和旧发布入口。
+5. 除非用户明确要求，不提交；任何提交后也不得自动推送。
+
+
+## 2026-08-17：发布器重构本地闭环与阶段 6 阻塞交接
+
+### 当前目标与结果
+
+- 持续目标仍为 active：按 `docs/publisher-refactor-plan.md` 连续推进发布器流程化与模块化重构，不在阶段边界等待确认。
+- 阶段 1～5 的本地代码与自动化闭环已完成；阶段 6 已完成当前不依赖真实远端和人工验收的安全结构收尾。
+- 旧“构建与发布（兼容）”入口仍保留，因为真实双源演练、故障恢复演练和新旧 UI 对等验收尚未完成；不得宣称整体重构完成。
+
+### 本轮改动范围
+
+- `release_audit.py` 将高级维护改为授权、真实成功、真实失败三段生命周期；精确文本确认只记录 `maintenance_authorized`。
+- `ui.py` 要求所有高级维护操作关联当前批次，并在真实 worker 回调中记录 `maintenance_completed` 或 `maintenance_failed`。
+- 已覆盖远端单个/全部删除、采用远端附件、GitLink/GitHub 单源发布程序内容、程序更新、模块归档和卡带中心等高风险入口。
+- 已审计暂停与恢复语义：安全暂停保留原授权并在继续后的最终回调完成；不可恢复失败消费授权并清除恢复上下文，重新发起必须重新确认。
+- 已修正 `docs/publisher-refactor-plan.md` 的完成度表述，将长期授权策略写入 `docs/agent/DECISIONS.md`，并同步更新 `docs/publisher-guide.md` 与 `docs/program-update-release-guide.md` 的任务式导航和受控批次操作说明。
+- 已新增 `docs/publisher-compatibility-map.md` 和 `docs/publisher-refactor-acceptance.md`，固化新旧入口能力映射、受控回退边界、真实三端双源发布、故障恢复和 UI 对等验收步骤。
+- 已将发布中心、批次动作、Tk 运行时、验收中心、远端维护、公告编辑、卡带管理、本地内容管理和旧兼容发布控制流依次提取到 `release_center_ui.py`、`release_actions_ui.py`、`ui_runtime.py`、`acceptance_ui.py`、`remote_maintenance_ui.py`、`announcement_ui.py`、`cartridge_management_ui.py`、`content_management_ui.py` 与 `compatibility_publish_ui.py`。`PublisherApplication` 通过窄 mixin 接入，`ui.py` 已收敛为 463 行应用壳和共享小工具；旧兼容入口的行为与可见性仍保留。
+
+### 验证
+
+- `python -m pytest -q` 运行全部 `tests/test_publisher*.py`：168 项通过。
+- `python -m ruff check` 定向检查本轮相关实现与测试：通过。
+- `python -m compileall -q src/signriver_publisher tests`：通过。
+- `git diff --check`：通过；仅有文档换行提示时不视为内容错误。
+- 提取 `release_center_ui.py`、`release_actions_ui.py` 和 `ui_runtime.py` 后，定向运行 `tests/test_publisher_ui_threading.py`、`tests/test_publisher_release_service.py`、`tests/test_publisher_release_audit.py` 与 `tests/test_publisher_content_pipelines.py`：通过；相关 Ruff、`compileall` 与 `git diff --check`：通过。
+- 继续提取 `acceptance_ui.py` 与 `remote_maintenance_ui.py` 后，定向运行 `tests/test_publisher_ui_threading.py` 和 `tests/test_publisher_acceptance.py`：38 项通过；相关 Ruff、`compileall`、继承方法解析检查与 `git diff --check`：通过。
+- 继续提取 `announcement_ui.py`、`cartridge_management_ui.py`、`content_management_ui.py` 与 `compatibility_publish_ui.py` 后，修正 worker 源码检查以覆盖 `PublisherApplication.__mro__` 中全部项目 mixin；定向运行 `tests/test_publisher_ui_threading.py`、`tests/test_publisher_updates.py` 和 `tests/test_publisher_github.py`：43 项通过；相关 `compileall`、Ruff 与 `git diff --check`：通过。
+- 最终模块拆分完成后重新运行全部 `tests/test_publisher*.py`：168 项通过；随后再次运行 `compileall`、全发布器源码/测试 Ruff 与 `git diff --check`：通过。
+- 补齐程序包结构机器硬门禁：预检会打开三端 ZIP，校验根 `release-manifest.json`、schema、版本、`kind=full`、角色对应平台和 `x64` 架构；新增非 ZIP、非对象 manifest、内嵌平台错配负向测试。修复合法测试夹具后，全部 `tests/test_publisher*.py` 更新为 171 项通过，定向 Ruff、`compileall` 与 `git diff --check` 通过。
+- 使用虚构非敏感双源目标对 `dist/updates` 中真实 `0.2.0` Windows、SteamOS、macOS 三端 ZIP 执行纯本地预检：收集到 3 个候选，所有硬门禁（含 `program.package_structure`）通过，状态为 `awaiting_confirmation`；未发起任何远端连接。
+- 本轮未连接真实 GitLink/GitHub，未执行发布器 EXE 构建、真实发布、真实故障恢复或人工 GUI 验收。
+
+### 当前真实外部阻塞
+
+1. 本地已有并通过结构预检的 `0.2.0` Windows x64、SteamOS x64、macOS Intel x64 三端候选；仍需要真实 GitLink/GitHub 凭据与受控测试目标，完成一次双源发布演练。
+2. 需要人工执行故障注入、发布器重启和安全恢复演练。
+3. 需要人工完成新旧 UI 功能对等验收。
+4. 上述前置条件未满足前，阶段 6 的旧入口删除和兼容适配器清理不得执行。
+
+### Git 与下一步
+
+- 当前分支 `main`，基线 HEAD 为 `a57c43ca5690ac4e4e304754a975ab34b029cb41`；所有发布器重构改动仍未提交、未推送。
+- 不得重置、清理或覆盖现有未提交改动。
+- 外部条件齐备后直接继续三项真实验收；通过后再分批删除旧入口、重复状态和兼容适配器，并运行对应回归。
+- 除非用户明确要求，不执行 commit 或 push。
+
+
+## 2026-08-17：发布器重构本地实现收敛交接
+
+### 目标与本轮改动
+
+- 连续收敛 `docs/publisher-refactor-plan.md` 中所有不依赖真实凭据和人工操作的阶段 1～6 工作，未删除兼容入口。
+- 补强内容与 Hub/公告双源 provider 门禁：必须恰好为 `gitlink`、`github`，且映射键与 `source_id` 一致。
+- 增加 `human.acceptance` 软预检与确认审计；未完整验收只显示警告、不阻止确认或执行，`release_confirmed` 记录验收结果、快照状态与 `acceptance_reference_only=True`。
+- `ReleaseStore` 支持 schema 0 到 1 显式迁移并原子回写，未知 schema 继续拒绝；程序执行入口在生成准备产物前校验批次类型。
+- 内容/Hub 的 `degraded` 恢复先核验主表，已匹配的源不重复切换，只补失败源。
+- 三类批次只保存非敏感远端目标摘要；递归发现凭据类字段时拒绝创建，避免秘密进入持久化批次。
+
+### 验证结果
+
+- 全部 `tests/test_publisher*.py`：182 项通过。
+- `python -m ruff check src/signriver_publisher tests`：通过。
+- `python -m compileall -q src/signriver_publisher tests`：通过。
+- `git diff --check`：通过；`docs/publisher-guide.md` 仅有既有 LF/CRLF 转换提示。
+- `python tools/build_publisher.py --upx-dir C:\\Users\\32173\\AppData\\Local\\tools\\upx\\upx-5.0.2-win64`：成功；生成 `dist/publisher/SignRiver-Publisher.exe`，大小 172,508,671 字节，SHA-256 `D15458BEF01BB61483791A73CD4308D5886857571AEFA367AEFA865DE40557D1`。
+- 构建日志中的不可压缩 DLL 与未使用 Intel MPI/SYCL 依赖为 PyInstaller/UPX 警告，构建最终正常完成。
+- 未重复运行完整回归；最终仅做产物、文档差异和工作区状态核对。
+
+### 外部阻塞与下一步
+
+- 仍需真实 GitLink/GitHub 凭据和受控目标，完成三端双源发布演练。
+- 仍需人工故障注入、发布器重启/恢复演练，以及新旧 UI 功能对等验收。
+- 上述验收通过前不得删除“构建与发布（兼容）”入口或兼容 provider/adapter，不得宣称整体已正式发布验收完成。
+- 当前分支 `main`，基线 HEAD `a57c43ca5690ac4e4e304754a975ab34b029cb41`；改动未提交、未推送。除非用户明确要求，不执行 commit 或 push。
+
+## 2026-08-18：发布器流程化收尾（本地）
+
+### 已完成
+
+- 修复模块归档收件：程序批次扫描收件根目录及 `modules/` 子目录中的合法 `SignRiver-DLC-Hub-module-v<版本>.zip`，以归档内 `module.json` 的版本与入口校验为准；模块归档在专用 `modules` Release 完成 GitLink/GitHub 双源上传与回读后，程序更新清单才允许切换。
+- 发布中心默认将三端收件目录指向 `publisher-workspace/updates`，并预填当前 `LAUNCHER_VERSION`；版本切换可载入、保存 `publisher-workspace/update-notes.json` 草稿，仍可手动调整目录。
+- 增加“刷新收件目录”“读取远端基线（只读）”“导出基线 JSON”操作。基线读取不启动后台发布锁、不创建上传控制器；GitLink 基线保存 `display_size`，避免把仅展示用的附件大小伪装成字节数。
+- 人工验收已明确调整为发布参考：未完整通过只产生警告，确认审计记录结果、快照附加状态和 `acceptance_reference_only=True`；验收快照变化仍会使预检与确认失效。
+- 未连接真实 GitLink/GitHub，未读取或写入 `config/publisher.local.json`，未执行真实发布、commit、push、reset 或 clean。
+
+### 本地验证（2026-08-18）
+
+- `python -m pytest tests/test_publisher_release_batches.py tests/test_publisher_release_service.py tests/test_publisher_release_providers.py tests/test_publisher_content_pipelines.py tests/test_publisher_release_audit.py tests/test_publisher_ui_threading.py -q`：76 项通过。
+- `python -m pytest tests/test_publisher_release_service.py tests/test_publisher_release_providers.py -q`：12 项通过。
+- `python -m pytest -q`：全量通过。
+- `python -m ruff check src/signriver_publisher tests`：通过。
+- `python -m compileall -q src/signriver_publisher tests`：通过。
+- `git diff --check`：通过；`docs/publisher-guide.md` 仅有既有 LF/CRLF 转换提示。
+- 已将发布器体积回归固化为构建门禁：`tools/build_publisher.py` 显式排除未使用的 `numpy`（防止 Pillow 的可选依赖链带入 Conda 的 MKL/OpenMP 运行时）；先在 `build/publisher-artifact` 暂存构建，仅在产物通过检查后替换 `dist/publisher/SignRiver-Publisher.exe`。检查会拒绝超过 25 MiB 的 EXE，以及包含 NumPy、Intel MKL、OpenMP target 或 Microsoft MPI 标记的归档，避免异常包覆盖上一份可用产物。重新执行 `python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64` 成功，产物大小 15,568,672 字节，SHA-256 `A2756E65A665D27FCC4846A9F431610512A0A11D7543EA53645DE890100B8C35`；`python -m ruff check tools/build_publisher.py` 与 `git diff --check` 通过（后者仅有既有 `docs/publisher-guide.md` LF/CRLF 提示）。
+
+### 下一步与外部边界
+
+1. 完成全量本地验证并重建发布器 EXE；不构建或上传客户端发布包。
+2. 若进行测试仓库真实演练，必须先向用户给出版本、Release tag、文件名、SHA-256、大小和更新清单影响的完整清单，获得一次明确总确认后，才允许对 GitLink/GitHub 写入。
+3. 完成真实双源、故障恢复和 UI 对等验收前，继续保留兼容入口及适配器。
+
+## 2026-08-18：发布中心可用性修复（本地）
+
+### 已完成
+
+- “读取远端基线（只读）”现在会立即显示“读取中…”，完成后恢复按钮、刷新批次历史、明确弹出成功提示，并说明该操作未上传或改动远端；失败也会恢复按钮并显示错误。
+- “导出基线 JSON”现在自动预填 `signriver-remote-baseline-v<版本>.json`，不再要求操作员先自行构思文件名。
+- 相同程序版本与同一收件目录的未执行批次会被自动打开，不会因反复点击创建按钮产生重复批次；需要重新开始时可显式使用“归档 / 移除草稿”。
+- “归档 / 移除草稿”仅允许处理尚未执行的草稿、预检失败或待确认批次；实际文件移入本地 `_archived`，保留审计记录，不做不可恢复删除。已有执行记录的批次继续保留，用于恢复与追溯。
+- 批次历史改为“目标｜类型｜中文状态｜更新时间”；批次看板改为面向操作员的发布说明、下一步、收件文件、更新说明、远端基线、预检结果、执行进度。批次 ID 仅保留为支持与排障信息。
+
+### 本轮验证（2026-08-18）
+
+- `python -m pytest tests/test_publisher_release_batches.py tests/test_publisher_ui_threading.py -q`：54 项通过。
+- `python -m ruff check src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py src/signriver_publisher/release_service.py src/signriver_publisher/release_store.py tests/test_publisher_release_batches.py tests/test_publisher_ui_threading.py`：通过。
+- `python -m compileall -q src/signriver_publisher`：通过。
+- `git diff --check`：通过；仅仍有既有 `docs/publisher-guide.md` 的 LF/CRLF 提示。
+
+### 未执行
+
+- 已重建 `dist/publisher/SignRiver-Publisher.exe`；构建门禁通过，产物为 15,576,048 字节，SHA-256 `3D2704B277A5C63C932D6FC110A96DF686E38B0BCEE7733F2E0E76D5599DE878`。尚未进行人工 GUI 验收。
+- 未读取或写入 `config/publisher.local.json`，未连接 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+
+## 2026-08-18：发布器启动回归修复（本地）
+
+### 已修复
+
+- 修复验收中心路径摘要的实例方法签名：`_acceptance_display_path` 先前遗漏 `self`，定时刷新把 `WindowsPath` 误传入长度参数，导致 `TypeError: '<=' not supported between instances of 'int' and 'WindowsPath'`。现已恢复正确实例方法签名。
+- 修复发布中心批次历史按钮：当前 CustomTkinter 的 `CTkButton` 不支持 `justify` 参数，初始化时会抛出 `ValueError`；保留左侧锚定，移除不兼容参数。
+- 修复构建日志 SHA-256 与实际 EXE 不一致：运行时标记检测仍使用小写副本，但摘要改为原始字节计算；复制到 `dist/publisher` 后会再次验证大小、禁止运行时标记及 SHA-256 一致性，复制异常会停止构建。
+
+### 本轮验证（2026-08-18）
+
+- `.\.venv\Scripts\python.exe -m pytest tests\test_publisher_acceptance.py tests\test_publisher_release_batches.py tests\test_publisher_ui_threading.py -q`：69 项通过。
+- `.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\acceptance_ui.py src\signriver_publisher\release_center.py tests\test_publisher_acceptance.py tests\test_publisher_ui_threading.py`：通过。
+- `.\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher`：通过。
+- 构建工具 SHA-256 原始字节校验脚本、`ruff` 与 `compileall`：通过。
+- `python tools\build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64`：成功；最终 `dist/publisher/SignRiver-Publisher.exe` 为 15,451,413 字节，SHA-256 `A8C44017379312EAB8F53D639A138EC5009337652C763285DBC0FA2516763D62`，通过 25 MiB 体积及禁止运行时门禁。
+- `git diff --check`：通过；仅有既有 `docs/publisher-guide.md` LF/CRLF 提示。
+
+### 外部边界与下一步
+
+- 未读取或写入 `config/publisher.local.json`，未连接 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+- 请从 `dist/publisher/SignRiver-Publisher.exe` 启动新版发布器验证界面；源码启动命令 `./.venv/Scripts/python.exe publisher.py` 也应不再出现上述两种异常。
+
+## 2026-08-18：发布中心专项页导航与信息密度重排
+
+### 已完成
+
+- `src/signriver_publisher/release_center.py` 已从单页堆叠布局改为“发布中心主页 + 页面内覆盖式专项页”。切换通过同一容器的 `grid_remove()` / `grid()` 完成，不会打开新窗口；所有专项页均提供“← 返回发布中心”。
+- 主页面仅保留当前批次摘要、创建/打开本次批次和六个清晰入口：收件与准备、批次历史、远端基线、预检与确认、执行与恢复、操作顺序说明；避免把大量操作按钮挤在同一行。
+- “收件与准备”独立显示版本、默认三端收件目录（仍可手动选择）、150px 高的更新说明编辑区、草稿保存、刷新收件目录和三端包替换操作，修复原更新说明区域过窄、内容易被截断的问题。
+- 点击批次历史项后会进入“批次历史与看板”专项页；历史列表与详情改为约 2:5 的横向空间比例，右侧看板有更大的阅读空间，不再在主页固定挤占两列。
+- 远端基线、预检冻结、执行恢复分别移入专项页；现有批次状态、基线说明、预检结果、执行阶段、归档和安全暂停语义均保留。人工验收仍只是参考提醒，不作为冻结或执行阻塞条件。
+- 已在 `tests/test_publisher_ui_threading.py` 增加页面容器、专项页创建、覆盖式切换、批次选择跳转及更新说明编辑高度的源码级回归断言。
+
+### 验证（2026-08-18）
+
+- `python -m pytest tests/test_publisher_release_batches.py tests/test_publisher_ui_threading.py -q`：55 项通过。
+- `python -m pytest tests/test_publisher_acceptance.py -q`：15 项通过。
+- 首次组合运行时，`test_patch_test_environment_can_be_previewed_applied_and_restored` 在验收基线临时目录 `os.replace` 处遇到 Windows `PermissionError`；未改动该逻辑，随后单独复跑该文件通过，判定为测试临时目录的瞬态文件占用。
+- `python -m py_compile src/signriver_publisher/release_center.py`：通过。
+- `git diff --check`：通过。
+- 未启动 GUI 做人工视觉验收，未构建发布器 EXE，未连接真实 GitLink/GitHub，未读取或写入 `config/publisher.local.json`，未执行真实发布、commit、push、reset 或 clean。
+
+### 人工验收重点与下一步
+
+1. 启动源码发布器，进入“发布中心”，检查主页面在当前窗口宽度下不再出现中部按钮截断。
+2. 进入“收件与准备”，确认更新说明可完整阅读和编辑、默认收件目录正确、返回主页后流程无中断。
+3. 从“批次历史”选择一个批次，确认进入专项看板，左右空间明显偏向详情；使用返回按钮回主页。
+4. 分别打开远端基线、预检与确认、执行与恢复，确认无新窗口且各自状态摘要正确。
+5. UI 人工验收通过后，如后续还要优化文字密度或卡片尺寸，仅调整 `release_center.py` 的视图层，不回退既有服务层和批次语义。
+
+## 2026-08-18：发布中心布局稳定性与关闭体验修复（本地）
+
+### 已完成
+
+- 发布中心主页、专项入口、返回入口及批次历史条目均扩大了点击热区和字号；主要入口高度为 40–44 px，批次历史条目提高到 66 px。
+- “批次历史与看板”改为固定 360 px 的左侧历史栏，右侧看板独占剩余宽度；历史卡片禁止由内部控件反向传播尺寸，因此选择前后或切换不同批次时不再因长文本改变左右栏比例。
+- 正常退出在全部退出保护检查通过后，先标记关闭、立即隐藏根窗口，再停止 UI 事件泵并销毁控件；后台线程在关闭期无法继续投递界面回调或进度，避免关闭瞬间暴露 CustomTkinter 的中间重绘布局。
+- 未读取或写入 `config/publisher.local.json`，未连接真实 GitLink/GitHub，未执行真实发布、构建 EXE、commit、push、reset 或 clean。
+
+### 本地验证（2026-08-18）
+
+- `.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\release_center.py src\signriver_publisher\ui.py src\signriver_publisher\ui_runtime.py`：通过。
+- `.\.venv\Scripts\python.exe -m pytest tests\test_publisher_ui_threading.py -q`：34 项通过。
+- `git diff --check`：通过；仅出现既有文档的 LF/CRLF 工作树提示。
+- 未启动 GUI 做人工视觉复验；需要下次启动源码发布器后重点确认 1240×800 及最小窗口宽度下的固定侧栏、放大按钮与正常关闭观感。
+
+## 2026-08-18：发布中心首页入口与批次管理可见性微调
+
+### 已完成
+
+- 首页五个蓝色专项入口统一放大为 `270 × 52 px`，字号提升至 16 px；保留右侧对齐与卡片留白，使其在宽屏页面上更易点击和辨识。
+- “批次历史与看板”右上角固定提供“归档 / 移除当前草稿”，下方看板内容可独立滚动，避免长更新说明遮蔽管理入口。
+
+### 本地验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_center.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py -q`：34 项通过。
+- `git diff --check`：通过；仅有既有 `docs/publisher-guide.md` LF/CRLF 提示。
+- 未构建 EXE、未启动 GUI 做人工视觉复验，未读取或写入本地发布凭据，未执行真实发布、commit、push、reset 或 clean。
+
+## 2026-08-18：归档后保留批次看板
+
+- 归档 / 移除草稿成功后，不再跳回发布中心主页；页面保持在“批次历史与看板”，右侧显示空状态提示，操作员可立即选择其他批次或继续创建新批次。
+- 验证：`./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_center.py`、`./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py -q`（35 项通过）及 `git diff --check` 均通过；未构建 EXE、未进行真实发布、commit 或 push。
+
+## 2026-08-18：目录选择器沿用当前收件目录
+
+- “选择目录”按钮现在会读取界面中当前的“三端包收件目录”路径，并将其作为文件夹选择器的 `initialdir`；如果当前路径不存在，则回退到配置的默认收件目录。
+- 验证：发布中心 UI 测试 36 项通过，源码编译与 `git diff --check` 通过；未构建 EXE、未执行真实发布、commit 或 push。
+
+## 2026-08-18：准备发布器三端候选包
+
+### 已完成
+
+- 已确认当前 `0.2.0` 三端全量更新包存在于 `dist/updates/`，无需重新构建或连接虚拟机。
+- 已将三个包复制到发布器当前默认“三端包收件目录” `publisher-workspace/output/updates/`：
+  - `SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip`
+  - `SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip`
+  - `SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip`
+- 三个 ZIP 已完成完整性检查、`release-manifest.json` 检查和三端产物识别检查；版本均为 `0.2.0`，架构均为 `x64`。
+- 已记录包大小与 SHA-256：Windows `18,791,906` 字节 / `16683e3e80cf75ff287b5194d3c32ddeeb0105e2c357169e10cf94b6a5f554bc`；SteamOS `35,508,372` 字节 / `91bb1fd54d452b34bae521ccd6e1830317547a51d8c276cfc3da45d9bfef1c6e`；macOS `21,596,182` 字节 / `95c81026a782297e9dfe0e2f081ed83aed5dcc22dbe454bc5fdebaab4820fad3`。
+
+### 验证与边界
+
+- `tests/test_publisher_ui_threading.py`：36 项通过。
+- `py_compile` 与 `git diff --check`：通过；后者仅保留项目已有文档换行提示。
+- 未读取或写入 `config/publisher.local.json`，未连接真实 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+
+### 下一步
+
+- 重新打开或刷新发布器的“收件与准备”，确认三端包被识别后再进行人工发布流程。
+- 若只是继续本地界面验收，无需重新构建 EXE；若要给用户使用，再按项目规则构建发布器 EXE。
+
+## 2026-08-18：发布器页面分块信息架构研究（未实施）
+
+- 根据当前发布中心截图、现有七个顶层页签、兼容能力映射和批次流程，已新增 `docs/publisher-information-architecture.md`。
+- 文档确认当前问题是“业务对象、发布阶段和风险等级”在同一层混排；建议后续以“发布工作台、内容准备、核对与验收、执行与恢复、高级维护”五个任务/风险工作区重组。
+- 明确批次历史、远端基线、预检确认和执行恢复应属于同一批次连续流程；人工验收仅作为参考并可附加到批次，不得成为发布硬门禁；兼容单源和远端删除等动作应沉入高级维护。
+- 本次未修改 `src/signriver_publisher/` 代码、未移动/删除现有功能、未构建、未运行 GUI 或远端发布；后续需先由用户确认分块方案再实施。
+
+## 2026-08-18：发布器任务型信息架构已实施（未构建 EXE）
+
+### 已完成
+
+- 发布器顶层导航已从按历史功能拆分的七个页签，收敛为五个工作区：`发布工作台`、`内容准备`、`核对与验收`、`执行与恢复`、`高级维护`。
+- `内容准备`以内嵌页签保留原有“本地资源 / 游戏内容 / 卡带与 Hub”能力；`高级维护`以内嵌页签保留“兼容发布（回退 / 修复）/ 远端维护”。没有删除底层功能或改变发布服务逻辑。
+- `核对与验收`将远端基线、预检确认与人工验收归于同一工作区，并明确人工验收仅供参考、可附加到批次、不会阻塞发布。
+- `执行与恢复`提供清晰的当前批次执行入口；实际执行面板仍复用发布工作台中的覆盖式子页面，不会打开新窗口。
+- 发布工作台首页已移除原先六张彼此割裂的等权卡片，改为“当前任务 + 同一批次操作顺序（准备、核对、确认、执行、回读）+ 批次历史”结构。
+- 兼容发布页已明确标记为“回退 / 修复”用途，并增加不得与同一批次标准流程并行执行的提示；其“打开卡带管理”入口已适配新的内容准备工作区。
+
+### 验证与边界
+
+- 已执行 `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/release_center.py src/signriver_publisher/compatibility_publish_ui.py`：通过。
+- 已执行 `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py -q`：51 项通过。
+- 已执行 `git diff --check`：通过；仅显示项目已有文档 CRLF 转换提示。
+- 未读取、展示或修改 `config/publisher.local.json`；未连接远端、未进行真实发布、未构建 EXE、未进行 GUI 人工视觉验收、未 commit 或 push。
+
+### 后续
+
+- 下次可直接启动源码发布器进行一次人工界面验收，重点观察五个顶层入口在实际窗口宽度下的可读性，以及“核对与验收 / 执行与恢复”跳转后是否符合操作习惯。
+- 若确认视觉与流程无误，再按需要构建发布器 EXE；构建前无需重新生成已准备好的 0.2.0 三端候选包。
+
+## 2026-08-18：发布器执行进度与安全暂停可用性修复（未构建 EXE）
+
+### 已完成
+
+- `ReleaseCenter` 在“执行 / 恢复”启动后每 450ms 读取已落盘的当前批次状态并刷新执行页；运行中会显示“当前正在执行：第 x/y 步 <阶段名称>”及每一步的完成状态，不再等到整批任务结束才更新界面。
+- “安全暂停”在后台任务真正进入 `RUNNING` 状态后自动可用；点击后立即改为“已请求安全暂停…”，并明确提示会在下一个安全检查点暂停，避免用户误以为必须强制结束程序。
+- 执行完成、失败或关闭执行回调时会停止轮询并恢复“执行 / 恢复”按钮，避免遗留定时刷新。
+- 增补了发布中心执行轮询、运行中暂停可用、暂停请求提示和租约启动失败恢复按钮的最小测试覆盖。
+
+### 验证与边界
+
+- 已执行 `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_center.py`：通过。
+- 已执行 `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py -q`：54 项通过。
+- 已执行 `git diff --check`：通过；仅有既有文档的 LF/CRLF 提示。
+- 未读取、展示或修改 `config/publisher.local.json`；未连接远端、未进行真实发布、未构建 EXE、未 commit 或 push。
+
+### 下一步
+
+- 重新启动源码发布器，在一个已确认的批次上做人工界面验收：确认任务进入“正在发布”后安全暂停可点击、阶段文本持续刷新；不要用真实远端发布来验证。
+- “读取远端基线”详情展开仍是独立可用性事项：后端已有结果，但当前卡片只显示读取时间和来源，后续可按 GitHub/GitLink 分别展示 Release、标签、附件数量和更新清单结论。
+
+## 2026-08-18：发布目标可见性与冻结执行整改（未执行远端操作）
+
+### 事故结论与边界
+
+- 操作员原意是向测试仓库进行 `0.2.0` 演练：GitLink `signriver/signriver-test`、GitHub `sign-river/SignRiver-Test`；但操作员已发现测试 GitHub 仓库未出现预期 Release，而 `0.2.0` 三端更新包及 `update-manifest.json` 已误进入正式资产 Release。该既有远端副作用不在本轮自动删除、回滚或补发范围内。
+- 本轮未读取、展示或修改 `config/publisher.local.json` 的凭据内容；未连接 GitLink/GitHub，未验证令牌身份、未写入远端、未构建 EXE、未 commit 或 push。
+
+### 已完成
+
+- 新增顶层“账号与发布目标（发布前必看）”页，同时列出 GitLink 与 GitHub 的配置所有者、精确目标仓库、仓库 URL 和凭据是否已配置；令牌始终隐藏。页面明确提示：配置的所有者不是远端令牌身份验证结果。
+- 发布工作台主页在尚未创建批次时显示“下次创建批次将使用的发布目标”；批次看板和确认弹窗显示“本批次实际发布目标（创建时已冻结）”，并逐端写出 `owner/repository`，不再只显示笼统的“双源发布”。
+- 修复严重目标漂移：执行发布时，GitLink/GitHub provider 只读取 `plan.remote_targets` 中创建批次时冻结的 owner/repository；不会因之后修改本地配置而转投别的仓库。旧批次如缺少完整冻结目标，会拒绝执行并要求重新创建批次；token 仅从当前内存设置取得，不写入批次。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py src/signriver_publisher/publisher_targets_ui.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py -q`：57 项通过。
+- `git diff --check`：通过；仅有既有文档 LF/CRLF 提示。
+
+### 下一步
+
+1. 仅启动源码发布器做人工 UI 验收：核对“账号与发布目标”页、主页和批次看板展示的两端仓库是否与当前测试意图一致；不得执行发布。
+2. 用户明确核对每个目标仓库、将上传的文件和是否允许远端写入后，才可创建新的测试批次并发布。任何远端删除、正式库回滚或补发，都必须获得单独且明确的授权。
+
+## 2026-08-18：执行页显示单文件上传进度与实时速度
+
+### 已完成
+
+- “执行与恢复”页新增当前文件的上传状态区：显示正在写入的源站（GitLink / GitHub）、该批次创建时冻结的 `owner/repository`、当前文件名、已传输字节、百分比及实时速度。
+- 上传结束而批次仍在运行时，界面明确显示“上传已提交，正在远端回读校验…”，不把 SHA-256 / 清单回读校验误显示为上传进度。
+- GitHub 与 GitLink provider 均将既有的字节回调上报给发布服务；服务层以同一个编排中的 `ReleasePlan` 实例持久化节流后的状态，避免回调重新加载批次并覆盖编排状态。
+- 进度数据只记录源站、文件名、已传输字节、总字节、速度与更新时间；不记录 URL、令牌或任何发布凭据。
+
+### 本地验证
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/remote_release_providers.py src/signriver_publisher/release_service.py src/signriver_publisher/release_center.py tests/test_publisher_release_providers.py tests/test_publisher_release_service.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_release_providers.py tests/test_publisher_release_service.py tests/test_publisher_ui_threading.py -q`：56 项通过。
+- `git diff --check`：通过；仅保留既有文档 LF/CRLF 提示。
+- 未构建 EXE、未启动 GUI、未读取或写入 `config/publisher.local.json`，未连接 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+
+## 2026-08-18：移除发布工作台重复的批次历史入口
+
+- 发布工作台首页已移除底部“查看批次历史”提示卡与按钮；批次看板仍由创建 / 打开批次后的既有流程进入，避免首页再提供同一目的地的重复入口。
+- 验证：`./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_center.py` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py -q` 42 项通过；`git diff --check` 通过（仅保留既有文档 LF/CRLF 提示）。未构建 EXE、未启动 GUI、未执行真实发布、commit 或 push。
+
+## 2026-08-18：DLC / 补丁发布统一批次流水线
+
+### 已完成
+
+- 将常规 DLC、补丁与 AppInfo 的远端发布入口收敛到“发布工作台”的 `GAME_CONTENT` 批次：创建批次时由当前已选游戏的已构建输出自动收集文件，不再要求人工分别选择附件和 `catalog.json`。
+- 创建内容批次前调用 `workspace.publish_files(profile)` 校验本地构建并生成最终 `catalog.json`；批次将附件先上传并回读校验，最后才切换 `catalog.json`，沿用双源、进度、速度、安全暂停、恢复、远端基线、预检、冻结和归档能力。
+- 发布工作台主页增加“DLC / 补丁发布”入口；内容准备页的入口改为“进入 DLC / 补丁发布流水线”，本地输出列表不再提供逐文件直接上传作为常规路径。
+- 兼容发布页的“发布当前游戏”常规入口改为跳转统一内容批次；底层兼容修复能力保留给高级维护，不作为日常上传流程。
+- 内容批次按游戏 ID、Release 标签和本地输出目录复用未执行批次（草稿、预检失败、待确认），避免用户重复点击产生大量同一构建的批次；批次记录冻结的输出目录、附件数量和 `catalog.json` 名称，便于看板追溯。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_service.py src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py src/signriver_publisher/release_actions_ui.py src/signriver_publisher/content_management_ui.py src/signriver_publisher/compatibility_publish_ui.py tests/test_publisher_release_service.py tests/test_ui_theme.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_content_pipelines.py tests/test_publisher_release_service.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py -q`：109 项通过。
+- `git diff --check`：通过；仅仍有既有 `docs/publisher-guide.md` 的 LF/CRLF 提示。
+
+### 外部边界与后续验收
+
+- 本轮未读取或写入本地凭据，未连接 GitLink/GitHub，未执行真实发布、构建 EXE、commit、push、reset 或 clean。
+- 后续人工验收只需选择一个已构建游戏，依次从“内容准备”“发布工作台主页”和“兼容发布”三个入口进入，均应打开同一个未执行内容批次，且不应再弹出附件或 `catalog.json` 文件选择框；真实双源执行需用户另行明确授权。
+
+## 2026-08-18：账号与发布目标改为独立工作区
+
+### 已完成
+
+- 顶层“账号与发布目标”现在是独立工作区，不再作为跳转到“高级维护”的只读入口。
+- 本页集中展示 GitLink、GitHub 的实际 `owner/repository`、仓库地址与凭据是否已配置；不会显示、读取或记录令牌内容。
+- 本页可分别保存 GitLink、GitHub 的所有者和仓库名；保存坐标时保留原有令牌。修改只影响后续新建批次，已有批次继续使用创建时冻结的目标。
+- “高级维护”仍只承担兼容发布和低频远端维护，不再承担日常账号配置入口。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/publisher_targets_ui.py tests/test_publisher_ui_threading.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_ui_theme.py -q`：90 项通过。
+- 本轮未构建 EXE、未启动 GUI、未读取或写入 `config/publisher.local.json` 中的凭据内容，未连接 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+
+## 2026-08-18：顶层“核对与验收”调整为最后一个入口
+
+### 已完成
+
+- 发布器顶层工作区顺序现为：`发布工作台`、`内容准备`、`执行与恢复`、`账号与发布目标`、`高级维护`、`核对与验收`。
+- “核对与验收”的人工验收（参考）与公告能力未删减，也不改变其“不阻塞发布”的边界；仅调整入口位置，使低频核对动作位于日常发布与维护操作之后。
+- 模块化 UI 壳补回安全关闭实现：只有实际登记的后台写操作才会阻止退出；遗留的暂停控制对象不再被误判为上传仍在执行。关闭时先隐藏窗口，再停止 UI 事件泵并销毁窗口，避免退出瞬间暴露控件重排。
+- 滚动列表的重置辅助函数归入 `ui_runtime.py`，与模块化 UI mixin 共用；对应测试改为读取组成发布器界面的模块源码，而不是假设全部实现仍在 `ui.py` 单文件中。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/ui_runtime.py src/signriver_publisher/legacy_ui.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_ui_theme.py -q`：90 项通过。
+- 未启动 GUI、未构建 EXE、未读取或写入 `config/publisher.local.json`、未连接 GitLink/GitHub，未执行真实发布、commit、push、reset 或 clean。
+
+### 后续
+
+- 如需继续，可仅启动源码发布器做一次人工视觉验收，确认六个顶层入口在目标窗口宽度下均可读；不需要再改动发布流程本身。
+
+## 2026-08-18：移除重复的“执行与恢复”顶层页
+
+- “执行与恢复”不再作为顶层标签；批次执行、进度、上传速度、安全暂停与恢复统一保留在“发布工作台”的现有执行面板中。
+- 顶层顺序现为：`发布工作台`、`内容准备`、`账号与发布目标`、`高级维护`、`核对与验收`。
+- 批次状态文案改为指向“发布工作台的执行面板”，不再提示前往一个不存在的独立页。
+
+## 2026-08-18：远端核对并入批次看板（未执行远端操作）
+
+### 已完成
+
+- 删除发布工作台内独立的“远端基线”覆盖页与其工作流跳转；流程第 ② 步现直接进入“批次历史与看板”。
+- 在批次看板右侧新增固定的“远端核对（只读）”卡片：选中批次后可原地读取远端基线、查看读取状态与来源，并在已有基线时导出 JSON。
+- 未选择批次时两个核对按钮保持禁用；选中批次后才允许读取，导出按钮仅在已保存基线时可用。
+- 读取完成后的回调继续原地刷新当前批次看板与左侧历史，不再要求操作员切换到额外页面；读取操作仍明确为不上传、不修改远端。
+- 批次历史左栏的固定宽度和看板详情列布局未变，避免恢复此前按批次切换时的横向比例抖动。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_ui_theme.py -q`：90 项通过。
+- `git diff --check`：通过；仅有既有 `docs/publisher-guide.md` 的 LF/CRLF 提示。
+- 未启动 GUI、未构建 EXE、未读取或修改 `config/publisher.local.json`、未连接 GitLink/GitHub，未执行真实读取、发布、删除、回滚、commit 或 push。
+
+### 下一步
+
+- 如需人工验收，仅启动源码发布器：选中一个已有批次，确认“远端核对（只读）”在批次看板内显示、无批次时按钮禁用、已有基线后导出按钮可用；不需要执行真实远端读取。
+
+## 2026-08-18：游戏选择收敛至 DLC / 补丁发布包页面
+
+### 已完成
+
+- 移除当前发布器顶层界面对游戏选择器的依赖：游戏选择器现仅在“内容准备 → DLC / 补丁发布”子页面显示，不再作为所有发布器功能的顶层开关。
+- 新增游戏作用域明确的“DLC / 补丁发布包”页：选择当前游戏后会说明新批次将冻结游戏、Release 标签与双源目标；页面同时显示当前游戏的 `catalog.json` / 附件准备状态。
+- “发布工作台 → DLC / 补丁发布”以及旧的内容发布入口均改为先打开上述发布包页；操作员确认当前游戏与发布包状态后，再点击“创建 / 打开本游戏发布批次”。
+- 既有批次仍使用创建时冻结的目标；切换当前游戏只影响未来创建或复用的内容批次。
+- 修正从内容发布包页打开批次时的顶层页名称，使其回到实际存在的“发布工作台”。
+
+### 验证（2026-08-18）
+
+- `./.venv/Scripts/python.exe -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/content_management_ui.py src/signriver_publisher/release_actions_ui.py src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_ui_theme.py -q`：90 项通过。
+- `git diff --check`：通过；仅保留既有文档 LF/CRLF 提示。
+- 未启动 GUI、未构建 EXE、未读取或修改 `config/publisher.local.json`，未连接 GitLink/GitHub，未执行真实读取、发布、删除、回滚、commit 或 push。
+
+### 后续人工验收
+
+- 启动源码发布器后确认顶部标题栏无游戏下拉框；从“发布工作台 → DLC / 补丁发布”进入“内容准备 → DLC / 补丁发布”，确认可先选择游戏、查看本地包状态，再创建或打开批次。

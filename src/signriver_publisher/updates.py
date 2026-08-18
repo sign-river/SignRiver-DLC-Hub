@@ -181,6 +181,8 @@ def inspect_update_package(package: Path) -> UpdatePackageInfo:
         json.JSONDecodeError,
     ) as error:
         raise ValueError(f"update package is not a valid ZIP: {error}") from error
+    if not isinstance(metadata, dict):
+        raise ValueError("update package metadata must be a JSON object")
     version = str(metadata.get("version") or "").strip()
     try:
         Version.parse(version)

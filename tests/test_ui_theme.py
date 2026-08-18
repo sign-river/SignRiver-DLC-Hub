@@ -19,7 +19,22 @@ def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
     assert "self.context.app_version" in source
     assert "def _cancel_update_download" in source
     assert "def _render_update_download_row" in source
-PUBLISHER_UI = Path(__file__).parents[1] / "src" / "signriver_publisher" / "ui.py"
+PUBLISHER_ROOT = Path(__file__).parents[1] / "src" / "signriver_publisher"
+PUBLISHER_UI = PUBLISHER_ROOT / "ui.py"
+PUBLISHER_UI_SOURCES = tuple(
+    PUBLISHER_ROOT / name
+    for name in (
+        "ui.py",
+        "ui_runtime.py",
+        "content_management_ui.py",
+        "remote_maintenance_ui.py",
+        "compatibility_publish_ui.py",
+    )
+)
+
+
+def _publisher_source() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in PUBLISHER_UI_SOURCES)
 
 
 def _ui_palette() -> dict[str, str]:
@@ -350,7 +365,7 @@ def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> N
 
 
 def test_all_rebuilt_publisher_scroll_lists_reset_after_refresh() -> None:
-    source = PUBLISHER_UI.read_text(encoding="utf-8")
+    source = _publisher_source()
     resources_method = source.split("def _fill_resources", 1)[1].split(
         "def _select_game", 1
     )[0]
@@ -398,7 +413,7 @@ def test_simple_catalog_is_compact_and_has_complete_bulk_selection() -> None:
 
 def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
-    publisher_source = PUBLISHER_UI.read_text(encoding="utf-8")
+    publisher_source = _publisher_source()
 
     assert 'text="GitHub"' in source
     assert 'text="清除全部记录"' in source
@@ -410,13 +425,26 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "measure_download_speed(url)" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
     assert "已生成静态目录 catalog.json" in publisher_source
-    assert '"发布当前游戏"' in publisher_source
+    assert '"DLC / 补丁流水线"' in publisher_source
+    assert '"进入 DLC / 补丁发布批次"' in publisher_source
     assert '"发布客户端"' in publisher_source
     assert '"维护基础设施"' in publisher_source
     assert 'text="展开高级操作 ▾"' in publisher_source
     assert "def _toggle_publish_advanced" in publisher_source
     assert 'text="单源发布程序更新"' in publisher_source
     assert 'text="单源发布模块归档"' in publisher_source
+    content_management_source = (PUBLISHER_ROOT / "content_management_ui.py").read_text(encoding="utf-8")
+    release_actions_source = (PUBLISHER_ROOT / "release_actions_ui.py").read_text(encoding="utf-8")
+    release_center_ui_source = (PUBLISHER_ROOT / "release_center_ui.py").read_text(encoding="utf-8")
+    assert 'command=lambda value=path: self.upload_remote_file(value)' not in content_management_source
+    release_center_source = (PUBLISHER_ROOT / "release_center.py").read_text(encoding="utf-8")
+    assert "self._open_game_content_release_pipeline()" in release_actions_source
+    assert "self.content_release_tab = self.content_tabs.add(\"DLC / 补丁发布\")" in (PUBLISHER_ROOT / "ui.py").read_text(encoding="utf-8")
+    assert "def _build_content_release_tab" in content_management_source
+    assert "self.game_menu = ctk.CTkOptionMenu" in content_management_source
+    assert "command=self.open_game_content_pipeline" in release_center_source
+    assert "open_game_content_pipeline=self._open_game_content_release_pipeline" in release_center_ui_source
+    assert "self.workspace.publish_files(profile)" in release_center_ui_source
     assert 'text="一键移除补丁"' in source
     assert 'text="移除本程序安装内容"' in source
     assert 'text="卸载全部 DLC"' not in source

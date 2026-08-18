@@ -9,15 +9,45 @@ import zipfile
 from queue import SimpleQueue
 from types import SimpleNamespace
 
+import signriver_publisher.compatibility_publish_ui as compatibility_publish_ui
+import signriver_publisher.release_center as release_center_ui
 import signriver_publisher.ui as publisher_ui
+from signriver_publisher.release_center import ReleaseCenter
+from signriver_publisher.release_center_ui import ReleaseCenterUiMixin
+from signriver_publisher.publisher_targets_ui import PublisherTargetsUiMixin
+from signriver_publisher.release_models import CheckResult, ReleaseStatus
+from signriver_publisher.release_service import ReleaseService
 from signriver_publisher.ui import PublisherApplication
 from signriver_publisher.updates import UpdateReleaseDraft
+
+
+def _write_program_package(path, *, platform: str, version: str = "0.2.0"):
+    manifest = {
+        "schema_version": 1,
+        "version": version,
+        "target_platform": platform,
+        "target_arch": "x64",
+        "files": [],
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("release-manifest.json", json.dumps(manifest))
+        archive.writestr("payload.txt", platform)
+    return path
+
+
+def _publisher_ui_sources() -> str:
+    return "\n".join(
+        inspect.getsource(base)
+        for base in PublisherApplication.__mro__
+        if base.__module__.startswith("signriver_publisher.")
+    )
 
 
 class _UiHarness:
     def __init__(self) -> None:
         self._ui_events = SimpleQueue()
         self._ui_pump_running = True
+        self._is_closing = False
         self._pending_upload_progress = None
         self._pending_upload_progress_lock = threading.Lock()
         self.progress = []
@@ -160,7 +190,7 @@ def test_update_target_reports_github_upload_progress(monkeypatch, tmp_path) -> 
         ):
             progress(path.stat().st_size, path.stat().st_size)
 
-    monkeypatch.setattr(publisher_ui, "GitHubReleaseClient", Client)
+    monkeypatch.setattr(compatibility_publish_ui, "GitHubReleaseClient", Client)
     harness = SimpleNamespace(
         _update_paths=PublisherApplication._update_paths,
         _queue_upload_progress=lambda *value: events.append(value),
@@ -188,7 +218,7 @@ def test_update_target_reports_gitlink_upload_progress(monkeypatch, tmp_path) ->
         ):
             progress(path.stat().st_size, path.stat().st_size)
 
-    monkeypatch.setattr(publisher_ui, "RemoteResourceManager", Manager)
+    monkeypatch.setattr(compatibility_publish_ui, "RemoteResourceManager", Manager)
     harness = SimpleNamespace(
         _update_paths=PublisherApplication._update_paths,
         _queue_upload_progress=lambda *value: events.append(value),
@@ -259,9 +289,9 @@ def test_publisher_pause_keeps_single_writer_reservation() -> None:
 
 
 def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None:
-    source = inspect.getsource(PublisherApplication)
+    source = _publisher_ui_sources()
 
-    assert 'self.tabs.add("卡带管理")' in source
+    assert 'self.cartridges_tab = self.content_tabs.add("卡带与 Hub")' in source
     assert 'text="管理公告"' in source
     assert "def open_announcement_manager" in source
     assert "def preview_announcement" in source
@@ -276,13 +306,24 @@ def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None
     assert "请将这些文件上传到资源仓库" not in source
 
 
-def test_publisher_tab_order_puts_cartridge_management_last() -> None:
+def test_publisher_uses_task_oriented_workspace_tabs() -> None:
     source = inspect.getsource(PublisherApplication._build_ui)
+    content_source = inspect.getsource(PublisherApplication._build_content_workspace)
+    review_source = inspect.getsource(PublisherApplication._build_review_workspace)
+    maintenance_source = inspect.getsource(PublisherApplication._build_maintenance_workspace)
 
-    games = source.index('self.tabs.add("卡带配置")')
-    acceptance = source.index('self.tabs.add("发布验收")')
-    management = source.index('self.tabs.add("卡带管理")')
-    assert games < acceptance < management
+    workbench = source.index('self.tabs.add("发布工作台")')
+    content = source.index('self.tabs.add("内容准备")')
+    review = source.index('self.tabs.add("核对与验收")')
+    accounts = source.index('self.tabs.add("账号与发布目标")')
+    maintenance = source.index('self.tabs.add("高级维护")')
+    assert workbench < content < accounts < maintenance < review
+    assert 'self.tabs.add("执行与恢复")' not in source
+    assert 'self.sources_tab = self.content_tabs.add("本地资源")' in content_source
+    assert 'self.games_tab = self.content_tabs.add("游戏内容")' in content_source
+    assert 'self.cartridges_tab = self.content_tabs.add("卡带与 Hub")' in content_source
+    assert 'self.acceptance_tab = self.review_tabs.add("人工验收（参考）")' in review_source
+    assert 'self.build_tab = self.maintenance_tabs.add("兼容发布（回退 / 修复）")' in maintenance_source
 
 
 def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
@@ -291,7 +332,6 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
         "clear_local_resources",
         "build_all",
         "refresh_steam_data",
-        "publish_release",
         "publish_cartridge_hub_mirror",
         "publish_cartridge_hub",
         "generate_client_hub",
@@ -306,11 +346,26 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
         source = inspect.getsource(getattr(PublisherApplication, name))
         assert "_begin_background_mutation" in source, name
 
+    # 发布入口必须在用户确认后才由实际启动器占用写锁；否则只读
+    # 检查或取消确认会留下幽灵“正在上传”状态。
+    publish_source = inspect.getsource(PublisherApplication.publish_release)
+    start_source = inspect.getsource(PublisherApplication._start_publish)
+    assert "_start_publish(" in publish_source
+    assert "_begin_background_mutation" in start_source
+
 
 def test_publisher_worker_functions_do_not_touch_obvious_tk_apis_directly() -> None:
-    tree = ast.parse(textwrap.dedent(inspect.getsource(PublisherApplication)))
+    trees = [
+        ast.parse(textwrap.dedent(source))
+        for source in (
+            inspect.getsource(base)
+            for base in PublisherApplication.__mro__
+            if base.__module__.startswith("signriver_publisher.")
+        )
+    ]
     workers = [
         node
+        for tree in trees
         for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and (node.name == "work" or node.name == "_publish_worker")
@@ -369,13 +424,44 @@ class _CloseHarness:
         self._remote_operation_active = False
         self._upload_control = None
         self._ui_pump_running = True
+        self._is_closing = False
+        self.withdrawn = False
         self.destroyed = False
 
     def _active_background_mutations(self):
         return PublisherApplication._active_background_mutations(self)
 
+    def withdraw(self) -> None:
+        self.withdrawn = True
+
     def destroy(self) -> None:
         self.destroyed = True
+
+
+def test_stale_upload_control_does_not_claim_background_upload() -> None:
+    harness = _CloseHarness()
+    harness._upload_control = object()
+
+    assert PublisherApplication._active_background_mutations(harness) == ()
+
+
+def test_publisher_close_allows_stale_upload_control_after_rejected_start() -> None:
+    harness = _CloseHarness()
+    harness._upload_control = object()
+
+    PublisherApplication._close_publisher(harness)
+
+    assert harness.destroyed
+    assert harness.withdrawn
+    assert harness._is_closing
+    assert not harness._ui_pump_running
+
+
+def test_compatibility_publish_defers_upload_control_until_start() -> None:
+    source = inspect.getsource(compatibility_publish_ui.CompatibilityPublishUiMixin.publish_release)
+
+    assert "_upload_control = UploadControl()" not in source
+    assert source.index("_start_publish(") > source.index("_confirm_maintenance_authorization(")
 
 
 def test_publisher_close_blocks_active_upload_without_stopping_pump(
@@ -439,4 +525,331 @@ def test_publisher_idle_close_stops_pump_then_destroys() -> None:
     PublisherApplication._close_publisher(harness)
 
     assert harness.destroyed
+    assert harness.withdrawn
+    assert harness._is_closing
     assert not harness._ui_pump_running
+
+
+def test_publisher_close_hides_window_before_destroying() -> None:
+    source = inspect.getsource(PublisherApplication._close_publisher)
+
+    assert source.index("self.withdraw()") < source.index("self.destroy()")
+    assert "self._is_closing = True" in source
+
+
+def test_release_center_batch_sidebar_is_fixed_and_primary_actions_are_larger() -> None:
+    source = inspect.getsource(ReleaseCenter._build_batches_page)
+    home_source = inspect.getsource(ReleaseCenter._build_home_page)
+
+    assert "grid_columnconfigure(0, weight=0, minsize=360)" in source
+    assert "grid_columnconfigure(1, weight=1)" in source
+    assert "history_card.grid_propagate(False)" in source
+    assert 'text="归档 / 移除当前草稿"' in source
+    assert "self.board_content = ctk.CTkScrollableFrame" in source
+    assert 'text="同一批次的操作顺序"' in home_source
+    assert '"① 准备"' in home_source
+    assert '"④ 执行"' in home_source
+    assert "height=48" in home_source
+    assert "height=64" in home_source
+
+
+def test_archiving_batch_keeps_the_batch_board_open() -> None:
+    source = inspect.getsource(ReleaseCenter.archive_current_batch)
+
+    assert 'self.show_page("home")' not in source
+    assert 'self._render_empty_state("批次已归档。' in source
+
+
+def test_release_center_worker_posts_terminal_callbacks_and_releases_lease() -> None:
+    source = inspect.getsource(PublisherApplication._execute_release_center_batch)
+    done_source = inspect.getsource(PublisherApplication._release_center_finished)
+    failed_source = inspect.getsource(PublisherApplication._release_center_failed)
+
+    assert 'threading.Thread(' in source
+    assert source.count('self._post_ui(') == 2
+    assert 'messagebox.' not in source
+    assert '.configure(' not in source
+    assert '_end_background_mutation("release-center")' in done_source
+    assert '_end_background_mutation("release-center")' in failed_source
+    assert 'execute_game_content' in source
+    assert 'execute_hub' in source
+
+
+def test_release_center_restores_execute_button_when_lease_is_rejected() -> None:
+    execute_button = _ButtonHarness()
+    pause_button = _ButtonHarness()
+    execution_status_label = _ButtonHarness()
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        execute_button=execute_button,
+        pause_button=pause_button,
+        execution_status_label=execution_status_label,
+        execute_batch=lambda *_args: False,
+        _execution_done=lambda _plan: None,
+        _execution_failed=lambda _error: None,
+    )
+
+    ReleaseCenter.execute(harness)
+
+    assert execute_button.calls == [
+        {"state": "disabled", "text": "执行中…"},
+        {"state": "normal", "text": "执行 / 恢复"},
+    ]
+    assert {"state": "disabled", "text": "安全暂停（启动中）"} in pause_button.calls
+
+
+def test_advanced_maintenance_delete_has_batch_scoped_second_confirmation() -> None:
+    source = inspect.getsource(PublisherApplication.delete_all_remote_resources)
+    confirmation = inspect.getsource(PublisherApplication._confirm_maintenance_authorization)
+
+    assert '_confirm_maintenance_authorization(' in source
+    assert 'prepare_maintenance(' in confirmation
+    assert 'authorize_maintenance(' in confirmation
+    assert '缺少关联批次' in confirmation
+    assert 'simpledialog.askstring(' in confirmation
+    for method in (
+        PublisherApplication.delete_remote_resource,
+        PublisherApplication.adopt_remote_assets,
+        PublisherApplication.publish_release,
+        PublisherApplication.publish_update_release,
+        PublisherApplication.publish_module_archive,
+        PublisherApplication.publish_cartridge_hub,
+    ):
+        assert '_confirm_maintenance_authorization(' in inspect.getsource(method)
+
+
+def test_release_center_confirmation_summary_exposes_side_effects(tmp_path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    for platform in ("windows", "steamos", "macos"):
+        _write_program_package(
+            inbox / f"SignRiver-DLC-Hub-full-v0.2.0-{platform}-x64.zip",
+            platform=platform,
+        )
+    plan = service.create_program_batch(
+        version="0.2.0", inbox=inbox, notes="说明。建议尽快更新。",
+        remote_targets={
+            "gitlink": {"owner": "test-gitlink", "repository": "signriver-test"},
+            "github": {"owner": "sign-river", "repository": "SignRiver-Test"},
+        },
+    )
+    plan = service.preflight(plan.batch_id)
+    summary = ReleaseCenter._confirmation_summary(plan)
+    assert "SHA-256" in summary
+    assert "GitLink：test-gitlink/signriver-test" in summary
+    assert "GitHub：sign-river/SignRiver-Test" in summary
+    assert "上传附件并切换更新清单" in summary
+    assert "硬门禁、警告与跳过项" in summary
+
+
+def test_release_center_shows_frozen_repository_targets() -> None:
+    source = inspect.getsource(ReleaseCenter)
+
+    assert "本批次实际发布目标（创建时已冻结）" in source
+    assert "self._publication_target_text(plan.remote_targets, frozen=True)" in source
+    assert "下次创建批次将使用的发布目标" in source
+
+
+def test_release_center_execution_uses_batch_frozen_targets() -> None:
+    source = inspect.getsource(ReleaseCenterUiMixin._release_center_providers)
+
+    assert "plan.remote_targets.get(provider, {})" in source
+    assert "GitHubRepository(github_owner, github_repository)" in source
+    assert "GitLinkRepository(gitlink_owner, gitlink_repository)" in source
+
+
+def test_publisher_target_page_exposes_repositories_without_rendering_tokens() -> None:
+    source = inspect.getsource(PublisherTargetsUiMixin)
+
+    assert "账号与发布目标（独立界面）" in source
+    assert "账号配置" in source
+    assert "保存 {provider} 目标" in source
+    assert "def _save_publisher_target_settings" in source
+    assert "self.tabs.set(\"高级维护\")" not in source
+    assert "目标仓库：{repository_name}" in source
+    assert "凭据状态：{credential_text}" in source
+    assert "text=self.settings.token" not in source
+    assert "text=self.settings.github_token" not in source
+
+
+def test_release_center_cancelled_confirmation_does_not_freeze(monkeypatch) -> None:
+    calls = []
+    plan = SimpleNamespace(
+        batch_id="batch",
+        preflight=[SimpleNamespace(check_id="human.acceptance", result=CheckResult.PASS)],
+    )
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        service=SimpleNamespace(
+            get=lambda _batch_id: plan,
+            confirm=lambda _batch_id: calls.append("confirmed"),
+        ),
+        _confirmation_summary=lambda _plan: "summary",
+        _render=lambda _plan: calls.append("rendered"),
+    )
+    monkeypatch.setattr(publisher_ui.messagebox, "askyesno", lambda *_args, **_kwargs: False)
+    ReleaseCenter.confirm(harness)
+    assert calls == []
+
+def test_release_center_confirms_with_acceptance_warning_without_skip_reason(
+    monkeypatch,
+) -> None:
+    calls = []
+    plan = SimpleNamespace(batch_id="batch", preflight=[])
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        service=SimpleNamespace(
+            get=lambda _batch_id: plan,
+            confirm=lambda _batch_id, **kwargs: calls.append(kwargs) or plan,
+        ),
+        _confirmation_summary=lambda _plan: "summary",
+        _render=lambda _plan: calls.append("rendered"),
+    )
+    monkeypatch.setattr(
+        release_center_ui.messagebox, "askyesno", lambda *_args, **_kwargs: True
+    )
+
+    ReleaseCenter.confirm(harness)
+
+    assert calls == [{"skipped_acceptance_reason": None}, "rendered"]
+
+
+def test_release_center_acceptance_warning_is_not_a_confirmation_blocker(
+    monkeypatch,
+) -> None:
+    calls = []
+    plan = SimpleNamespace(
+        batch_id="batch",
+        preflight=[SimpleNamespace(check_id="human.acceptance", result=CheckResult.WARNING)],
+    )
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        service=SimpleNamespace(
+            get=lambda _batch_id: plan,
+            confirm=lambda *_args, **_kwargs: calls.append("confirmed") or plan,
+        ),
+        _confirmation_summary=lambda _plan: "summary",
+        _render=lambda _plan: calls.append("rendered"),
+    )
+    monkeypatch.setattr(
+        release_center_ui.messagebox, "askyesno", lambda *_args, **_kwargs: True
+    )
+
+    ReleaseCenter.confirm(harness)
+
+    assert calls == ["confirmed", "rendered"]
+
+
+def test_release_center_directory_picker_starts_at_current_inbox() -> None:
+    source = inspect.getsource(ReleaseCenter._choose_inbox)
+
+    assert 'initialdir=str(initialdir)' in source
+    assert 'current if current.is_dir() else self.default_inbox' in source
+
+
+def test_release_center_baseline_actions_provide_visible_feedback_and_default_export_name() -> None:
+    source = inspect.getsource(ReleaseCenterUiMixin._capture_release_center_baseline)
+    export_source = inspect.getsource(ReleaseCenterUiMixin._export_release_center_baseline)
+
+    assert 'text="读取中…"' in source
+    assert '远端基线已读取' in source
+    assert 'refresh_history()' in source
+    assert 'initialfile=f"signriver-remote-baseline-v{safe_target}.json"' in export_source
+
+
+def test_release_center_renders_operator_facing_batch_labels() -> None:
+    source = inspect.getsource(ReleaseCenter)
+
+    assert '程序更新' in source
+    assert '待冻结确认' in source
+    assert '收件文件' in source
+    assert '批次编号（仅用于支持与排障）' in source
+    assert '归档 / 移除草稿' in source
+    assert 'self.history, text=label, anchor="w", height=66' in source
+    assert 'anchor="w", justify="left", height=54' not in source
+
+
+def test_release_center_uses_replaceable_pages_for_specialist_operations() -> None:
+    source = inspect.getsource(ReleaseCenter)
+
+    assert 'self.page_container' in source
+    assert 'page.grid_remove()' in source
+    assert 'def show_page(self, name: str)' in source
+    assert 'self._build_home_page()' in source
+    assert 'self._build_preparation_page()' in source
+    assert 'self._build_batches_page()' in source
+    assert 'self._build_baseline_page()' not in source
+    assert 'self._build_preflight_page()' in source
+    assert 'self._build_execution_page()' in source
+    assert 'self.show_page("batches")' in source
+    assert '"② 核对", "批次看板内远端核对（可选）", "batches"' in source
+    board_source = inspect.getsource(ReleaseCenter._build_batches_page)
+    assert 'text="远端核对（只读）"' in board_source
+    assert 'text="读取远端基线（只读）"' in board_source
+    assert 'text="导出基线 JSON"' in board_source
+    assert 'state="disabled"' in board_source
+    assert 'height=150' in source
+
+
+class _ButtonHarness:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def configure(self, **kwargs) -> None:
+        self.calls.append(kwargs)
+
+
+def test_release_center_execution_starts_progress_monitor_and_keeps_pause_for_running_state() -> None:
+    calls: list[object] = []
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        execute_button=_ButtonHarness(),
+        pause_button=_ButtonHarness(),
+        execution_status_label=_ButtonHarness(),
+        execute_batch=lambda batch_id, on_done, on_error: calls.append(batch_id) or True,
+        _execution_done=lambda _plan: None,
+        _execution_failed=lambda _error: None,
+        _refresh_execution_progress=lambda batch_id: calls.append(("monitor", batch_id)),
+        _pause_requested=False,
+    )
+
+    ReleaseCenter.execute(harness)
+
+    assert calls == ["batch", ("monitor", "batch")]
+    assert harness._execution_in_progress is True
+    assert {"state": "disabled", "text": "安全暂停（启动中）"} in harness.pause_button.calls
+
+
+def test_release_center_progress_monitor_renders_running_stage_and_reschedules() -> None:
+    calls: list[object] = []
+    plan = SimpleNamespace(status=ReleaseStatus.RUNNING)
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        _execution_in_progress=True,
+        service=SimpleNamespace(get=lambda batch_id: calls.append(("get", batch_id)) or plan),
+        _render=lambda value: calls.append(("render", value)),
+        after=lambda delay, callback: calls.append(("after", delay)) or "after-id",
+    )
+
+    ReleaseCenter._refresh_execution_progress(harness, "batch")
+
+    assert calls == [("get", "batch"), ("render", plan), ("after", 450)]
+    assert harness._execution_monitor_after_id == "after-id"
+
+
+def test_release_center_pause_marks_request_pending_until_safe_checkpoint() -> None:
+    calls: list[object] = []
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        pause_button=_ButtonHarness(),
+        execution_status_label=_ButtonHarness(),
+        pause_batch=lambda batch_id: calls.append(batch_id),
+        _pause_requested=False,
+    )
+
+    ReleaseCenter.pause(harness)
+
+    assert calls == ["batch"]
+    assert harness._pause_requested is True
+    assert {"state": "disabled", "text": "已请求安全暂停…"} in harness.pause_button.calls

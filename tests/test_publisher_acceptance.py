@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from signriver_publisher import AcceptanceError, AcceptanceManager, PublisherWorkspace
+from signriver_publisher.acceptance_ui import AcceptanceUiMixin
 from signriver_publisher.acceptance import FAILED, PASSED
 from signriver_launcher.product import RELEASE_EXE_NAME
 
@@ -18,6 +19,18 @@ def manager_for(tmp_path: Path) -> tuple[PublisherWorkspace, AcceptanceManager]:
 
 def profile_by_id(workspace: PublisherWorkspace, game_id: str):
     return next(profile for profile in workspace.list_games() if profile.game_id == game_id)
+
+
+def test_acceptance_display_path_accepts_path_and_uses_default_limit() -> None:
+    view = object.__new__(AcceptanceUiMixin)
+    short_path = Path(r"D:\builds\SignRiver-Publisher.exe")
+    long_path = Path("D:/" + "nested/" * 30 + "SignRiver-Publisher.exe")
+
+    assert view._acceptance_display_path(short_path) == str(short_path)
+    displayed = view._acceptance_display_path(long_path, limit=24)
+    assert displayed.startswith("…")
+    assert displayed.endswith("SignRiver-Publisher.exe")
+    assert len(displayed) == 24
 
 
 def test_acceptance_checklist_adds_mapping_case_only_to_mapping_cartridges(
@@ -435,11 +448,13 @@ def test_patch_directory_rejects_escape_and_names_active_cartridge(
 
 
 def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
-    source = (Path(__file__).parents[1] / "src" / "signriver_publisher" / "ui.py").read_text(
-        encoding="utf-8"
-    )
+    package = Path(__file__).parents[1] / "src" / "signriver_publisher"
+    ui_source = (package / "ui.py").read_text(encoding="utf-8")
+    source = (package / "acceptance_ui.py").read_text(encoding="utf-8")
 
-    assert 'self.tabs.add("发布验收")' in source
+    assert 'self.tabs.add("核对与验收")' in ui_source
+    assert 'self.acceptance_tab = self.review_tabs.add("人工验收（参考）")' in ui_source
+    assert "AcceptanceUiMixin" in ui_source
     assert "开始新一轮" in source
     assert "检查并记录" in source
     assert "标记通过" in source
