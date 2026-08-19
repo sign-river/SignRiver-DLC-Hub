@@ -142,7 +142,8 @@ class ReleaseCatalogService:
         if profile is None:
             return None, ()
         wanted = {
-            profile.unlocker_dll_name.casefold(): "unlocker_dll",
+            "unlocker.dll": "unlocker_dll",
+            "original.dll": "original_dll",
             profile.appinfo_asset_name.casefold(): "appinfo_json",
         }
         found: dict[str, ReleaseAsset] = {}
@@ -161,6 +162,7 @@ class ReleaseCatalogService:
         bundle = PatchBundle(
             profile=profile,
             unlocker_dll=found["unlocker_dll"],
+            original_dll=found["original_dll"],
             appinfo_json=found["appinfo_json"],
             release_tag=release.tag,
         )

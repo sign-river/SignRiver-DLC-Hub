@@ -56,10 +56,15 @@ class UploadSnapshotAttachmentsStage:
         attachments = [item for item in plan.artifacts if item.role != self.index_role]
         if not attachments:
             raise ReleaseStageError("发布快照没有附件", retryable=False)
+        desired_names = {artifact.filename for artifact in attachments}
+        desired_names.add(next(item.filename for item in plan.artifacts if item.role == self.index_role))
+        delete_confirmed = bool(plan.options.get("mirror_delete_confirmed"))
         ready: dict[str, list[str]] = {}
         reused: dict[str, list[str]] = {}
+        deleted: dict[str, list[str]] = {}
+        pending_deletes: dict[str, list[str]] = {}
         for source, provider in self.providers.items():
-            ready[source], reused[source] = [], []
+            ready[source], reused[source], deleted[source], pending_deletes[source] = [], [], [], []
             for artifact in attachments:
                 if self.checkpoint:
                     self.checkpoint(plan)
@@ -71,8 +76,32 @@ class UploadSnapshotAttachmentsStage:
                     if not _verified(result, artifact):
                         raise ReleaseStageError(f"{source} 附件回读失败：{artifact.filename}")
                 ready[source].append(artifact.filename)
+            baseline = provider.read_baseline()
+            remote_names = {
+                str(item.get("name") or "")
+                for item in baseline.get("assets", [])
+                if isinstance(item, dict)
+            }
+            extras = sorted(name for name in remote_names - desired_names if name)
+            if extras and not delete_confirmed:
+                pending_deletes[source] = extras
+                continue
+            for remote_name in extras:
+                if self.checkpoint:
+                    self.checkpoint(plan)
+                if provider.delete(remote_name).exists:
+                    raise ReleaseStageError(f"{source} 附件删除后仍存在：{remote_name}")
+                deleted[source].append(remote_name)
+        if any(pending_deletes.values()):
+            details = "；".join(
+                f"{source}: {', '.join(names)}"
+                for source, names in pending_deletes.items() if names
+            )
+            raise ReleaseStageError(
+                f"检测到远端多余附件，需二次确认镜像删除：{details}", retryable=False
+            )
         return StageExecutionResult(
-            {"ready": ready, "reused": reused},
+            {"ready": ready, "reused": reused, "deleted": deleted},
             {"all_snapshot_attachments_ready": all(len(value) == len(attachments) for value in ready.values())},
         )
 

@@ -43,8 +43,6 @@ from ...domain.patches import (
 from ...domain.paths import resolve_game_directory
 from .original_library import (
     OriginalLibraryEntry,
-    OriginalLibraryError,
-    OriginalLibraryVault,
 )
 
 
@@ -282,7 +280,6 @@ class PatchEngine:
         self.data_root = Path(data_root).resolve()
         self._replace = replace
         self._clock = clock
-        self.original_library_vault = OriginalLibraryVault(self.data_root, clock=clock)
 
     # ---- persistent installation evidence ---------------------------------
 
@@ -552,75 +549,6 @@ class PatchEngine:
 
     # ---- apply --------------------------------------------------------------
 
-    def _resolve_original_library(
-        self,
-        *,
-        game_root: Path,
-        game_id: str,
-        unlocker_path: Path,
-        runtime_path: Path,
-        ini_path: Path,
-        new_unlocker_hash: str,
-        prior_record: dict[str, object] | None,
-    ) -> OriginalLibraryEntry:
-        if prior_record is not None:
-            original_hash = str(prior_record["runtime_original_sha256"])
-            cache_key = str(prior_record.get("original_library_cache_key") or "")
-            if cache_key:
-                try:
-                    return self.original_library_vault.resolve(
-                        installation_key=cache_key,
-                        sha256=original_hash,
-                        profile=self.profile,
-                    )
-                except OriginalLibraryError:
-                    pass
-            if runtime_path.is_file() and self._sha256_file(runtime_path) == original_hash:
-                return self.original_library_vault.capture(
-                    runtime_path,
-                    game_id=game_id,
-                    profile=self.profile,
-                    game_root=game_root,
-                    source="receipt_runtime_original",
-                )
-            raise PatchError(
-                "原生库保险库不可用，且运行时原生库与安装凭据不匹配；请通过游戏平台验证游戏文件"
-            )
-
-        if runtime_path.exists() or ini_path.exists():
-            complete_legacy = (
-                runtime_path.is_file()
-                and ini_path.is_file()
-                and unlocker_path.is_file()
-                and self._sha256_file(unlocker_path) == new_unlocker_hash
-                and self._sha256_file(runtime_path) != new_unlocker_hash
-            )
-            if not complete_legacy:
-                raise PatchError(
-                    "检测到无法确认来源的旧补丁布局；为避免损坏原生库，已阻止操作，请先通过游戏平台验证游戏文件"
-                )
-            return self.original_library_vault.capture(
-                runtime_path,
-                game_id=game_id,
-                profile=self.profile,
-                game_root=game_root,
-                source="legacy_runtime_original",
-            )
-
-        if not unlocker_path.is_file():
-            raise PatchError("游戏主库缺失；请先通过游戏平台验证游戏文件")
-        if self._sha256_file(unlocker_path) == new_unlocker_hash:
-            raise PatchError(
-                "游戏主库已是代理库，但没有可信原生库；请先通过游戏平台验证游戏文件"
-            )
-        return self.original_library_vault.capture(
-            unlocker_path,
-            game_id=game_id,
-            profile=self.profile,
-            game_root=game_root,
-            source="game_primary_original",
-        )
-
     @_with_installation_lock
     def apply(
         self,
@@ -629,19 +557,34 @@ class PatchEngine:
         unlocker_dll_source: Path,
         appinfo_json_source: Path,
         game_id: str,
+        original_dll_source: Path | None = None,
     ) -> PatchApplyResult:
-        """Apply or repair a patch using only a user-owned original library."""
+        """Apply a complete publisher-provided patch transaction."""
         game_root = Path(game_root).resolve(strict=True)
         if not game_root.is_dir():
             raise PatchError("目标游戏目录不存在")
         unlocker_source = Path(unlocker_dll_source).resolve(strict=True)
+        # New callers always provide the published original asset.  The
+        # optional fallback only keeps pre-0.2 integrations callable while
+        # they migrate; it is never used by the client workflow.
+        original_source = (
+            Path(original_dll_source).resolve(strict=True)
+            if original_dll_source is not None
+            else self._patch_root(game_root) / self.profile.unlocker_dll_name
+        )
         appinfo_source = Path(appinfo_json_source).resolve(strict=True)
         self._reject_oversized_dll(unlocker_source, "补丁库")
+        self._reject_oversized_dll(original_source, "原生库")
         unlocker_bytes = unlocker_source.read_bytes()
+        original_bytes = original_source.read_bytes()
         if not _looks_like_binary(unlocker_bytes[:4096]):
             raise PatchError("补丁库二进制格式无效")
+        if not _looks_like_binary(original_bytes[:4096]):
+            raise PatchError("原生库二进制格式无效")
         unlocker_hash = self._sha256_bytes(unlocker_bytes)
+        original_hash = self._sha256_bytes(original_bytes)
         unlocker_mode = unlocker_source.stat().st_mode & 0o777 if os.name != "nt" else None
+        original_mode = original_source.stat().st_mode & 0o777 if os.name != "nt" else None
         appinfo = parse_appinfo_document(appinfo_source.read_bytes())
         config_body = render_patch_config(appinfo, self.profile.template)
         ini_payload = (
@@ -657,38 +600,11 @@ class PatchEngine:
         unlocker_path = patch_root / unlocker_name
         runtime_path = patch_root / runtime_name
         ini_path = patch_root / ini_name
-        prior_record = self._load_installation_record(game_root)
-
-        if prior_record is not None and unlocker_path.is_file():
-            current_hash = self._sha256_file(unlocker_path)
-            allowed = {
-                str(prior_record["unlocker_sha256"]),
-                str(prior_record["runtime_original_sha256"]),
-                unlocker_hash,
-            }
-            if current_hash not in allowed:
-                raise PatchError("游戏主库已被外部修改，拒绝自动覆盖")
-
-        try:
-            original = self._resolve_original_library(
-                game_root=game_root,
-                game_id=game_id,
-                unlocker_path=unlocker_path,
-                runtime_path=runtime_path,
-                ini_path=ini_path,
-                new_unlocker_hash=unlocker_hash,
-                prior_record=prior_record,
-            )
-        except OriginalLibraryError as error:
-            raise PatchError(str(error)) from error
-
         audit_before = self.audit(
             game_root,
             expected_unlocker_size=len(unlocker_bytes),
-            expected_backup_size=original.size_bytes,
+            expected_backup_size=len(original_bytes),
         )
-        original_bytes = original.path.read_bytes()
-        original_mode = original.path.stat().st_mode & 0o777 if os.name != "nt" else None
         actions: list[_Action] = []
         transaction_root = self._make_transaction_root("apply")
         replaced_paths: list[str] = []
@@ -696,13 +612,13 @@ class PatchEngine:
         unlocker_changed = False
         ini_written = False
         try:
-            if not runtime_path.is_file() or self._sha256_file(runtime_path) != original.sha256:
+            if not runtime_path.is_file() or self._sha256_file(runtime_path) != original_hash:
                 if runtime_path.is_file():
                     self._backup_file(runtime_path, transaction_root, actions)
                     replaced_paths.append(self.profile.relative_file_path(runtime_name))
                 self._write_file_atomic(original_bytes, runtime_path, actions, mode=original_mode)
                 runtime_changed = True
-            if self._sha256_file(runtime_path) != original.sha256:
+            if self._sha256_file(runtime_path) != original_hash:
                 raise PatchError("运行时原生库写入后校验失败")
 
             if not ini_path.is_file() or ini_path.read_bytes() != ini_payload:
@@ -729,15 +645,15 @@ class PatchEngine:
             receipt = PatchReceipt(
                 game_id=game_id,
                 unlocker_dll_size=len(unlocker_bytes),
-                runtime_original_library_size=original.size_bytes,
+                runtime_original_library_size=len(original_bytes),
                 ini_bytes=len(ini_payload),
                 backup_created=runtime_changed,
                 replaced_files=tuple(replaced_paths),
                 unlocker_sha256=unlocker_hash,
-                runtime_original_sha256=original.sha256,
+                runtime_original_sha256=original_hash,
                 ini_sha256=self._sha256_bytes(ini_payload),
-                original_library_cache_key=original.installation_key,
-                original_library_source=original.source,
+                original_library_cache_key="",
+                original_library_source="published_original",
             )
             self._write_installation_record(game_root, receipt, transaction_root, actions)
             audit_after = self.audit_recorded(game_root)
@@ -772,30 +688,20 @@ class PatchEngine:
         record: dict[str, object],
     ) -> OriginalLibraryEntry:
         original_hash = str(record["runtime_original_sha256"])
-        cache_key = str(record.get("original_library_cache_key") or "")
-        if cache_key:
-            try:
-                return self.original_library_vault.resolve(
-                    installation_key=cache_key,
-                    sha256=original_hash,
-                    profile=self.profile,
-                )
-            except OriginalLibraryError:
-                pass
         runtime_path = self._patch_root(game_root) / self.profile.runtime_original_library_name
         if runtime_path.is_file() and self._sha256_file(runtime_path) == original_hash:
-            game_id = str(record.get("game_id") or "unknown")
-            try:
-                return self.original_library_vault.capture(
-                    runtime_path,
-                    game_id=game_id,
-                    profile=self.profile,
-                    game_root=game_root,
-                    source="receipt_runtime_original",
-                )
-            except OriginalLibraryError as error:
-                raise PatchError(str(error)) from error
-        raise PatchError("可信原生库缺失；请先通过游戏平台验证游戏文件")
+            return OriginalLibraryEntry(
+                installation_key="",
+                sha256=original_hash,
+                path=runtime_path,
+                metadata_path=Path(),
+                filename=self.profile.runtime_original_library_name,
+                size_bytes=runtime_path.stat().st_size,
+                binary_format="published",
+                architecture="unknown",
+                source="recorded_runtime_original",
+            )
+        raise PatchError("可信原生库缺失；请重新下载补丁资产后修复或移除")
 
     def inspect_original_restore(self, game_root: Path) -> PatchRestoreReadiness:
         """Preflight a fail-closed return to the original primary library."""

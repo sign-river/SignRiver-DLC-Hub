@@ -776,10 +776,17 @@ class PublisherWorkspace:
         self._atomic_json(self._build_state_path(profile), {"version": 1, "dlcs": next_dlcs})
 
         patch_by_name = {path.name.lower(): path for path in patches}
-        for dll_name in profile.patch_asset_names:
-            source = patch_by_name.get(dll_name)
+        source_aliases = {
+            "unlocker.dll": profile.patch_unlocker_name.casefold(),
+            "original.dll": profile.patch_runtime_original_name.casefold(),
+        }
+        for asset_name in profile.patch_asset_names:
+            source = (
+                patch_by_name.get(asset_name.casefold())
+                or patch_by_name.get(source_aliases[asset_name])
+            )
             if source is None or not source.is_file():
-                raise WorkspaceError(f"补丁目录缺少 {dll_name}")
+                raise WorkspaceError(f"补丁目录缺少 {asset_name}")
 
         if progress is not None:
             progress("正在刷新", 0, total_dlcs, profile.appinfo_name, "Steam AppInfo")
@@ -788,10 +795,13 @@ class PublisherWorkspace:
         records.append(self._record("appinfo", appinfo.app_id, appinfo.name, appinfo_output, appinfo_output))
         expected.add(profile.appinfo_name)
 
-        # New releases contain only the program proxy library.  A legacy
-        # runtime-original file may still exist in publisher-workspace, but it
-        # is deliberately ignored and removed from regenerated output.
-        for source in (patch_by_name[profile.patch_unlocker_name.lower()],):
+        # Patch assets have stable release-side names.  Their game-directory
+        # destinations are declared by the cartridge and never inferred from
+        # a user's existing DLL layout.
+        for source, asset_name in (
+            (patch_by_name.get("unlocker.dll") or patch_by_name[profile.patch_unlocker_name.casefold()], "unlocker.dll"),
+            (patch_by_name.get("original.dll") or patch_by_name[profile.patch_runtime_original_name.casefold()], "original.dll"),
+        ):
             if progress is not None:
                 progress("正在整理补丁", 0, total_dlcs, source.name, "")
             if source.is_symlink():
@@ -801,7 +811,6 @@ class PublisherWorkspace:
                 output = target / asset_name
                 self._zip_directory(source, output, include_root=True)
             elif source.is_file():
-                asset_name = source.name
                 output = target / asset_name
                 shutil.copy2(source, output)
             else:

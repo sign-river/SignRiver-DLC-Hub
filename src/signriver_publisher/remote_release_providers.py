@@ -151,6 +151,18 @@ class GitHubReleaseProvider:
             raise ReleasePauseRequested(str(exc)) from exc
         return self.inspect(artifact.filename)
 
+    def delete(self, remote_key: str) -> RemoteVerification:
+        current = self.inspect(remote_key)
+        if not current.exists:
+            return current
+        if not current.remote_id:
+            raise RuntimeError(f"无法定位 GitHub 附件：{remote_key}")
+        self.client.delete_asset(int(current.remote_id))
+        result = self.inspect(remote_key)
+        if result.exists:
+            raise RuntimeError(f"GitHub 附件删除后仍存在：{remote_key}")
+        return result
+
     def publish_index(self, plan: ReleasePlan, local_path: Path) -> RemoteVerification:
         artifact = ReleaseArtifact(role="program_manifest", filename=local_path.name)
         return self.upload(artifact, local_path)
@@ -247,6 +259,18 @@ class GitLinkReleaseProvider:
         except UploadPaused as exc:
             raise ReleasePauseRequested(str(exc)) from exc
         return self.inspect(artifact.filename)
+
+    def delete(self, remote_key: str) -> RemoteVerification:
+        current = self.inspect(remote_key)
+        if not current.exists:
+            return current
+        if not current.remote_id:
+            raise RuntimeError(f"无法定位 GitLink 附件：{remote_key}")
+        self.manager.client.delete_attachment(str(current.remote_id))
+        result = self.inspect(remote_key)
+        if result.exists:
+            raise RuntimeError(f"GitLink 附件删除后仍存在：{remote_key}")
+        return result
 
     def publish_index(self, plan: ReleasePlan, local_path: Path) -> RemoteVerification:
         artifact = ReleaseArtifact(role="program_manifest", filename=local_path.name)

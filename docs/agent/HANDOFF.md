@@ -1,10 +1,99 @@
 # 当前任务交接
 
-> 最后更新：2026-08-18（Asia/Shanghai）
+> 最后更新：2026-08-19（Asia/Shanghai）
 > 分支：`main`
-> HEAD：`35c485b`（`refactor(publisher): 模块化发布工作台流程`）
-> 上游状态：`main` 相对 `origin/main` 领先 4、落后 0；未提交设置页改动尚未提交，且不得自动推送。
-> 工作区：修改 `app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py` 及本次交接/决策文档；包含待人工验收的设置页重组与可搜索游戏选择器。未读取或修改本地发布凭据，未构建、不提交、不推送、不执行远端操作。
+> HEAD：`9f402e3`（`feat(client): 优化设置页与游戏选择体验`）
+> 上游状态：`main` 相对 `origin/main` 领先 5、落后 0；本轮仅更新交接与决策文档，禁止自动提交或推送。
+> 工作区：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py` 有未提交的客户端启动修复；`app/versions/0.2.0/` 是被忽略的活动发布目录，已同步该修复。另有发布器 UI 与交接文档的既有未提交改动，必须保留。未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
+
+## 2026-08-19：修复 0.2.0 客户端设置页启动失败
+
+### 原因与修复
+
+- `_blue_switch()` 已默认传入 `width=154`，而两个无文本设置开关又传入 `width=54`；两次传递同名关键字参数使 `CTkSwitch` 初始化直接抛出 `TypeError`。
+- 该帮助函数现在通过 `kwargs.pop("width", 154)` 允许调用方覆盖默认宽度，保持无文本开关原有的 `54 px` 宽度。
+- 修复先写入受跟踪基线 `app/versions/0.1.0/app_entry.py`，再同步到活动模块 `app/versions/0.2.0/app_entry.py`；`app/state.json` 已恢复为活动版本 `0.2.0`，并清空 `bad_versions`。
+- 日志中的 `0.1.7` 数据库 schema 版本过旧错误是 0.2.0 启动失败后回退旧模块造成的连带结果；恢复 0.2.0 后不会走该回退路径。
+
+### 验证与边界
+
+- `./.venv/Scripts/python.exe -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`：通过。
+- `./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_user_settings.py tests/test_client_problem_center.py -q`：60 项通过。
+- 已用源码入口启动客户端（PID 164996），供人工确认窗口正常出现。
+- `ruff` 仍仅报告基线既有的 `app/versions/0.1.0/app_entry.py:6851` 未使用局部变量 `cartridge`；未扩大本次修复范围处理。`git diff --check` 仍仅报告用户已有 `src/signriver_publisher/ui.py` 文件尾空行。
+
+## 2026-08-19：测速的瞬时 TLS EOF 自动重试
+
+- 用户遇到的 `SSL: UNEXPECTED_EOF_WHILE_READING` 表明连接在读取任何测速数据前被对端提前关闭；随后人工重新测速成功，符合瞬时连接中断特征。
+- `measure_download_speed()` 现在仅对首次、尚未读取数据的该类 TLS EOF 等待 `0.4` 秒后自动重试一次；证书校验失败、下载中途失败或第二次失败仍保持原始错误。
+- 修改已同步到 `app/versions/0.1.0/` 与活动的 `app/versions/0.2.0/`。
+- 验证：`py_compile` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_speed_test.py tests/test_ui_theme.py tests/test_user_settings.py -q` 为 53 项通过；针对测速文件与测试的 Ruff 检查通过。`git diff --check` 仍仅报告用户已有 `src/signriver_publisher/ui.py` 文件尾空行。
+
+## 2026-08-19：恢复当前游戏选择器的紧凑外观
+
+- 保留可搜索、可滚动的现有游戏选择弹层；未展开的触发器改为白底文本区加右侧独立蓝色下拉按钮，接近原 `CTkComboBox` 的视觉层级，不再整块填充蓝色。
+- 游戏加载和修复期间会同时禁用文本区与下拉按钮，防止绕开既有的游戏切换锁。
+- 修改已同步到受跟踪基线与活动 `0.2.0` 模块。`py_compile` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_user_settings.py -q` 为 50 项通过。
+- 已启动最新源码客户端（PID 171484）供人工视觉核对。Ruff 仍仅报告既有未使用的 `cartridge` 局部变量；`git diff --check` 仍仅报告用户已有发布器 UI 文件尾空行。
+
+### 后续修正
+
+- 先前以 `CTkFrame + CTkButton` 拼接的版本未能正确裁切分段圆角，视觉效果不合格，已替换。
+- 现在直接使用 `CTkComboBox` 的原生画布分段外观（白底输入区、圆角边框、右侧蓝色箭头），并把输入区、右侧区域和箭头的点击事件全部重定向到既有可搜索弹层；不会打开原生列表。
+- 重新验证：两个版本 `py_compile` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_user_settings.py -q` 为 50 项通过；相关 Ruff 检查通过。`git diff --check` 仍只报告既有发布器 UI 文件尾空行。
+
+## 2026-08-19：精简游戏搜索结果行
+
+- 搜索列表不再把内部 `game_id` 当作每个游戏的第二行展示；该标识仍参与中英文/标识搜索。
+- 非当前游戏改为单行紧凑条目；当前游戏保留第二行“✓ 当前选择”提示。
+- 验证：两个版本 `py_compile` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_user_settings.py -q` 为 50 项通过；相关 Ruff 检查通过。`git diff --check` 仍只报告既有发布器 UI 文件尾空行。
+
+## 2026-08-19：将问题中心与日志收敛到报错指南入口
+
+- 侧栏一级入口由“问题中心 / 日志”改为单个“报错指南”；未解决问题数量继续显示在该入口上。
+- 报错指南首页提供下载/测速、TLS、DLC/补丁与安全软件四类常见处理提示，并提供“问题记录”和“运行日志”两个二级入口。
+- 原有问题记录和运行日志功能均保留为详情页；详情页新增“返回指南”，不再占用侧栏一级导航。
+- 修改同步到受跟踪基线与活动 `0.2.0` 模块。验证：两个版本 `py_compile` 通过；`./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_user_settings.py -q` 为 61 项通过；相关 Ruff 检查通过。`git diff --check` 仍只报告用户已有发布器 UI 文件尾空行。
+
+
+## 2026-08-18：0.2.0 三端客户端构建核对与收尾
+
+### 已完成
+
+- 已核对版本链路：`src/signriver_launcher/constants.py` 的 `LAUNCHER_VERSION`、`app/state.json` 的 `active_version` 与 `app/versions/0.2.0/module.json` 均为 `0.2.0`。
+- 由于 `app/versions/0.2.0/` 被 Git 忽略且包含比 `0.1.0` 基线更晚的问题中心、补丁健壮性等业务逻辑，本轮仅将已验收的设置页分组和可搜索游戏选择器**选择性移植**到活动目录的 `app/versions/0.2.0/app_entry.py`；没有整目录覆盖，避免回退现有业务能力。
+- 已通过：
+  - `./.venv/Scripts/python.exe -m py_compile app/versions/0.2.0/app_entry.py`
+  - `./.venv/Scripts/python.exe -m pytest tests/test_ui_theme.py tests/test_user_settings.py tests/test_client_problem_center.py -q`（60 项通过）
+  - `git diff --check`
+- 已重新生成平台无关的活动模块归档，并核验归档内的 `app_entry.py` 同时包含设置页分组和可搜索游戏选择器：`dist/modules/SignRiver-DLC-Hub-module-v0.2.0.zip`，`201,129` B，SHA-256 `3802e2fff8fdc53b7b53751a3282e07ea320be7bdc298549ef12833ab5e206db`。
+- Windows 当前源码包已重新构建并核验包内包含 `0.2.0` 的设置页分组及可搜索游戏选择器：
+  - `dist/bin/SignRiver-DLC-Hub.exe`：`17,334,682` B；SHA-256 `432a04c5ff76fb09410e765a16a19a4884538586f9c52c4071f3d231190c280a`
+  - `dist/唏嘘南溪DLC一键解锁工具-v0.2.0-windows-x64.zip`：`19,274,231` B；SHA-256 `92f7006e51e09eab112dfb19aa964c989d4c07f0eb83b5361a5195c9a8dda816`
+  - `dist/updates/SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip`：`19,242,235` B；SHA-256 `fb071a5c9977cd577571afa1c30db321c08cff1b3202aee6339be2724fe7c585`
+- 未启动 Windows GUI 进行人工视觉验收；未生成或替换任何远端更新清单，未上传发布资产，未执行 commit 或 push。
+
+### 当前阻塞：SteamOS 原生重建
+
+- SteamOS VirtualBox 虚拟机及本机 `127.0.0.1:2222` SSH 转发存在，但无交互 SSH 探测返回 `Permission denied (publickey,password)`。
+- 已正常关闭该虚拟机；没有猜测密码、读取私有凭据或绕过来宾登录。
+- Windows 已确认拒绝交叉生成最终包：`tools/build_native_release.py --platform steamos` 必须在 SteamOS 中执行。
+
+### 当前阻塞：macOS 原生重建
+
+- 已定位 macOS VMware 虚拟机配置，来宾为 Darwin 24，当前未运行；未发现已启用的 SSH 端口转发或可用的非交互来宾命令执行通道。
+- `tools/build_native_release.py --platform macos` 已确认只能在 macOS 原生环境中执行；现有 `dist` 中的 macOS 包早于本次活动目录同步，不能作为本轮最终候选。
+- 未改动 VMware / macOS 配置，未猜测任何登录信息或读取私有凭据。
+
+### 结论与下一步
+
+- Windows `0.2.0` 客户端与完整更新包已完成本轮重建；SteamOS、macOS 的旧 `0.2.0` 产物不能与 Windows 产物共同构成最终三端候选。
+- 因 SteamOS / macOS 缺少合法的无交互接管或人工协作通道，三端构建**实际阻塞**。在两个原生来宾分别提供可执行通道前，不得生成最终三端双源更新清单、上传资产或宣称跨平台发布完成。
+- 恢复后应仅同步构建所需工作区（排除 `.git`、`.venv`、`build`、`dist`、`publisher-workspace`、`config/publisher.local.json`、缓存与字节码），在各自原生系统执行：
+  - SteamOS：`python3 tools/build_native_release.py --platform steamos`
+  - macOS：`python3 tools/build_native_release.py --platform macos`
+- 两端回传后核验包内 `app/versions/0.2.0`、平台标识、大小与 SHA-256；macOS 还需完成既定的 DLC 下载/哈希、补丁、权限/哈希与失败恢复人工验收。完成前不推送 Git。
+
 
 ## 2026-08-18：客户端“设置”页内部结构优化（待人工界面验收）
 
@@ -730,3 +819,69 @@
 ### 后续人工验收
 
 - 启动源码发布器后确认顶部标题栏无游戏下拉框；从“发布工作台 → DLC / 补丁发布”进入“内容准备 → DLC / 补丁发布”，确认可先选择游戏、查看本地包状态，再创建或打开批次。
+# 当前目标（2026-08-20）
+
+已开始 Windows 确定性补丁部署迁移：发布器输出改为 `unlocker.dll` / `original.dll`，客户端目录解析与下载任务增加原生库角色，0.1.0 引擎主路径使用发布的原生库，不再推断用户 DLL。发布器内容批次增加远端多余附件检测与二次确认后的镜像删除，catalog 仍最后发布。
+
+验证已通过：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_publisher_workspace.py tests/test_dlc_catalog.py tests/test_client_problem_center.py tests/test_cartridge_catalog.py tests/test_publisher_release_service.py tests/test_publisher_release_providers.py -q
+```
+
+结果：117 项通过。`git diff --check` 仍只报既有 `src/signriver_publisher/ui.py:155` 文件末尾空行；未修改该文件。未构建、未真实发布、未 commit 或 push。
+
+## 2026-08-20：客户端缓存管理存储概览
+
+- 设置页“缓存管理”改为展示总缓存用量、当前游戏缓存、其他游戏缓存及容量比例条；用量继续在后台线程统计，不会阻塞 Tk 界面。
+- 操作顺序调整为“清理当前游戏 → 打开目录 → 清理全部缓存”，其中全量清理保留危险操作样式。
+- 已同步到运行中的 `app/versions/0.2.0/app_entry.py`；未启动 GUI 进行人工视觉验收。
+
+验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile app\versions\0.1.0\app_entry.py app\versions\0.2.0\app_entry.py
+.\.venv\Scripts\python.exe -m pytest tests\test_ui_theme.py tests\test_ui_units_mandatory.py tests\test_dlc_catalog.py -q
+```
+
+结果：65 项通过。未构建、未执行真实缓存清理、未 commit 或 push。
+
+## 2026-08-20：下载源下拉框视觉优化
+
+- “下载源”选择器改为白色统一表面，取消独立蓝色箭头区；悬停时仅以蓝色边框与浅蓝箭头区提示可操作。
+- 该样式仅用于下载源设置，不影响游戏、筛选等仍需醒目状态的其他下拉框。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：游戏选择框未同步的运行版本修复
+
+- 已定位根因：`app/versions/0.2.0/app_entry.py` 的 `_apply_selected_cartridge()` 在切换时更新了内部 `selected_game_name`、游戏路径和目录，却遗漏 `_set_game_selector_text(display_name)`；因此实际游戏已切换，但可见组合框保留旧的群星名称。
+- 运行版本已补齐该同步；选择器在异步加载完成后恢复为只读状态，避免被当作普通可编辑输入框。
+- `tests/test_ui_theme.py` 新增回归断言，确保基线的卡带应用逻辑必须同步可见选择器。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过（仅有既有 LF/CRLF 提示）。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：隐藏游戏加载的内部术语
+
+- 所有面向用户的“卡带”文案调整为“游戏支持数据”，包括加载中、成功提示、失败状态和启动错误；内部类型与目录名保持不变。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：恢复下载源选择器原生样式
+
+- 下载源下拉框已恢复原有的 CustomTkinter 组合框样式；此前为扁平化而重绑内部 canvas 的逻辑已完全移除，避免边框异常。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：缓存操作独立成底部一行
+
+- 缓存概览现在横跨整行；“清理当前游戏 / 打开目录 / 清理全部缓存”统一移到概览下方的同一行，不再占据说明区域右侧。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：下载源箭头区强制扁平化
+
+- 初次白底样式未在运行时生效：CustomTkinter 5.2 会在箭头区域的 canvas hover 事件中重新套用主题蓝色。
+- 下载源选择器现直接重绑该内部 canvas 的 hover 绘制，默认箭头区与输入区同为白色，悬停才显示浅蓝；保留原组件的点击和下拉行为。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。

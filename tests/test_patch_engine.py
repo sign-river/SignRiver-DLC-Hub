@@ -56,6 +56,35 @@ def write_patch_sources(tmp_path: Path) -> tuple[Path, Path]:
     return unlocker, appinfo
 
 
+def write_complete_patch_sources(tmp_path: Path) -> tuple[Path, Path, Path]:
+    unlocker, appinfo = write_patch_sources(tmp_path)
+    original = unlocker.parent / "original.dll"
+    original.write_bytes(VANILLA_GAME_DLL)
+    return unlocker, original, appinfo
+
+
+def test_apply_deterministically_replaces_unknown_legacy_layout(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game = tmp_path / "game"
+    game.mkdir()
+    (game / "steam_api64.dll").write_bytes(FOREIGN_UNLOCKER)
+    (game / "steam_api64_o.dll").write_bytes(FOREIGN_BACKUP)
+    (game / "cream_api.ini").write_text("legacy", encoding="utf-8")
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="stellaris",
+    )
+
+    assert (game / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
+    assert result.receipt.original_library_source == "published_original"
+
+
 def make_engine(tmp_path: Path) -> PatchEngine:
     data_root = tmp_path / "data"
     data_root.mkdir(exist_ok=True)
@@ -171,10 +200,11 @@ def test_apply_promotes_vanilla_dll_to_backup(tmp_path: Path) -> None:
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     result = engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
+        original_dll_source=original,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
@@ -185,9 +215,7 @@ def test_apply_promotes_vanilla_dll_to_backup(tmp_path: Path) -> None:
     assert ini_bytes.startswith(b"\xef\xbb\xbf")
     assert result.backup_created is True
     assert result.audit_after.health is PatchHealth.HEALTHY
-    assert result.receipt.backup_origin == "game_primary_original"
-    # Content receipts recognize a promoted game-original backup as trusted
-    # even when it differs from the packaged fallback DLL.
+    assert result.receipt.backup_origin == "published_original"
 
 
 def test_apply_rolls_back_when_written_dll_is_quarantined(tmp_path: Path) -> None:
@@ -196,7 +224,7 @@ def test_apply_rolls_back_when_written_dll_is_quarantined(tmp_path: Path) -> Non
     game_root.mkdir()
     original_path = game_root / "steam_api64.dll"
     original_path.write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     write_file_atomic = engine._write_file_atomic
 
     def write_then_quarantine(data, destination, actions, *, mode=None):
@@ -269,7 +297,9 @@ def test_apply_is_idempotent_when_files_already_match(tmp_path: Path) -> None:
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
     (game_root / "steam_api64_o.dll").write_bytes(BACKUP_BODY)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, _original, appinfo = write_complete_patch_sources(tmp_path)
+    original = tmp_path / "release" / "idempotent-original.dll"
+    original.write_bytes(BACKUP_BODY)
     # Existing ini already matches what would be rendered.
     from signriver_app.infrastructure.patching import render_cream_api_ini
     expected_ini = render_cream_api_ini(APPINFO_PAYLOAD, STELLARIS_PATCH_PROFILE.template)
@@ -277,6 +307,7 @@ def test_apply_is_idempotent_when_files_already_match(tmp_path: Path) -> None:
     result = engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
+        original_dll_source=original,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
@@ -286,30 +317,25 @@ def test_apply_is_idempotent_when_files_already_match(tmp_path: Path) -> None:
     assert result.audit_after.health is PatchHealth.HEALTHY
 
 
-def test_apply_blocks_ambiguous_legacy_layout(tmp_path: Path) -> None:
+def test_apply_deterministically_replaces_ambiguous_legacy_layout(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(FOREIGN_UNLOCKER)
     (game_root / "steam_api64_o.dll").write_bytes(BACKUP_BODY)
-    unlocker, appinfo = write_patch_sources(tmp_path)
-
-    with pytest.raises(PatchError, match="无法确认来源"):
-        engine.apply(
-            game_root,
-            unlocker_dll_source=unlocker,
-            appinfo_json_source=appinfo,
-            game_id="stellaris",
-        )
-
-    assert (game_root / "steam_api64.dll").read_bytes() == FOREIGN_UNLOCKER
-    assert (game_root / "steam_api64_o.dll").read_bytes() == BACKUP_BODY
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    engine.apply(
+        game_root, unlocker_dll_source=unlocker,
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
+    )
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game_root / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
 
 def test_apply_migrates_complete_legacy_patch_without_losing_original(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     expected_ini = render_cream_api_ini(
         APPINFO_PAYLOAD, STELLARIS_PATCH_PROFILE.template
     )
@@ -322,33 +348,30 @@ def test_apply_migrates_complete_legacy_patch_without_losing_original(tmp_path: 
     result = engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
+        original_dll_source=original,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
 
     assert (game_root / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
     assert result.backup_replaced is False
-    assert result.receipt.backup_origin == "legacy_runtime_original"
+    assert result.receipt.backup_origin == "published_original"
     assert engine.audit_recorded(game_root).health is PatchHealth.HEALTHY
 
 
-def test_apply_blocks_same_size_unknown_primary(tmp_path: Path) -> None:
+def test_apply_replaces_same_size_unknown_primary_with_published_assets(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     foreign_same_size = pe_x64(b"X" * (len(UNLOCKER_BODY) - 256))
     (game_root / "steam_api64.dll").write_bytes(foreign_same_size)
     (game_root / "steam_api64_o.dll").write_bytes(BACKUP_BODY)
-    unlocker, appinfo = write_patch_sources(tmp_path)
-
-    with pytest.raises(PatchError, match="无法确认来源"):
-        engine.apply(
-            game_root,
-            unlocker_dll_source=unlocker,
-            appinfo_json_source=appinfo,
-            game_id="stellaris",
-        )
-    assert (game_root / "steam_api64.dll").read_bytes() == foreign_same_size
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    engine.apply(
+        game_root, unlocker_dll_source=unlocker,
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
+    )
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
 
 def test_recorded_audit_detects_same_size_tampering_and_bad_ini(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
@@ -377,35 +400,36 @@ def test_recorded_audit_detects_same_size_tampering_and_bad_ini(tmp_path: Path) 
     assert "cream_api.ini" in audit.modified
 
 
-def test_restore_uses_vault_and_preserves_tampered_runtime_copy(tmp_path: Path) -> None:
+def test_restore_refuses_tampered_runtime_copy_without_trusted_original(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     engine.apply(
         game_root, unlocker_dll_source=unlocker,
-        appinfo_json_source=appinfo, game_id="stellaris",
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
     )
     runtime_path = game_root / "steam_api64_o.dll"
     tampered = pe_x64(b"tampered-runtime")
     runtime_path.write_bytes(tampered)
 
-    touched = engine.restore_original(game_root)
+    with pytest.raises(PatchError, match="可信原生库缺失"):
+        engine.restore_original(game_root)
 
-    assert (game_root / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
     assert runtime_path.read_bytes() == tampered
-    assert "steam_api64_o.dll" not in touched
 
 def test_reapply_repairs_same_size_tampered_recorded_backup(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
+        original_dll_source=original,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
@@ -415,6 +439,7 @@ def test_reapply_repairs_same_size_tampered_recorded_backup(tmp_path: Path) -> N
     result = engine.apply(
         game_root,
         unlocker_dll_source=unlocker,
+        original_dll_source=original,
         appinfo_json_source=appinfo,
         game_id="stellaris",
     )
@@ -424,43 +449,40 @@ def test_reapply_repairs_same_size_tampered_recorded_backup(tmp_path: Path) -> N
     assert result.audit_after.health is PatchHealth.HEALTHY
 
 
-def test_apply_does_not_replace_unknown_runtime_without_credential(tmp_path: Path) -> None:
+def test_apply_replaces_unknown_runtime_with_published_original(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
     (game_root / "steam_api64_o.dll").write_bytes(FOREIGN_BACKUP)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    engine.apply(
+        game_root, unlocker_dll_source=unlocker,
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
+    )
+    assert (game_root / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
 
-    with pytest.raises(PatchError, match="无法确认来源"):
-        engine.apply(
-            game_root, unlocker_dll_source=unlocker,
-            appinfo_json_source=appinfo, game_id="stellaris",
-        )
-    assert (game_root / "steam_api64_o.dll").read_bytes() == FOREIGN_BACKUP
-
-def test_apply_blocks_empty_directory_without_original_library(tmp_path: Path) -> None:
+def test_apply_can_populate_empty_directory_from_published_assets(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
-    unlocker, appinfo = write_patch_sources(tmp_path)
-
-    with pytest.raises(PatchError, match="主库缺失"):
-        engine.apply(
-            game_root, unlocker_dll_source=unlocker,
-            appinfo_json_source=appinfo, game_id="stellaris",
-        )
-    assert not any(game_root.iterdir())
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    engine.apply(
+        game_root, unlocker_dll_source=unlocker,
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
+    )
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game_root / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
 
 def test_remove_restores_original_from_managed_install(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     engine.apply(
         game_root, unlocker_dll_source=unlocker,
-        appinfo_json_source=appinfo, game_id="stellaris",
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
     )
 
     touched = engine.remove(game_root)
@@ -572,14 +594,14 @@ def test_repair_patch_is_idempotent_and_keeps_receipt(tmp_path: Path) -> None:
     game_root = tmp_path / "game"
     game_root.mkdir()
     (game_root / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
-    unlocker, appinfo = write_patch_sources(tmp_path)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
     first = engine.apply(
         game_root, unlocker_dll_source=unlocker,
-        appinfo_json_source=appinfo, game_id="stellaris",
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
     )
     second = engine.repair_patch(
         game_root, unlocker_dll_source=unlocker,
-        appinfo_json_source=appinfo, game_id="stellaris",
+        original_dll_source=original, appinfo_json_source=appinfo, game_id="stellaris",
     )
 
     assert first.audit_after.health is PatchHealth.HEALTHY

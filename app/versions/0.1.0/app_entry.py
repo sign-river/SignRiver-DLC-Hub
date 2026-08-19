@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import threading
 import time
 import webbrowser
@@ -98,6 +99,10 @@ UI = {
     "danger_surface_hover": "#FFE1DE",
 }
 
+BUTTON_SECONDARY = {"fg_color": "transparent", "hover_color": UI["primary_surface"], "text_color": UI["primary"], "border_width": 1, "border_color": UI["primary_border"]}
+BUTTON_NEUTRAL = {"fg_color": UI["panel"], "hover_color": UI["border"], "text_color": UI["text_secondary"]}
+BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"], "text_color": UI["danger"], "border_width": 1, "border_color": "#F3BBB5"}
+
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
 PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
 PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"
@@ -148,7 +153,7 @@ def _blue_switch(parent, **kwargs):
     """Standard binary-setting switch with clear off and on states."""
     return ctk.CTkSwitch(
         parent,
-        width=154,
+        width=kwargs.pop("width", 154),
         height=30,
         switch_width=44,
         switch_height=24,
@@ -179,8 +184,8 @@ def _settings_header(parent, title: str, description: str):
     ctk.CTkLabel(
         header,
         text=description,
-        text_color=UI["muted"],
-        font=ctk.CTkFont(size=12),
+        text_color=UI["text_secondary"],
+        font=ctk.CTkFont(size=13),
         anchor="w",
     ).pack(fill="x", pady=(3, 0))
     return header
@@ -202,17 +207,17 @@ def _settings_row(parent, title: str, description: str, *, last: bool = False):
         row,
         text=title,
         text_color=UI["text"],
-        font=ctk.CTkFont(size=14, weight="bold"),
+        font=ctk.CTkFont(size=15, weight="bold"),
         anchor="w",
     ).grid(row=0, column=0, sticky="w")
     description_label = ctk.CTkLabel(
         row,
         text=description,
         text_color=UI["text_secondary"],
-        font=ctk.CTkFont(size=12),
+        font=ctk.CTkFont(size=13),
         anchor="w",
         justify="left",
-        wraplength=620,
+        wraplength=700,
     )
     description_label.grid(row=1, column=0, sticky="ew", pady=(4, 0))
     action = ctk.CTkFrame(row, fg_color="transparent")
@@ -273,13 +278,14 @@ QQ_GROUP_JOIN_URL = "https://qm.qq.com/q/NQRer2RHmC"  # SignRiver DLC Hub 交流
 
 
 def _format_size(value: float) -> str:
-    """Format a byte count for Chinese users (KB/MB/GB, 1024-based)."""
+    """Use the largest readable binary unit for user-facing byte counts."""
     amount = float(max(0, value))
-    for unit in ("B", "KB", "MB", "GB"):
-        if amount < 1024 or unit == "GB":
-            return f"{amount:.1f} {unit}"
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if amount < 1024 or unit == "TB":
+            formatted = f"{amount:.1f}".rstrip("0").rstrip(".")
+            return f"{formatted}{unit}"
         amount /= 1024
-    return f"{amount:.1f} GB"
+    return f"{amount:.1f}TB"
 
 
 def _format_speed(value: float) -> str:
@@ -335,6 +341,7 @@ class DlcHubApplication:
         # so the home page keeps its compact game-detection layout.
         self.game_picker = None
         self.game_picker_query: StringVar | None = None
+        self.game_picker_search = None
         self.cartridge_loading = False
         self.cartridges: dict[str, object] = {}
         self.supported_games: dict[str, dict[str, str]] = {}
@@ -351,7 +358,7 @@ class DlcHubApplication:
         except CartridgeCatalogError as error:
             self.context.logger.exception("Unable to load bootstrap game cartridges")
             raise RuntimeError(
-                "没有可用的游戏卡带。请确认安装包包含 config/cartridges，"
+                "没有可用的游戏支持数据。请确认安装包内容完整，"
                 "或检查网络后重新启动。"
             ) from error
         self.patch_bundle: PatchBundle | None = None
@@ -394,6 +401,7 @@ class DlcHubApplication:
         self.catalog_name_labels = {}
         self.dlc_selection_vars = {}
         self.catalog_view_mode = "simple"
+        self.displayed_catalog_view_mode = "simple"
         # Each catalog mode owns a persistent scroll frame and widget registry.
         # Switching views can therefore reveal an already-built tree instead of
         # destroying and recreating hundreds of CustomTkinter canvases.
@@ -717,7 +725,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w", padx=19, pady=(0, 20))
         self.navigation_buttons = {}
-        for page_name in ("DLC 库", "下载任务", "问题中心", "日志", "设置"):
+        for page_name in ("DLC 库", "下载任务", "报错指南", "设置"):
             button = ctk.CTkButton(
                 sidebar, text=page_name, anchor="w", width=130, height=38,
                 fg_color="transparent", text_color=UI["text_secondary"],
@@ -803,16 +811,18 @@ class DlcHubApplication:
         # Top-centered snackbar for task completion/error feedback: visible in
         # the user's current view, colored, auto-dismissing, no modal popup.
         self.snackbar = ctk.CTkFrame(
-            self.window, fg_color=UI["success"], corner_radius=0, border_width=0
+            self.window, fg_color=UI["success"], corner_radius=0, border_width=0,
+            width=460, height=44,
         )
         self.snackbar_label = ctk.CTkLabel(
             self.snackbar,
             text="",
             text_color="#FFFFFF",
             font=ctk.CTkFont(size=15, weight="bold"),
-            wraplength=560,
+            wraplength=412,
         )
-        self.snackbar_label.pack(padx=24, pady=10)
+        self.snackbar_label.pack(fill="both", expand=True, padx=24, pady=10)
+        self.snackbar.pack_propagate(False)
         self.snackbar.place_forget()
 
         game_card = _card(self.page_host)
@@ -827,27 +837,22 @@ class DlcHubApplication:
         selector_row = ctk.CTkFrame(game_card, fg_color="transparent")
         selector_row.pack(fill="x", padx=24, pady=(0, 2))
         ctk.CTkLabel(selector_row, text="当前游戏").pack(side="left")
-        self.game_selector = ctk.CTkButton(
-            selector_row,
-            text="",
-            command=self._toggle_game_picker,
-            width=220,
-            height=34,
-            anchor="w",
-            fg_color=UI["card"],
-            hover_color=UI["primary_surface"],
-            border_color=UI["input_border"],
-            border_width=1,
-            text_color=UI["text"],
-            corner_radius=8,
-            font=ctk.CTkFont(size=13),
+        self.game_selector = _combo_box(
+            selector_row, values=list(self.supported_games), width=220,
         )
         self._set_game_selector_text(self.selected_game_name)
+        self.game_selector._canvas.tag_bind(
+            "right_parts", "<Button-1>", self._open_game_picker_from_combo
+        )
+        self.game_selector._canvas.tag_bind(
+            "dropdown_arrow", "<Button-1>", self._open_game_picker_from_combo
+        )
+        self.game_selector.bind("<Button-1>", self._open_game_picker_from_combo)
         self.game_selector.pack(side="left", padx=(10, 0))
         self.export_games_button = ctk.CTkButton(
             selector_row,
-            text="导出支持列表",
-            command=self._export_supported_games,
+            text="复制游戏列表",
+            command=self._copy_game_list,
             width=92,
             height=30,
             fg_color="transparent",
@@ -938,6 +943,7 @@ class DlcHubApplication:
             width=100,
         )
         self.advanced_view_button.pack(side="right", padx=(0, 8))
+        self.advanced_view_button.configure(text="逐项管理 DLC")
         self.catalog_qq_hint_wrap = ctk.CTkFrame(
             catalog_header, fg_color="transparent"
         )
@@ -1091,9 +1097,9 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=18, weight="bold"),
         )
         self.download_selected_button.pack(padx=4, pady=4)
-        def create_catalog_list_frame():
+        def create_catalog_list_frame(parent=catalog_card):
             return ctk.CTkScrollableFrame(
-                catalog_card, height=250, fg_color=UI["panel"], corner_radius=10,
+                parent, height=250, fg_color=UI["panel"], corner_radius=10,
                 border_width=1, border_color=UI["border"],
                 scrollbar_button_color=UI["input_border"],
                 scrollbar_button_hover_color=UI["muted"],
@@ -1101,7 +1107,14 @@ class DlcHubApplication:
 
         self.dlc_list_frame = create_catalog_list_frame()
         self.catalog_view_frames["simple"] = self.dlc_list_frame
-        self.catalog_view_frames["advanced"] = create_catalog_list_frame()
+        self.advanced_catalog_card = _card(self.page_host)
+        advanced_header = ctk.CTkFrame(self.advanced_catalog_card, fg_color="transparent")
+        advanced_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(advanced_header, text="DLC 高级管理", text_color=UI["primary"], font=ctk.CTkFont(size=18, weight="bold")).pack(side="left")
+        ctk.CTkButton(advanced_header, text="刷新目录", width=96, command=self._refresh_catalog).pack(side="right")
+        ctk.CTkButton(advanced_header, text="← 返回 DLC 列表", width=118, command=self._return_to_simple_catalog).pack(side="right", padx=(0, 8))
+        ctk.CTkLabel(self.advanced_catalog_card, text="逐项管理 DLC 的下载、取消、校验和卸载操作。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=24, pady=(0, 10))
+        self.catalog_view_frames["advanced"] = create_catalog_list_frame(self.advanced_catalog_card)
         self.dlc_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 16))
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
@@ -1120,7 +1133,7 @@ class DlcHubApplication:
             settings_list,
             text="管理下载、程序与日常偏好；更改会自动保存。",
             text_color=UI["text_secondary"],
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(size=14),
             anchor="w",
         )
         settings_hint.pack(fill="x", padx=4, pady=(2, 14))
@@ -1153,7 +1166,7 @@ class DlcHubApplication:
             text="打开当前下载源的资源仓库",
             text_color=UI["primary"],
             cursor="hand2",
-            font=ctk.CTkFont(size=12, underline=True),
+            font=ctk.CTkFont(size=13, underline=True),
             anchor="w",
         )
         self.resource_repository_link.grid(
@@ -1180,7 +1193,7 @@ class DlcHubApplication:
             speed_row,
             text="尚未测速",
             text_color=UI["muted"],
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=13),
             anchor="w",
         )
         self.speed_test_status.grid(
@@ -1250,18 +1263,22 @@ class DlcHubApplication:
                 f"启动器 v{self.context.launcher_version} · 尚未检查更新"
             ),
             text_color=UI["muted"],
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=13),
             anchor="w",
         )
         self.status.grid(row=3, column=0, sticky="w")
+        self._set_update_activity_visible(False)
 
         cache_row, cache_action, cache_description = _settings_row(
             program_body,
             "缓存管理",
-            "缓存会保留已下载的资源，便于下次使用；需要释放空间时再清理，无需手动删除文件。",
+            "缓存会保留已下载的资源，便于下次使用；可在下方查看当前占用和各游戏的容量分布。",
             last=True,
         )
         self.settings_description_boxes.append(cache_description)
+        # Cache actions belong to the storage summary, not beside its text.
+        # Move the action frame below the overview after its controls exist.
+        cache_action.grid_forget()
         for column in range(3):
             cache_action.grid_columnconfigure(column, weight=1)
         self.game_cache_cleanup_button = ctk.CTkButton(
@@ -1287,8 +1304,8 @@ class DlcHubApplication:
             border_width=1,
             border_color="#F3BBB5",
         )
-        self.cache_cleanup_button.grid(row=0, column=1, sticky="ew", padx=3)
-        ctk.CTkButton(
+        self.cache_cleanup_button.grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.open_cache_button = ctk.CTkButton(
             cache_action,
             text="打开目录",
             command=lambda: self._open_path(self.context.paths.cache),
@@ -1298,15 +1315,46 @@ class DlcHubApplication:
             text_color=UI["primary"],
             border_width=1,
             border_color=UI["primary_border"],
-        ).grid(row=0, column=2, sticky="ew", padx=(6, 0))
-        self.cache_status = ctk.CTkLabel(
+        )
+        self.open_cache_button.grid(row=0, column=1, sticky="ew", padx=3)
+
+        self.cache_overview = ctk.CTkFrame(
             cache_row,
-            text="缓存空间正在后台统计",
-            text_color=UI["muted"],
-            font=ctk.CTkFont(size=12),
+            fg_color=UI["primary_surface"],
+            corner_radius=8,
+        )
+        self.cache_overview.grid(
+            row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0)
+        )
+        self.cache_overview.grid_columnconfigure(0, weight=1)
+        self.cache_status = ctk.CTkLabel(
+            self.cache_overview,
+            text="缓存空间正在后台统计…",
+            text_color=UI["text_secondary"],
+            font=ctk.CTkFont(size=14, weight="bold"),
             anchor="w",
         )
-        self.cache_status.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        self.cache_status.grid(row=0, column=0, sticky="w", padx=14, pady=(10, 4))
+        self.cache_usage_bar = ctk.CTkProgressBar(
+            self.cache_overview,
+            height=8,
+            progress_color=UI["primary"],
+            fg_color="#DCE7F1",
+            corner_radius=4,
+        )
+        self.cache_usage_bar.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 8))
+        self.cache_usage_bar.set(0)
+        self.cache_breakdown = ctk.CTkLabel(
+            self.cache_overview,
+            text="当前游戏 统计中  ·  其他游戏 统计中",
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+        )
+        self.cache_breakdown.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 10))
+        cache_action.grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(12, 0)
+        )
 
         general_card = _card(settings_list)
         self.announcement_card = general_card
@@ -1369,6 +1417,75 @@ class DlcHubApplication:
         )
         self.task_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
+        self.error_guide_card = _card(self.page_host)
+        guide_header = ctk.CTkFrame(self.error_guide_card, fg_color="transparent")
+        guide_header.pack(fill="x", padx=36, pady=(38, 6))
+        ctk.CTkLabel(
+            guide_header, text="帮助与诊断", text_color=UI["primary"],
+            font=ctk.CTkFont(size=22, weight="bold"),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            self.error_guide_card,
+            text="遇到问题时，可以先运行一键排错，或查看对应的处理方案、异常记录和运行日志。",
+            text_color=UI["text_secondary"], anchor="w",
+        ).pack(fill="x", padx=36, pady=(0, 12))
+        guide_tips = ctk.CTkFrame(
+            self.error_guide_card, fg_color=UI["primary_surface"],
+            border_color=UI["primary_border"], border_width=1, corner_radius=10,
+        )
+        # Keep the title anchored near the top while giving the primary action
+        # a deliberate, but not visually detached, breathing space below it.
+        guide_tips.pack(fill="x", padx=36, pady=(8, 26))
+        guide_tips_header = ctk.CTkFrame(guide_tips, fg_color="transparent")
+        guide_tips_header.pack(fill="x", padx=16, pady=(11, 2))
+        ctk.CTkLabel(guide_tips_header, text="一键排错", text_color=UI["primary"], font=ctk.CTkFont(size=16, weight="bold"), anchor="w").pack(side="left")
+        ctk.CTkButton(guide_tips_header, text="开始一键排错  →", width=142, height=30, command=lambda: self._show_page("简单错误检测")).pack(side="right")
+        ctk.CTkLabel(
+            guide_tips,
+            text=(
+                "自动检查网络、文件、模块和运行环境中的常见问题；未发现异常不代表所有问题均已排除。"
+            ),
+            text_color=UI["text_secondary"], justify="left", anchor="w",
+            font=ctk.CTkFont(size=13),
+        ).pack(fill="x", padx=16, pady=(0, 11))
+        ctk.CTkLabel(self.error_guide_card, text="其他工具", text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=36, pady=(0, 12))
+        guide_actions = ctk.CTkFrame(self.error_guide_card, fg_color="transparent")
+        guide_actions.pack(fill="x", padx=36, pady=(0, 26))
+        for title, detail, target in (
+            ("解决方案", "按现象查看对应的处理办法", "常见问题教程"),
+            ("问题记录", "查看已记录的异常与处理建议", "问题记录"),
+            ("运行日志", "查看详细运行信息", "运行日志"),
+        ):
+            tool = ctk.CTkFrame(
+                guide_actions, height=72, fg_color=UI["card"],
+                border_color="#E3E8EF", border_width=1, corner_radius=8,
+            )
+            tool.pack(fill="x", pady=(0, 8))
+            tool.pack_propagate(False)
+            arrow = ctk.CTkLabel(tool, text="→", text_color=UI["primary"], font=ctk.CTkFont(size=18), anchor="e")
+            arrow.pack(side="right", padx=18)
+            text_area = ctk.CTkFrame(tool, fg_color="transparent")
+            text_area.pack(fill="both", expand=True, padx=(16, 8), pady=10)
+            title_label = ctk.CTkLabel(text_area, text=title, text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w")
+            title_label.pack(fill="x")
+            detail_label = ctk.CTkLabel(text_area, text=detail, text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w")
+            detail_label.pack(fill="x", pady=(1, 0))
+            for widget in (tool, text_area, title_label, detail_label, arrow):
+                widget.bind("<Button-1>", lambda _event, target=target: self._show_page(target))
+                widget.bind("<Enter>", lambda _event, card=tool: card.configure(fg_color=UI["primary_surface"]))
+                widget.bind("<Leave>", lambda _event, card=tool: card.configure(fg_color=UI["card"]))
+        guide_footer = ctk.CTkFrame(self.error_guide_card, fg_color="transparent")
+        guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 32))
+        ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text_secondary"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left")
+        ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(12, 0))
+        ctk.CTkButton(guide_footer, text="导出诊断 →", width=92, height=28, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._export_diagnostics).pack(side="right")
+        ctk.CTkFrame(self.error_guide_card, height=1, fg_color=UI["border"], corner_radius=0).pack(side="bottom", fill="x", padx=36, pady=(0, 18))
+
+        self.guide_tutorial_card = _card(self.page_host)
+        self._build_error_tutorial_page()
+        self.quick_check_card = _card(self.page_host)
+        self._build_quick_check_page()
+
         self.log_card = _card(self.page_host)
         log_command_area = ctk.CTkFrame(self.log_card, fg_color="transparent")
         log_command_area.pack(fill="x", padx=24, pady=(18, 8))
@@ -1383,6 +1500,10 @@ class DlcHubApplication:
             log_primary_area, text="运行日志", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold")
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ctk.CTkButton(
+            log_primary_area, text="返回指南", width=92,
+            command=lambda: self._show_page("报错指南"),
+        ).grid(row=0, column=1, sticky="e", pady=(0, 8))
 
         log_tools = ctk.CTkFrame(log_primary_area, fg_color="transparent")
         log_tools.grid(row=1, column=0, sticky="ew")
@@ -1439,7 +1560,7 @@ class DlcHubApplication:
         problem_header = ctk.CTkFrame(self.problem_card, fg_color="transparent")
         problem_header.pack(fill="x", padx=24, pady=(18, 8))
         ctk.CTkLabel(
-            problem_header, text="问题中心", text_color=UI["primary"],
+            problem_header, text="问题记录", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(side="left")
         ctk.CTkButton(
@@ -1451,37 +1572,48 @@ class DlcHubApplication:
             problem_header, text="刷新", width=72,
             command=self._refresh_problem_center,
         ).pack(side="right", padx=(0, 8))
+        ctk.CTkButton(
+            problem_header, text="返回指南", width=92,
+            command=lambda: self._show_page("报错指南"),
+        ).pack(side="right", padx=(0, 8))
         problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
         problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        problem_body.grid_columnconfigure(0, weight=2)
-        problem_body.grid_columnconfigure(1, weight=3)
-        problem_body.grid_rowconfigure(0, weight=1)
+        self.problem_list_panel = ctk.CTkFrame(problem_body, fg_color="transparent")
+        self.problem_list_panel.pack(fill="both", expand=True)
         self.problem_list = ctk.CTkScrollableFrame(
-            problem_body, fg_color=UI["panel"], corner_radius=10,
-            border_width=1, border_color=UI["border"],
+            self.problem_list_panel, fg_color="#F7F8FA", corner_radius=8,
+            border_width=0, scrollbar_button_color=UI["input_border"],
         )
-        self.problem_list.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        problem_detail_panel = ctk.CTkFrame(
-            problem_body, fg_color=UI["panel"], corner_radius=10,
-            border_width=1, border_color=UI["border"],
+        self.problem_list.pack(fill="both", expand=True)
+        self.problem_detail_page = ctk.CTkFrame(
+            problem_body, fg_color=UI["card"], corner_radius=0, border_width=0,
         )
-        problem_detail_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
-        self.problem_detail = ctk.CTkTextbox(
-            problem_detail_panel, wrap="word", fg_color=UI["panel"],
-            text_color=UI["text_secondary"], border_width=0,
+        problem_detail_header = ctk.CTkFrame(self.problem_detail_page, fg_color="transparent")
+        problem_detail_header.pack(fill="x", padx=16, pady=(8, 0))
+        ctk.CTkButton(
+            problem_detail_header, text="← 返回记录", width=104,
+            fg_color="transparent", hover_color=UI["primary_surface"],
+            text_color=UI["primary"], command=self._show_problem_list,
+        ).pack(side="left")
+        self.problem_detail_content = ctk.CTkScrollableFrame(
+            self.problem_detail_page, fg_color=UI["card"], corner_radius=0,
+            border_width=0, scrollbar_button_color=UI["input_border"],
         )
-        self.problem_detail.pack(fill="both", expand=True, padx=12, pady=(12, 6))
-        self.problem_detail.configure(state="disabled")
+        self.problem_detail_content.pack(fill="both", expand=True, padx=(16, 8), pady=(4, 8))
         self.problem_actions = ctk.CTkFrame(
-            problem_detail_panel, fg_color="transparent"
+            self.problem_detail_page, fg_color="transparent"
         )
-        self.problem_actions.pack(fill="x", padx=12, pady=(6, 12))
+        self.problem_actions.pack(fill="x", padx=16, pady=(6, 14))
 
         self.page_sections = {
             "DLC 库": (self.game_card, self.catalog_card),
+            "高级DLC视图": (self.advanced_catalog_card,),
             "下载任务": (self.task_card,),
-            "问题中心": (self.problem_card,),
-            "日志": (self.log_card,),
+            "报错指南": (self.error_guide_card,),
+            "常见问题教程": (self.guide_tutorial_card,),
+            "简单错误检测": (self.quick_check_card,),
+            "问题记录": (self.problem_card,),
+            "运行日志": (self.log_card,),
             "设置": (self.settings_list,),
         }
         self._apply_visual_theme(shell)
@@ -1494,11 +1626,13 @@ class DlcHubApplication:
         del window_width  # measured from each card; kept for call-site compat
         for name in ("game_path", "catalog_status", "catalog_freshness"):
             widget = getattr(self, name, None)
-            if widget is None:
+            if widget is None or not widget.winfo_exists():
                 continue
             parent = getattr(widget, "master", None) or self.window
             widget.configure(wraplength=self._content_wraplength_for(parent))
         for widget in self.settings_description_boxes:
+            if not widget.winfo_exists():
+                continue
             parent = getattr(widget, "master", None) or self.window
             widget.configure(wraplength=self._content_wraplength_for(parent))
 
@@ -1530,7 +1664,26 @@ class DlcHubApplication:
 
     def _style_widget(self, widget, navigation) -> None:
         if isinstance(widget, ctk.CTkButton) and widget not in navigation:
+            if widget is getattr(self, "game_selector", None):
+                widget.configure(
+                    fg_color="transparent", hover_color=UI["primary_surface"],
+                    text_color=UI["text"], border_width=0, corner_radius=0, height=34,
+                )
+                return
+            if widget is getattr(self, "game_selector_toggle", None):
+                widget.configure(
+                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
+                    text_color=UI["on_blue"], border_width=0, corner_radius=0, height=34,
+                )
+                return
             text = str(widget.cget("text"))
+            if text in {"GitHub", "B站", "使用教程"} or text.startswith("QQ群"):
+                widget.configure(
+                    fg_color=UI["secondary"], hover_color=UI["secondary_hover"],
+                    text_color=UI["on_blue"], border_width=0,
+                    corner_radius=8, height=34,
+                )
+                return
             if widget is getattr(self, "download_selected_button", None):
                 widget.configure(
                     fg_color=UI["primary"],
@@ -1547,6 +1700,8 @@ class DlcHubApplication:
                 getattr(self, "catalog_refresh_button", None),
                 getattr(self, "selection_toggle_button", None),
                 getattr(self, "repair_button", None),
+                getattr(self, "game_scan_button", None),
+                getattr(self, "restore_original_button", None),
             )
             if any(widget is candidate for candidate in soft_primary_buttons):
                 widget.configure(
@@ -1560,10 +1715,11 @@ class DlcHubApplication:
                 )
                 return
             if (
-                text in {"取消", "卸载", "一键移除补丁"}
+                text in {"取消", "卸载", "一键移除补丁", "终止检测", "删除"}
                 or text.startswith("清除")
                 or text.startswith("取消全部")
                 or text.startswith("卸载全部")
+                or text.startswith("清理")
             ):
                 widget.configure(
                     fg_color=UI["danger_surface"],
@@ -1574,11 +1730,26 @@ class DlcHubApplication:
                 return
             elif text in {
                 "下载所选", "一键下载所选", "一键解锁工具", "一键修复",
-                "启动游戏", "保存设置", "检查更新", "安装",
+                "启动游戏", "保存设置", "检查更新", "安装", "开始测速", "开始排错",
+                "选择目录", "导出诊断 →", "GitHub", "B站", "使用教程",
             }:
                 colors = (UI["primary"], UI["primary_hover"])
+            elif text.startswith(("开始一键排错", "QQ群")):
+                colors = (UI["primary"], UI["primary_hover"])
+            elif text.startswith(("查看", "返回", "打开", "复制", "刷新", "重试", "重新下载", "选择", "导出")) or text in {"GitHub", "B站", "使用教程", "暂停检测", "继续检测", "全选", "检查", "下次公告更新前不再显示"} or text.startswith("QQ群"):
+                widget.configure(
+                    fg_color="transparent", hover_color=UI["primary_surface"],
+                    text_color=UI["primary"], border_width=1,
+                    border_color=UI["primary_border"], corner_radius=8, height=34,
+                )
+                return
             else:
-                colors = (UI["secondary"], UI["secondary_hover"])
+                widget.configure(
+                    fg_color=UI["panel"], hover_color=UI["border"],
+                    text_color=UI["text_secondary"], border_width=0,
+                    corner_radius=8, height=34,
+                )
+                return
             widget.configure(
                 fg_color=colors[0], hover_color=colors[1],
                 text_color=UI["on_blue"], border_width=0,
@@ -1667,12 +1838,20 @@ class DlcHubApplication:
         self._refresh_catalog_freshness_label()
 
     def _set_game_selector_text(self, display_name: str) -> None:
-        self.game_selector.configure(text=f"{display_name}    ▾")
+        self.game_selector.set(display_name)
+
+    def _set_game_selector_state(self, state: str) -> None:
+        self.game_selector.configure(state=state)
+
+    def _open_game_picker_from_combo(self, _event=None):
+        self._toggle_game_picker()
+        return "break"
 
     def _sync_game_selector_values(self) -> None:
         values = list(self.supported_games)
         if not values:
             return
+        self.game_selector.configure(values=values)
         current = self.selected_game_name
         self._set_game_selector_text(
             current if current in self.supported_games else values[0]
@@ -1690,6 +1869,9 @@ class DlcHubApplication:
     def _show_game_picker(self) -> None:
         if self.game_picker is not None:
             self.game_picker.lift()
+            search = self.game_picker_search
+            if search is not None and search.winfo_exists():
+                self.game_picker.after(20, search.focus_force)
             return
         popup = ctk.CTkToplevel(self.window)
         self.game_picker = popup
@@ -1716,12 +1898,24 @@ class DlcHubApplication:
             text_color=UI["text"],
             font=ctk.CTkFont(size=15, weight="bold"),
         ).pack(side="left")
+        ctk.CTkButton(
+            header,
+            text="×",
+            width=26,
+            height=26,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=UI["panel"],
+            text_color=UI["muted"],
+            font=ctk.CTkFont(size=18),
+            command=self._hide_game_picker,
+        ).pack(side="right")
         ctk.CTkLabel(
             header,
             text="支持中文、英文和游戏标识搜索",
             text_color=UI["muted"],
             font=ctk.CTkFont(size=11),
-        ).pack(side="right")
+        ).pack(side="right", padx=(0, 8))
 
         self.game_picker_query = StringVar(value="")
         self.game_picker_query.trace_add(
@@ -1739,6 +1933,7 @@ class DlcHubApplication:
             corner_radius=8,
         )
         search.pack(fill="x", padx=14, pady=(0, 10))
+        self.game_picker_search = search
         self.game_picker_results = ctk.CTkScrollableFrame(
             shell,
             fg_color="transparent",
@@ -1763,7 +1958,10 @@ class DlcHubApplication:
         popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
         popup.deiconify()
         popup.lift()
-        search.focus_set()
+        # Toplevel 焦点会在第二次打开时先落回组合框；等窗口映射完成后
+        # 强制交给搜索框，避免浮层可见但键盘输入仍被主窗口吞掉。
+        popup.after_idle(search.focus_force)
+        popup.after(30, search.focus_force)
 
     def _schedule_game_picker_focus_check(self, _event=None) -> None:
         popup = self.game_picker
@@ -1781,6 +1979,7 @@ class DlcHubApplication:
         popup = self.game_picker
         self.game_picker = None
         self.game_picker_query = None
+        self.game_picker_search = None
         if popup is not None and popup.winfo_exists():
             popup.destroy()
 
@@ -1815,13 +2014,13 @@ class DlcHubApplication:
         for selection_name, game in matches:
             display_name = game.get("display_name") or selection_name
             is_current = selection_name == self.selected_game_name
-            detail = "✓ 当前选择" if is_current else game.get("game_id", "")
+            text = f"{display_name}\n✓ 当前选择" if is_current else display_name
             ctk.CTkButton(
                 results,
-                text=f"{display_name}\n{detail}",
+                text=text,
                 command=lambda value=selection_name: self._choose_game_from_picker(value),
                 anchor="w",
-                height=54,
+                height=54 if is_current else 40,
                 fg_color=UI["primary_surface"] if is_current else UI["card"],
                 hover_color=UI["primary_surface_hover"],
                 border_color=UI["primary_border"] if is_current else UI["border"],
@@ -1861,6 +2060,12 @@ class DlcHubApplication:
     def _on_remote_index_ready(self, index, loaded) -> None:
         previous_name = self.selected_game_name
         self._rebuild_supported_games_from_index()
+        if loaded.cartridge.adapter.descriptor.game_id != self.cartridge.adapter.descriptor.game_id:
+            # The background refresh started before the user selected another
+            # game.  Its cartridge is stale and must not overwrite the picker.
+            self._sync_game_selector_values()
+            self._set_game_selector_text(self.selected_game_name)
+            return
         if loaded.cartridge is not self.cartridge:
             self._activate_loaded_cartridge(loaded, rebuild_services=True)
         else:
@@ -1872,6 +2077,7 @@ class DlcHubApplication:
                 "display_name": loaded.cartridge.adapter.descriptor.display_name,
             }
         self._sync_game_selector_values()
+        self._set_game_selector_text(self.selected_game_name)
         if previous_name != self.selected_game_name:
             self._select_game(self.selected_game_name)
         source = self.cartridge_catalog.index_source or "unknown"
@@ -1895,7 +2101,7 @@ class DlcHubApplication:
         if cartridge is None:
             if self.cartridge_loading:
                 self._set_game_selector_text(self.selected_game_name)
-                self._notify("正在加载其他游戏卡带，请稍候", error=True)
+                self._notify("正在加载其他游戏的数据，请稍候", error=True)
                 return
             self._start_lazy_cartridge_load(display_name, game["game_id"])
             return
@@ -1903,10 +2109,9 @@ class DlcHubApplication:
 
     def _start_lazy_cartridge_load(self, display_name: str, game_id: str) -> None:
         self.cartridge_loading = True
-        self.game_selector.configure(state="disabled")
+        self._set_game_selector_state("disabled")
         self._set_game_buttons("disabled")
-        self.catalog_preview.configure(text=f"正在下载 {display_name} 卡带……")
-        self._notify(f"正在加载 {display_name} 卡带")
+        self.catalog_preview.configure(text=f"正在加载 {display_name} 的支持数据……")
         generation = self.game_selection_generation
 
         def worker() -> None:
@@ -1931,7 +2136,7 @@ class DlcHubApplication:
 
     def _on_lazy_cartridge_loaded(self, display_name: str, loaded, generation: int) -> None:
         self.cartridge_loading = False
-        self.game_selector.configure(state="normal")
+        self._set_game_selector_state("normal")
         self._set_game_buttons("normal")
         if generation != self.game_selection_generation:
             return
@@ -1949,15 +2154,16 @@ class DlcHubApplication:
         self._apply_selected_cartridge(
             loaded.cartridge.selection_name, game, loaded.cartridge
         )
+        self._notify(f"已加载 {loaded.cartridge.selection_name} 的支持数据")
 
     def _on_lazy_cartridge_failed(self, display_name: str, message: str) -> None:
         self.cartridge_loading = False
-        self.game_selector.configure(state="normal")
+        self._set_game_selector_state("normal")
         self._set_game_buttons("normal")
         self._set_game_selector_text(self.selected_game_name)
-        self.catalog_preview.configure(text="游戏卡带加载失败")
+        self.catalog_preview.configure(text="游戏支持数据加载失败")
         messagebox.showerror(
-            "无法加载游戏卡带",
+            "无法加载游戏支持数据",
             f"{display_name}\n\n{message}",
             parent=self.window,
         )
@@ -2081,13 +2287,13 @@ class DlcHubApplication:
         self.window.update_idletasks()
         self._notify(f"QQ群号已复制：{group_number}")
 
-    def _export_supported_games(self) -> None:
+    def _copy_game_list(self) -> None:
         names = [
             info.get("display_name") or name
             for name, info in self.supported_games.items()
         ]
         if not names:
-            self._notify("当前没有可导出的游戏列表")
+            self._notify("当前没有可复制的游戏列表")
             return
         lines = ["本软件当前支持的游戏："]
         lines.extend(f"· {name}" for name in names)
@@ -2115,31 +2321,263 @@ class DlcHubApplication:
             parent=self.window,
         )
 
+    def _build_error_tutorial_page(self) -> None:
+        header = ctk.CTkFrame(self.guide_tutorial_card, fg_color="transparent")
+        header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(
+            header, text="解决方案", text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            header, text="返回指南", width=92,
+            command=lambda: self._show_page("报错指南"),
+        ).pack(side="right")
+        self.solution_articles = {
+            "download": ("下载或测速失败", "下载失败、测速偶发报错", (("heading", "建议操作"), ("text", "请先稍候重试；仍失败时切换下载源，并检查网络连接。"), ("button", "运行一键排错", "简单错误检测"))),
+            "ssl": ("SSL / TLS 连接错误", "SSL、EOF 或证书相关报错", (("heading", "建议操作"), ("text", "检查代理、系统时间和网络连接；关闭后重新打开程序再试。"), ("button", "运行一键排错", "简单错误检测"))),
+            "patch": ("DLC 或补丁异常", "DLC 未生效、补丁文件缺失或游戏无法启动", (("heading", "建议操作"), ("text", "先重新扫描游戏；再运行一键排错，并按问题记录中的建议操作。"), ("button", "查看问题记录", "问题记录"))),
+            "security": ("安全软件拦截", "文件下载或写入后消失", (("heading", "建议操作"), ("text", "在安全软件记录中核对文件来源和哈希；确认误报后仅恢复该文件，不要关闭整机防护。"), ("button", "查看问题记录", "问题记录"))),
+            "update": ("程序更新与模块异常", "更新回滚、模块加载失败或程序意外退出", (("heading", "建议操作"), ("text", "重新检查更新；若问题仍然存在，请运行一键排错并导出诊断信息。"), ("button", "运行一键排错", "简单错误检测"))),
+        }
+        self.solution_list = ctk.CTkScrollableFrame(
+            self.guide_tutorial_card, fg_color="transparent", corner_radius=0,
+        )
+        self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        for article_id, (title, summary, _blocks) in self.solution_articles.items():
+            card = ctk.CTkFrame(self.solution_list, fg_color=UI["panel"], border_color=UI["border"], border_width=1, corner_radius=10)
+            card.pack(fill="x", pady=6)
+            title_label = ctk.CTkLabel(card, text=title, text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w")
+            title_label.pack(fill="x", padx=16, pady=(12, 3))
+            summary_label = ctk.CTkLabel(card, text=summary, text_color=UI["text_secondary"], anchor="w")
+            summary_label.pack(fill="x", padx=16, pady=(0, 12))
+            arrow = ctk.CTkLabel(card, text="→", text_color=UI["primary"], font=ctk.CTkFont(size=18), anchor="e")
+            arrow.place(relx=1, rely=0.5, x=-18, anchor="e")
+            callback = lambda _event, key=article_id: self._show_solution_detail(key)
+            for widget in (card, title_label, summary_label, arrow):
+                widget.bind("<Button-1>", callback)
+        self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
+        detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
+        detail_header.pack(fill="x", padx=24, pady=(12, 4))
+        ctk.CTkButton(detail_header, text="← 返回解决方案", width=120, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._show_solution_list).pack(side="left")
+        self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
+        self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    def _show_solution_detail(self, article_id: str) -> None:
+        article = self.solution_articles.get(article_id)
+        if article is None:
+            return
+        title, summary, blocks = article
+        for child in self.solution_detail_body.winfo_children():
+            child.destroy()
+        self.solution_detail_images = []
+        ctk.CTkLabel(self.solution_detail_body, text=title, text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold"), anchor="w").pack(fill="x", pady=(8, 6))
+        ctk.CTkLabel(self.solution_detail_body, text=summary, text_color=UI["text_secondary"], anchor="w").pack(fill="x", pady=(0, 18))
+        for kind, *values in blocks:
+            if kind == "heading":
+                ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
+            elif kind == "text":
+                ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text_secondary"], justify="left", anchor="w", wraplength=820).pack(fill="x", pady=(0, 16))
+            elif kind == "image":
+                image_path = Path(values[0])
+                if image_path.is_file():
+                    from PIL import Image
+                    image = ctk.CTkImage(light_image=Image.open(image_path), size=values[1] if len(values) > 1 else (720, 405))
+                    self.solution_detail_images.append(image)
+                    ctk.CTkLabel(self.solution_detail_body, text="", image=image).pack(anchor="w", pady=(0, 16))
+            elif kind == "button":
+                ctk.CTkButton(self.solution_detail_body, text=values[0], width=132, command=lambda target=values[1]: self._show_page(target)).pack(anchor="w", pady=(0, 16))
+        self.solution_detail_page.update_idletasks()
+        self.solution_list.pack_forget()
+        self.solution_detail_page.pack(fill="both", expand=True)
+
+    def _show_solution_list(self) -> None:
+        self.solution_detail_page.pack_forget()
+        self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    def _build_quick_check_page(self) -> None:
+        header = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")
+        header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(header, text="一键排错", text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(header, text="返回指南", width=92, command=lambda: self._show_page("报错指南")).pack(side="right")
+        ctk.CTkLabel(self.quick_check_card, text="仅检查常见环境问题，不会修改游戏文件、设置或网络配置；未发现异常不代表所有问题均已排除。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=24, pady=(0, 10))
+        self.quick_check_output = ctk.CTkScrollableFrame(self.quick_check_card, height=360, fg_color=UI["panel"], border_color=UI["border"], border_width=1)
+        self.quick_check_output.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        controls = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")
+        controls.pack(fill="x", padx=24, pady=(0, 18))
+        self.quick_check_start_button = ctk.CTkButton(controls, text="开始排错", width=96, command=self._run_quick_check)
+        self.quick_check_pause_button = ctk.CTkButton(controls, text="暂停检测", width=96, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._toggle_quick_check_pause)
+        self.quick_check_stop_button = ctk.CTkButton(controls, text="终止检测", width=96, fg_color="transparent", hover_color="#FDECEC", text_color=UI["danger"], command=self._terminate_quick_check)
+        self.quick_check_copy_button = ctk.CTkButton(controls, text="复制检测结果", width=112, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._copy_quick_check_result)
+        controls.grid_columnconfigure(0, weight=1)
+        self.quick_check_start_button.grid(row=0, column=1, padx=(0, 8))
+        self.quick_check_pause_button.grid(row=0, column=2, padx=(0, 8))
+        self.quick_check_stop_button.grid(row=0, column=3, padx=(0, 8))
+        self.quick_check_copy_button.grid(row=0, column=4)
+        self.quick_check_lines: list[str] = []
+        self.quick_check_results: list[tuple[str, str | None]] = []
+        self.quick_check_steps: list = []
+        self.quick_check_running = False
+        self.quick_check_paused = False
+        self._set_quick_check_controls()
+
+    def _run_quick_check(self) -> None:
+        if self.quick_check_running:
+            return
+        self.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]
+        self.quick_check_results = []
+        self.quick_check_steps = [
+            self._quick_check_network,
+            self._quick_check_game_directory,
+            self._quick_check_patch_state,
+            self._quick_check_recent_problems,
+        ]
+        self.quick_check_running = True
+        self.quick_check_paused = False
+        self._render_quick_check_output()
+        self._set_quick_check_controls()
+        self.window.after(30, self._advance_quick_check)
+
+    def _quick_check_network(self) -> None:
+        self._add_quick_check_result(f"网络目录状态：{'可连接' if self.catalog_online else '当前未连接或尚未验证'}", None if self.catalog_online else "download")
+
+    def _quick_check_game_directory(self) -> None:
+        installation = self.current_installation
+        if installation is None:
+            self._add_quick_check_result("游戏目录：未选择，请先重新扫描或手动选择目录。", "patch")
+            return
+        root = installation.root
+        self._add_quick_check_result(f"游戏目录：{'存在' if root.is_dir() else '不存在'} · {root}", None if root.is_dir() else "patch")
+        if root.is_dir():
+            free = shutil.disk_usage(root).free
+            self._add_quick_check_result(f"所在磁盘可用空间：{_format_size(free)}")
+
+    def _quick_check_patch_state(self) -> None:
+        installation = self.current_installation
+        if installation is None or not installation.root.is_dir():
+            self._add_quick_check_result("补丁状态：未检查（尚未找到有效游戏目录）。", "patch")
+            return
+        try:
+            audit = self.patch_engine.audit_recorded(installation.root)
+            health = audit.health.value
+            self._add_quick_check_result(f"补丁状态：{health}", None if health == "healthy" else "patch")
+        except Exception:
+            self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch")
+
+    def _quick_check_recent_problems(self) -> None:
+        try:
+            recent = self.problem_store.list_reports()
+            if recent:
+                self._add_quick_check_result("近期异常：" + recent[0].summary, self._solution_id_for_problem_code(recent[0].code))
+            else:
+                self._add_quick_check_result("近期异常：未记录到异常")
+        except Exception:
+            self._add_quick_check_result("近期异常：无法读取问题记录。", "update")
+
+    def _advance_quick_check(self) -> None:
+        if not self.quick_check_running or self.quick_check_paused:
+            return
+        if not self.quick_check_steps:
+            self.quick_check_lines.extend(("", "检测完成。此结果仅覆盖常见问题；如仍无法处理，请导出诊断信息。"))
+            self.quick_check_running = False
+            self._render_quick_check_output()
+            self._set_quick_check_controls()
+            return
+        step = self.quick_check_steps.pop(0)
+        try:
+            step()
+        except Exception as error:
+            self.context.logger.exception("Quick check step failed")
+            self._add_quick_check_result(f"检查项执行失败：{error}", "update")
+        self._render_quick_check_output()
+        self.window.after(220, self._advance_quick_check)
+
+    def _toggle_quick_check_pause(self) -> None:
+        if not self.quick_check_running:
+            return
+        self.quick_check_paused = not self.quick_check_paused
+        self._set_quick_check_controls()
+        if not self.quick_check_paused:
+            self.window.after(0, self._advance_quick_check)
+
+    def _terminate_quick_check(self) -> None:
+        if not self.quick_check_running:
+            return
+        self.quick_check_running = False
+        self.quick_check_paused = False
+        self.quick_check_steps.clear()
+        self.quick_check_lines.extend(("", "检测已由用户终止。"))
+        self._render_quick_check_output()
+        self._set_quick_check_controls()
+
+    def _render_quick_check_output(self) -> None:
+        for child in self.quick_check_output.winfo_children():
+            child.destroy()
+        if not self.quick_check_results:
+            ctk.CTkLabel(self.quick_check_output, text="正在准备检查……", text_color=UI["muted"], anchor="w").pack(fill="x", padx=12, pady=12)
+            return
+        for index, (text, solution_id) in enumerate(self.quick_check_results, start=1):
+            row = ctk.CTkFrame(self.quick_check_output, fg_color=UI["card"], border_color=UI["border"], border_width=1, corner_radius=8)
+            row.pack(fill="x", padx=6, pady=(6, 0))
+            ctk.CTkLabel(row, text=f"{index}. {text}", text_color=UI["danger"] if solution_id else UI["text_secondary"], anchor="w", justify="left", wraplength=760).pack(side="left", fill="x", expand=True, padx=12, pady=10)
+            if solution_id:
+                ctk.CTkButton(row, text="查看解决方案 →", width=128, height=28, command=lambda article_id=solution_id: self._open_solution_article(article_id)).pack(side="right", padx=10)
+
+    def _add_quick_check_result(self, text: str, solution_id: str | None = None) -> None:
+        self.quick_check_results.append((text, solution_id))
+        self.quick_check_lines.append(f"{len(self.quick_check_results)}. {text}")
+
+    def _open_solution_article(self, article_id: str) -> None:
+        self._show_page("常见问题教程")
+        self._show_solution_list()
+        self._show_solution_detail(article_id)
+
+    def _set_quick_check_controls(self) -> None:
+        active = self.quick_check_running
+        self.quick_check_start_button.configure(state="disabled" if active else "normal")
+        self.quick_check_pause_button.configure(state="normal" if active else "disabled", text="继续检测" if self.quick_check_paused else "暂停检测")
+        self.quick_check_stop_button.configure(state="normal" if active else "disabled")
+        self.quick_check_copy_button.configure(state="normal" if self.quick_check_lines else "disabled")
+
+    def _copy_quick_check_result(self) -> None:
+        if not self.quick_check_lines:
+            return
+        self.window.clipboard_clear()
+        self.window.clipboard_append("\n".join(self.quick_check_lines))
+        self._notify("检测结果已复制")
+
     def _show_page(self, page_name: str) -> None:
         self.current_page = page_name
+        # A page can contain dynamically rebuilt scrollable content.  Hide every
+        # top-level page with all geometry managers before exposing the target,
+        # otherwise a previous guide card may briefly remain above the detail page.
         for sections in self.page_sections.values():
             for section in sections:
                 section.pack_forget()
+                section.grid_forget()
+                section.place_forget()
+        self.page_host.update_idletasks()
         sections = self.page_sections[page_name]
         for index, section in enumerate(sections):
             if page_name == "DLC 库" and section is self.catalog_card:
                 section.pack(fill="both", expand=True)
-            elif page_name in {"下载任务", "问题中心", "日志", "设置"}:
+            elif page_name in {"高级DLC视图", "下载任务", "报错指南", "常见问题教程", "简单错误检测", "问题记录", "运行日志", "设置"}:
                 section.pack(fill="both", expand=True)
             else:
                 bottom = 18 if index < len(sections) - 1 else 0
                 section.pack(fill="x", pady=(0, bottom))
+        navigation_page = "DLC 库" if page_name == "高级DLC视图" else page_name
         for name, button in self.navigation_buttons.items():
             button.configure(
-                fg_color=UI["primary"] if name == page_name else "transparent",
-                text_color=UI["on_blue"] if name == page_name else UI["text_secondary"],
-                hover_color=UI["primary_hover"] if name == page_name else "#EAF3FB",
+                fg_color=UI["primary"] if name == navigation_page else "transparent",
+                text_color=UI["on_blue"] if name == navigation_page else UI["text_secondary"],
+                hover_color=UI["primary_hover"] if name == navigation_page else "#EAF3FB",
             )
         if page_name == "下载任务":
             self._refresh_task_page()
-        elif page_name == "问题中心":
+        elif page_name == "问题记录":
+            self._show_problem_list()
             self._refresh_problem_center()
-        elif page_name == "日志":
+        elif page_name == "运行日志":
             self._refresh_log_preview()
 
     def _refresh_task_page(self) -> None:
@@ -2938,6 +3376,11 @@ class DlcHubApplication:
             or source != self.user_settings.download_source
         ):
             return False
+        if loaded.cartridge.adapter.descriptor.game_id != self.cartridge.adapter.descriptor.game_id:
+            # The source refresh began for an earlier game.  A later user
+            # selection is already loading its own cartridge; never restore
+            # the old game's name or catalog over that newer selection.
+            return True
         self._activate_loaded_cartridge(loaded, rebuild_services=True)
         self._sync_game_selector_values()
         self._set_game_selector_text(self.selected_game_name)
@@ -3152,9 +3595,31 @@ class DlcHubApplication:
             )
             return
         icon = "\u26a0\ufe0f " if error else "\u2705 "
-        snackbar.configure(fg_color=UI["danger"] if error else UI["success"])
-        self.snackbar_label.configure(text=f"{icon}{message}")
-        snackbar.place(relx=1.0, rely=0.16, anchor="ne", relwidth=0.33)
+        rendered_message = f"{icon}{message}"
+        # A fixed relative width made long game titles extend beyond the
+        # snackbar and get clipped.  Keep short notices compact, expand for
+        # longer text, then wrap once the window-safe maximum is reached.
+        display_units = sum(2 if ord(character) > 0xFF else 1 for character in rendered_message)
+        default_width = 460
+        desired_width = max(default_width, 64 + display_units * 8)
+        window_width = self.window.winfo_width()
+        if window_width <= 1:
+            window_width = self.window.winfo_reqwidth()
+        available_width = max(360, window_width - 48)
+        snackbar_width = min(desired_width, available_width)
+        usable_units = max(1, (snackbar_width - 48) // 8)
+        line_count = max(1, -(-display_units // usable_units))
+        snackbar_height = 44 + (line_count - 1) * 22
+        snackbar.configure(
+            fg_color=UI["danger"] if error else UI["success"],
+            width=snackbar_width,
+            height=snackbar_height,
+        )
+        self.snackbar_label.configure(
+            text=rendered_message,
+            wraplength=max(300, snackbar_width - 48),
+        )
+        snackbar.place(relx=1.0, rely=0.16, anchor="ne")
         snackbar.lift()
         if error:
             self.window.bell()
@@ -3218,12 +3683,6 @@ class DlcHubApplication:
             f"任务：{len(active) + update_task_count} · {_format_speed(speed)}\n"
             f"缓存：{cache_text}"
         ))
-        if hasattr(self, "cache_status"):
-            current_cache_status = self.cache_status.cget("text")
-            if current_cache_status == "缓存用量将在后台统计" or str(
-                current_cache_status
-            ).startswith("当前缓存："):
-                self.cache_status.configure(text=f"当前缓存：{cache_text}")
         self._schedule_cache_usage_scan()
         self.window.after(2000, self._update_global_status)
 
@@ -3263,21 +3722,37 @@ class DlcHubApplication:
         self.cache_usage_last_scan = time.monotonic()
         if usage is not None:
             self.cache_usage_bytes = usage
-            if hasattr(self, "cache_status"):
-                current = str(self.cache_status.cget("text"))
-                if (
-                    current == "缓存用量将在后台统计"
-                    or current.startswith("当前缓存：")
-                ):
-                    self.cache_status.configure(
-                        text=(
-                            f"当前缓存：{_format_size(usage)}"
-                            if game_usage is None else
-                            f"当前缓存：{_format_size(usage)}；当前游戏已识别 "
-                            f"{game_usage.file_count} 个文件、"
-                            f"{_format_size(game_usage.bytes_used)}"
-                        )
-                    )
+        self._render_cache_storage_overview(usage, game_usage)
+
+    def _render_cache_storage_overview(self, usage: int | None, game_usage=None) -> None:
+        """Render the settings cache summary without doing file work on the UI thread."""
+        if not hasattr(self, "cache_status"):
+            return
+        if usage is None:
+            self.cache_status.configure(text="缓存空间暂时无法统计")
+            self.cache_breakdown.configure(text="当前游戏 未知  ·  其他游戏 未知")
+            self.cache_usage_bar.set(0)
+            return
+
+        game_bytes = 0
+        game_files = 0
+        if game_usage is not None:
+            game_bytes = max(0, min(int(game_usage.bytes_used), usage))
+            game_files = int(game_usage.file_count)
+        other_bytes = max(0, usage - game_bytes)
+        self.cache_status.configure(text=f"已使用 {_format_size(usage)}")
+        if game_usage is None:
+            self.cache_breakdown.configure(text="当前游戏 正在统计  ·  其他游戏 正在统计")
+            self.cache_usage_bar.set(0)
+            return
+        game_name = self.cartridge.adapter.descriptor.display_name
+        self.cache_breakdown.configure(
+            text=(
+                f"当前游戏（{game_name}） {_format_size(game_bytes)}"
+                f"（{game_files} 个文件）  ·  其他游戏 {_format_size(other_bytes)}"
+            )
+        )
+        self.cache_usage_bar.set(game_bytes / usage if usage else 0)
 
     def _open_path(self, path: Path) -> None:
         try:
@@ -3424,12 +3899,12 @@ class DlcHubApplication:
             self.context.logger.exception("Unable to persist problem report")
             return report
         self._update_problem_badge()
-        if getattr(self, "current_page", None) == "问题中心":
+        if getattr(self, "current_page", None) == "问题记录":
             self._refresh_problem_center(select_event_id=stored.event_id)
         return stored
 
     def _update_problem_badge(self) -> None:
-        button = getattr(self, "navigation_buttons", {}).get("问题中心")
+        button = getattr(self, "navigation_buttons", {}).get("报错指南")
         if button is None:
             return
         try:
@@ -3437,7 +3912,7 @@ class DlcHubApplication:
         except Exception:
             self.context.logger.exception("Unable to count unresolved problems")
             count = 0
-        button.configure(text=f"问题中心 ({count})" if count else "问题中心")
+        button.configure(text=f"报错指南 ({count})" if count else "报错指南")
 
     def _refresh_problem_center(self, select_event_id: str | None = None) -> None:
         if not hasattr(self, "problem_list"):
@@ -3461,35 +3936,113 @@ class DlcHubApplication:
             return
         for report in reports:
             status = "未解决" if report.status is ProblemStatus.OPEN else "已解决"
-            button = ctk.CTkButton(
+            selected = report.event_id == (select_event_id or self.selected_problem_event_id)
+            row = ctk.CTkFrame(
                 self.problem_list,
-                text=(
-                    f"[{status}] {report.summary}\n"
-                    f"{report.code.value} · {report.last_occurred_at}"
-                ),
-                anchor="w",
-                fg_color=(
-                    UI["primary_surface"]
-                    if report.event_id == (select_event_id or self.selected_problem_event_id)
-                    else "transparent"
-                ),
-                text_color=UI["text_secondary"],
-                hover_color=UI["primary_surface_hover"],
-                command=lambda event_id=report.event_id: self._select_problem(event_id),
+                fg_color=UI["primary_surface"] if selected else UI["card"],
+                border_color=UI["primary_border"] if selected else UI["border"],
+                border_width=1, corner_radius=8,
             )
-            button.pack(fill="x", padx=6, pady=4)
-        selected = select_event_id or self.selected_problem_event_id
-        if not selected or not any(item.event_id == selected for item in reports):
-            selected = reports[0].event_id
-        self._select_problem(selected, refresh_list=False)
+            row.pack(fill="x", padx=8, pady=(8, 0))
+            tag_color = UI["danger"] if report.status is ProblemStatus.OPEN else UI["success"]
+            tag = ctk.CTkLabel(
+                row, text=status, text_color=tag_color, fg_color=("#FDECEC" if report.status is ProblemStatus.OPEN else "#E7F5EC"),
+                corner_radius=5, font=ctk.CTkFont(size=11, weight="bold"),
+            )
+            tag.pack(anchor="w", padx=12, pady=(10, 4))
+            title = ctk.CTkLabel(
+                row, text=report.summary, text_color=UI["text"], anchor="w",
+                font=ctk.CTkFont(size=14, weight="bold"), wraplength=320,
+            )
+            title.pack(fill="x", padx=12)
+            timestamp = ctk.CTkLabel(
+                row, text=report.last_occurred_at.replace("T", " ")[:16],
+                text_color=UI["muted"], anchor="w", font=ctk.CTkFont(size=11),
+            )
+            timestamp.pack(fill="x", padx=12, pady=(4, 10))
+            callback = lambda _event, event_id=report.event_id: self._select_problem_from_card(event_id)
+            for widget in (row, tag, title, timestamp):
+                widget.bind("<Button-1>", callback)
         self._update_problem_badge()
 
+    def _show_problem_list(self) -> None:
+        """Return from a record detail page to the parent record list."""
+        if not hasattr(self, "problem_list_panel"):
+            return
+        self.problem_detail_page.pack_forget()
+        self.problem_list_panel.pack(fill="both", expand=True)
+
+    def _solution_id_for_problem_code(self, code: ProblemCode) -> str:
+        if code is ProblemCode.NET_TLS:
+            return "ssl"
+        elif code in {
+            ProblemCode.NET_TIMEOUT, ProblemCode.NET_DNS, ProblemCode.NET_HTTP,
+            ProblemCode.NET_CONNECTION,
+        }:
+            return "download"
+        elif code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
+            return "security"
+        elif code.value.startswith(("PATCH-", "PKG-", "FS-")):
+            return "patch"
+        return "update"
+
+    def _open_problem_solution(self, report: ProblemReport) -> None:
+        self._open_solution_article(self._solution_id_for_problem_code(report.code))
+
     def _set_problem_detail(self, report: ProblemReport | None) -> None:
-        self.problem_detail.configure(state="normal")
-        self.problem_detail.delete("1.0", "end")
-        if report is not None:
-            self.problem_detail.insert("1.0", self._problem_detail_text(report))
-        self.problem_detail.configure(state="disabled")
+        for child in self.problem_detail_content.winfo_children():
+            child.destroy()
+        if report is None:
+            ctk.CTkLabel(
+                self.problem_detail_content, text="选择一条问题记录查看详情",
+                text_color=UI["muted"],
+            ).pack(anchor="w", padx=4, pady=16)
+            self._render_problem_actions(None)
+            return
+        status = "未解决" if report.status is ProblemStatus.OPEN else "已解决"
+        severity_labels = {"info": "提示", "warning": "警告", "error": "严重", "critical": "紧急"}
+        severity = severity_labels.get(report.severity.value, report.severity.value)
+        header = ctk.CTkFrame(self.problem_detail_content, fg_color="transparent")
+        header.pack(fill="x", padx=4, pady=(12, 10))
+        ctk.CTkLabel(
+            header, text=report.summary, text_color=UI["text"], anchor="w",
+            font=ctk.CTkFont(size=20, weight="bold"), wraplength=600,
+        ).pack(anchor="w")
+        meta = ctk.CTkFrame(header, fg_color="transparent")
+        meta.pack(fill="x", pady=(8, 0))
+        for text, color, background in (
+            (severity, UI["danger"] if report.severity.value in {"error", "critical"} else UI["primary"], "#FDECEC" if report.severity.value in {"error", "critical"} else UI["primary_surface"]),
+            (status, UI["danger"] if report.status is ProblemStatus.OPEN else UI["success"], "#FDECEC" if report.status is ProblemStatus.OPEN else "#E7F5EC"),
+            (report.code.value, UI["text_secondary"], UI["panel"]),
+        ):
+            ctk.CTkLabel(meta, text=text, text_color=color, fg_color=background, corner_radius=5,
+                         font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
+        info = ctk.CTkFrame(self.problem_detail_content, fg_color=UI["panel"], corner_radius=8)
+        info.pack(fill="x", padx=4, pady=(0, 12))
+        ctk.CTkLabel(info, text="基础信息", text_color=UI["text"], anchor="w",
+                     font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(12, 8))
+        fields = (("发生时间", report.last_occurred_at), ("事件 ID", report.event_id), ("阶段", report.stage), ("平台", report.platform or "-"), ("程序版本", report.app_version or "-"), ("重复次数", str(report.retry_count)))
+        for index, (label, value) in enumerate(fields):
+            row, column = divmod(index, 2)
+            ctk.CTkLabel(info, text=f"{label}\n{value}", text_color=UI["text_secondary"], anchor="w",
+                         justify="left", font=ctk.CTkFont(size=12)).grid(row=row + 1, column=column, sticky="w", padx=14, pady=5)
+        suggestion = ctk.CTkFrame(self.problem_detail_content, fg_color=UI["primary_surface"], corner_radius=8)
+        suggestion.pack(fill="x", padx=4, pady=(0, 12))
+        ctk.CTkLabel(suggestion, text="处理建议", text_color=UI["primary"], anchor="w",
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", padx=14, pady=(12, 4))
+        ctk.CTkButton(suggestion, text="查看对应解决方案  →", width=156,
+                      command=lambda report=report: self._open_problem_solution(report)).pack(anchor="w", padx=14, pady=(0, 12))
+        technical_header = ctk.CTkFrame(self.problem_detail_content, fg_color="transparent")
+        technical_header.pack(fill="x", padx=4, pady=(0, 4))
+        ctk.CTkLabel(technical_header, text="技术详情 / Traceback", text_color=UI["text"], anchor="w",
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        ctk.CTkButton(technical_header, text="复制", width=64, height=28, fg_color=UI["panel"], hover_color=UI["border"], text_color=UI["text_secondary"],
+                      command=lambda: self._copy_problem_text(report.technical_details or self._problem_detail_text(report))).pack(side="right")
+        technical = ctk.CTkTextbox(self.problem_detail_content, height=180, wrap="word", fg_color="#F3F4F6", text_color=UI["text_secondary"], border_width=0, corner_radius=8,
+                                  font=ctk.CTkFont(family="Consolas", size=12))
+        technical.pack(fill="x", padx=4, pady=(0, 12))
+        technical.insert("1.0", report.technical_details or "未记录技术详情")
+        technical.configure(state="disabled")
         self._render_problem_actions(report)
 
     def _select_problem(self, event_id: str, *, refresh_list: bool = True) -> None:
@@ -3499,9 +4052,24 @@ class DlcHubApplication:
             self._set_problem_detail(None)
             return
         self.selected_problem_event_id = report.event_id
+        # Build and lay out the hidden detail view before removing the list.
+        # Rebuilding the list first made the intermediate empty state visible.
         self._set_problem_detail(report)
+        self.problem_detail_page.update_idletasks()
+        self.problem_list_panel.pack_forget()
+        self.problem_detail_page.pack(fill="both", expand=True)
+        self.problem_detail_page.update_idletasks()
         if refresh_list:
-            self._refresh_problem_center(select_event_id=report.event_id)
+            self.window.after_idle(
+                lambda event_id=report.event_id: self._refresh_problem_center(
+                    select_event_id=event_id
+                )
+            )
+
+    def _select_problem_from_card(self, event_id: str) -> str:
+        """Select one record and prevent nested card bindings from firing twice."""
+        self._select_problem(event_id, refresh_list=False)
+        return "break"
 
     def _render_problem_actions(self, report: ProblemReport | None) -> None:
         for child in self.problem_actions.winfo_children():
@@ -3605,9 +4173,11 @@ class DlcHubApplication:
                 self._retry_problem_task(report)
             elif normalized is ProblemAction.MARK_RESOLVED:
                 self.problem_store.mark_resolved(report.event_id)
+                self._show_problem_list()
                 self._refresh_problem_center()
             elif normalized is ProblemAction.DELETE:
                 self.problem_store.delete(report.event_id)
+                self._show_problem_list()
                 self._refresh_problem_center()
             elif normalized is ProblemAction.OPEN_WINDOWS_SECURITY:
                 if not webbrowser.open(WINDOWS_SECURITY_URI):
@@ -3641,6 +4211,7 @@ class DlcHubApplication:
             messagebox.showerror("清空失败", str(error), parent=self.window)
             return
         self.selected_problem_event_id = None
+        self._show_problem_list()
         self._refresh_problem_center()
 
     def _freshness_status_text(self, *, catalog_count: int | None = None) -> str:
@@ -3664,6 +4235,45 @@ class DlcHubApplication:
             self.catalog_preview.set_freshness_text(text)
         else:
             self.catalog_freshness.configure(text=text, text_color=UI["muted"])
+
+    def _refresh_catalog_capacity_summary(self) -> None:
+        """Show known catalog and selected-DLC capacity beside the item count."""
+        entries = self.catalog_entries
+        if not entries:
+            return
+        total_bytes = sum(
+            entry.asset.size_bytes for entry in entries
+            if entry.asset.size_bytes is not None
+        )
+        known_total_count = sum(
+            entry.asset.size_bytes is not None for entry in entries
+        )
+        selected_entries = [
+            entry for entry in entries if entry.dlc_id in self.selected_dlc_ids
+        ]
+        selected_bytes = sum(
+            entry.asset.size_bytes for entry in selected_entries
+            if entry.asset.size_bytes is not None
+        )
+        known_selected_count = sum(
+            entry.asset.size_bytes is not None for entry in selected_entries
+        )
+        total_text = (
+            _format_size(total_bytes) if known_total_count else "未知"
+        )
+        selected_text = (
+            "0B" if not selected_entries
+            else _format_size(selected_bytes) if known_selected_count else "未知"
+        )
+        patch_suffix = "" if self.patch_bundle is not None else "（缺少补丁资源）"
+        self.catalog_status.configure(
+            text=(
+                f"{self.cartridge.adapter.descriptor.display_name} · "
+                f"已读取 {len(entries)} 个 DLC 资源{patch_suffix} · "
+                f"总容量（已知）：{total_text} · "
+                f"当前选中 {len(selected_entries)} 项（{selected_text}）"
+            )
+        )
 
     def _refresh_catalog(self) -> None:
         self.catalog_request_generation += 1
@@ -3738,13 +4348,7 @@ class DlcHubApplication:
             }
             self.catalog_selection_initialized = True
         self.catalog_refresh_button.configure(state="normal")
-        patch_suffix = "" if snapshot.patch_bundle is not None else "（缺少补丁资源）"
-        self.catalog_status.configure(
-            text=(
-                f"{self.cartridge.adapter.descriptor.display_name} · "
-                f"已读取 {len(entries)} 个 DLC 资源{patch_suffix}"
-            )
-        )
+        self._refresh_catalog_capacity_summary()
         self._refresh_catalog_freshness_label(catalog_count=len(entries))
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
@@ -4050,6 +4654,7 @@ class DlcHubApplication:
         state = self.catalog_view_widgets[self.catalog_view_mode]
         if state["render_key"] == render_key:
             self._sync_cached_catalog_view(visible_entries, snapshots)
+            self._show_catalog_view_frame(self.catalog_view_mode)
             self.advanced_view_button.configure(
                 state="normal",
                 text=(
@@ -4102,7 +4707,7 @@ class DlcHubApplication:
         """Build a few rows per UI tick so CustomTkinter never blocks Tk."""
         if generation != self.catalog_render_generation or mode != self.catalog_view_mode:
             return
-        batch_size = 12 if mode == "simple" else 3
+        batch_size = 12 if mode == "simple" else 8
         end = min(start + batch_size, len(visible_entries))
         if mode == "simple":
             self._render_simple_catalog_rows(
@@ -4115,6 +4720,7 @@ class DlcHubApplication:
         if end >= len(visible_entries):
             self.catalog_render_after_id = None
             self.catalog_view_widgets[mode]["render_key"] = render_key
+            self._show_catalog_view_frame(mode)
             self.advanced_view_button.configure(
                 state="normal",
                 text="返回简洁视图" if mode == "advanced" else "切换高级视图",
@@ -4167,15 +4773,18 @@ class DlcHubApplication:
         self._reset_scrollable_frame(self.dlc_list_frame)
 
     def _schedule_catalog_scroll_reset(self) -> None:
+        if self.catalog_view_mode == "simple":
+            self.advanced_view_button.configure(text="逐项管理 DLC")
         self._schedule_scrollable_reset(self.dlc_list_frame)
 
     def _show_catalog_view_frame(self, mode: str) -> None:
         """Swap persistent canvases without rebuilding the hidden view."""
         target = self.catalog_view_frames[mode]
-        current = self.dlc_list_frame
+        current = self.catalog_view_frames[self.displayed_catalog_view_mode]
         if current is not target:
             current.pack_forget()
             target.pack(fill="both", expand=True, padx=18, pady=(0, 16))
+        self.displayed_catalog_view_mode = mode
         self._activate_catalog_view_storage(mode)
 
     def _toggle_catalog_view(self) -> None:
@@ -4193,7 +4802,13 @@ class DlcHubApplication:
             self.catalog_preview.configure(
                 text="简洁视图：勾选需要的内容后可一键下载"
             )
-        self._show_catalog_view_frame(self.catalog_view_mode)
+        self._show_page("高级DLC视图" if self.catalog_view_mode == "advanced" else "DLC 库")
+        self._render_catalog_rows()
+
+    def _return_to_simple_catalog(self) -> None:
+        self.catalog_view_mode = "simple"
+        self._show_catalog_view_frame("simple")
+        self._show_page("DLC 库")
         self._render_catalog_rows()
 
     def _render_simple_catalog_rows(
@@ -4267,9 +4882,30 @@ class DlcHubApplication:
             self.dlc_list_frame.grid_columnconfigure(0, weight=1, uniform="")
             for column in range(1, 4):
                 self.dlc_list_frame.grid_columnconfigure(column, weight=0, uniform="")
+            header = ctk.CTkFrame(
+                self.dlc_list_frame, fg_color=UI["panel"], corner_radius=8,
+                border_width=1, border_color=UI["border"],
+            )
+            header.grid(row=0, column=0, columnspan=8, sticky="ew", pady=(0, 6))
+            header.grid_columnconfigure(2, weight=1)
+            for column, title, width, anchor, padx in (
+                (0, "选择", 48, "center", (8, 0)),
+                (1, "DLC 编号", 68, "w", (2, 6)),
+                (2, "名称", 0, "w", 4),
+                (3, "大小", 80, "e", 6),
+                (4, "下载", 56, "center", 4),
+                (5, "取消", 50, "center", (4, 10)),
+                (6, "安装路径", 58, "center", 4),
+                (7, "卸载", 50, "center", (4, 10)),
+            ):
+                ctk.CTkLabel(
+                    header, text=title, width=width, anchor=anchor,
+                    text_color=UI["text_secondary"],
+                    font=ctk.CTkFont(size=12, weight="bold"),
+                ).grid(row=0, column=column, sticky="ew" if column == 2 else "", padx=padx, pady=7)
         if end is None:
             end = len(visible_entries)
-        for index, entry in enumerate(visible_entries[start:end], start=start):
+        for index, entry in enumerate(visible_entries[start:end], start=start + 1):
             installed = self._is_entry_installed(entry)
             if installed:
                 self.selected_dlc_ids.discard(entry.dlc_id)
@@ -4305,6 +4941,8 @@ class DlcHubApplication:
                 row, text=entry.asset.display_size or "大小未知", width=80, anchor="e"
             )
             status.grid(row=0, column=3, padx=6)
+            if entry.asset.size_bytes is not None:
+                status.configure(text=_format_size(entry.asset.size_bytes))
             action = ctk.CTkButton(
                 row, text="下载", width=56,
                 command=lambda entry=entry: self._start_entry_download(entry),
@@ -4336,6 +4974,13 @@ class DlcHubApplication:
             if task_id in snapshots:
                 self._show_download_state(snapshots[task_id])
             self._show_install_state(entry, snapshots.get(task_id))
+
+    @staticmethod
+    def _catalog_asset_size_text(entry) -> str:
+        """Keep the advanced catalog's size column independent of state text."""
+        if entry.asset.size_bytes is not None:
+            return _format_size(entry.asset.size_bytes)
+        return entry.asset.display_size or "大小未知"
 
     def _simple_entry_status(self, entry, snapshot=None) -> tuple[str, str]:
         if self._is_entry_installed(entry):
@@ -4397,6 +5042,7 @@ class DlcHubApplication:
         else:
             self.selected_dlc_ids.discard(dlc_id)
         self._update_selection_toggle_button()
+        self._refresh_catalog_capacity_summary()
 
     def _selectable_visible_entries(self, visible_entries=None):
         if visible_entries is None:
@@ -4442,6 +5088,7 @@ class DlcHubApplication:
             if variable is not None:
                 variable.set(True)
         self._update_selection_toggle_button(visible)
+        self._refresh_catalog_capacity_summary()
 
     def _clear_visible_selection(self) -> None:
         snapshots = {}
@@ -4456,6 +5103,7 @@ class DlcHubApplication:
             if variable is not None:
                 variable.set(False)
         self._update_selection_toggle_button(visible)
+        self._refresh_catalog_capacity_summary()
 
     def _one_click_unlock(self) -> None:
         """Button command: patch first, then download and install selected DLC."""
@@ -5573,17 +6221,19 @@ class DlcHubApplication:
         _status, _action, _cancel, manage, uninstall = row
         has_receipt = entry.dlc_id.casefold() in self.active_receipt_dlc_ids
         if installed:
-            _status.configure(text="已安装", text_color=UI["muted"])
+            _status.configure(text=self._catalog_asset_size_text(entry), text_color=UI["text"])
             _action.configure(state="disabled", text="已安装")
             _cancel.configure(state="disabled")
             uninstall.configure(state="normal")
             if has_receipt:
                 manage.configure(state="normal", text="检查")
+                self._style_widget(manage, set(self.navigation_buttons.values()))
             else:
                 manage.configure(state="disabled", text="已存在")
             return
         if has_receipt and self.current_installation is not None:
             manage.configure(state="normal", text="检查")
+            self._style_widget(manage, set(self.navigation_buttons.values()))
             uninstall.configure(state="normal")
             return
         uninstall.configure(state="disabled")
@@ -5818,12 +6468,15 @@ class DlcHubApplication:
     # ---- Patch workflow (一键解锁工具 / 一键修复 / 一键移除补丁) ------------
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
-        """Materialize the two release-side patch assets when available."""
+        """Materialize the complete release-side patch payload when available."""
         bundle = self.patch_bundle
         if bundle is None:
             return ()
         assets_by_role = {
             "unlocker_dll": bundle.unlocker_dll,
+            "original_dll": getattr(
+                bundle, "original_dll", getattr(bundle, "original_backup_dll", None)
+            ),
             "appinfo_json": bundle.appinfo_json,
         }
         return tuple(
@@ -5854,6 +6507,7 @@ class DlcHubApplication:
             return None
         return {
             "unlocker_dll": self.patch_bundle.unlocker_dll,
+            "original_dll": getattr(self.patch_bundle, "original_dll", None),
             "appinfo_json": self.patch_bundle.appinfo_json,
         }[role]
 
@@ -5939,9 +6593,17 @@ class DlcHubApplication:
             return ()
         assets = (
             self.patch_bundle.unlocker_dll,
+            getattr(
+                self.patch_bundle,
+                "original_dll",
+                getattr(self.patch_bundle, "original_backup_dll", None),
+            ),
             self.patch_bundle.appinfo_json,
         )
-        return tuple(asset for asset in assets if not self._valid_sha256(asset.sha256))
+        return tuple(
+            asset for asset in assets
+            if asset is None or not self._valid_sha256(asset.sha256)
+        )
 
     def _record_patch_problem(
         self,
@@ -6217,6 +6879,7 @@ class DlcHubApplication:
                 result = patch_operation(
                     game_root,
                     unlocker_dll_source=ready_paths["unlocker_dll"],
+                    original_dll_source=ready_paths["original_dll"],
                     appinfo_json_source=ready_paths["appinfo_json"],
                     game_id=game_id,
                 )
@@ -6677,7 +7340,7 @@ class DlcHubApplication:
         self.repair_cartridge_id = self.cartridge.cartridge_id
         self.repair_game_root = self.current_installation.root
         self._update_repair_journal("preparing")
-        self.game_selector.configure(state="disabled")
+        self._set_game_selector_state("disabled")
         self._start_repair_preparation()
 
     def _repair_catalog_error(self) -> str | None:
@@ -6988,7 +7651,7 @@ class DlcHubApplication:
         self.repair_game_selection_generation = -1
         self.repair_cartridge_id = ""
         self.repair_game_root = None
-        self.game_selector.configure(state="normal")
+        self._set_game_selector_state("normal")
         if missing or not patch_healthy or cleanup_errors:
             problems = []
             if missing:
@@ -7043,7 +7706,7 @@ class DlcHubApplication:
         self.repair_game_selection_generation = -1
         self.repair_cartridge_id = ""
         self.repair_game_root = None
-        self.game_selector.configure(state="normal")
+        self._set_game_selector_state("normal")
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
         self.pending_dlc_batch_task_ids = ()
@@ -7544,6 +8207,21 @@ class DlcHubApplication:
 
         run(delays)
 
+    def _set_update_activity_visible(self, visible: bool, *, checking: bool = False) -> None:
+        if visible:
+            self.progress.grid()
+            self.update_cancel_button.grid()
+            if checking:
+                self.progress.configure(mode="indeterminate")
+                self.progress.start()
+            else:
+                self.progress.stop()
+                self.progress.configure(mode="determinate")
+        else:
+            self.progress.stop()
+            self.progress.grid_remove()
+            self.update_cancel_button.grid_remove()
+
     def _check_update(self) -> None:
         if not self.context.updates.enabled:
             messagebox.showinfo(
@@ -7554,6 +8232,7 @@ class DlcHubApplication:
             return
         self.update_button.configure(state="disabled")
         self.status.configure(text="正在检查更新……")
+        self._set_update_activity_visible(True, checking=True)
 
         def worker() -> None:
             try:
@@ -7570,6 +8249,7 @@ class DlcHubApplication:
         if release is None:
             self.status.configure(text="当前已是最新版本")
             self.update_button.configure(state="normal")
+            self._set_update_activity_visible(False)
             return
         if release.mandatory:
             messagebox.showinfo(
@@ -7599,6 +8279,7 @@ class DlcHubApplication:
             if not answer:
                 self.status.configure(text=f"已发现 v{release.version}，暂未安装")
                 self.update_button.configure(state="normal")
+                self._set_update_activity_visible(False)
                 return
         cancel_event = threading.Event()
         self.update_download_active = True
@@ -7611,6 +8292,7 @@ class DlcHubApplication:
         self.update_download_started_at = time.monotonic()
         self.update_download_cancel_event = cancel_event
         self.progress.set(0)
+        self._set_update_activity_visible(True)
         self.update_cancel_button.configure(state="normal")
         self.status.configure(text=f"正在下载 v{release.version}……")
         self._refresh_update_download_task()
@@ -7696,6 +8378,7 @@ class DlcHubApplication:
         self.update_download_preparing = False
         self.update_download_speed = 0.0
         self.update_download_cancel_event = None
+        self._set_update_activity_visible(False)
         self.update_cancel_button.configure(state="disabled")
         if getattr(self, "current_page", None) == "下载任务":
             self._refresh_task_page()
@@ -7727,6 +8410,7 @@ class DlcHubApplication:
         self.update_button.configure(state="normal")
 
     def _show_error(self, message: str) -> None:
+        self._set_update_activity_visible(False)
         self.status.configure(text="更新失败")
         self.update_button.configure(state="normal")
         messagebox.showerror("更新失败", message, parent=self.window)

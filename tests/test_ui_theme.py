@@ -65,6 +65,20 @@ def _app_method(name: str):
     return namespace[name]
 
 
+def _app_method_source(name: str) -> str:
+    module = ast.parse(APP_ENTRY.read_text(encoding="utf-8"))
+    application = next(
+        node for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "DlcHubApplication"
+    )
+    method = next(
+        node for node in application.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == name
+    )
+    return ast.get_source_segment(APP_ENTRY.read_text(encoding="utf-8"), method) or ""
+
+
 def test_ui_palette_uses_blue_white_design_tokens() -> None:
     palette = _ui_palette()
 
@@ -96,8 +110,10 @@ def test_pages_use_fixed_responsive_host_instead_of_outer_scroll() -> None:
 def test_game_selector_uses_a_searchable_in_app_picker_and_home_uses_github() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
-    assert 'self.game_selector = ctk.CTkButton(' in source
-    assert 'command=self._toggle_game_picker' in source
+    assert 'self.game_selector = _combo_box(' in source
+    assert 'def _open_game_picker_from_combo' in source
+    assert '"right_parts", "<Button-1>", self._open_game_picker_from_combo' in source
+    assert '"dropdown_arrow", "<Button-1>", self._open_game_picker_from_combo' in source
     assert '"border_color": UI["input_border"]' in source
     assert 'def _show_game_picker' in source
     assert 'ctk.CTkToplevel(self.window)' in source
@@ -106,12 +122,36 @@ def test_game_selector_uses_a_searchable_in_app_picker_and_home_uses_github() ->
     assert 'game.get("display_name", "")' in source
     assert 'game.get("game_id", "")' in source
     assert '✓ 当前选择' in source
+    assert 'text = f"{display_name}\\n✓ 当前选择" if is_current else display_name' in source
+    assert 'height=54 if is_current else 40' in source
     assert '没有找到匹配的游戏' in source
     assert 'self._set_game_selector_text(display_name)' in source
-    assert 'text="导出支持列表"' in source
+    assert 'text="复制游戏列表"' in source
     assert 'fg_color="transparent"' in source
     assert 'https://github.com/sign-river/SignRiver-DLC-Hub' in source
     assert '"github.com", "space.bilibili.com"' in source
+
+
+def test_active_cartridge_switch_always_updates_the_visible_game_selector() -> None:
+    source = _app_method_source("_apply_selected_cartridge")
+
+    assert "self.selected_game_name = display_name" in source
+    assert "self._set_game_selector_text(display_name)" in source
+
+
+def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'for page_name in ("DLC 库", "下载任务", "报错指南", "设置")' in source
+    assert '"报错指南": (self.error_guide_card,)' in source
+    assert '"问题记录": (self.problem_card,)' in source
+    assert '"运行日志": (self.log_card,)' in source
+    assert '("问题记录", "查看已记录的异常与处理建议", "问题记录")' in source
+    assert 'text="帮助与诊断"' in source
+    assert 'text="开始一键排错  →"' in source
+    assert '("解决方案", "按现象查看对应的处理办法", "常见问题教程")' in source
+    assert '("运行日志", "查看详细运行信息", "运行日志")' in source
+    assert 'text="返回指南"' in source
 
 
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
@@ -161,11 +201,11 @@ def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
     assert topbar.index('text="使用教程"') < topbar.index('text="QQ群 1061299021"')
 
 
-def test_remaining_dropdowns_use_bordered_combo_box_factory() -> None:
+def test_dropdowns_use_bordered_combo_box_factory() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "CTkOptionMenu(" not in source
-    assert source.count("= _combo_box(") == 3
+    assert source.count("= _combo_box(") == 4
     assert '"border_width": 1' in source
     assert 'self.catalog_filter.set("全部状态")' in source
     assert 'self.log_level_filter.set("全部")' in source
@@ -246,9 +286,10 @@ def test_catalog_views_are_persistent_and_first_build_is_incremental() -> None:
     assert 'self.catalog_view_frames["advanced"]' in source
     assert "def _show_catalog_view_frame" in source
     assert "target.pack(fill=\"both\", expand=True" in source
-    assert "self._show_catalog_view_frame(self.catalog_view_mode)" in toggle_method
+    assert 'self._show_page("高级DLC视图" if self.catalog_view_mode == "advanced" else "DLC 库")' in toggle_method
+    assert "self._show_catalog_view_frame(mode)" in batch_method
     assert "self._render_catalog_rows()" in toggle_method
-    assert "batch_size = 12 if mode == \"simple\" else 3" in batch_method
+    assert "batch_size = 12 if mode == \"simple\" else 8" in batch_method
     assert "self.window.after(" in batch_method
     assert 'state["render_key"] = render_key' in source
 
@@ -492,6 +533,7 @@ def test_settings_groups_related_controls_into_compact_setting_rows() -> None:
     assert 'justify="left"' in source
     assert "def _blue_switch" in source
     assert "return ctk.CTkSwitch(" in source
+    assert 'width=kwargs.pop("width", 154)' in source
     assert 'fg_color="#AEBECD"' in source
     assert 'button_color="#F8FAFC"' in source
     assert 'progress_color=UI["primary"]' in source

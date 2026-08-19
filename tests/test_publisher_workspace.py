@@ -141,7 +141,7 @@ def test_server_cartridge_owns_release_and_patch_contract(tmp_path: Path) -> Non
 
     output_names = {path.name for path in workspace.publish_files(cartridge)}
     assert output_names == {
-        "catalog.json", "custom_api64.dll", "other_game_appinfo.json",
+        "catalog.json", "unlocker.dll", "original.dll", "other_game_appinfo.json",
     }
     restored = workspace.list_games()[0]
     assert restored.patch_asset_names == cartridge.patch_asset_names
@@ -168,7 +168,7 @@ def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_pa
     selected = workspace.initialize()
 
     assert selected == create_builtin_cartridges()[0]
-    assert selected.patch_asset_names == ("steam_api64.dll",)
+    assert selected.patch_asset_names == ("unlocker.dll", "original.dll")
     builtins = {item.game_id: item for item in workspace.list_games()}
     assert builtins["civilization_6"].dlc_import_naming_mode == "auto_prefix"
     assert builtins["civilization_6"].dlc_import_layout_mode == "children_if_root"
@@ -221,7 +221,8 @@ def test_builds_each_dlc_and_patch_and_generates_appinfo(tmp_path: Path) -> None
     assert [record.asset_name for record in records] == [
         "dlc001_symbols_of_domination.zip",
         "stellaris_appinfo.json",
-        "steam_api64.dll",
+        "unlocker.dll",
+        "original.dll",
     ]
     package = workspace.output_dir / "stellaris" / "dlc001_symbols_of_domination.zip"
     with zipfile.ZipFile(package) as archive:
@@ -279,7 +280,7 @@ def test_failed_rebuild_invalidates_previous_publishable_output(tmp_path: Path) 
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).unlink()
 
-    with pytest.raises(WorkspaceError, match=profile.patch_unlocker_name):
+    with pytest.raises(WorkspaceError, match="unlocker.dll"):
         workspace.build(profile)
 
     assert (workspace.output_dir / profile.game_id / profile.appinfo_name).is_file()
@@ -307,7 +308,7 @@ def test_publish_rejects_tampered_output_even_when_size_is_unchanged(
     tmp_path: Path,
 ) -> None:
     workspace, profile = built_minimal_workspace(tmp_path)
-    output = workspace.output_dir / profile.game_id / profile.patch_unlocker_name
+    output = workspace.output_dir / profile.game_id / "unlocker.dll"
     output.write_bytes(b"BAD")
 
     with pytest.raises(WorkspaceError, match="校验失败"):
@@ -818,7 +819,7 @@ def test_build_requires_dlls_and_rejects_wrong_steam_app(tmp_path: Path) -> None
     workspace = PublisherWorkspace(tmp_path / "publisher", appinfo_provider=lambda _app_id: sample_appinfo("123"))
     profile = workspace.initialize()
 
-    with pytest.raises(WorkspaceError, match="steam_api64.dll"):
+    with pytest.raises(WorkspaceError, match="unlocker.dll"):
         workspace.build(profile)
 
     patches = workspace.game_dir(profile.game_id) / "patches"

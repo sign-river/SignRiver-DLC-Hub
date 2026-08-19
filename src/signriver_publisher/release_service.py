@@ -316,6 +316,15 @@ class ReleaseService:
         plan.remote_targets = _copy_remote_target_summaries(remote_targets)
         return self.store.create(plan)
 
+    def confirm_game_content_mirror_delete(self, batch_id: str) -> ReleasePlan:
+        """Persist the explicit second approval required for remote mirroring."""
+        plan = self.get(batch_id)
+        if plan.kind is not ReleaseKind.GAME_CONTENT:
+            raise ReleaseServiceError("当前批次不是游戏内容发布")
+        plan.options["mirror_delete_confirmed"] = True
+        self.store.save(plan)
+        return plan
+
     def create_hub_batch(
         self,
         *,

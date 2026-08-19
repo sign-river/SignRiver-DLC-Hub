@@ -32,6 +32,10 @@ class PublisherApplication(
     """Refactored publisher shell composed from task-oriented UI workspaces."""
 
     def __init__(self, workspace, *, settings=None, settings_path=None) -> None:
+        # These runtime flags are read by callbacks scheduled during the inherited
+        # initializer, which builds the UI and starts background refresh work.
+        self._is_closing = False
+        self._ui_pump_running = True
         # The batch service must exist before the inherited initializer calls
         # the dynamic task-workspace builder below.
         self.release_service = ReleaseService(workspace.root)
@@ -131,12 +135,16 @@ class PublisherApplication(
         self._build_games_tab()
         self._build_cartridge_management_tab()
 
+    def _open_cartridge_management(self) -> None:
+        """Open the current cartridge and Hub workspace from a legacy entry point."""
+        self.tabs.set("内容准备")
+        self.content_tabs.set("卡带与 Hub")
+        self.refresh_cartridge_management()
+
     def _build_review_workspace(self) -> None:
         self.review_tabs = self._nested_tabs(self.review_tab)
         self.acceptance_tab = self.review_tabs.add("人工验收（参考）")
-        self.announcement_tab = self.review_tabs.add("公告与说明")
         self._build_acceptance_tab()
-        self._build_announcement_tab()
 
     def _build_maintenance_workspace(self) -> None:
         self.maintenance_tabs = self._nested_tabs(self.maintenance_tab)

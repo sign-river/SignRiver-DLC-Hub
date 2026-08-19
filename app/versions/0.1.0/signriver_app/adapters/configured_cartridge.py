@@ -73,6 +73,7 @@ class ConfiguredSteamCartridge:
     def patch_task_roles(self, bundle: PatchBundle):
         return MappingProxyType({
             self._patch_task_id("unlocker", bundle.unlocker_dll): "unlocker_dll",
+            self._patch_task_id("original", bundle.original_dll): "original_dll",
             self._patch_task_id("appinfo", bundle.appinfo_json): "appinfo_json",
         })
 

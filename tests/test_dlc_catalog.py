@@ -24,8 +24,8 @@ def full_release_payload() -> bytes:
     return json.dumps({"status": 0, "releases": [{"id": "67956677", "tag_name": "ste", "name": "ste", "body": "4.4", "attachments": [
         {"id": 1, "title": "dlc001_symbols_of_domination.zip", "filesize": "75.6 KB", "url": "/signriver/file-warehouse/releases/download/ste/dlc001_symbols_of_domination.zip"},
         {"id": 2, "title": "dlc002_leviathans.zip", "filesize": "112.3 KB", "url": "/signriver/file-warehouse/releases/download/ste/dlc002_leviathans.zip"},
-        {"id": 3, "title": "steam_api64.dll", "filesize": "220.5 KB", "url": "/signriver/file-warehouse/releases/download/ste/steam_api64.dll"},
-        {"id": 4, "title": "steam_api64_o.dll", "filesize": "195.0 KB", "url": "/signriver/file-warehouse/releases/download/ste/steam_api64_o.dll"},
+        {"id": 3, "title": "unlocker.dll", "filesize": "220.5 KB", "url": "/signriver/file-warehouse/releases/download/ste/unlocker.dll"},
+        {"id": 4, "title": "original.dll", "filesize": "195.0 KB", "url": "/signriver/file-warehouse/releases/download/ste/original.dll"},
         {"id": 5, "title": "stellaris_appinfo.json", "filesize": "3.2 KB", "url": "/signriver/file-warehouse/releases/download/ste/stellaris_appinfo.json"},
     ]}]}).encode()
 
@@ -97,7 +97,8 @@ def test_catalog_snapshot_returns_dlc_and_patch_bundle_together() -> None:
     assert [entry.dlc_id for entry in snapshot.entries] == ["dlc001", "dlc002"]
     assert snapshot.patch_bundle is not None
     bundle = snapshot.patch_bundle
-    assert bundle.unlocker_dll.name == "steam_api64.dll"
+    assert bundle.unlocker_dll.name == "unlocker.dll"
+    assert bundle.original_dll.name == "original.dll"
     assert bundle.appinfo_json.name == "stellaris_appinfo.json"
     assert snapshot.missing_patch_assets == ()
     assert snapshot.release_tag == "ste"
@@ -110,7 +111,7 @@ def test_catalog_snapshot_reports_missing_patch_assets() -> None:
     snapshot = service.refresh_snapshot()
     assert snapshot.patch_bundle is None
     # We only have the AppInfo file in the small payload; the proxy library is missing.
-    assert set(snapshot.missing_patch_assets) == {"steam_api64.dll"}
+    assert set(snapshot.missing_patch_assets) == {"original.dll", "unlocker.dll"}
 
 
 def test_catalog_snapshot_without_profile_never_returns_patch_bundle() -> None:
@@ -171,7 +172,8 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     cartridge = StellarisGameCartridge()
     bundle = PatchBundle(
         profile=STELLARIS_PATCH_PROFILE,
-        unlocker_dll=ReleaseAsset("101", "steam_api64.dll", "https://example.test/steam_api64.dll"),
+        unlocker_dll=ReleaseAsset("101", "unlocker.dll", "https://example.test/unlocker.dll"),
+        original_dll=ReleaseAsset("102", "original.dll", "https://example.test/original.dll"),
         appinfo_json=ReleaseAsset("103", "stellaris_appinfo.json", "https://example.test/stellaris_appinfo.json"),
         release_tag="stellaris",
     )
@@ -184,7 +186,7 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     assert cartridge.patch_profile.install_relative_dir == "."
     assert cartridge.adapter.descriptor.game_id == "stellaris"
     assert set(roles.values()) == {
-        "unlocker_dll", "appinfo_json",
+        "unlocker_dll", "original_dll", "appinfo_json",
     }
     assert all(
         task_id.startswith("stellaris.steam-patch-")
@@ -195,9 +197,10 @@ def test_stellaris_cartridge_owns_new_repository_release_and_patch_tasks() -> No
     updated_bundle = PatchBundle(
         profile=bundle.profile,
         unlocker_dll=ReleaseAsset("201", bundle.unlocker_dll.name, bundle.unlocker_dll.download_url),
+        original_dll=bundle.original_dll,
         appinfo_json=bundle.appinfo_json,
         release_tag=bundle.release_tag,
     )
     updated_roles = cartridge.patch_task_roles(updated_bundle)
     assert set(roles) != set(updated_roles)
-    assert len(set(roles) & set(updated_roles)) == 1
+    assert len(set(roles) & set(updated_roles)) == 2

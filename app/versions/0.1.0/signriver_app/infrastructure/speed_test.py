@@ -8,6 +8,9 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
+_TRANSIENT_TLS_EOF = "unexpected_eof_while_reading"
+
+
 @dataclass(frozen=True, slots=True)
 class SpeedTestResult:
     bytes_downloaded: int
@@ -31,6 +34,8 @@ def measure_download_speed(
     sample_seconds: float = 12,
     max_bytes: int = 64 * 1024**2,
     chunk_size: int = 256 * 1024,
+    retry_delay: float = 0.4,
+    sleeper=time.sleep,
 ) -> SpeedTestResult:
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.netloc:
@@ -41,21 +46,30 @@ def measure_download_speed(
         url,
         headers={"Accept": "application/octet-stream", "User-Agent": "SignRiver-DLC-Hub/0.1"},
     )
-    started = clock()
-    finished = started
-    downloaded = 0
-    with opener(request, timeout=timeout) as response:
-        final = urlparse(response.geturl())
-        if final.scheme != "https":
-            raise ValueError("speed test redirected to a non-HTTPS URL")
-        while True:
-            block = response.read(chunk_size)
-            if not block:
-                break
-            downloaded += len(block)
-            finished = clock()
-            if downloaded >= max_bytes or finished - started >= sample_seconds:
-                break
+    for attempt in range(2):
+        started = clock()
+        finished = started
+        downloaded = 0
+        try:
+            with opener(request, timeout=timeout) as response:
+                final = urlparse(response.geturl())
+                if final.scheme != "https":
+                    raise ValueError("speed test redirected to a non-HTTPS URL")
+                while True:
+                    block = response.read(chunk_size)
+                    if not block:
+                        break
+                    downloaded += len(block)
+                    finished = clock()
+                    if downloaded >= max_bytes or finished - started >= sample_seconds:
+                        break
+        except OSError as error:
+            transient_tls_eof = _TRANSIENT_TLS_EOF in str(error).casefold()
+            if attempt == 0 and downloaded == 0 and transient_tls_eof:
+                sleeper(retry_delay)
+                continue
+            raise
+        break
     elapsed = max(finished - started, 1e-6)
     if downloaded == 0:
         raise ValueError("speed test returned an empty file")

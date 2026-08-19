@@ -27,18 +27,19 @@ def _extract_function(name: str, namespace: dict | None = None):
 
 def test_format_size_uses_kb_mb_gb_units() -> None:
     format_size = _extract_function("_format_size")
-    assert format_size(512) == "512.0 B"
-    assert format_size(1024) == "1.0 KB"
-    assert format_size(1536 * 1024) == "1.5 MB"
-    assert format_size(2 * 1024 * 1024) == "2.0 MB"
-    assert format_size(3.5 * 1024**3) == "3.5 GB"
+    assert format_size(512) == "512B"
+    assert format_size(1024) == "1KB"
+    assert format_size(1536 * 1024) == "1.5MB"
+    assert format_size(2 * 1024 * 1024) == "2MB"
+    assert format_size(3.5 * 1024**3) == "3.5GB"
+    assert format_size(1024**4) == "1TB"
 
 
 def test_format_speed_appends_per_second() -> None:
     namespace: dict = {"_format_size": _extract_function("_format_size")}
     format_speed = _extract_function("_format_speed", namespace=namespace)
-    assert format_speed(1048576) == "1.0 MB/s"
-    assert format_speed(512 * 1024) == "512.0 KB/s"
+    assert format_speed(1048576) == "1MB/s"
+    assert format_speed(512 * 1024) == "512KB/s"
 
 
 def test_update_check_consumes_mandatory_flag() -> None:

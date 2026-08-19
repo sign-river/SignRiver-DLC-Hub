@@ -536,6 +536,17 @@ class ReleaseCenter(ctk.CTkFrame):
                 parent=self,
             ):
                 return
+            if getattr(plan, "kind", None) is ReleaseKind.GAME_CONTENT and not messagebox.askyesno(
+                "确认镜像删除",
+                "游戏内容发布会使远端附件与当前本地发布包完全一致。\n\n"
+                "远端存在、但本地没有的附件将在上传完成后删除；删除失败会阻止 catalog 发布。\n\n"
+                "是否确认此镜像删除操作？",
+                icon="warning",
+                parent=self,
+            ):
+                return
+            if getattr(plan, "kind", None) is ReleaseKind.GAME_CONTENT:
+                plan = self.service.confirm_game_content_mirror_delete(plan.batch_id)
             self._render(
                 self.service.confirm(
                     plan.batch_id, skipped_acceptance_reason=skip_reason

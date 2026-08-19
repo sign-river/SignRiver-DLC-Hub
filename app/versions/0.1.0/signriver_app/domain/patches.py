@@ -13,6 +13,7 @@ class PatchAssetRole(StrEnum):
     """Semantic role of a patch asset published by the resource repository."""
 
     UNLOCKER_DLL = "unlocker_dll"
+    ORIGINAL_DLL = "original_dll"
     APPINFO_JSON = "appinfo_json"
 
 
@@ -131,10 +132,11 @@ class PatchProfile:
 
 @dataclass(frozen=True, slots=True)
 class PatchBundle:
-    """Release-side view of the two assets shipped for a game patch."""
+    """Release-side view of the complete, deterministic patch payload."""
 
     profile: PatchProfile
     unlocker_dll: ReleaseAsset
+    original_dll: ReleaseAsset
     appinfo_json: ReleaseAsset
     release_tag: str
 

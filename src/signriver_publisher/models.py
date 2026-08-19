@@ -133,8 +133,8 @@ class PublisherCartridge:
 
     @property
     def patch_asset_names(self) -> tuple[str, ...]:
-        """Names shipped in a patch release (the user original is never published)."""
-        return (self.patch_unlocker_name,)
+        """Stable release-side names; cartridges map them to game filenames."""
+        return ("unlocker.dll", "original.dll")
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
