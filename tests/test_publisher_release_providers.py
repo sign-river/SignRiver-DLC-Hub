@@ -11,6 +11,7 @@ from signriver_publisher.remote_release_providers import (
     GitHubReleaseProvider,
     GitLinkReleaseProvider,
 )
+from signriver_publisher.release_orchestrator import ReleasePauseRequested
 
 
 class _Response(io.BytesIO):
@@ -27,6 +28,10 @@ class _GitHubClient:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
         self.uploaded = 0
+        self.repository_ensures = 0
+
+    def ensure_repository(self, _description):
+        self.repository_ensures += 1
 
     def get_release_by_tag(self, tag):
         return GitHubRelease(
@@ -79,6 +84,16 @@ def test_github_provider_wraps_existing_client_and_verifies_download(
     assert result.exists
     assert result.size == artifact.size
     assert result.sha256 == artifact.sha256
+
+
+def test_game_content_github_provider_ensures_repository_once() -> None:
+    client = _GitHubClient(b"package")
+    provider = GitHubReleaseProvider(client, ensure_repository=True)
+
+    provider.read_baseline()
+    provider.read_baseline()
+
+    assert client.repository_ensures == 1
 
 
 class _Repository:
@@ -134,6 +149,19 @@ def test_gitlink_provider_wraps_resource_manager_and_verifies_download(
     assert result.exists
     assert result.size == artifact.size
     assert result.sha256 == artifact.sha256
+
+
+def test_game_content_gitlink_provider_ensures_repository_once() -> None:
+    manager = _GitLinkManager(b"package")
+    ensures: list[bool] = []
+    provider = GitLinkReleaseProvider(
+        manager, repository_ensurer=lambda: ensures.append(True)
+    )
+
+    provider.read_baseline()
+    provider.read_baseline()
+
+    assert ensures == [True]
 
 
 def test_manifest_publish_exposes_remote_json_evidence(tmp_path: Path) -> None:
@@ -225,3 +253,18 @@ def test_release_providers_forward_file_upload_progress(tmp_path: Path) -> None:
     assert ("github", package.name, len(payload), len(payload)) in reports
     assert ("gitlink", package.name, 0, len(payload)) in reports
     assert ("gitlink", package.name, len(payload), len(payload)) in reports
+
+
+def test_remote_readback_honors_safety_pause_before_downloading() -> None:
+    provider = GitHubReleaseProvider(
+        _GitHubClient(b"verified-package"),
+        opener=lambda *_args, **_kwargs: _Response(b"unexpected-read"),
+        pause_requested=lambda: True,
+    )
+
+    try:
+        provider.inspect("package.zip")
+    except ReleasePauseRequested:
+        pass
+    else:
+        raise AssertionError("远端回读应在暂停请求后立即停止")

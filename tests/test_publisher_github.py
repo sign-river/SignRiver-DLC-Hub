@@ -96,6 +96,38 @@ def test_github_client_creates_repository_in_selected_organization() -> None:
     )
 
 
+def test_github_client_ensure_repository_reuses_existing_target(monkeypatch) -> None:
+    client = GitHubReleaseClient(GitHubRepository("sign-river", "assets"), "token")
+    calls: list[str] = []
+    monkeypatch.setattr(client, "repository_info", lambda: {"name": "assets"})
+    monkeypatch.setattr(
+        client,
+        "create_repository",
+        lambda _description: calls.append("create") or client.repository,
+    )
+
+    assert client.ensure_repository("Release assets") == client.repository
+    assert calls == []
+
+
+def test_github_client_ensure_repository_creates_missing_target(monkeypatch) -> None:
+    client = GitHubReleaseClient(GitHubRepository("sign-river", "assets"), "token")
+    calls: list[str] = []
+
+    def missing() -> dict[str, object]:
+        raise GitHubPublisherError("GitHub API HTTP 404: Not Found")
+
+    monkeypatch.setattr(client, "repository_info", missing)
+    monkeypatch.setattr(
+        client,
+        "create_repository",
+        lambda description: calls.append(description) or client.repository,
+    )
+
+    assert client.ensure_repository("Release assets") == client.repository
+    assert calls == ["Release assets"]
+
+
 def test_github_client_initializes_empty_repository_before_creating_release(
     monkeypatch,
 ) -> None:
@@ -149,7 +181,8 @@ def test_github_asset_upload_reports_streaming_progress(tmp_path) -> None:
 
     assert observed[0] == (0, path.stat().st_size)
     assert observed[-1] == (path.stat().st_size, path.stat().st_size)
-    assert len(observed) == 4
+    # 256 KiB chunks keep a requested safe pause responsive during uploads.
+    assert len(observed) == 10
 
 
 def test_github_asset_upload_can_be_paused_between_chunks(tmp_path) -> None:

@@ -89,9 +89,22 @@ class ReleaseService:
     def get(self, batch_id: str) -> ReleasePlan:
         return self.store.load(batch_id)
 
-    def find_reusable_program_batch(self, *, version: str, inbox: Path | str) -> ReleasePlan | None:
+    def events(self, batch_id: str) -> list[ReleaseEvent]:
+        """Return the persisted, credential-free execution events for one release."""
+        return self.store.read_events(batch_id)
+
+    def find_reusable_program_batch(
+        self,
+        *,
+        version: str,
+        inbox: Path | str,
+        module_inbox: Path | str | None = None,
+    ) -> ReleasePlan | None:
         """Return the newest local program batch that has not produced remote side effects."""
         normalized_inbox = str(Path(inbox).resolve())
+        normalized_module_inbox = (
+            str(Path(module_inbox).resolve()) if module_inbox is not None else None
+        )
         reusable_statuses = {
             ReleaseStatus.DRAFT,
             ReleaseStatus.PREFLIGHT_FAILED,
@@ -102,10 +115,21 @@ class ReleaseService:
                 continue
             collection = plan.options.get("collection", {})
             existing_inbox = collection.get("inbox") if isinstance(collection, dict) else None
+            existing_module_inbox = (
+                collection.get("module_inbox") if isinstance(collection, dict) else None
+            )
             if (
                 str(plan.target.get("version") or "") == version
                 and existing_inbox
                 and str(Path(existing_inbox).resolve()) == normalized_inbox
+                and (
+                    normalized_module_inbox is None
+                    or (
+                        existing_module_inbox
+                        and str(Path(existing_module_inbox).resolve())
+                        == normalized_module_inbox
+                    )
+                )
             ):
                 return plan
         return None
@@ -127,6 +151,7 @@ class ReleaseService:
         *,
         version: str,
         inbox: Path | str | None = None,
+        module_inbox: Path | str | None = None,
         notes: str = "",
         mandatory: bool = True,
         min_launcher_version: str = "0.1.2",
@@ -136,10 +161,11 @@ class ReleaseService:
         if not version:
             raise ReleaseServiceError("目标版本不能为空")
         collection_root = Path(inbox) if inbox is not None else self.default_program_inbox()
+        module_root = Path(module_inbox) if module_inbox is not None else collection_root
         plan = ReleasePlan.create(ReleaseKind.PROGRAM, {"version": version, "channel": "stable"})
         plan.artifacts = (
             self.collector.collect_program_packages(collection_root, version=version)
-            + self.collector.collect_program_module_artifacts(collection_root, version=version)
+            + self.collector.collect_program_module_artifacts(module_root, version=version)
         )
         plan.notes = notes.strip()
         plan.options = {
@@ -147,6 +173,7 @@ class ReleaseService:
             "min_launcher_version": min_launcher_version.strip() or "0.1.2",
             "collection": {
                 "inbox": str(collection_root.resolve()),
+                "module_inbox": str(module_root.resolve()),
                 "platforms": {role: "received" if any(item.role == role for item in plan.artifacts) else "pending" for role in _PROGRAM_ROLES},
                 "modules": {
                     "count": sum(item.role == "module_archive" for item in plan.artifacts),
@@ -162,6 +189,10 @@ class ReleaseService:
     def default_program_inbox(self) -> Path:
         """Default three-platform inbox; callers may always override it."""
         return self.workspace_root / "output" / "updates"
+
+    def default_program_module_inbox(self) -> Path:
+        """Default module-archive directory kept alongside release outputs."""
+        return self.workspace_root / "output" / "modules"
 
     def load_update_notes_draft(self, version: str) -> str:
         try:
@@ -190,20 +221,32 @@ class ReleaseService:
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(path)
 
-    def refresh_program_collection(self, batch_id: str, inbox: Path | str | None = None) -> ReleasePlan:
+    def refresh_program_collection(
+        self,
+        batch_id: str,
+        inbox: Path | str | None = None,
+        module_inbox: Path | str | None = None,
+    ) -> ReleasePlan:
         plan = self.get(batch_id)
         if plan.kind is not ReleaseKind.PROGRAM:
             raise ReleaseServiceError("当前批次不是程序更新")
         if plan.status is ReleaseStatus.RUNNING or plan.status is ReleaseStatus.COMPLETED:
             raise ReleaseServiceError("运行中或已完成批次不能重新收件")
-        root = Path(inbox) if inbox is not None else Path(str(plan.options.get("collection", {}).get("inbox") or self.default_program_inbox()))
+        collection = plan.options.get("collection", {})
+        root = Path(inbox) if inbox is not None else Path(str(collection.get("inbox") or self.default_program_inbox()))
+        module_root = (
+            Path(module_inbox)
+            if module_inbox is not None
+            else Path(str(collection.get("module_inbox") or root))
+        )
         version = str(plan.target.get("version") or "")
         plan.artifacts = (
             self.collector.collect_program_packages(root, version=version)
-            + self.collector.collect_program_module_artifacts(root, version=version)
+            + self.collector.collect_program_module_artifacts(module_root, version=version)
         )
         plan.options["collection"] = {
             "inbox": str(root.resolve()),
+            "module_inbox": str(module_root.resolve()),
             "platforms": {role: "received" if any(item.role == role for item in plan.artifacts) else "pending" for role in _PROGRAM_ROLES},
             "modules": {
                 "count": sum(item.role == "module_archive" for item in plan.artifacts),
@@ -217,7 +260,10 @@ class ReleaseService:
         return plan
 
     def capture_remote_baseline(
-        self, batch_id: str, providers: Mapping[str, RemoteReleaseProvider]
+        self,
+        batch_id: str,
+        providers: Mapping[str, RemoteReleaseProvider],
+        module_providers: Mapping[str, RemoteReleaseProvider] | None = None,
     ) -> ReleasePlan:
         """Persist a sanitized read-only snapshot; this never uploads or locks UI writes."""
         plan = self.get(batch_id)
@@ -230,10 +276,28 @@ class ReleaseService:
             if not callable(reader):
                 raise ReleaseServiceError(f"{source} provider 不支持只读远端基线")
             sources[source] = reader()
-        plan.options["remote_baseline"] = {"captured_at": utc_now(), "sources": sources}
+        module_sources: dict[str, object] = {}
+        module_artifacts = [item for item in plan.artifacts if item.role == "module_archive"]
+        if module_artifacts:
+            if module_providers is None or set(module_providers) != expected:
+                raise ReleaseServiceError("模块归档基线 provider 必须与双源目标完全一致")
+            for source, provider in module_providers.items():
+                reader = getattr(provider, "read_baseline", None)
+                if not callable(reader):
+                    raise ReleaseServiceError(f"{source} 模块 provider 不支持只读远端基线")
+                module_sources[source] = reader()
+        plan.options["remote_baseline"] = {
+            "captured_at": utc_now(),
+            "sources": sources,
+            "module_sources": module_sources,
+        }
         plan.invalidate_inputs("remote baseline refreshed")
         self.store.save(plan)
-        self._record_event(plan, "remote_baseline_captured", {"sources": sorted(sources)})
+        self._record_event(
+            plan,
+            "remote_baseline_captured",
+            {"sources": sorted(sources), "module_sources": sorted(module_sources)},
+        )
         return plan
 
     def export_remote_baseline(self, batch_id: str, destination: Path | str) -> Path:
@@ -322,6 +386,34 @@ class ReleaseService:
         if plan.kind is not ReleaseKind.GAME_CONTENT:
             raise ReleaseServiceError("当前批次不是游戏内容发布")
         plan.options["mirror_delete_confirmed"] = True
+        self.store.save(plan)
+        return plan
+
+    def preview_game_content_mirror(
+        self, batch_id: str, providers: Mapping[str, RemoteReleaseProvider]
+    ) -> ReleasePlan:
+        """Persist a credential-free remote-diff preview before queueing uploads."""
+        plan = self.get(batch_id)
+        if plan.kind is not ReleaseKind.GAME_CONTENT:
+            raise ReleaseServiceError("当前发布记录不是游戏内容")
+        desired = {artifact.filename for artifact in plan.artifacts}
+        extras: dict[str, list[str]] = {}
+        for source, provider in providers.items():
+            reader = getattr(provider, "read_baseline", None)
+            if not callable(reader):
+                raise ReleaseServiceError(f"{source} 不支持读取远端资源目录")
+            baseline = reader()
+            raw_assets = baseline.get("assets", []) if isinstance(baseline, dict) else []
+            names = {
+                str(item.get("name") or "")
+                for item in raw_assets
+                if isinstance(item, dict) and str(item.get("name") or "")
+            }
+            extras[source] = sorted(names - desired)
+        plan.options["remote_mirror_preview"] = {
+            "generated_at": utc_now(),
+            "extra_files": extras,
+        }
         self.store.save(plan)
         return plan
 

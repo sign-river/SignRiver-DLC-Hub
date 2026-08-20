@@ -9,7 +9,6 @@ import zipfile
 from queue import SimpleQueue
 from types import SimpleNamespace
 
-import signriver_publisher.compatibility_publish_ui as compatibility_publish_ui
 import signriver_publisher.release_center as release_center_ui
 import signriver_publisher.ui as publisher_ui
 from signriver_publisher.release_center import ReleaseCenter
@@ -18,7 +17,6 @@ from signriver_publisher.publisher_targets_ui import PublisherTargetsUiMixin
 from signriver_publisher.release_models import CheckResult, ReleaseStatus
 from signriver_publisher.release_service import ReleaseService
 from signriver_publisher.ui import PublisherApplication
-from signriver_publisher.updates import UpdateReleaseDraft
 
 
 def _write_program_package(path, *, platform: str, version: str = "0.2.0"):
@@ -101,136 +99,6 @@ def test_publisher_stopped_pump_drops_callbacks_and_progress() -> None:
     assert harness._pending_upload_progress is None
 
 
-def test_update_release_publish_runs_network_work_off_the_tk_thread() -> None:
-    source = inspect.getsource(PublisherApplication.publish_update_release)
-
-    assert 'name="update-release-publish"' in source
-    assert "initialdir=self._update_package_dir()" in source
-    assert "threading.Thread(" in source
-    assert "self._post_ui(" in source
-    assert "_publish_update_mirror" in source
-
-
-def test_module_archive_publish_captures_tk_values_before_starting_worker() -> None:
-    source = inspect.getsource(PublisherApplication.publish_module_archive)
-
-    assert 'name="module-archive-publish"' in source
-    assert 'archive_dir = self._module_archive_dir()' in source
-    assert 'archive_dir.glob("SignRiver-DLC-Hub-module-v*.zip")' in source
-    assert "filedialog.askopenfilename" not in source
-    assert 'selected_owner = self.owner_entry.get().strip()' in source
-    assert 'selected_repository = self.repo_entry.get().strip()' in source
-    assert 'selected_token = self.token_entry.get().strip()' in source
-
-
-def test_update_mirror_uploads_both_packages_before_either_manifest(tmp_path) -> None:
-    package = tmp_path / "module.zip"
-    with zipfile.ZipFile(package, "w") as archive:
-        archive.writestr(
-            "module.json",
-            json.dumps(
-                {
-                    "version": "0.2.0",
-                    "api_version": 1,
-                    "entrypoint": "app_entry.py:create_application",
-                }
-            ),
-        )
-        archive.writestr(
-            "app_entry.py", "def create_application(context): pass"
-        )
-    calls = []
-
-    class Harness:
-        settings = SimpleNamespace(
-            owner="gitlink-owner", repository="assets", token="gitlink-token",
-            github_owner="github-owner", github_repository="assets", github_token="github-token",
-        )
-        workspace = SimpleNamespace(output_dir=tmp_path / "output")
-
-        def _publish_update_target(
-            self, target, owner, repository, token, package, manifest, **progress
-        ):
-            calls.append(
-                (
-                    target,
-                    package is not None,
-                    manifest is not None,
-                    progress.get("progress_start"),
-                    progress.get("progress_total"),
-                )
-            )
-
-    PublisherApplication._publish_update_mirror(
-        Harness(), UpdateReleaseDraft("0.2.0", "module", package)
-    )
-
-    assert calls == [
-        ("gitlink", True, False, 0, 4), ("github", True, False, 1, 4),
-        ("gitlink", False, True, 2, 4), ("github", False, True, 3, 4),
-    ]
-
-
-def test_update_target_reports_github_upload_progress(monkeypatch, tmp_path) -> None:
-    package = tmp_path / "update.zip"
-    manifest = tmp_path / "update-manifest.json"
-    package.write_bytes(b"x" * 12)
-    manifest.write_bytes(b"{}")
-    events = []
-
-    class Client:
-        def __init__(self, repository, token):
-            pass
-
-        def ensure_release(self, tag, *, name):
-            return object()
-
-        def upload_asset(
-            self, release, path, *, replace_existing, progress, should_pause=None
-        ):
-            progress(path.stat().st_size, path.stat().st_size)
-
-    monkeypatch.setattr(compatibility_publish_ui, "GitHubReleaseClient", Client)
-    harness = SimpleNamespace(
-        _update_paths=PublisherApplication._update_paths,
-        _queue_upload_progress=lambda *value: events.append(value),
-    )
-
-    PublisherApplication._publish_update_target(
-        harness, "github", "owner", "repo", "token", package, manifest
-    )
-
-    assert (1, 2, "GitHub · update.zip", 12, 12) in events
-    assert (2, 2, "GitHub · update-manifest.json", 2, 2) in events
-
-
-def test_update_target_reports_gitlink_upload_progress(monkeypatch, tmp_path) -> None:
-    package = tmp_path / "update.zip"
-    package.write_bytes(b"x" * 12)
-    events = []
-
-    class Manager:
-        def __init__(self, client, repository):
-            pass
-
-        def upload_file_to_release(
-            self, tag, release_name, path, *, progress, control=None
-        ):
-            progress(path.stat().st_size, path.stat().st_size)
-
-    monkeypatch.setattr(compatibility_publish_ui, "RemoteResourceManager", Manager)
-    harness = SimpleNamespace(
-        _update_paths=PublisherApplication._update_paths,
-        _queue_upload_progress=lambda *value: events.append(value),
-    )
-
-    PublisherApplication._publish_update_target(
-        harness, "gitlink", "owner", "repo", "token", package, None
-    )
-
-    assert (1, 1, "GitLink · update.zip", 12, 12) in events
-
-
 def test_publisher_single_writer_rejects_overlapping_mutations(monkeypatch) -> None:
     harness = _CloseHarness()
     notices = []
@@ -291,15 +159,13 @@ def test_publisher_pause_keeps_single_writer_reservation() -> None:
 def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None:
     source = _publisher_ui_sources()
 
-    assert 'self.cartridges_tab = self.content_tabs.add("卡带与 Hub")' in source
+    assert 'self.cartridges_tab = self.game_support_tabs.add("卡带与公告")' in source
     assert 'text="管理公告"' in source
     assert "def open_announcement_manager" in source
     assert "def preview_announcement" in source
     assert "def save_announcement" in source
     assert 'text="一键双端发布卡带"' in source
     assert "def publish_cartridge_hub_mirror" in source
-    assert 'text="单源发布卡带中心"' in source
-    assert "def publish_cartridge_hub" in source
     assert "hub_publish_assets" in source
     assert "self._publish_resume_context = (repo, profile, assets, token)" in source
     assert "无需手动上传" in source
@@ -309,21 +175,25 @@ def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None
 def test_publisher_uses_task_oriented_workspace_tabs() -> None:
     source = inspect.getsource(PublisherApplication._build_ui)
     content_source = inspect.getsource(PublisherApplication._build_content_workspace)
-    review_source = inspect.getsource(PublisherApplication._build_review_workspace)
-    maintenance_source = inspect.getsource(PublisherApplication._build_maintenance_workspace)
+    support_source = inspect.getsource(PublisherApplication._build_game_support_workspace)
+    account_source = inspect.getsource(PublisherApplication._build_account_test_workspace)
 
-    workbench = source.index('self.tabs.add("发布工作台")')
-    content = source.index('self.tabs.add("内容准备")')
-    review = source.index('self.tabs.add("核对与验收")')
-    accounts = source.index('self.tabs.add("账号与发布目标")')
-    maintenance = source.index('self.tabs.add("高级维护")')
-    assert workbench < content < accounts < maintenance < review
-    assert 'self.tabs.add("执行与恢复")' not in source
+    release = source.index('self.tabs.add("发布包与归档")')
+    resources = source.index('self.tabs.add("资源管理")')
+    support = source.index('self.tabs.add("游戏支持数据")')
+    accounts = source.index('self.tabs.add("账户与测试")')
+    assert release < resources < support < accounts
+    assert 'self.tabs.add("发布工作台")' not in source
     assert 'self.sources_tab = self.content_tabs.add("本地资源")' in content_source
-    assert 'self.games_tab = self.content_tabs.add("游戏内容")' in content_source
-    assert 'self.cartridges_tab = self.content_tabs.add("卡带与 Hub")' in content_source
-    assert 'self.acceptance_tab = self.review_tabs.add("人工验收（参考）")' in review_source
-    assert 'self.build_tab = self.maintenance_tabs.add("兼容发布（回退 / 修复）")' in maintenance_source
+    assert 'self.upload_queue_tab = self.content_tabs.add("上传队列")' in content_source
+    assert 'self.remote_tab = self.content_tabs.add("远端维护")' in content_source
+    assert 'self.games_tab = self.game_support_tabs.add("游戏配置")' in support_source
+    assert 'self.cartridges_tab = self.game_support_tabs.add("卡带与公告")' in support_source
+    assert 'self.publisher_targets_tab = self.account_tabs.add("发布目标")' in account_source
+    assert 'self.account_tabs.add("兼容发布")' not in account_source
+    assert 'self.remote_tab = self.account_tabs.add("远端维护")' not in account_source
+    assert 'self.acceptance_tab = self.account_tabs.add("人工验收")' in account_source
+    assert "CTkTabview" not in inspect.getsource(PublisherApplication._nested_tabs)
 
 
 def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
@@ -457,13 +327,6 @@ def test_publisher_close_allows_stale_upload_control_after_rejected_start() -> N
     assert not harness._ui_pump_running
 
 
-def test_compatibility_publish_defers_upload_control_until_start() -> None:
-    source = inspect.getsource(compatibility_publish_ui.CompatibilityPublishUiMixin.publish_release)
-
-    assert "_upload_control = UploadControl()" not in source
-    assert source.index("_start_publish(") > source.index("_confirm_maintenance_authorization(")
-
-
 def test_publisher_close_blocks_active_upload_without_stopping_pump(
     monkeypatch,
 ) -> None:
@@ -544,20 +407,26 @@ def test_release_center_batch_sidebar_is_fixed_and_primary_actions_are_larger() 
     assert "grid_columnconfigure(0, weight=0, minsize=360)" in source
     assert "grid_columnconfigure(1, weight=1)" in source
     assert "history_card.grid_propagate(False)" in source
-    assert 'text="归档 / 移除当前草稿"' in source
+    assert "仅查看已保存的发布信息" in source
+    assert 'text="归档 / 移除当前草稿"' not in source
     assert "self.board_content = ctk.CTkScrollableFrame" in source
-    assert 'text="同一批次的操作顺序"' in home_source
-    assert '"① 准备"' in home_source
-    assert '"④ 执行"' in home_source
-    assert "height=48" in home_source
-    assert "height=64" in home_source
+    assert 'text="本地发布文件"' in home_source
+    assert 'text="历史发布记录"' in home_source
+    assert 'text="DLC 与补丁资源"' not in home_source
+    assert "资源上传请使用" not in home_source
+    assert 'text="当前发布状态"' not in home_source
+    assert 'text="管理本地发布文件  →"' in home_source
+    assert 'text="查看历史记录  →"' in home_source
 
 
-def test_archiving_batch_keeps_the_batch_board_open() -> None:
-    source = inspect.getsource(ReleaseCenter.archive_current_batch)
+def test_release_history_is_separated_from_the_active_release_context() -> None:
+    source = inspect.getsource(ReleaseCenter)
 
-    assert 'self.show_page("home")' not in source
-    assert 'self._render_empty_state("批次已归档。' in source
+    assert "def view_history_record" in source
+    assert "self.viewed_history_batch_id = batch_id" in source
+    assert "self.current_batch_id = batch_id" in inspect.getsource(ReleaseCenter.select)
+    assert "command=lambda value=plan.batch_id: self.view_history_record(value)" in source
+    assert "self._select_latest_record_as_current()" in source
 
 
 def test_release_center_worker_posts_terminal_callbacks_and_releases_lease() -> None:
@@ -610,10 +479,6 @@ def test_advanced_maintenance_delete_has_batch_scoped_second_confirmation() -> N
     for method in (
         PublisherApplication.delete_remote_resource,
         PublisherApplication.adopt_remote_assets,
-        PublisherApplication.publish_release,
-        PublisherApplication.publish_update_release,
-        PublisherApplication.publish_module_archive,
-        PublisherApplication.publish_cartridge_hub,
     ):
         assert '_confirm_maintenance_authorization(' in inspect.getsource(method)
 
@@ -646,9 +511,9 @@ def test_release_center_confirmation_summary_exposes_side_effects(tmp_path) -> N
 def test_release_center_shows_frozen_repository_targets() -> None:
     source = inspect.getsource(ReleaseCenter)
 
-    assert "本批次实际发布目标（创建时已冻结）" in source
+    assert "本次实际发布目标（创建时已冻结）" in source
     assert "self._publication_target_text(plan.remote_targets, frozen=True)" in source
-    assert "下次创建批次将使用的发布目标" in source
+    assert "下次创建发布将使用的发布目标" in source
 
 
 def test_release_center_execution_uses_batch_frozen_targets() -> None:
@@ -662,11 +527,16 @@ def test_release_center_execution_uses_batch_frozen_targets() -> None:
 def test_publisher_target_page_exposes_repositories_without_rendering_tokens() -> None:
     source = inspect.getsource(PublisherTargetsUiMixin)
 
-    assert "账号与发布目标（独立界面）" in source
+    assert "发布账户与测试目标" not in source
     assert "账号配置" in source
     assert "保存 {provider} 目标" in source
     assert "def _save_publisher_target_settings" in source
+    assert "def _test_publisher_target_connection" in source
+    assert "测试连通性" in source
+    assert "repository_info()" in source
+    assert ".list_releases(" in source
     assert "self.tabs.set(\"高级维护\")" not in source
+    assert "text=f\"{provider} 发布目标\"" in source
     assert "目标仓库：{repository_name}" in source
     assert "凭据状态：{credential_text}" in source
     assert "text=self.settings.token" not in source
@@ -748,14 +618,17 @@ def test_release_center_directory_picker_starts_at_current_inbox() -> None:
     assert 'current if current.is_dir() else self.default_inbox' in source
 
 
-def test_release_center_baseline_actions_provide_visible_feedback_and_default_export_name() -> None:
+def test_release_center_local_file_comparison_provides_visible_feedback() -> None:
     source = inspect.getsource(ReleaseCenterUiMixin._capture_release_center_baseline)
-    export_source = inspect.getsource(ReleaseCenterUiMixin._export_release_center_baseline)
+    comparison_source = inspect.getsource(ReleaseCenter._render_local_remote_comparison)
 
-    assert 'text="读取中…"' in source
-    assert '远端基线已读取' in source
+    assert 'text="正在比较…"' in source
+    assert "_render_local_remote_comparison(plan)" in source
     assert 'refresh_history()' in source
-    assert 'initialfile=f"signriver-remote-baseline-v{safe_target}.json"' in export_source
+    assert 'local_changes["新增"].update(added)' in comparison_source
+    assert 'local_changes["同名替换"].update(replaced)' in comparison_source
+    assert '仅云端保留：{name}' in comparison_source
+    assert 'self.show_page("comparison")' in comparison_source
 
 
 def test_release_center_renders_operator_facing_batch_labels() -> None:
@@ -764,8 +637,8 @@ def test_release_center_renders_operator_facing_batch_labels() -> None:
     assert '程序更新' in source
     assert '待冻结确认' in source
     assert '收件文件' in source
-    assert '批次编号（仅用于支持与排障）' in source
-    assert '归档 / 移除草稿' in source
+    assert '发布编号（仅用于支持与排障）' in source
+    assert '归档 / 移除草稿' not in source
     assert 'self.history, text=label, anchor="w", height=66' in source
     assert 'anchor="w", justify="left", height=54' not in source
 
@@ -778,17 +651,23 @@ def test_release_center_uses_replaceable_pages_for_specialist_operations() -> No
     assert 'def show_page(self, name: str)' in source
     assert 'self._build_home_page()' in source
     assert 'self._build_preparation_page()' in source
+    assert 'self._build_comparison_page()' in source
     assert 'self._build_batches_page()' in source
     assert 'self._build_baseline_page()' not in source
     assert 'self._build_preflight_page()' in source
     assert 'self._build_execution_page()' in source
     assert 'self.show_page("batches")' in source
-    assert '"② 核对", "批次看板内远端核对（可选）", "batches"' in source
+    assert 'text="管理本地发布文件  →"' in source
+    assert 'text="验证并查看差异"' in source
+    assert 'text="发布文件  →"' in source
+    assert 'def publish_program_files(self) -> None' in source
+    assert 'def select(self, batch_id: str, *, show_history: bool = True)' in source
+    assert 'self.select(plan.batch_id, show_history=False)' in source
     board_source = inspect.getsource(ReleaseCenter._build_batches_page)
-    assert 'text="远端核对（只读）"' in board_source
-    assert 'text="读取远端基线（只读）"' in board_source
-    assert 'text="导出基线 JSON"' in board_source
-    assert 'state="disabled"' in board_source
+    assert 'text="远端核对记录"' in board_source
+    assert '读取远端基线（只读）' not in board_source
+    assert '导出基线 JSON' not in board_source
+    assert '仅查看已保存的发布信息' in board_source
     assert 'height=150' in source
 
 

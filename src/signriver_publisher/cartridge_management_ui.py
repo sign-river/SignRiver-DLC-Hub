@@ -209,7 +209,8 @@ class CartridgeManagementUiMixin:
             return
         self.profile = profile
         self.refresh()
-        self.tabs.set("卡带配置")
+        self.tabs.set("游戏支持数据")
+        self.game_support_tabs.set("游戏配置")
 
     def _update_freshness_summary(self) -> None:
         if not hasattr(self, "freshness_summary"):
@@ -553,7 +554,8 @@ class CartridgeManagementUiMixin:
         messagebox.showerror("无法发布卡带中心", message)
 
     def export_client_hub(self) -> None:
-        self.tabs.set("卡带管理")
+        self.tabs.set("游戏支持数据")
+        self.game_support_tabs.set("卡带与公告")
         self.generate_client_hub()
 
     def open_hub_output_folder(self) -> None:

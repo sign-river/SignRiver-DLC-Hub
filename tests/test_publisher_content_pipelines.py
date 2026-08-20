@@ -15,6 +15,7 @@ class SnapshotProvider:
         self.fail_index = fail_index
         self.assets: dict[str, RemoteVerification] = {}
         self.calls: list[str] = []
+        self.remote_names: set[str] = set()
 
     def inspect(self, key: str) -> RemoteVerification:
         return self.assets.get(key, RemoteVerification(False))
@@ -23,7 +24,16 @@ class SnapshotProvider:
         self.calls.append(f"asset:{path.name}")
         result = RemoteVerification(True, artifact.size, artifact.sha256, path.name)
         self.assets[path.name] = result
+        self.remote_names.add(path.name)
         return result
+
+    def read_baseline(self) -> dict[str, object]:
+        return {"assets": [{"name": name} for name in sorted(self.remote_names)]}
+
+    def delete(self, key: str) -> RemoteVerification:
+        self.remote_names.discard(key)
+        self.assets.pop(key, None)
+        return RemoteVerification(False)
 
     def publish_index(self, plan, path: Path) -> RemoteVerification:
         self.calls.append(f"index:{path.name}")
@@ -194,4 +204,26 @@ def test_snapshot_pipeline_rejects_provider_key_source_mismatch(tmp_path: Path) 
     }
 
     with pytest.raises(ValueError, match="provider key/source mismatch"):
+        service.execute_game_content(plan.batch_id, providers)
+
+
+def test_mirror_execution_rejects_a_remote_change_after_confirmation(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    plan = service.create_game_content_batch(
+        game_id="game",
+        release_tag="v1",
+        attachments=[file(tmp_path / "asset.zip", b"asset")],
+        catalog=file(tmp_path / "catalog.json", b"{}"),
+        remote_targets=targets(),
+    )
+    providers = {name: SnapshotProvider(name) for name in ("gitlink", "github")}
+    providers["gitlink"].remote_names.add("old.zip")
+    plan = service.preview_game_content_mirror(plan.batch_id, providers)
+    plan.options["mirror_delete_confirmed"] = True
+    service.store.save(plan)
+    confirmed(service, plan.batch_id)
+
+    providers["gitlink"].remote_names.add("changed-after-preview.zip")
+
+    with pytest.raises(RuntimeError, match="远端目录已发生变化"):
         service.execute_game_content(plan.batch_id, providers)

@@ -104,7 +104,7 @@ class ArtifactCollector:
                 continue
             artifacts.append(
                 fingerprint_artifact(
-                    path, role="module_archive", version=version, required=False
+                    path, role="module_archive", version=version, required=True
                 )
             )
         return artifacts

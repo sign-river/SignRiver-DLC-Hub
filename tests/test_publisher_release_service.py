@@ -71,17 +71,20 @@ def targets():
 
 def test_release_service_drives_program_batch_end_to_end(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "workspace")
+    inbox = make_inbox(tmp_path / "inbox")
+    write_module_archive(inbox / "SignRiver-DLC-Hub-module-v0.2.0.zip")
     plan = service.create_program_batch(
-        version="0.2.0", inbox=make_inbox(tmp_path / "inbox"),
+        version="0.2.0", inbox=inbox,
         notes="完成发布中心重构。建议尽快更新。", remote_targets=targets(),
     )
-    assert {item.role for item in plan.artifacts} == {"windows_full", "steamos_full", "macos_full"}
+    assert {item.role for item in plan.artifacts} == {"windows_full", "steamos_full", "macos_full", "module_archive"}
 
     plan = service.preflight(plan.batch_id)
     assert plan.status is ReleaseStatus.AWAITING_CONFIRMATION
     service.confirm(plan.batch_id, actor="test", skipped_acceptance_reason="自动化测试")
     providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
-    plan = service.execute_program(plan.batch_id, providers)
+    module_providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
+    plan = service.execute_program(plan.batch_id, providers, module_providers)
 
     assert plan.status is ReleaseStatus.COMPLETED
     assert service.progress_summary(plan) == {
@@ -128,6 +131,7 @@ def test_upload_progress_is_persisted_without_credentials(tmp_path: Path) -> Non
 def test_replacing_artifact_invalidates_preflight_and_confirmation(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "workspace")
     inbox = make_inbox(tmp_path / "inbox")
+    write_module_archive(inbox / "SignRiver-DLC-Hub-module-v0.2.0.zip")
     plan = service.create_program_batch(
         version="0.2.0", inbox=inbox, notes="说明。建议尽快更新。", remote_targets=targets(),
     )
@@ -142,6 +146,25 @@ def test_replacing_artifact_invalidates_preflight_and_confirmation(tmp_path: Pat
     assert not plan.preflight
     assert not plan.confirmation
     assert next(item for item in plan.artifacts if item.role == "windows_full").filename == "replacement.zip"
+
+
+def test_changing_module_archive_invalidates_confirmed_program_batch(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    inbox = make_inbox(tmp_path / "inbox")
+    module = write_module_archive(inbox / "SignRiver-DLC-Hub-module-v0.2.0.zip")
+    plan = service.create_program_batch(
+        version="0.2.0", inbox=inbox, notes="说明。建议尽快更新。", remote_targets=targets(),
+    )
+    service.preflight(plan.batch_id)
+    service.confirm(plan.batch_id, skipped_acceptance_reason="自动化测试")
+    module.write_bytes(b"changed")
+
+    with pytest.raises(RuntimeError, match="frozen inputs changed"):
+        service.execute_program(
+            plan.batch_id,
+            {source: MemoryProvider(source) for source in ("gitlink", "github")},
+            {source: MemoryProvider(source) for source in ("gitlink", "github")},
+        )
 
 
 def test_program_manifest_urls_are_source_specific(tmp_path: Path) -> None:
@@ -247,6 +270,42 @@ def test_program_batch_collects_and_uploads_module_archives(tmp_path: Path) -> N
     assert all("SignRiver-DLC-Hub-module-v0.2.0.zip" in provider.assets for provider in module_providers.values())
 
 
+def test_program_batch_collects_modules_from_separate_archive_directory(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    updates = make_inbox(tmp_path / "updates")
+    modules = tmp_path / "modules"
+    modules.mkdir()
+    write_module_archive(modules / "SignRiver-DLC-Hub-module-v0.2.0.zip")
+
+    plan = service.create_program_batch(
+        version="0.2.0",
+        inbox=updates,
+        module_inbox=modules,
+        notes="说明。建议尽快更新。",
+        remote_targets=targets(),
+    )
+
+    assert plan.options["collection"]["inbox"] == str(updates.resolve())
+    assert plan.options["collection"]["module_inbox"] == str(modules.resolve())
+    assert [item.role for item in plan.artifacts].count("module_archive") == 1
+
+
+def test_program_preflight_requires_current_module_archive(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    plan = service.create_program_batch(
+        version="0.2.0",
+        inbox=make_inbox(tmp_path / "updates"),
+        module_inbox=tmp_path / "missing-modules",
+        notes="说明。建议尽快更新。",
+        remote_targets=targets(),
+    )
+
+    plan = service.preflight(plan.batch_id)
+    check = next(item for item in plan.preflight if item.check_id == "program.module_archives")
+    assert check.result.value == "fail"
+    assert plan.status is ReleaseStatus.PREFLIGHT_FAILED
+
+
 
 def test_game_content_batch_reuses_same_unexecuted_output(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "workspace")
@@ -296,3 +355,18 @@ def test_capture_and_export_remote_baseline_is_read_only(tmp_path: Path) -> None
     assert not any(provider.assets for provider in providers.values())
     exported = service.export_remote_baseline(plan.batch_id, tmp_path / "baseline.json")
     assert json.loads(exported.read_text(encoding="utf-8"))["sources"]["github"]["release_exists"] is False
+
+
+def test_capture_remote_baseline_reads_module_release_when_archives_exist(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    inbox = make_inbox(tmp_path / "updates")
+    write_module_archive(inbox / "SignRiver-DLC-Hub-module-v0.2.0.zip")
+    plan = service.create_program_batch(
+        version="0.2.0", inbox=inbox, notes="说明。建议尽快更新。", remote_targets=targets()
+    )
+    providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
+    module_providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
+
+    plan = service.capture_remote_baseline(plan.batch_id, providers, module_providers)
+
+    assert set(plan.options["remote_baseline"]["module_sources"]) == {"gitlink", "github"}

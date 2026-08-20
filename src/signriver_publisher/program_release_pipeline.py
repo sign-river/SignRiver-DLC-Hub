@@ -146,13 +146,11 @@ class UploadProgramPackagesStage:
                     self.checkpoint(plan)
                 provider = self.providers[source]
                 key = f"{source}:{role}"
-                existing = provider.inspect(artifact.filename)
-                reused = (
-                    existing.exists
-                    and existing.size == artifact.size
-                    and existing.sha256 == artifact.sha256
-                )
-                result = existing if reused else provider.upload(artifact, path)
+                # 同名程序包的发布语义就是替换。此前先完整下载远端大包来
+                # 判断能否复用，会让界面长时间停在“等待上传”且没有字节进度。
+                # 现在直接上传并由 provider 回读校验，既符合发布语义也能立即
+                # 反馈真实的传输进度。
+                result = provider.upload(artifact, path)
                 if (
                     not result.exists
                     or result.size != artifact.size
@@ -165,7 +163,7 @@ class UploadProgramPackagesStage:
                     "remote_id": result.remote_id,
                     "size": result.size,
                     "sha256": result.sha256,
-                    "reused": reused,
+                    "reused": False,
                 }
         expected_count = len(PACKAGE_ROLES) * len(REQUIRED_SOURCES)
         return StageExecutionResult(
@@ -208,18 +206,13 @@ class UploadProgramModulesStage:
             for source in REQUIRED_SOURCES:
                 if self.checkpoint:
                     self.checkpoint(plan)
-                existing = self.providers[source].inspect(artifact.filename)
-                reused = (
-                    existing.exists
-                    and existing.size == artifact.size
-                    and existing.sha256 == artifact.sha256
-                )
-                result = existing if reused else self.providers[source].upload(artifact, path)
+                # 模块归档与程序包采用相同策略：同名文件直接替换，再回读核验。
+                result = self.providers[source].upload(artifact, path)
                 if not result.exists or result.size != artifact.size or result.sha256 != artifact.sha256:
                     raise ReleaseStageError(f"remote module verification failed: {source}:{artifact.filename}")
                 ready[f"{source}:{artifact.filename}"] = {
                     "remote_id": result.remote_id, "size": result.size,
-                    "sha256": result.sha256, "reused": reused,
+                    "sha256": result.sha256, "reused": False,
                 }
         return StageExecutionResult(
             {"ready": sorted(ready), "details": ready},

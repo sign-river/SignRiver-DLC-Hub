@@ -80,6 +80,18 @@ class RemoteMaintenanceUiMixin:
             toolbar, text="导出审计", width=100, fg_color=LIGHT_BLUE,
             command=self.export_release_audit,
         ).grid(row=1, column=2, padx=4, pady=(0, 10))
+        ctk.CTkButton(
+            toolbar,
+            text="← 返回资源入口",
+            width=142,
+            height=34,
+            fg_color="transparent",
+            text_color=BLUE,
+            border_width=1,
+            border_color="#90CAF9",
+            hover_color="#EAF4FD",
+            command=lambda: self.content_tabs.set("DLC / 补丁发布"),
+        ).grid(row=1, column=3, padx=(4, 14), pady=(0, 10), sticky="e")
 
         local_card = ctk.CTkFrame(
             self.remote_tab,

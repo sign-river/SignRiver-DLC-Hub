@@ -9,7 +9,7 @@ from typing import Iterable
 
 from .artifact_collector import ArtifactCollector
 from .release_models import CheckResult, PreflightCheck, ReleaseKind, ReleasePlan, ReleaseStatus
-from .updates import inspect_update_package
+from .updates import inspect_module_archive, inspect_update_package
 
 _PROGRAM_REQUIRED_ROLES = frozenset({"windows_full", "steamos_full", "macos_full"})
 _REMOTE_SOURCES = frozenset({"gitlink", "github"})
@@ -167,6 +167,7 @@ class ReleasePreflightService:
         missing = sorted(_PROGRAM_REQUIRED_ROLES - roles)
         target_version = str(plan.target.get("version", "")).strip()
         inconsistent = sorted({item.version for item in plan.artifacts if item.version and item.version != target_version})
+        module_archives = [item for item in plan.artifacts if item.role == "module_archive"]
         return (
             PreflightCheck(
                 check_id="program.platform_packages",
@@ -179,6 +180,7 @@ class ReleasePreflightService:
                 input_fingerprint=fingerprint,
             ),
             self._check_program_package_structure(plan, fingerprint, target_version),
+            self._check_program_module_archives(module_archives, fingerprint, target_version),
             PreflightCheck(
                 check_id="program.version_consistency",
                 category="program",
@@ -198,6 +200,42 @@ class ReleasePreflightService:
                 remediation=None if plan.notes.strip() else "填写面向用户的中文更新说明。",
                 input_fingerprint=fingerprint,
             ),
+        )
+
+    @staticmethod
+    def _check_program_module_archives(
+        artifacts, fingerprint: str, target_version: str
+    ) -> PreflightCheck:
+        errors: dict[str, str] = {}
+        if not artifacts:
+            errors["module_archive"] = "未找到与当前版本匹配的模块归档"
+        for artifact in artifacts:
+            try:
+                info = inspect_module_archive(Path(artifact.local_path))
+            except (OSError, ValueError) as error:
+                errors[artifact.filename] = str(error)
+                continue
+            if info.version != target_version:
+                errors[artifact.filename] = (
+                    f"模块版本不匹配：期望 {target_version}，实际 {info.version}"
+                )
+        return PreflightCheck(
+            check_id="program.module_archives",
+            category="program",
+            result=CheckResult.FAIL if errors else CheckResult.PASS,
+            hard_gate=True,
+            message=(
+                f"模块归档已就绪（{len(artifacts)} 个）。"
+                if not errors
+                else "模块归档缺失、损坏或版本不匹配。"
+            ),
+            remediation=(
+                None
+                if not errors
+                else "在模块归档目录放入当前版本的 SignRiver-DLC-Hub-module-v<版本>.zip 后重新验证。"
+            ),
+            evidence={"archive_count": len(artifacts), "errors": errors},
+            input_fingerprint=fingerprint,
         )
     @staticmethod
     def _check_program_package_structure(

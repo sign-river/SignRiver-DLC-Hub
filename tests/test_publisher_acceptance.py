@@ -452,8 +452,8 @@ def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     ui_source = (package / "ui.py").read_text(encoding="utf-8")
     source = (package / "acceptance_ui.py").read_text(encoding="utf-8")
 
-    assert 'self.tabs.add("核对与验收")' in ui_source
-    assert 'self.acceptance_tab = self.review_tabs.add("人工验收（参考）")' in ui_source
+    assert 'self.tabs.add("账户与测试")' in ui_source
+    assert 'self.acceptance_tab = self.account_tabs.add("人工验收")' in ui_source
     assert "AcceptanceUiMixin" in ui_source
     assert "开始新一轮" in source
     assert "检查并记录" in source

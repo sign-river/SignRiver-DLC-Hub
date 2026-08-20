@@ -5,7 +5,7 @@ from collections.abc import Callable
 from tkinter import filedialog, messagebox
 
 from .github import GitHubReleaseClient, GitHubRepository
-from .gitlink import GitLinkAttachmentClient, GitLinkRepository
+from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository
 from .release_center import ReleaseCenter
 from .release_models import ReleaseKind, ReleasePlan
 from .remote import RemoteResourceManager
@@ -48,7 +48,7 @@ class ReleaseCenterUiMixin:
         files = self.workspace.publish_files(profile)
         catalog = next((path for path in files if path.name == "catalog.json"), None)
         if catalog is None:
-            raise ValueError("当前游戏输出缺少 catalog.json；请重新构建后再创建发布批次。")
+            raise ValueError("当前游戏输出缺少 catalog.json；请重新构建后再加入上传队列。")
         attachments = [path for path in files if path != catalog]
         return self.release_service.create_game_content_batch(
             game_id=profile.game_id,
@@ -80,7 +80,7 @@ class ReleaseCenterUiMixin:
             repository = str(target.get("repository") or target.get("repo") or "").strip()
             if not owner or not repository:
                 raise ValueError(
-                    f"批次缺少 {provider} 的冻结目标仓库；为避免误发，请重新创建批次。"
+                    f"当前发布缺少 {provider} 的冻结目标仓库；为避免误发，请重新创建发布记录。"
                 )
             return owner, repository
 
@@ -96,6 +96,10 @@ class ReleaseCenterUiMixin:
         )
         github_owner, github_repository = frozen_repository("github")
         gitlink_owner, gitlink_repository = frozen_repository("gitlink")
+        is_game_content = plan.kind is ReleaseKind.GAME_CONTENT
+        repository_description = (
+            f"SignRiver DLC / 补丁资源（{plan.target.get('game_id') or release_tag}）"
+        )
         github = GitHubReleaseProvider(
             GitHubReleaseClient(
                 GitHubRepository(github_owner, github_repository),
@@ -103,54 +107,67 @@ class ReleaseCenterUiMixin:
             ),
             release_tag=release_tag,
             pause_requested=pause_requested,
+            ensure_repository=is_game_content,
+            repository_description=repository_description,
         )
+        gitlink_target = GitLinkRepository(gitlink_owner, gitlink_repository)
         gitlink = GitLinkReleaseProvider(
             RemoteResourceManager(
                 GitLinkAttachmentClient(self.settings.token or None),
-                GitLinkRepository(gitlink_owner, gitlink_repository),
+                gitlink_target,
             ),
             release_tag=release_tag,
             release_name=f"SignRiver {release_tag}",
             pause_requested=pause_requested,
+            repository_ensurer=(
+                (lambda: GitLinkCli().ensure_repository(
+                    gitlink_target, repository_description
+                ))
+                if is_game_content
+                else None
+            ),
         )
         return {"gitlink": gitlink, "github": github}
 
     def _refresh_release_center_collection(self, batch_id: str) -> None:
         inbox = self.release_center.inbox_entry.get().strip()
+        module_inbox = self.release_center.module_inbox_entry.get().strip()
         try:
-            plan = self.release_service.refresh_program_collection(batch_id, inbox)
+            plan = self.release_service.refresh_program_collection(
+                batch_id, inbox, module_inbox
+            )
             self.release_center._render(plan)
             self.release_center.refresh_history()
         except Exception as error:
             messagebox.showerror("刷新收件目录失败", str(error), parent=self)
 
     def _capture_release_center_baseline(self, batch_id: str) -> None:
-        self.release_center.baseline_button.configure(state="disabled", text="读取中…")
+        self.release_center.compare_button.configure(state="disabled", text="正在比较…")
 
         def restore_button() -> None:
-            self.release_center.baseline_button.configure(state="normal", text="读取远端基线（只读）")
+            self.release_center.compare_button.configure(state="normal", text="验证并查看差异")
 
         def completed(plan: ReleasePlan) -> None:
             restore_button()
             self.release_center._render(plan)
+            self.release_center._render_local_remote_comparison(plan)
             self.release_center.refresh_history()
-            baseline = plan.options.get("remote_baseline", {})
-            sources = "、".join(sorted((baseline.get("sources") or {}).keys())) or "远端"
-            messagebox.showinfo(
-                "远端基线已读取",
-                f"已读取 {sources} 的当前发布状态。\n"
-                "结果已保存到当前批次看板；此操作未上传或修改任何远端内容。",
-                parent=self,
-            )
 
         def failed(error: Exception) -> None:
             restore_button()
-            messagebox.showerror("读取远端基线失败", str(error), parent=self)
+            self.release_center.comparison_summary.configure(
+                text=f"云端比较失败：{error}"
+            )
 
         def worker() -> None:
             try:
                 providers = self._release_center_providers(batch_id, UPDATE_RELEASE_TAG)
-                plan = self.release_service.capture_remote_baseline(batch_id, providers)
+                module_providers = self._release_center_providers(
+                    batch_id, MODULE_ARCHIVE_RELEASE_TAG
+                )
+                plan = self.release_service.capture_remote_baseline(
+                    batch_id, providers, module_providers
+                )
                 self._post_ui(lambda value=plan: completed(value))
             except Exception as error:
                 self._post_ui(lambda value=error: failed(value))
@@ -185,7 +202,7 @@ class ReleaseCenterUiMixin:
         on_error: Callable[[Exception], None],
     ) -> bool:
         if not self._begin_background_mutation(
-            "release-center", "发布中心正在执行发布批次"
+            "release-center", "发布中心正在执行发布任务"
         ):
             return False
 
@@ -231,4 +248,4 @@ class ReleaseCenterUiMixin:
         try:
             self.release_service.request_pause(batch_id)
         except Exception as error:
-            messagebox.showerror("无法暂停发布批次", str(error), parent=self)
+            messagebox.showerror("无法暂停发布", str(error), parent=self)

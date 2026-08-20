@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
 from .release_audit import MaintenanceApproval
@@ -20,35 +19,11 @@ class ReleaseActionsUiMixin:
     def _open_release_batch(self, batch_id: str) -> None:
         self.release_center.refresh_history()
         self.release_center.select(batch_id)
-        self.tabs.set("发布工作台")
+        self.tabs.set("发布包与归档")
 
     def create_game_content_release_batch(self) -> None:
         """Open the DLC/patch package page before creating a frozen release batch."""
         self._open_game_content_release_pipeline()
-
-    def create_hub_release_batch(self) -> None:
-        attachments = filedialog.askopenfilenames(
-            title="选择 Hub / 公告快照附件", parent=self
-        )
-        if not attachments:
-            return
-        index = filedialog.askopenfilename(
-            title="选择最后切换的 hub 主表",
-            filetypes=(("JSON", "*.json"), ("全部文件", "*.*")),
-            parent=self,
-        )
-        if not index:
-            return
-        try:
-            plan = self.release_service.create_hub_batch(
-                attachments=[Path(value) for value in attachments],
-                hub_index=Path(index),
-                remote_targets=self._release_center_remote_targets(),
-            )
-        except Exception as error:
-            messagebox.showerror("创建 Hub 批次失败", str(error), parent=self)
-            return
-        self._open_release_batch(plan.batch_id)
 
     def attach_acceptance_to_release_batch(self) -> None:
         plan = self._select_release_batch_for_action()

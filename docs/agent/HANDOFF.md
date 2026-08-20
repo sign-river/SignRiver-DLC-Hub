@@ -6,6 +6,65 @@
 > 上游状态：`main` 相对 `origin/main` 领先 5、落后 0；本轮仅更新交接与决策文档，禁止自动提交或推送。
 > 工作区：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py` 有未提交的客户端启动修复；`app/versions/0.2.0/` 是被忽略的活动发布目录，已同步该修复。另有发布器 UI 与交接文档的既有未提交改动，必须保留。未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
 
+## 2026-08-20：移除卡带配置页的旧 Hub / 公告入口
+
+- 删除“游戏卡带配置”页中空置的“Hub / 公告发布”卡片及“创建 Hub / 公告发布记录”按钮；该入口要求手动选择快照和主表，已不符合目前独立的卡带与公告管理流程。
+- 一并移除仅供该入口调用的 UI 方法；底层 Hub 发布服务及其覆盖测试仍保留，未影响既有数据兼容能力。
+- 验证：`py_compile src/signriver_publisher/content_management_ui.py src/signriver_publisher/release_actions_ui.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py -q`（57 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：DLC / 补丁远端维护归入资源管理
+
+- “远端维护”实际管理当前游戏的 DLC / 补丁 Release 附件，已从“账户与测试”的二级导航迁入“资源管理”的内部页面。
+- DLC / 补丁发布页新增“远端资源维护”入口；维护页增加“返回资源入口”，保持本地资源、上传队列与远端资源处于同一工作区。
+- 验证：`py_compile src/signriver_publisher/ui.py src/signriver_publisher/content_management_ui.py src/signriver_publisher/remote_maintenance_ui.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py tests/test_publisher_content_pipelines.py -q`（67 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：发布目标页改用可点击仓库链接
+
+- 移除 GitLink、GitHub 发布目标卡片中重复的“在浏览器打开仓库”按钮。
+- 仓库 URL 改为更大字号的蓝色下划线链接，点击后使用系统默认浏览器打开对应仓库。
+- 验证：`py_compile src/signriver_publisher/publisher_targets_ui.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_acceptance.py -q`（57 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：本地发布文件的云端比较拆为独立差异页
+
+- “验证并查看差异”在完成本地扫描和双端只读核验后，切换到独立的“本地与云端差异”页面。
+- 左列汇总本地待新增、同名替换文件；右列按 GitLink/GitHub 展示同名差异及仅云端保留文件。远端保留项只作展示，程序更新同步不会删除。
+- 验证：`py_compile src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_service.py -q`（52 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：程序发布收敛为单次“发布文件”操作
+
+- 本地发布文件页将“进入预检与发布”改为“发布文件”。点击后自动创建或复用当前发布记录、运行预检、在通过时冻结输入并立即进入上传。
+- 发布页面保留预检输出、总上传进度、当前文件进度与安全暂停；预检失败会明确显示错误且不会开始上传。
+- 验证：`py_compile src/signriver_publisher/release_center.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_service.py -q`（52 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：发布器“发布目标”页合并来源卡片
+
+- 删除“账户与测试 → 发布目标”页顶部的黄色说明框，避免与页面内容重复。
+- GitLink、GitHub 各保留一张完整卡片：同一张卡内依次展示当前发布目标、凭据是否已配置、仓库链接与打开操作，以及可编辑的所有者/仓库和保存按钮；不再将“实际目标”和“账号配置”拆成四个彼此交叉的模块。
+- 未读取或显示令牌；保存行为仍只更新对应来源的坐标，不影响已冻结的历史上传或发布记录。
+- 验证：`py_compile src/signriver_publisher/publisher_targets_ui.py`、`pytest tests/test_publisher_ui_threading.py -q`（42 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示工作区既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：发布包与归档的历史记录改为只读查看
+
+- 首页两张入口卡片的说明文字明确设为左对齐，避免在宽卡片中出现居中的段落。
+- 发布器启动时只将最新的程序更新/公告记录初始化为当前发布上下文；历史列表点击改为 `view_history_record()`，只渲染已保存的详情和远端核对摘要，不会覆盖 `current_batch_id`、版本、收件目录或流程按钮状态。
+- 历史详情页移除归档、读取远端基线和导出基线等动作入口，保留为单纯的展示工具；新建或恢复发布仍通过发布准备流程建立当前上下文。
+- 验证：`py_compile src/signriver_publisher/release_center.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_service.py -q`（52 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示工作区既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
+## 2026-08-20：发布包改用本地文件与云端比较入口
+
+- 移除“替换 Windows 包 / SteamOS 包 / macOS 包”三个单文件按钮；首页主入口改为“管理本地发布文件”，进入带返回按钮的子页面。
+- 子页面以收件目录作为本地发布文件目录，点击“刷新并比较云端”会按需创建内部发布记录、重新扫描本地文件并异步读取 GitLink/GitHub 远端目录。
+- 比较区逐端展示新增、同名替换、已一致的数量，并列出需新增或替换的文件名；明确同步只新增或覆盖同名文件，绝不删除远端其他旧文件。原有程序更新流水线也不含远端镜像删除步骤。
+- 验证：`py_compile src/signriver_publisher/release_center.py src/signriver_publisher/release_center_ui.py`、`pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_service.py -q`（52 项通过）、相关 Ruff 检查及 `git diff --check` 均通过；后者仅提示工作区既有 LF/CRLF 警告。
+- 未重启发布器、未执行真实发布/上传、未提交或推送。
+
 ## 2026-08-19：修复 0.2.0 客户端设置页启动失败
 
 ### 原因与修复
@@ -867,11 +926,118 @@
 
 验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；未启动 GUI、未构建、未 commit 或 push。
 
+## 2026-08-20：DLC 首页操作区收敛
+
+- 已提交上一轮待提交内容：`7a8de1b feat: add deterministic patch deployment and UI refinements`，未推送。
+- DLC 首页移除搜索与状态筛选；二者移入“逐项管理 DLC”。首页保留“全选”、唯一主操作“一键解锁”及可展开的“更多操作”，后者收纳取消下载、移除补丁、移除本程序安装内容和一键修复。
+- 顶部反馈入口文案改为“资源有遗漏？反馈更新 →”。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；未启动 GUI、未构建或推送。
+
 ## 2026-08-20：恢复下载源选择器原生样式
 
 - 下载源下拉框已恢复原有的 CustomTkinter 组合框样式；此前为扁平化而重绑内部 canvas 的逻辑已完全移除，避免边框异常。
 
 验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：补足 DLC 首页主操作区
+
+- 将原先位于标题行右侧的“逐项管理 DLC”和“刷新目录”移入 DLC 首页操作栏；同栏依次提供逐项管理、刷新、全选、取消全部下载和“更多操作”。
+- “取消全部下载”从折叠菜单提升为可见危险操作；“更多操作”只保留一键移除补丁、移除本程序安装内容和一键修复。
+- “一键解锁”仍固定在操作栏右侧，继续作为唯一大号主操作，避免操作层级混乱。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：DLC 首页可用性状态与工具栏压缩
+
+- “全选”改为“全选 DLC”，在全部可选项已选中时仍显示“取消全选”。
+- “取消全部下载”根据下载队列是否有可取消任务自动启用；空闲时禁用，避免让用户误以为当前有任务。
+- 缺少补丁资产时，一键解锁按钮显示“补丁资源缺失”并禁用；资源说明行以橙色强调“补丁资源缺失，暂无法一键解锁”。
+- 将首页工具栏的上下留白和主按钮高度压缩，保留原有操作层级。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：游戏选择器当前项单行化
+
+- 游戏选择弹层的当前项状态由第二行“✓ 当前选择”改为紧跟在游戏名后的单行标记，避免选中条目额外增高。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：游戏检测行移除重复游戏名
+
+- 游戏名称已由左侧选择器表达；完成路径验证后，右侧状态仅显示“版本 <版本号>”，无版本数据时显示“路径已验证”，不再重复游戏名称。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：补丁资源缺失提示直达解决方案
+
+- DLC 列表的“补丁资源缺失，暂无法一键解锁。”提示改为橙色带下划线链接；点击直接打开“DLC 或补丁异常”解决方案详情页。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：DLC 首页操作顺序与取消下载可见性
+
+- 首页工具栏按“全选 DLC → 逐项管理 DLC → 刷新目录 → 更多操作 → 主操作”重排；一键解锁继续固定在右侧。
+- “取消全部下载”不再常驻：仅当下载队列存在可取消项目且当前流程允许取消时，才以危险按钮显示在“更多操作”前；其余时间隐藏。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：更多操作预渲染
+
+- DLC 首页的“更多操作”区域在页面构建阶段已完成一次布局、控件测量与渲染后再隐藏；点击时只展示已就绪的部件树，避免边框、文字和按钮分批出现。
+- 展开时先更新“收起操作”文案再显示内容，收起时先恢复“更多操作”文案再隐藏内容，降低状态与画面不同步的可见概率。
+- 修复展开瞬间 DLC 行与操作区重叠：原因是点击回调中的 `update_idletasks()` 先单独绘制了新增行，而外层卡片尚未完成将列表下移的几何计算。预渲染移至窗口构建阶段；点击时不再强制局部重绘，统一交由本轮 Tk 布局提交。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：统一游戏检测状态文案
+
+- 安装成功后统一显示“路径已验证”，不再仅因群星适配器提供 `rawVersion` 元数据而显示版本号。
+- 未发现安装时状态改为“未检测到有效安装”，不再与左侧已选游戏名称重复。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：补丁资源缺失专用解决方案
+
+- “补丁资源缺失”提示不再跳转至泛用的“DLC 或补丁异常”，而是直接打开同名专用方案。
+- 专用方案说明：先返回 DLC 列表刷新目录；若仍缺失，说明云端资源未完整上传或暂时不可用，用户侧无需反复验证文件或重装游戏，应附游戏名称和截图通过 QQ 群或视频评论区反馈。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：游戏选择弹层延迟聚焦安全修复
+
+- 根因：游戏选择弹层打开时安排的 `after_idle` / `after` 搜索框聚焦回调，可能在用户点击关闭后才执行，对已销毁的 Tk 输入框调用 `focus_force()`，导致 `bad window path name` 回调错误。
+- 所有延迟聚焦统一改为安全方法：先确认弹层和输入框仍是当前实例且仍存在，再执行聚焦；聚焦与销毁之间的竞态由 `TclError` 安静处理。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：补丁资源缺失反馈入口
+
+- “补丁资源缺失”解决方案末尾新增“加入 QQ 群”和“前往 B 站评论区”两个浅色链接按钮。
+- QQ 入口复用已有群链接与群号兜底逻辑；B 站入口复用预先允许的官方空间链接。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：解决方案搜索
+
+- “解决方案”列表新增标题、现象和处理方法的搜索框，以及“模糊匹配 / 精确匹配”选择器，默认模糊匹配。
+- 模糊匹配按字符顺序做子序列检索：关键词的字符可以分散在不同位置，只要顺序一致即可命中；精确匹配要求规范化文本中连续出现关键词。
+- 无匹配时显示明确的缩短关键词或切换匹配方式提示；`tests/test_ui_theme.py` 已增加搜索行为结构的回归断言。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，62 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：游戏安装状态回调的遗留变量修复
+
+- 根因：统一游戏检测状态文案时删除了 `version_text` 的定义，但顶部状态条仍拼接该变量；路径扫描完成的异步 UI 回调因此稳定触发 `NameError`。
+- 顶部状态条统一为“<游戏名> · 路径正常”，彻底移除 `version_text`；新增测试断言防止该遗留变量再次出现。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，63 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：隐藏游戏列表同步的内部来源标识
+
+- 游戏列表同步成功提示不再显示 `remote` / `cache` 等内部索引来源，只保留同步成功和游戏数量。
+
+验证：`python -m py_compile`（0.1.0 与 0.2.0）和 `python -m pytest tests/test_ui_theme.py tests/test_dlc_catalog.py -q`，63 项通过；`git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
 
 ## 2026-08-20：缓存操作独立成底部一行
 
@@ -885,3 +1051,148 @@
 - 下载源选择器现直接重绑该内部 canvas 的 hover 绘制，默认箭头区与输入区同为白色，悬停才显示浅蓝；保留原组件的点击和下拉行为。
 
 验证：`python -m py_compile`（0.1.0 与 0.2.0）及 `tests/test_ui_theme.py`，49 项通过；未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-20：发布器资源上传队列与四工作区重整
+
+- 发布器一级入口重整为“发布包与归档 / 资源管理 / 游戏支持数据 / 账户与测试”；原“高级维护”和“核对与验收”收进“账户与测试”的子页，卡带与公告从资源管理移入游戏支持数据。
+- 新增持久化 `ContentUploadQueue`：同一游戏在排队、上传、暂停、失败或需重构状态下禁止重复加入；支持 FIFO、上移/下移、删除、暂停、继续、失败后重试，并在程序重启后将上传中的项目安全恢复为“已暂停”。
+- DLC / 补丁发布页现在先读取双端远端目录差异，展示将删除的多余附件并二次确认，随后才加入队列；队列上传复用既有附件回读、双源校验、catalog 最后发布和本地构建凭证预检逻辑。
+- 队列界面显示当前项目、双源累计进度、文件名、速度、大小和状态；单项失败后自动继续后续排队项目，暂停则停止后续自动开始。
+- 进度轮询只更新当前行的文本与进度条，不会销毁并重建整张队列表，避免大文件上传期间产生可见的列表闪烁。
+- 内容流水线的远端目录读取改为镜像删除确认后的显式能力，避免不支持远端快照的基础上传 provider 被强制调用 `read_baseline()`。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_upload_queue.py tests\test_publisher_content_pipelines.py tests\test_publisher_release_service.py tests\test_publisher_ui_threading.py -q
+$files = Get-ChildItem src\signriver_publisher\*.py | ForEach-Object { $_.FullName }
+.\.venv\Scripts\python.exe -c "import py_compile, sys; [py_compile.compile(path, doraise=True) for path in sys.argv[1:]]" @files
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\upload_queue.py src\signriver_publisher\upload_queue_ui.py src\signriver_publisher\ui.py src\signriver_publisher\content_management_ui.py src\signriver_publisher\content_release_pipeline.py src\signriver_publisher\release_service.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py
+```
+
+结果：相关测试通过，`py_compile` 与 Ruff 通过；未启动 GUI 做人工验收，未连接 GitLink/GitHub，未真实上传、构建、commit 或 push。
+
+### 收尾补充（2026-08-20）
+
+- 队列现在严格按 FIFO 启动：不能手动启动仍有“待上传 / 已暂停 / 需重新构建”前序项的后续项目；失败项允许暂时跳过，避免单次网络失败阻塞整夜队列。
+- 执行镜像删除前会再次比对远端目录与已确认的差异清单；若确认后远端目录发生变化，停止发布并要求重新读取差异、重新确认，避免删除未展示给操作人的新文件。
+- DLC / 补丁的内部执行记录不再出现在“发布包与归档”的历史列表；用户只在“上传队列”管理资源发布。
+- 远端差异读取失败时会恢复资源页的正常说明，避免页面长期停在“正在读取”状态。
+
+最终验证：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_workspace.py tests\test_publisher_release_service.py tests\test_publisher_release_providers.py tests\test_publisher_ui_threading.py tests\test_publisher_content_pipelines.py tests\test_publisher_announcements.py tests\test_publisher_acceptance.py tests\test_publisher_upload_queue.py -q
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\upload_queue.py src\signriver_publisher\upload_queue_ui.py src\signriver_publisher\ui.py src\signriver_publisher\content_management_ui.py src\signriver_publisher\content_release_pipeline.py src\signriver_publisher\release_center.py src\signriver_publisher\release_center_ui.py src\signriver_publisher\release_service.py src\signriver_publisher\publisher_targets_ui.py tests\test_publisher_upload_queue.py tests\test_publisher_content_pipelines.py tests\test_publisher_ui_threading.py tests\test_publisher_acceptance.py
+```
+
+结果：166 项发布器相关测试通过，Ruff 通过；`src/signriver_publisher` 全部模块 `py_compile` 与 `git diff --check` 通过。已成功构建 `dist/publisher/SignRiver-Publisher.exe`（15,608,640 B，SHA-256 `794BE76AE16BCD1D7E34AB23BAD9B03EA0A78F03EDFCA7DC99051DB37542984F`）；未进行真实双源上传、未 commit 或 push。明天建议先启动 `publisher.py` 对四个工作区和上传队列做人工 UI 验收。
+
+## 2026-08-20：程序发布日志与实际上传进度
+
+- 已将“发布文件”页改为独立的总体进度、单文件进度和可滚动执行日志三部分；日志逐行列出自动预检结果与持久化的执行事件，避免此前只有阶段摘要而看不到预检结论。
+- 已定位“第 1/5 步运行但一直等待上传”的真实原因：程序发布流水线在上传前会对远端同名大包执行完整下载哈希校验，以判断是否可复用；该读取没有上传进度回调，导致数分钟无可见反馈。实际记录显示该步骤从 05:57 持续到用户请求安全暂停后的 06:01。
+- 程序更新包和模块归档改为同名文件直接替换并随后回读校验，不再预先下载远端包判断复用；这与“本地新增、同名替换、远端旧文件保留”的发布语义一致，且上传开始后会立即显示文件名、字节进度和速度。
+- 若处于发布步骤但还未收到传输字节回调，界面明确显示“正在准备远端传输并核验已有文件”，不再错误显示“等待上传任务开始”。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_release_service.py tests\test_publisher_content_pipelines.py tests\test_publisher_ui_threading.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\program_release_pipeline.py src\signriver_publisher\release_center.py src\signriver_publisher\release_service.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\program_release_pipeline.py src\signriver_publisher\release_center.py src\signriver_publisher\release_service.py tests\test_publisher_release_service.py tests\test_publisher_ui_threading.py
+git diff --check
+```
+
+结果：62 项通过，`py_compile`、Ruff 和 diff 检查通过（仅现有 CRLF 提示）。未重启发布器、未执行真实上传、未构建、未 commit 或 push。
+
+## 2026-08-20：程序发布安全暂停响应优化
+
+- 根因进一步确认：暂停请求已传入 GitLink/GitHub 上传器，但远端回读校验没有检查暂停信号；同时上传和校验网络调用的单次超时为 120 秒。网络对端停止接收或回读等待响应时，用户只能等当前调用返回，造成“点了安全暂停几分钟没反应”。
+- 远端校验读取现在在开始前和每 256 KiB 读取后检查暂停；已请求暂停时立即以 `ReleasePauseRequested` 结束当前可恢复步骤，保留完整性校验语义。
+- GitHub/GitLink 上传块由 1 MiB 改为 256 KiB，暂停粒度相应缩短；上传与远端读取的停滞连接超时由 120 秒收敛为 20 秒。若超时发生时已请求暂停，转换为安全暂停而非失败。
+- 程序更新包和模块包此前已移除“上传前下载远端大文件判重复”的步骤；实际发布会直接替换同名文件，随后仍做完整回读校验。因此新版下，安全暂停通常会在一个 256 KiB 块结束后生效；仅在底层网络调用完全无响应时最多等待约 20 秒。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_github.py tests\test_publisher_release_providers.py tests\test_publisher_release_service.py tests\test_publisher_content_pipelines.py tests\test_publisher_ui_threading.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\remote_release_providers.py src\signriver_publisher\github.py src\signriver_publisher\gitlink.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\remote_release_providers.py src\signriver_publisher\github.py src\signriver_publisher\gitlink.py tests\test_publisher_github.py tests\test_publisher_release_providers.py
+git diff --check
+```
+
+结果：77 项通过，`py_compile`、Ruff 和 diff 检查通过（仅现有 CRLF 提示）。未重启发布器、未执行真实上传、未构建、未 commit 或 push。
+
+## 2026-08-20：发布目标仓库连通性测试
+
+- “账户与测试 → 发布目标”的 GitLink 与 GitHub 卡片各新增“测试连通性”；测试读取当前表单中的所有者、仓库和已保存令牌，不会保存表单、上传文件或修改远端内容。
+- GitHub 通过只读仓库信息 API 检查；GitLink 通过只读发布列表 API 检查。结果直接显示在对应卡片底部，区分已连接、令牌缺失、仓库不存在/无权限和网络错误。
+- 连通性请求运行于后台线程，避免网络缓慢时冻结发布器界面；窗口关闭后 UI 事件泵会丢弃回调。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_ui_threading.py tests\test_publisher_github.py tests\test_publisher_workspace.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\publisher_targets_ui.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\publisher_targets_ui.py tests\test_publisher_ui_threading.py
+git diff --check
+```
+
+结果：121 项通过，`py_compile`、Ruff 和 diff 检查通过（仅现有 CRLF 提示）。未启动 GUI、未连接真实仓库、未构建、未 commit 或 push。
+
+## 2026-08-20：程序发布同时纳入模块归档
+
+- “发布包与归档 → 本地发布文件”新增独立的“模块归档目录”选择；创建、复用和刷新程序发布记录时都会保存并读取该目录，而不是仅从三端更新包目录推测模块位置。
+- 本地与云端差异读取扩展为两个分组：更新包使用更新 Release，模块归档使用模块 Release；两组都会读取 GitLink 与 GitHub 的只读基线。
+- 预检新增模块归档硬门禁：必须存在当前版本、可解析的模块归档；模块文件在确认后被删除或修改也会使冻结输入失效，不能继续发布。点击“发布文件”后既有流水线会一并上传、回读校验三端更新包和模块归档。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_release_service.py tests\test_publisher_ui_threading.py tests\test_publisher_release_providers.py tests\test_publisher_content_pipelines.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\artifact_collector.py src\signriver_publisher\release_service.py src\signriver_publisher\release_preflight.py src\signriver_publisher\release_center.py src\signriver_publisher\release_center_ui.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\artifact_collector.py src\signriver_publisher\release_service.py src\signriver_publisher\release_preflight.py src\signriver_publisher\release_center.py src\signriver_publisher\release_center_ui.py tests\test_publisher_release_service.py
+git diff --check
+```
+
+结果：72 项测试通过，`py_compile`、Ruff 和 diff 检查通过（仅现有 CRLF 提示）。未启动 GUI、未连接真实 GitLink/GitHub、未实际上传、未构建、未 commit 或 push。
+
+## 2026-08-20：DLC / 补丁发布仓库自动创建
+
+- 已确认原实现只会在仓库已存在时创建或复用对应的 Release；目标仓库不存在会直接失败。
+- 现在只有 `GAME_CONTENT`（DLC / 补丁）发布在读取远端差异或开始上传前确保冻结目标仓库存在：已有仓库直接复用；GitHub 缺失时会按配置的个人账户或组织创建公开仓库；GitLink 缺失时会先确认 `gitlink-cli` 的当前登录账户就是目标所有者，再创建并回读确认，避免错误地在其他账户创建同名仓库。
+- 程序更新和模块归档发布保持原有行为，不会因本次逻辑自动创建仓库。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_github.py tests\test_publisher_release_providers.py tests\test_publisher_content_pipelines.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\github.py src\signriver_publisher\gitlink.py src\signriver_publisher\remote_release_providers.py src\signriver_publisher\release_center_ui.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\github.py src\signriver_publisher\gitlink.py src\signriver_publisher\remote_release_providers.py src\signriver_publisher\release_center_ui.py tests\test_publisher_github.py tests\test_publisher_release_providers.py
+git diff --check
+```
+
+结果：78 项测试通过，`py_compile`、Ruff 与 diff 检查通过（仅现有 CRLF 提示）。未启动 GUI、未连接真实 GitLink/GitHub、未真实创建仓库或上传、未构建、未 commit 或 push。
+
+## 2026-08-20：移除兼容发布工作区
+
+- 已逐项核对旧“兼容发布（回退 / 修复）”页面：DLC/补丁构建与 Steam 数据刷新由“资源管理 → 本地资源 / DLC / 补丁发布”承载；程序更新与模块归档由“发布包与归档 → 本地发布文件”承载；卡带中心由“游戏支持数据 → 卡带与公告”双源发布承载；远端资源维护位于“资源管理 → 远端维护”。该页没有剩余的独立能力。
+- 已从“账户与测试”移除“兼容发布”二级入口、页面创建和 `CompatibilityPublishUiMixin` 的运行时组装；旧单源控制不再能通过 GUI 进入。保留未接线的兼容实现文件与旧父类方法，避免在当前大量未提交的发布器重构中进行无关的大规模删除。
+
+验证（2026-08-20）：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_publisher_ui_threading.py tests\test_ui_theme.py tests\test_publisher_content_pipelines.py tests\test_publisher_upload_queue.py tests\test_publisher_release_service.py -q
+.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\ui.py src\signriver_publisher\content_management_ui.py src\signriver_publisher\release_center_ui.py
+.\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\ui.py tests\test_publisher_ui_threading.py tests\test_ui_theme.py
+git diff --check
+```
+
+结果：118 项测试通过，`py_compile`、Ruff 与 diff 检查通过（仅现有 CRLF 提示）。未启动 GUI、未构建、未 commit 或 push。
+
+### 启动修复补充（2026-08-20）
+
+- 移除“兼容发布”页面后，遗留基类初始化仍会调用旧的发布目标同步方法，而该方法读取已被移除的 `publish_target_menu`，导致发布器启动即报 `AttributeError`。
+- `PublisherApplication` 现在直接从 `PublisherSettings.publish_target` 取得发布目标，并将仅服务于旧兼容页面的控件同步改为安全空操作；新的“发布目标”页面仍会自行重建界面。
+- 验证：`tests/test_publisher_ui_threading.py`、`tests/test_ui_theme.py` 共 87 项通过，`py_compile`、Ruff 与 `git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。

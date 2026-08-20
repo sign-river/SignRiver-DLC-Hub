@@ -929,28 +929,13 @@ class DlcHubApplication:
             text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(side="left")
-        self.catalog_refresh_button = ctk.CTkButton(
-            catalog_header,
-            text="刷新目录",
-            command=self._refresh_catalog,
-            width=100,
-        )
-        self.catalog_refresh_button.pack(side="right")
-        self.advanced_view_button = ctk.CTkButton(
-            catalog_header,
-            text="切换高级视图",
-            command=self._toggle_catalog_view,
-            width=100,
-        )
-        self.advanced_view_button.pack(side="right", padx=(0, 8))
-        self.advanced_view_button.configure(text="逐项管理 DLC")
         self.catalog_qq_hint_wrap = ctk.CTkFrame(
             catalog_header, fg_color="transparent"
         )
         self.catalog_qq_hint_wrap.pack(side="right", padx=(0, 24))
         self.catalog_qq_hint_button = ctk.CTkLabel(
             self.catalog_qq_hint_wrap,
-            text="dlc未及时更新？来群里提醒一下up",
+            text="资源有遗漏？反馈更新  →",
             text_color=UI["primary"],
             font=ctk.CTkFont(size=13),
         )
@@ -978,15 +963,33 @@ class DlcHubApplication:
             anchor="w",
         )
         self.catalog_status.pack(fill="x", padx=24)
+        catalog_freshness_row = ctk.CTkFrame(catalog_card, fg_color="transparent")
+        catalog_freshness_row.pack(fill="x", padx=24, pady=(2, 0))
         self.catalog_freshness = ctk.CTkLabel(
-            catalog_card,
+            catalog_freshness_row,
             text=self._freshness_status_text(),
             anchor="w",
             justify="left",
             text_color=UI["muted"],
             wraplength=760,
         )
-        self.catalog_freshness.pack(fill="x", padx=24, pady=(2, 0))
+        self.catalog_freshness.pack(side="left")
+        self.catalog_patch_warning = ctk.CTkLabel(
+            catalog_freshness_row,
+            text="",
+            anchor="w",
+            text_color="#B26A00",
+            font=ctk.CTkFont(size=13, weight="bold", underline=True),
+        )
+        self.catalog_patch_warning.pack(side="left", padx=(8, 0))
+        self.catalog_patch_warning.bind(
+            "<Button-1>",
+            lambda _event: self._open_solution_article("patch_assets_missing"),
+        )
+        try:
+            self.catalog_patch_warning._label.configure(cursor="hand2")
+        except Exception:
+            pass
         self.catalog_preview = _InlineCatalogStatus(
             self.catalog_freshness,
             self._freshness_status_text(),
@@ -1005,55 +1008,56 @@ class DlcHubApplication:
             catalog_command_bar, fg_color="transparent"
         )
         catalog_secondary_actions.grid(
-            row=0, column=0, sticky="nsew", padx=(12, 10), pady=10
+            row=0, column=0, sticky="w", padx=(12, 10), pady=6
         )
-        catalog_secondary_actions.grid_columnconfigure(0, weight=1)
-
-        catalog_tools = ctk.CTkFrame(
-            catalog_secondary_actions, fg_color="transparent"
-        )
-        catalog_tools.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        catalog_tools.grid_columnconfigure(0, weight=1)
-        self.catalog_search = ctk.CTkEntry(
-            catalog_tools, placeholder_text="搜索 DLC 编号或名称", width=240
-        )
-        self.catalog_search.grid(row=0, column=0, sticky="ew")
-        self.catalog_search.bind("<KeyRelease>", self._schedule_catalog_search)
-        self.catalog_filter = _combo_box(
-            catalog_tools,
-            values=["全部状态", "未下载", "进行中", "已暂停", "已完成", "失败"],
-            command=lambda _value: self._render_catalog_rows(),
-            width=110,
-        )
-        self.catalog_filter.set("全部状态")
-        self.catalog_filter.grid(row=0, column=1, padx=(8, 0))
         self.selection_toggle_button = ctk.CTkButton(
-            catalog_tools, text="全选", command=self._toggle_visible_selection,
+            catalog_secondary_actions,
+            text="全选 DLC",
+            command=self._toggle_visible_selection,
             width=96,
         )
-        self.selection_toggle_button.grid(row=0, column=2, padx=(8, 0))
-
-        catalog_management_tools = ctk.CTkFrame(
-            catalog_secondary_actions, fg_color="transparent"
+        self.selection_toggle_button.grid(row=0, column=0)
+        self.advanced_view_button = ctk.CTkButton(
+            catalog_secondary_actions,
+            text="逐项管理 DLC",
+            command=self._toggle_catalog_view,
+            width=120,
         )
-        catalog_management_tools.grid(row=1, column=0, sticky="ew")
-        for column in range(4):
+        self.advanced_view_button.grid(row=0, column=1, padx=(8, 0))
+        self.catalog_refresh_button = ctk.CTkButton(
+            catalog_secondary_actions,
+            text="刷新目录",
+            command=self._refresh_catalog,
+            width=100,
+        )
+        self.catalog_refresh_button.grid(row=0, column=2, padx=(8, 0))
+        self.cancel_all_downloads_button = ctk.CTkButton(
+            catalog_secondary_actions, text="取消全部下载",
+            command=self._cancel_all_downloads, width=118,
+        )
+        self.cancel_all_downloads_button.grid(row=0, column=3, padx=(8, 0))
+        self.cancel_all_downloads_button.grid_remove()
+        self.catalog_more_actions_button = ctk.CTkButton(
+            catalog_secondary_actions, text="更多操作  ▾",
+            command=self._toggle_catalog_more_actions, width=112,
+        )
+        self.catalog_more_actions_button.grid(row=0, column=4, padx=(8, 0))
+
+        self.catalog_more_actions = ctk.CTkFrame(
+            catalog_command_bar, fg_color=UI["panel"], border_width=1,
+            border_color=UI["border"], corner_radius=8,
+        )
+        catalog_management_tools = self.catalog_more_actions
+        for column in range(3):
             catalog_management_tools.grid_columnconfigure(
                 column, weight=1, uniform="catalog-management"
             )
-        self.cancel_all_downloads_button = ctk.CTkButton(
-            catalog_management_tools, text="取消全部下载",
-            command=self._cancel_all_downloads, width=104,
-        )
-        self.cancel_all_downloads_button.grid(
-            row=0, column=0, sticky="ew", padx=(0, 4)
-        )
         self.remove_patch_button = ctk.CTkButton(
             catalog_management_tools, text="一键移除补丁",
             command=self._remove_patch, width=112,
         )
         self.remove_patch_button.grid(
-            row=0, column=1, sticky="ew", padx=4
+            row=0, column=0, sticky="ew", padx=(0, 4)
         )
         self.restore_original_button = ctk.CTkButton(
             catalog_management_tools,
@@ -1067,16 +1071,15 @@ class DlcHubApplication:
             border_color=UI["primary_border"],
         )
         self.restore_original_button.grid(
-            row=0, column=2, sticky="ew", padx=4
+            row=0, column=1, sticky="ew", padx=4
         )
         self.repair_button = ctk.CTkButton(
             catalog_management_tools, text="一键修复",
             command=self._one_click_repair, width=112,
         )
         self.repair_button.grid(
-            row=0, column=3, sticky="ew", padx=(4, 0)
+            row=0, column=2, sticky="ew", padx=(4, 0)
         )
-
         primary_action_panel = ctk.CTkFrame(
             catalog_command_bar,
             fg_color=UI["primary_surface"],
@@ -1085,18 +1088,26 @@ class DlcHubApplication:
             corner_radius=10,
         )
         primary_action_panel.grid(
-            row=0, column=1, padx=(0, 10), pady=10
+            row=0, column=1, padx=(0, 10), pady=6
         )
         self.download_selected_button = ctk.CTkButton(
             primary_action_panel,
             text="一键解锁",
             command=self._one_click_unlock,
             width=176,
-            height=50,
+            height=44,
             corner_radius=12,
             font=ctk.CTkFont(size=18, weight="bold"),
         )
-        self.download_selected_button.pack(padx=4, pady=4)
+        self.download_selected_button.pack(padx=4, pady=3)
+        # Realize the full expandable area before the window becomes visible.
+        # Do not force an idle redraw from the click callback: doing so paints
+        # this row before the outer card has moved the DLC list below it.
+        self.catalog_more_actions.grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10)
+        )
+        catalog_command_bar.update_idletasks()
+        self.catalog_more_actions.grid_remove()
         def create_catalog_list_frame(parent=catalog_card):
             return ctk.CTkScrollableFrame(
                 parent, height=250, fg_color=UI["panel"], corner_radius=10,
@@ -1114,6 +1125,15 @@ class DlcHubApplication:
         ctk.CTkButton(advanced_header, text="刷新目录", width=96, command=self._refresh_catalog).pack(side="right")
         ctk.CTkButton(advanced_header, text="← 返回 DLC 列表", width=118, command=self._return_to_simple_catalog).pack(side="right", padx=(0, 8))
         ctk.CTkLabel(self.advanced_catalog_card, text="逐项管理 DLC 的下载、取消、校验和卸载操作。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=24, pady=(0, 10))
+        advanced_tools = ctk.CTkFrame(self.advanced_catalog_card, fg_color="transparent")
+        advanced_tools.pack(fill="x", padx=24, pady=(0, 10))
+        advanced_tools.grid_columnconfigure(0, weight=1)
+        self.catalog_search = ctk.CTkEntry(advanced_tools, placeholder_text="搜索 DLC 编号或名称")
+        self.catalog_search.grid(row=0, column=0, sticky="ew")
+        self.catalog_search.bind("<KeyRelease>", self._schedule_catalog_search)
+        self.catalog_filter = _combo_box(advanced_tools, values=["全部状态", "未下载", "进行中", "已暂停", "已完成", "失败"], command=lambda _value: self._render_catalog_rows(), width=110)
+        self.catalog_filter.set("全部状态")
+        self.catalog_filter.grid(row=0, column=1, padx=(8, 0))
         self.catalog_view_frames["advanced"] = create_catalog_list_frame(self.advanced_catalog_card)
         self.dlc_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 16))
         for column in range(4):
@@ -1691,7 +1711,7 @@ class DlcHubApplication:
                     text_color=UI["on_blue"],
                     border_width=0,
                     corner_radius=12,
-                    height=50,
+                    height=44,
                     font=ctk.CTkFont(size=18, weight="bold"),
                 )
                 return
@@ -1871,7 +1891,11 @@ class DlcHubApplication:
             self.game_picker.lift()
             search = self.game_picker_search
             if search is not None and search.winfo_exists():
-                self.game_picker.after(20, search.focus_force)
+                self.game_picker.after(
+                    20,
+                    lambda popup=self.game_picker, target=search:
+                    self._focus_game_picker_search(popup, target),
+                )
             return
         popup = ctk.CTkToplevel(self.window)
         self.game_picker = popup
@@ -1960,8 +1984,29 @@ class DlcHubApplication:
         popup.lift()
         # Toplevel 焦点会在第二次打开时先落回组合框；等窗口映射完成后
         # 强制交给搜索框，避免浮层可见但键盘输入仍被主窗口吞掉。
-        popup.after_idle(search.focus_force)
-        popup.after(30, search.focus_force)
+        popup.after_idle(
+            lambda target=search: self._focus_game_picker_search(popup, target)
+        )
+        popup.after(
+            30,
+            lambda target=search: self._focus_game_picker_search(popup, target),
+        )
+
+    def _focus_game_picker_search(self, popup, search) -> None:
+        """Focus the picker search only while its delayed callback is current."""
+        if (
+            popup is not self.game_picker
+            or search is not self.game_picker_search
+            or not popup.winfo_exists()
+            or not search.winfo_exists()
+        ):
+            return
+        try:
+            search.focus_force()
+        except tkinter.TclError:
+            # The close button can destroy the popup between winfo_exists()
+            # and focus_force(); the popup is already gone, so no action remains.
+            return
 
     def _schedule_game_picker_focus_check(self, _event=None) -> None:
         popup = self.game_picker
@@ -2014,7 +2059,11 @@ class DlcHubApplication:
         for selection_name, game in matches:
             display_name = game.get("display_name") or selection_name
             is_current = selection_name == self.selected_game_name
-            text = f"{display_name}\n✓ 当前选择" if is_current else display_name
+            text = (
+                f"{display_name}  ·  ✓ 当前选择"
+                if is_current
+                else display_name
+            )
             ctk.CTkButton(
                 results,
                 text=text,
@@ -2080,10 +2129,7 @@ class DlcHubApplication:
         self._set_game_selector_text(self.selected_game_name)
         if previous_name != self.selected_game_name:
             self._select_game(self.selected_game_name)
-        source = self.cartridge_catalog.index_source or "unknown"
-        self._notify(
-            f"已同步游戏列表（{len(index.cartridges)} 款，来源 {source}）"
-        )
+        self._notify(f"已同步游戏列表（{len(index.cartridges)} 款）")
 
     def _select_game(self, display_name: str) -> None:
         if (
@@ -2189,6 +2235,7 @@ class DlcHubApplication:
                     package_inspector=cartridge.inspect_package,
                 )
             self.patch_bundle = None
+            self.catalog_patch_warning.configure(text="")
             self.current_installation = None
             self.catalog_entries = ()
             self.installed_dlc_paths = {}
@@ -2205,7 +2252,7 @@ class DlcHubApplication:
             self.catalog_selection_initialized = False
             self.catalog_online = False
             self._clear_catalog_views(f"正在读取 {display_name} 的 DLC 目录……")
-            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.selection_toggle_button.configure(state="disabled", text="全选 DLC")
             self.download_selected_button.configure(
                 state="disabled", text="正在读取目录……"
             )
@@ -2336,14 +2383,109 @@ class DlcHubApplication:
             "download": ("下载或测速失败", "下载失败、测速偶发报错", (("heading", "建议操作"), ("text", "请先稍候重试；仍失败时切换下载源，并检查网络连接。"), ("button", "运行一键排错", "简单错误检测"))),
             "ssl": ("SSL / TLS 连接错误", "SSL、EOF 或证书相关报错", (("heading", "建议操作"), ("text", "检查代理、系统时间和网络连接；关闭后重新打开程序再试。"), ("button", "运行一键排错", "简单错误检测"))),
             "patch": ("DLC 或补丁异常", "DLC 未生效、补丁文件缺失或游戏无法启动", (("heading", "建议操作"), ("text", "先重新扫描游戏；再运行一键排错，并按问题记录中的建议操作。"), ("button", "查看问题记录", "问题记录"))),
+            "patch_assets_missing": (
+                "补丁资源缺失",
+                "当前游戏的补丁资源未能从云端完整读取，暂时无法一键解锁。",
+                (
+                    ("heading", "请先刷新目录"),
+                    (
+                        "text",
+                        "返回 DLC 列表后点击“刷新目录”。这会重新读取当前游戏的云端资源，不会删除本地 DLC，也不会修改游戏文件。",
+                    ),
+                    ("button", "前往 DLC 列表", "DLC 库"),
+                    ("heading", "刷新后仍然缺失"),
+                    (
+                        "text",
+                        "这通常表示云端补丁资源尚未上传完整或暂时不可用，用户侧无法通过验证文件、重装游戏或重复解锁解决。请附上游戏名称和提示截图，通过 QQ 群或视频评论区联系制作者处理。",
+                    ),
+                    ("action", "加入 QQ 群", self._open_qq_group_hint),
+                    (
+                        "action",
+                        "前往 B 站评论区",
+                        lambda: self._open_external_link(BILIBILI_TUTORIAL_URL),
+                    ),
+                ),
+            ),
             "security": ("安全软件拦截", "文件下载或写入后消失", (("heading", "建议操作"), ("text", "在安全软件记录中核对文件来源和哈希；确认误报后仅恢复该文件，不要关闭整机防护。"), ("button", "查看问题记录", "问题记录"))),
             "update": ("程序更新与模块异常", "更新回滚、模块加载失败或程序意外退出", (("heading", "建议操作"), ("text", "重新检查更新；若问题仍然存在，请运行一键排错并导出诊断信息。"), ("button", "运行一键排错", "简单错误检测"))),
         }
+        solution_search_bar = ctk.CTkFrame(
+            self.guide_tutorial_card, fg_color="transparent"
+        )
+        solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
+        solution_search_bar.grid_columnconfigure(0, weight=1)
+        self.solution_search_query = StringVar(value="")
+        self.solution_search = ctk.CTkEntry(
+            solution_search_bar,
+            textvariable=self.solution_search_query,
+            placeholder_text="搜索解决方案标题、现象或处理方法",
+            height=34,
+        )
+        self.solution_search.grid(row=0, column=0, sticky="ew")
+        self.solution_search_mode = _combo_box(
+            solution_search_bar,
+            values=["模糊匹配", "精确匹配"],
+            command=lambda _value: self._render_solution_articles(),
+            width=104,
+        )
+        self.solution_search_mode.set("模糊匹配")
+        self.solution_search_mode.grid(row=0, column=1, padx=(8, 0))
         self.solution_list = ctk.CTkScrollableFrame(
             self.guide_tutorial_card, fg_color="transparent", corner_radius=0,
         )
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        for article_id, (title, summary, _blocks) in self.solution_articles.items():
+        self.solution_search_query.trace_add(
+            "write", lambda *_args: self._render_solution_articles()
+        )
+        self._render_solution_articles()
+        self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
+        detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
+        detail_header.pack(fill="x", padx=24, pady=(12, 4))
+        ctk.CTkButton(detail_header, text="← 返回解决方案", width=120, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._show_solution_list).pack(side="left")
+        self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
+        self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    @staticmethod
+    def _normalize_solution_search_text(text: str) -> str:
+        return "".join(character for character in text.casefold() if character.isalnum())
+
+    def _solution_matches_search(self, article) -> bool:
+        query = self._normalize_solution_search_text(self.solution_search_query.get())
+        if not query:
+            return True
+        title, summary, blocks = article
+        parts = [title, summary]
+        for _kind, *values in blocks:
+            if values and isinstance(values[0], str):
+                parts.append(values[0])
+        source = self._normalize_solution_search_text(" ".join(parts))
+        if self.solution_search_mode.get() == "精确匹配":
+            return query in source
+        offset = 0
+        for character in query:
+            offset = source.find(character, offset)
+            if offset < 0:
+                return False
+            offset += 1
+        return True
+
+    def _render_solution_articles(self) -> None:
+        for child in self.solution_list.winfo_children():
+            child.destroy()
+        matches = [
+            (article_id, article)
+            for article_id, article in self.solution_articles.items()
+            if self._solution_matches_search(article)
+        ]
+        if not matches:
+            ctk.CTkLabel(
+                self.solution_list,
+                text="未找到匹配的解决方案，请尝试缩短关键词或切换匹配方式。",
+                text_color=UI["muted"],
+                anchor="w",
+            ).pack(fill="x", padx=16, pady=20)
+            return
+        for article_id, (title, summary, _blocks) in matches:
             card = ctk.CTkFrame(self.solution_list, fg_color=UI["panel"], border_color=UI["border"], border_width=1, corner_radius=10)
             card.pack(fill="x", pady=6)
             title_label = ctk.CTkLabel(card, text=title, text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w")
@@ -2355,12 +2497,6 @@ class DlcHubApplication:
             callback = lambda _event, key=article_id: self._show_solution_detail(key)
             for widget in (card, title_label, summary_label, arrow):
                 widget.bind("<Button-1>", callback)
-        self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
-        detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
-        detail_header.pack(fill="x", padx=24, pady=(12, 4))
-        ctk.CTkButton(detail_header, text="← 返回解决方案", width=120, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._show_solution_list).pack(side="left")
-        self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
-        self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
@@ -2386,6 +2522,18 @@ class DlcHubApplication:
                     ctk.CTkLabel(self.solution_detail_body, text="", image=image).pack(anchor="w", pady=(0, 16))
             elif kind == "button":
                 ctk.CTkButton(self.solution_detail_body, text=values[0], width=132, command=lambda target=values[1]: self._show_page(target)).pack(anchor="w", pady=(0, 16))
+            elif kind == "action":
+                ctk.CTkButton(
+                    self.solution_detail_body,
+                    text=values[0],
+                    width=148,
+                    command=values[1],
+                    fg_color="transparent",
+                    hover_color=UI["primary_surface"],
+                    text_color=UI["primary"],
+                    border_width=1,
+                    border_color=UI["primary_border"],
+                ).pack(anchor="w", pady=(0, 10))
         self.solution_detail_page.update_idletasks()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
@@ -4353,7 +4501,7 @@ class DlcHubApplication:
         if not entries:
             self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
             self._clear_catalog_views("当前 Release 中没有可用的 DLC 资源")
-            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.selection_toggle_button.configure(state="disabled", text="全选 DLC")
             self.download_selected_button.configure(
                 state="disabled", text="暂无可用 DLC"
             )
@@ -4361,10 +4509,14 @@ class DlcHubApplication:
         self.selection_toggle_button.configure(state="normal")
         self._set_batch_download_state(self.batch_download_state)
         if snapshot.patch_bundle is None:
+            self.catalog_patch_warning.configure(
+                text="补丁资源缺失，暂无法一键解锁。"
+            )
             self.catalog_preview.configure(
-                text="补丁资源缺失，一键解锁工具暂不可用；请稍后刷新目录"
+                text="请刷新目录后重试。"
             )
         else:
+            self.catalog_patch_warning.configure(text="")
             self.catalog_preview.configure(text="")
         self._render_catalog_rows()
         self._reconcile_catalog_cache()
@@ -4512,10 +4664,11 @@ class DlcHubApplication:
         if generation is not None and cartridge_id is not None:
             self.catalog_entries = ()
             self.patch_bundle = None
+            self.catalog_patch_warning.configure(text="")
             self.patch_task_roles = {}
             self.catalog_missing_patch_assets = ()
             self._clear_catalog_views("目录刷新失败，请重试")
-            self.selection_toggle_button.configure(state="disabled", text="全选")
+            self.selection_toggle_button.configure(state="disabled", text="全选 DLC")
             self.download_selected_button.configure(
                 state="disabled", text="目录不可用"
             )
@@ -5062,7 +5215,7 @@ class DlcHubApplication:
             entry.dlc_id in self.selected_dlc_ids for entry in selectable
         )
         self.selection_toggle_button.configure(
-            text="取消全选" if all_selected else "全选"
+            text="取消全选" if all_selected else "全选 DLC"
         )
 
     def _toggle_visible_selection(self) -> None:
@@ -5089,6 +5242,17 @@ class DlcHubApplication:
                 variable.set(True)
         self._update_selection_toggle_button(visible)
         self._refresh_catalog_capacity_summary()
+
+    def _toggle_catalog_more_actions(self) -> None:
+        """Reveal low-frequency catalog maintenance actions on demand."""
+        if self.catalog_more_actions.winfo_ismapped():
+            self.catalog_more_actions_button.configure(text="更多操作  ▾")
+            self.catalog_more_actions.grid_remove()
+            return
+        self.catalog_more_actions_button.configure(text="收起操作  ▴")
+        self.catalog_more_actions.grid(
+            row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10)
+        )
 
     def _clear_visible_selection(self) -> None:
         snapshots = {}
@@ -5275,6 +5439,9 @@ class DlcHubApplication:
             "repairing": ("正在一键修复…", False),
             "restoring": ("正在恢复原版…", False),
         }[state]
+        if enabled and self.catalog_entries and self.patch_bundle is None:
+            text = "补丁资源缺失"
+            enabled = False
         self.download_selected_button.configure(
             text=text,
             state="normal" if enabled else "disabled",
@@ -5295,14 +5462,27 @@ class DlcHubApplication:
             "cancelling", "patch_downloading", "patch_applying", "repairing",
             "restoring", "installing",
         }
-        for cancel_button in (
-            self.cancel_all_downloads_button,
-            getattr(self, "task_cancel_all_downloads_button", None),
-        ):
-            if cancel_button is not None:
-                cancel_button.configure(
-                    state="normal" if interactive else "disabled"
-                )
+        cancelable_states = {
+            DownloadState.QUEUED, DownloadState.DOWNLOADING,
+            DownloadState.PAUSING, DownloadState.PAUSED,
+            DownloadState.RETRYING, DownloadState.VERIFYING,
+        }
+        has_cancelable_download = bool(self.download_queue) and any(
+            item.state in cancelable_states
+            for item in self.download_queue.snapshots()
+        )
+        if interactive and has_cancelable_download:
+            self.cancel_all_downloads_button.grid(
+                row=0, column=3, padx=(8, 0)
+            )
+            self.cancel_all_downloads_button.configure(state="normal")
+        else:
+            self.cancel_all_downloads_button.grid_remove()
+        task_cancel_button = getattr(self, "task_cancel_all_downloads_button", None)
+        if task_cancel_button is not None:
+            task_cancel_button.configure(
+                state="normal" if interactive and has_cancelable_download else "disabled"
+            )
         repair_button = getattr(self, "repair_button", None)
         remove_patch_button = getattr(self, "remove_patch_button", None)
         restore_original_button = getattr(self, "restore_original_button", None)
@@ -7897,7 +8077,7 @@ class DlcHubApplication:
             self.install_recovery_failed = False
             self.install_recovery_key = None
             self.install_recovery_pending = None
-            self.game_status.configure(text=f"{game_name} · 未检测到有效安装")
+            self.game_status.configure(text="未检测到有效安装")
             suffix = f"（扫描产生 {len(report.issues)} 条诊断信息）" if report.issues else ""
             self.game_path.configure(
                 text=f"可使用“选择目录”手动指定 {game_name} 根目录{suffix}"
@@ -7972,16 +8152,12 @@ class DlcHubApplication:
         self._refresh_installed_dlc_paths()
         self.auto_install_attempted.clear()
         self._set_game_buttons("normal")
-        version = installation.metadata.get("rawVersion")
-        version_text = f" · {version}" if isinstance(version, str) else ""
-        self.game_status.configure(
-            text=f"{self.cartridge.selection_name}{version_text}"
-        )
+        self.game_status.configure(text="路径已验证")
         self.game_path.configure(text=str(installation.root))
         self.open_game_button.configure(state="normal")
         self.launch_game_button.configure(state="normal")
         self.top_health.configure(
-            text=f"{self.cartridge.adapter.descriptor.display_name} · 路径正常{version_text}"
+            text=f"{self.cartridge.adapter.descriptor.display_name} · 路径正常"
         )
         self.selected_dlc_ids = {
             dlc_id for dlc_id in self.selected_dlc_ids

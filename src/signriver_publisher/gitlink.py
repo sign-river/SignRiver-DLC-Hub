@@ -8,6 +8,7 @@ import secrets
 import shutil
 import subprocess
 import re
+import socket
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,6 +70,36 @@ class GitLinkCli:
     ) -> dict[str, object]:
         # The official create shortcut creates the repository for the logged-in account.
         return self._json("repo", "+create", "-n", repository.name, "-d", description)
+
+    def ensure_repository(
+        self, repository: GitLinkRepository, description: str
+    ) -> dict[str, object]:
+        """Reuse the target repository or create it for the logged-in user.
+
+        GitLink CLI's ``repo +create`` has no owner parameter.  Confirming the
+        active account first prevents a configured organisation/other account
+        from silently creating a same-named repository in the wrong place.
+        """
+        try:
+            return self.repository_info(repository)
+        except GitLinkError as error:
+            if not _is_not_found_error(error):
+                raise
+        user = self.current_user()
+        login = _gitlink_user_login(user)
+        if not login or login.casefold() != repository.owner.casefold():
+            raise GitLinkError(
+                "GitLink 目标仓库不存在，且当前 gitlink-cli 登录账户无法确认与"
+                f"目标所有者“{repository.owner}”一致。请先切换到该账户登录，"
+                "或手动创建同名仓库后重试。"
+            )
+        self.create_repository(repository, description)
+        try:
+            return self.repository_info(repository)
+        except GitLinkError as error:
+            raise GitLinkError(
+                f"GitLink 仓库已提交创建，但未能确认 {repository.owner}/{repository.name}：{error}"
+            ) from error
 
     def list_releases(
         self, repository: GitLinkRepository, *, token: str | None = None
@@ -175,6 +206,26 @@ class GitLinkCli:
         return value
 
 
+def _is_not_found_error(error: Exception) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in ("404", "not found", "not exist", "不存在", "未找到"))
+
+
+def _gitlink_user_login(payload: dict[str, object]) -> str:
+    """Extract the account name from the CLI's version-dependent response."""
+    for key in ("login", "username", "user_name", "name", "account"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for key in ("data", "user", "profile"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            login = _gitlink_user_login(value)
+            if login:
+                return login
+    return ""
+
+
 class GitLinkAttachmentClient:
     """Stream files to GitLink's documented attachment endpoint."""
 
@@ -213,7 +264,9 @@ class GitLinkAttachmentClient:
         suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
         file_size = path.stat().st_size
         total = len(prefix) + file_size + len(suffix)
-        connection = http.client.HTTPSConnection(self.host, self.port, timeout=120)
+        # Check pause requests frequently and avoid holding a requested pause
+        # behind the previous two-minute stalled-socket timeout.
+        connection = http.client.HTTPSConnection(self.host, self.port, timeout=20)
         try:
             connection.putrequest("POST", "/api/attachments.json")
             connection.putheader("Authorization", f"Bearer {self.token}")
@@ -227,7 +280,7 @@ class GitLinkAttachmentClient:
             connection.send(prefix)
             sent = 0
             with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                for chunk in iter(lambda: handle.read(256 * 1024), b""):
                     if control is not None and control.pause_requested:
                         raise UploadPaused(f"发布已暂停：{path.name}")
                     connection.send(chunk)
@@ -254,6 +307,10 @@ class GitLinkAttachmentClient:
             if not attachment_id:
                 raise GitLinkError(f"上传 {path.name} 后没有取得附件 ID")
             return attachment_id
+        except (socket.timeout, TimeoutError) as error:
+            if control is not None and control.pause_requested:
+                raise UploadPaused(f"发布已暂停：{path.name}") from error
+            raise GitLinkError(f"上传 {path.name} 超时") from error
         except OSError as error:
             raise GitLinkError(f"上传 {path.name} 失败：{error}") from error
         finally:

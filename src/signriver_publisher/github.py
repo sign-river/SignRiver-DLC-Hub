@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -121,6 +122,23 @@ class GitHubReleaseClient:
             raise GitHubPublisherError("GitHub 创建仓库后未返回仓库信息")
         return GitHubRepository(actual_owner, actual_name)
 
+    def ensure_repository(self, description: str) -> GitHubRepository:
+        """Return the configured repository, creating it only when absent."""
+        try:
+            self.repository_info()
+        except GitHubPublisherError as error:
+            if "404" not in str(error):
+                raise
+            created = self.create_repository(description)
+            if (
+                created.owner.casefold() != self.repository.owner.casefold()
+                or created.name.casefold() != self.repository.name.casefold()
+            ):
+                raise GitHubPublisherError(
+                    "GitHub 创建的仓库与发布目标不一致；已停止发布以避免写入错误仓库"
+                )
+        return self.repository
+
     def ensure_release(self, tag: str, *, name: str | None = None) -> GitHubRelease:
         existing = self.get_release_by_tag(tag)
         if existing is not None:
@@ -207,11 +225,23 @@ class GitHubReleaseClient:
                 },
             )
             try:
-                with self._opener(request, timeout=120) as response:
+                # The body checks for pauses between chunks.  This shorter
+                # timeout covers a peer that stops accepting data altogether,
+                # so a requested safe pause cannot wait for two minutes.
+                with self._opener(request, timeout=20) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 break
             except GitHubUploadPaused:
                 raise
+            except socket.timeout as error:
+                if should_pause is not None and should_pause():
+                    raise GitHubUploadPaused(f"发布已暂停：{path.name}") from error
+                if attempt == 2:
+                    raise GitHubPublisherError(
+                        f"GitHub 上传超时，已重试 3 次：{path.name}"
+                    ) from error
+                time.sleep(1 << attempt)
+                continue
             except urllib.error.HTTPError as error:
                 detail = error.read().decode("utf-8", errors="replace")
                 if error.code in _TRANSIENT_HTTP_STATUS and attempt < 2:
@@ -339,7 +369,7 @@ class _FileUploadBody:
         if self.progress is not None:
             self.progress(sent, self.size)
         with self.path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            for chunk in iter(lambda: handle.read(256 * 1024), b""):
                 if self.should_pause is not None and self.should_pause():
                     raise GitHubUploadPaused(f"发布已暂停：{self.path.name}")
                 yield chunk

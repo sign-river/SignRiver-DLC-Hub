@@ -28,7 +28,6 @@ PUBLISHER_UI_SOURCES = tuple(
         "ui_runtime.py",
         "content_management_ui.py",
         "remote_maintenance_ui.py",
-        "compatibility_publish_ui.py",
     )
 )
 
@@ -122,7 +121,7 @@ def test_game_selector_uses_a_searchable_in_app_picker_and_home_uses_github() ->
     assert 'game.get("display_name", "")' in source
     assert 'game.get("game_id", "")' in source
     assert '✓ 当前选择' in source
-    assert 'text = f"{display_name}\\n✓ 当前选择" if is_current else display_name' in source
+    assert 'f"{display_name}  ·  ✓ 当前选择"' in source
     assert 'height=54 if is_current else 40' in source
     assert '没有找到匹配的游戏' in source
     assert 'self._set_game_selector_text(display_name)' in source
@@ -205,9 +204,12 @@ def test_dropdowns_use_bordered_combo_box_factory() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "CTkOptionMenu(" not in source
-    assert source.count("= _combo_box(") == 4
+    assert source.count("= _combo_box(") == 5
     assert '"border_width": 1' in source
     assert 'self.catalog_filter.set("全部状态")' in source
+    assert 'self.solution_search_mode.set("模糊匹配")' in source
+    assert "def _solution_matches_search" in source
+    assert "offset = source.find(character, offset)" in source
     assert 'self.log_level_filter.set("全部")' in source
     assert '_settings_header(network_card, "下载与网络", "下载源、连接质量与等待策略")' in source
     assert "self.download_source_menu" in source
@@ -218,6 +220,14 @@ def test_dropdowns_use_bordered_combo_box_factory() -> None:
         "self.context.updates.set_download_source(\n"
         "                self.user_settings.download_source"
     ) in source
+
+
+def test_game_installation_status_does_not_reference_removed_version_text() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "version_text" not in source
+    assert 'text="路径已验证"' in source
+    assert 'text="未检测到有效安装"' in source
 
 
 def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
@@ -240,10 +250,10 @@ def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None
     assert 'uniform="catalog-management"' in source
     assert "primary_action_panel = ctk.CTkFrame(" in source
     assert 'width=176,' in source
-    assert 'height=50,' in source
+    assert 'height=44,' in source
     assert 'font=ctk.CTkFont(size=18, weight="bold")' in source
     assert 'widget is getattr(self, "download_selected_button", None)' in source
-    assert 'self.download_selected_button.pack(padx=4, pady=4)' in source
+    assert 'self.download_selected_button.pack(padx=4, pady=3)' in source
     assert 'self.download_selected_button.pack(fill="both", expand=True' not in source
     assert '"primary_surface": "#EAF3FB"' in source
     assert 'getattr(self, "catalog_refresh_button", None)' in source
@@ -455,7 +465,7 @@ def test_simple_catalog_is_compact_and_has_complete_bulk_selection() -> None:
     assert 'checkbox_width=18, checkbox_height=18' in source
     assert 'status.grid(row=0, column=2' in source
     assert "def _toggle_visible_selection" in source
-    assert 'text="取消全选" if all_selected else "全选"' in source
+    assert 'text="取消全选" if all_selected else "全选 DLC"' in source
     assert "all_selected = bool(selectable)" in source
     assert "self.selection_toggle_button" in source
     assert "self.select_visible_button" not in source
@@ -478,14 +488,8 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "measure_download_speed(url)" in source
     assert "speed_test_url(self.user_settings.download_source)" in source
     assert "已生成静态目录 catalog.json" in publisher_source
-    assert '"DLC / 补丁流水线"' in publisher_source
-    assert '"进入 DLC / 补丁发布批次"' in publisher_source
-    assert '"发布客户端"' in publisher_source
-    assert '"维护基础设施"' in publisher_source
-    assert 'text="展开高级操作 ▾"' in publisher_source
-    assert "def _toggle_publish_advanced" in publisher_source
-    assert 'text="单源发布程序更新"' in publisher_source
-    assert 'text="单源发布模块归档"' in publisher_source
+    assert 'text="单源发布程序更新"' not in publisher_source
+    assert 'text="单源发布模块归档"' not in publisher_source
     content_management_source = (PUBLISHER_ROOT / "content_management_ui.py").read_text(encoding="utf-8")
     release_actions_source = (PUBLISHER_ROOT / "release_actions_ui.py").read_text(encoding="utf-8")
     release_center_ui_source = (PUBLISHER_ROOT / "release_center_ui.py").read_text(encoding="utf-8")
@@ -495,7 +499,7 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert "self.content_release_tab = self.content_tabs.add(\"DLC / 补丁发布\")" in (PUBLISHER_ROOT / "ui.py").read_text(encoding="utf-8")
     assert "def _build_content_release_tab" in content_management_source
     assert "self.game_menu = ctk.CTkOptionMenu" in content_management_source
-    assert "command=self.open_game_content_pipeline" in release_center_source
+    assert "DLC 与补丁资源" not in release_center_source
     assert "open_game_content_pipeline=self._open_game_content_release_pipeline" in release_center_ui_source
     assert "self.workspace.publish_files(profile)" in release_center_ui_source
     assert 'text="一键移除补丁"' in source

@@ -76,16 +76,40 @@ class UploadSnapshotAttachmentsStage:
                     if not _verified(result, artifact):
                         raise ReleaseStageError(f"{source} 附件回读失败：{artifact.filename}")
                 ready[source].append(artifact.filename)
-            baseline = provider.read_baseline()
+            # Legacy direct publishing only replaces the declared attachments.
+            # The queue-driven mirror workflow explicitly asks the operator to
+            # confirm remote deletion first; only that path requires a remote
+            # directory snapshot.  Keeping the capability opt-in also lets
+            # minimal providers upload safely without pretending to support
+            # destructive mirror synchronisation.
+            if not delete_confirmed:
+                continue
+            read_baseline = getattr(provider, "read_baseline", None)
+            if not callable(read_baseline):
+                raise ReleaseStageError(
+                    f"{source} 不支持读取远端目录，无法确认镜像删除",
+                    retryable=False,
+                )
+            baseline = read_baseline()
             remote_names = {
                 str(item.get("name") or "")
                 for item in baseline.get("assets", [])
                 if isinstance(item, dict)
             }
             extras = sorted(name for name in remote_names - desired_names if name)
-            if extras and not delete_confirmed:
-                pending_deletes[source] = extras
-                continue
+            preview = plan.options.get("remote_mirror_preview")
+            expected_extras: object | None = None
+            if isinstance(preview, dict):
+                previewed_sources = preview.get("extra_files")
+                if isinstance(previewed_sources, dict):
+                    expected_extras = previewed_sources.get(source)
+            if expected_extras is not None:
+                expected = sorted(str(name) for name in expected_extras)
+                if extras != expected:
+                    raise ReleaseStageError(
+                        f"{source} 远端目录已发生变化，请重新读取差异并确认删除清单。",
+                        retryable=False,
+                    )
             for remote_name in extras:
                 if self.checkpoint:
                     self.checkpoint(plan)
