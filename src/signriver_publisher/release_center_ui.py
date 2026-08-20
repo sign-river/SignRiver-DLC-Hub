@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 
 from .github import GitHubReleaseClient, GitHubRepository
 from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository
+from .models import GameProfile
 from .release_center import ReleaseCenter
 from .release_models import ReleaseKind, ReleasePlan
 from .remote import RemoteResourceManager
@@ -36,7 +37,10 @@ class ReleaseCenterUiMixin:
 
     def _create_current_game_content_batch(self) -> ReleasePlan:
         """Snapshot the selected game's validated DLC/patch output into one batch."""
-        profile = self.profile
+        return self._create_game_content_batch_for_profile(self.profile)
+
+    def _create_game_content_batch_for_profile(self, profile: GameProfile) -> ReleasePlan:
+        """Create a content batch for a queued build without changing UI selection."""
         output_dir = self.workspace.output_dir / profile.game_id
         existing = self.release_service.find_reusable_game_content_batch(
             game_id=profile.game_id,
@@ -50,13 +54,36 @@ class ReleaseCenterUiMixin:
         if catalog is None:
             raise ValueError("当前游戏输出缺少 catalog.json；请重新构建后再加入上传队列。")
         attachments = [path for path in files if path != catalog]
+        targets = self._release_center_remote_targets()
+        reuse_cache = self.workspace.load_content_reuse_cache(profile)
+        reuse_cache.update(self.release_service.latest_game_content_reuse_cache(
+            game_id=profile.game_id, release_tag=profile.release_tag
+        ))
+        legacy_state = self.workspace.load_publish_state(
+            profile, self.settings.owner, self.settings.repository
+        )
+        legacy_assets = legacy_state.get("assets")
+        if "gitlink" not in reuse_cache and isinstance(legacy_assets, dict):
+            reuse_cache["gitlink"] = {
+                "target": dict(targets["gitlink"]),
+                "assets": {
+                    str(name): {
+                        "sha256": value.get("sha256"),
+                        "size": value.get("size_bytes"),
+                        "remote_id": value.get("attachment_id", ""),
+                    }
+                    for name, value in legacy_assets.items()
+                    if isinstance(value, dict)
+                },
+            }
         return self.release_service.create_game_content_batch(
             game_id=profile.game_id,
             release_tag=profile.release_tag,
             attachments=attachments,
             catalog=catalog,
             output_dir=output_dir,
-            remote_targets=self._release_center_remote_targets(),
+            remote_targets=targets,
+            reuse_cache=reuse_cache,
         )
 
     def _release_center_remote_targets(self) -> dict[str, dict[str, str]]:

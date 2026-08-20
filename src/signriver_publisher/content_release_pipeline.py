@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Mapping
 
@@ -31,6 +32,43 @@ def _verified(result, artifact: ReleaseArtifact) -> bool:
         and result.size == artifact.size
         and result.sha256 == artifact.sha256
     )
+
+
+def _is_immutable_dlc(artifact: ReleaseArtifact) -> bool:
+    name = artifact.filename.casefold()
+    return name.startswith("dlc") and (name.endswith(".zip") or ".zip.part" in name)
+
+
+def _content_reuse_assets(plan: ReleasePlan, source: str) -> dict[str, object]:
+    """Return trusted hashes recorded after a prior verified content upload."""
+    cache = plan.options.get("content_reuse_cache")
+    if not isinstance(cache, dict):
+        return {}
+    source_cache = cache.get(source)
+    if not isinstance(source_cache, dict):
+        return {}
+    if source_cache.get("target") != plan.remote_targets.get(source):
+        return {}
+    assets = source_cache.get("assets")
+    return assets if isinstance(assets, dict) else {}
+
+
+def _cache_content_asset(
+    cache: dict[str, object], plan: ReleasePlan, source: str, artifact: ReleaseArtifact, result
+) -> None:
+    source_cache = cache.setdefault(
+        source, {"target": dict(plan.remote_targets.get(source, {})), "assets": {}}
+    )
+    if not isinstance(source_cache, dict):
+        return
+    source_cache["target"] = dict(plan.remote_targets.get(source, {}))
+    assets = source_cache.setdefault("assets", {})
+    if isinstance(assets, dict):
+        assets[artifact.filename] = {
+            "sha256": artifact.sha256,
+            "size": artifact.size,
+            "remote_id": result.remote_id or "",
+        }
 
 
 class UploadSnapshotAttachmentsStage:
@@ -63,19 +101,51 @@ class UploadSnapshotAttachmentsStage:
         reused: dict[str, list[str]] = {}
         deleted: dict[str, list[str]] = {}
         pending_deletes: dict[str, list[str]] = {}
+        reuse_enabled = isinstance(plan.options.get("content_reuse_cache"), dict)
+        next_reuse_cache = deepcopy(plan.options.get("content_reuse_cache", {})) if reuse_enabled else {}
         for source, provider in self.providers.items():
             ready[source], reused[source], deleted[source], pending_deletes[source] = [], [], [], []
+            read_baseline = getattr(provider, "read_baseline", None)
+            if not callable(read_baseline):
+                raise ReleaseStageError(f"{source} 不支持读取远端资源目录", retryable=False)
+            baseline = read_baseline()
+            remote_assets = {
+                str(item.get("name") or ""): item
+                for item in baseline.get("assets", [])
+                if isinstance(item, dict) and str(item.get("name") or "")
+            }
+            cached_assets = _content_reuse_assets(plan, source) if reuse_enabled else {}
             for artifact in attachments:
                 if self.checkpoint:
                     self.checkpoint(plan)
-                result = provider.inspect(artifact.filename)
-                if _verified(result, artifact):
+                cached = cached_assets.get(artifact.filename)
+                remote = remote_assets.get(artifact.filename)
+                cache_matches = isinstance(cached, dict) and (
+                    cached.get("sha256") == artifact.sha256
+                    and cached.get("size") == artifact.size
+                )
+                remote_id_matches = (
+                    not isinstance(cached, dict)
+                    or not cached.get("remote_id")
+                    or not isinstance(remote, dict)
+                    or not remote.get("remote_id")
+                    or str(cached["remote_id"]) == str(remote["remote_id"])
+                )
+                if (
+                    _is_immutable_dlc(artifact)
+                    and remote is not None
+                    and cache_matches
+                    and remote_id_matches
+                ):
+                    ready[source].append(artifact.filename)
                     reused[source].append(artifact.filename)
-                else:
-                    result = provider.upload(artifact, Path(artifact.local_path or ""))
-                    if not _verified(result, artifact):
-                        raise ReleaseStageError(f"{source} 附件回读失败：{artifact.filename}")
+                    continue
+                result = provider.upload(artifact, Path(artifact.local_path or ""))
+                if not _verified(result, artifact):
+                    raise ReleaseStageError(f"{source} 附件回读失败：{artifact.filename}")
                 ready[source].append(artifact.filename)
+                if reuse_enabled and _is_immutable_dlc(artifact):
+                    _cache_content_asset(next_reuse_cache, plan, source, artifact, result)
             # Legacy direct publishing only replaces the declared attachments.
             # The queue-driven mirror workflow explicitly asks the operator to
             # confirm remote deletion first; only that path requires a remote
@@ -84,13 +154,6 @@ class UploadSnapshotAttachmentsStage:
             # destructive mirror synchronisation.
             if not delete_confirmed:
                 continue
-            read_baseline = getattr(provider, "read_baseline", None)
-            if not callable(read_baseline):
-                raise ReleaseStageError(
-                    f"{source} 不支持读取远端目录，无法确认镜像删除",
-                    retryable=False,
-                )
-            baseline = read_baseline()
             remote_names = {
                 str(item.get("name") or "")
                 for item in baseline.get("assets", [])
@@ -125,7 +188,12 @@ class UploadSnapshotAttachmentsStage:
                 f"检测到远端多余附件，需二次确认镜像删除：{details}", retryable=False
             )
         return StageExecutionResult(
-            {"ready": ready, "reused": reused, "deleted": deleted},
+            {
+                "ready": ready,
+                "reused": reused,
+                "deleted": deleted,
+                "content_reuse_cache": next_reuse_cache,
+            },
             {"all_snapshot_attachments_ready": all(len(value) == len(attachments) for value in ready.values())},
         )
 
@@ -155,11 +223,7 @@ class PublishSnapshotIndexStage:
             if self.checkpoint:
                 self.checkpoint(plan)
             try:
-                result = provider.inspect(index.filename)
-                if _verified(result, index):
-                    reused.append(source)
-                else:
-                    result = provider.publish_index(plan, Path(index.local_path))
+                result = provider.publish_index(plan, Path(index.local_path))
             except Exception as exc:
                 raise ReleaseStageError(
                     f"{source} 主表切换失败：{exc}",

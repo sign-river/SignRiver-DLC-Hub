@@ -42,7 +42,22 @@ def _write_program_package(
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("release-manifest.json", json.dumps(manifest))
         archive.writestr("payload.txt", platform)
+    module_archive = path.parent / f"SignRiver-DLC-Hub-module-v{version}.zip"
+    with zipfile.ZipFile(module_archive, "w") as archive:
+        archive.writestr(
+            "module.json",
+            json.dumps({"version": version, "entrypoint": "app_entry.py"}),
+        )
+        archive.writestr("app_entry.py", "pass")
     return path
+
+
+def _collect_program_artifacts(directory: Path, *, version: str) -> list[ReleaseArtifact]:
+    collector = ArtifactCollector()
+    return (
+        collector.collect_program_packages(directory, version=version)
+        + collector.collect_program_module_artifacts(directory, version=version)
+    )
 
 
 def test_release_plan_round_trip_and_centralized_transition() -> None:
@@ -184,7 +199,7 @@ def test_preflight_rejects_program_package_that_is_not_a_zip(tmp_path: Path) -> 
         else:
             _write_program_package(path, platform=platform)
     plan = ReleasePlan.create(ReleaseKind.PROGRAM, {"version": "0.2.0"})
-    plan.artifacts = ArtifactCollector().collect_program_packages(tmp_path, version="0.2.0")
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "说明。建议尽快更新。"
 
@@ -206,7 +221,7 @@ def test_preflight_rejects_non_object_program_manifest(tmp_path: Path) -> None:
         else:
             _write_program_package(path, platform=platform)
     plan = ReleasePlan.create(ReleaseKind.PROGRAM, {"version": "0.2.0"})
-    plan.artifacts = ArtifactCollector().collect_program_packages(tmp_path, version="0.2.0")
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "说明。建议尽快更新。"
 
@@ -226,7 +241,7 @@ def test_preflight_rejects_embedded_program_platform_mismatch(tmp_path: Path) ->
             platform=embedded_platform,
         )
     plan = ReleasePlan.create(ReleaseKind.PROGRAM, {"version": "0.2.0"})
-    plan.artifacts = ArtifactCollector().collect_program_packages(tmp_path, version="0.2.0")
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "说明。建议尽快更新。"
 
@@ -277,11 +292,10 @@ def test_orchestrator_requires_current_confirmation_and_completes(
     for platform in ("windows", "steamos", "macos"):
         path = tmp_path / f"SignRiver-DLC-Hub-full-v0.2.0-{platform}-x64.zip"
         packages.append(_write_program_package(path, platform=platform))
-    collector = ArtifactCollector()
     plan = ReleasePlan.create(
         ReleaseKind.PROGRAM, {"version": "0.2.0"}, batch_id="batch-1"
     )
-    plan.artifacts = collector.collect_program_packages(tmp_path, version="0.2.0")
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "测试更新。建议尽快更新。"
     store = ReleaseStore(tmp_path / "workspace")
@@ -313,9 +327,7 @@ def test_orchestrator_rejects_file_changed_after_confirmation(tmp_path: Path) ->
     plan = ReleasePlan.create(
         ReleaseKind.PROGRAM, {"version": "0.2.0"}, batch_id="batch-1"
     )
-    plan.artifacts = ArtifactCollector().collect_program_packages(
-        tmp_path, version="0.2.0"
-    )
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "测试更新。建议尽快更新。"
     store = ReleaseStore(tmp_path / "workspace")
@@ -396,9 +408,7 @@ def _program_plan(tmp_path: Path, *, batch_id: str = "program"):
     plan = ReleasePlan.create(
         ReleaseKind.PROGRAM, {"version": "0.2.0"}, batch_id=batch_id
     )
-    plan.artifacts = ArtifactCollector().collect_program_packages(
-        tmp_path, version="0.2.0"
-    )
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "说明。建议尽快更新。"
     plan.options = {"mandatory": False}
@@ -484,7 +494,7 @@ def test_program_pipeline_never_switches_manifest_before_both_sources_ready(
     assert good.manifest_calls == bad.manifest_calls == 0
 
 
-def test_program_pipeline_reuses_remote_packages_with_matching_hash(
+def test_program_pipeline_reuploads_remote_packages_with_matching_hash(
     tmp_path: Path,
 ) -> None:
     from signriver_publisher.program_release_pipeline import program_release_stages
@@ -506,11 +516,11 @@ def test_program_pipeline_reuses_remote_packages_with_matching_hash(
     )
 
     assert plan.status is ReleaseStatus.COMPLETED
-    assert all(provider.upload_calls == 0 for provider in providers.values())
+    assert all(provider.upload_calls == 4 for provider in providers.values())
     upload = next(
         item for item in plan.stages if item.stage_id == "program.upload_packages"
     )
-    assert all(item["reused"] for item in upload.output_summary["details"].values())
+    assert not any(item["reused"] for item in upload.output_summary["details"].values())
 
 
 def test_program_pipeline_timeout_fails_before_manifest_switch(tmp_path: Path) -> None:
@@ -627,9 +637,7 @@ def test_manual_acceptance_is_reference_only_and_is_audited(tmp_path: Path) -> N
     plan = ReleasePlan.create(
         ReleaseKind.PROGRAM, {"version": "0.2.0"}, batch_id="acceptance-gate"
     )
-    plan.artifacts = ArtifactCollector().collect_program_packages(
-        tmp_path, version="0.2.0"
-    )
+    plan.artifacts = _collect_program_artifacts(tmp_path, version="0.2.0")
     plan.remote_targets = {"gitlink": {"repo": "a"}, "github": {"repo": "b"}}
     plan.notes = "说明。建议尽快更新。"
     store = ReleaseStore(tmp_path / "workspace")

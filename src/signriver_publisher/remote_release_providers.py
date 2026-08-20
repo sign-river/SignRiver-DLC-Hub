@@ -16,7 +16,7 @@ from .release_interfaces import RemoteVerification
 from .release_models import ReleaseArtifact, ReleasePlan
 from .release_orchestrator import ReleasePauseRequested
 from .remote import RemoteResourceManager
-from .updates import UPDATE_MANIFEST_ASSET, UPDATE_RELEASE_TAG, release_asset_url
+from .updates import UPDATE_RELEASE_TAG, release_asset_url
 
 
 def _raise_if_pause_requested(pause_requested: Callable[[], bool] | None) -> None:
@@ -132,12 +132,10 @@ class GitHubReleaseProvider:
             {"name": str(item.get("name") or ""), "size": int(item.get("size") or 0), "remote_id": str(item.get("id") or "")}
             for item in release.assets
         ]
-        manifest = self.inspect(UPDATE_MANIFEST_ASSET)
         return {
             "release_exists": True,
             "release_tag": self.release_tag,
             "assets": assets,
-            "update_manifest": manifest.evidence,
         }
 
     def inspect(self, remote_key: str) -> RemoteVerification:
@@ -193,16 +191,26 @@ class GitHubReleaseProvider:
         return self.inspect(artifact.filename)
 
     def delete(self, remote_key: str) -> RemoteVerification:
-        current = self.inspect(remote_key)
-        if not current.exists:
-            return current
-        if not current.remote_id:
+        release = self.client.get_release_by_tag(self.release_tag)
+        if release is None:
+            return RemoteVerification(False)
+        asset = next(
+            (item for item in release.assets if str(item.get("name")) == remote_key),
+            None,
+        )
+        if asset is None:
+            return RemoteVerification(False)
+        remote_id = str(asset.get("id") or "")
+        if not remote_id:
             raise RuntimeError(f"无法定位 GitHub 附件：{remote_key}")
-        self.client.delete_asset(int(current.remote_id))
-        result = self.inspect(remote_key)
-        if result.exists:
+        self.client.delete_asset(int(remote_id))
+        refreshed = self.client.get_release_by_tag(self.release_tag)
+        still_exists = refreshed is not None and any(
+            str(item.get("name")) == remote_key for item in refreshed.assets
+        )
+        if still_exists:
             raise RuntimeError(f"GitHub 附件删除后仍存在：{remote_key}")
-        return result
+        return RemoteVerification(False)
 
     def publish_index(self, plan: ReleasePlan, local_path: Path) -> RemoteVerification:
         artifact = ReleaseArtifact(role="program_manifest", filename=local_path.name)
@@ -256,7 +264,6 @@ class GitLinkReleaseProvider:
         release = self.manager.get_release(self.release_tag)
         if release is None:
             return {"release_exists": False, "release_tag": self.release_tag, "assets": []}
-        manifest = self.inspect(UPDATE_MANIFEST_ASSET)
         return {
             "release_exists": True,
             "release_tag": self.release_tag,
@@ -268,7 +275,6 @@ class GitLinkReleaseProvider:
                 }
                 for item in release.assets
             ],
-            "update_manifest": manifest.evidence,
         }
 
     def inspect(self, remote_key: str) -> RemoteVerification:
@@ -318,16 +324,22 @@ class GitLinkReleaseProvider:
         return self.inspect(artifact.filename)
 
     def delete(self, remote_key: str) -> RemoteVerification:
-        current = self.inspect(remote_key)
-        if not current.exists:
-            return current
-        if not current.remote_id:
+        release = self.manager.get_release(self.release_tag)
+        if release is None:
+            return RemoteVerification(False)
+        asset = next((item for item in release.assets if item.name == remote_key), None)
+        if asset is None:
+            return RemoteVerification(False)
+        if not asset.asset_id:
             raise RuntimeError(f"无法定位 GitLink 附件：{remote_key}")
-        self.manager.client.delete_attachment(str(current.remote_id))
-        result = self.inspect(remote_key)
-        if result.exists:
+        self.manager.client.delete_attachment(str(asset.asset_id))
+        refreshed = self.manager.get_release(self.release_tag)
+        still_exists = refreshed is not None and any(
+            item.name == remote_key for item in refreshed.assets
+        )
+        if still_exists:
             raise RuntimeError(f"GitLink 附件删除后仍存在：{remote_key}")
-        return result
+        return RemoteVerification(False)
 
     def publish_index(self, plan: ReleasePlan, local_path: Path) -> RemoteVerification:
         artifact = ReleaseArtifact(role="program_manifest", filename=local_path.name)

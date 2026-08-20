@@ -312,7 +312,7 @@ class GitHubReleaseClient:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
-            with self._open_request(request, timeout=60) as response:
+            with self._open_request(request, timeout=12) as response:
                 raw = response.read()
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")

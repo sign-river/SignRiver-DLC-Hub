@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,10 @@ from signriver_publisher.upload_queue import (
     ContentUploadQueue,
     UploadQueueError,
     UploadQueueStatus,
+)
+from signriver_publisher.build_queue import (
+    BuildQueueStatus,
+    ContentBuildQueue,
 )
 
 
@@ -26,15 +31,18 @@ def _plan(game_id: str, *, batch_id: str = "batch") -> ReleasePlan:
     return plan
 
 
-def test_queue_persists_fifo_items_and_rejects_duplicate_game(tmp_path: Path) -> None:
+def test_queue_replaces_same_game_submission_in_its_original_position(tmp_path: Path) -> None:
     queue = ContentUploadQueue(tmp_path)
     first = queue.enqueue(_plan("game-a", batch_id="a"), display_name="游戏 A")
     second = queue.enqueue(_plan("game-b", batch_id="b"), display_name="游戏 B")
 
     assert [item.item_id for item in queue.list_items()] == [first.item_id, second.item_id]
     assert ContentUploadQueue(tmp_path).next_runnable().item_id == first.item_id
-    with pytest.raises(UploadQueueError, match="已在上传队列"):
-        queue.enqueue(_plan("game-a", batch_id="other"), display_name="游戏 A")
+    replacement = queue.enqueue(_plan("game-a", batch_id="other"), display_name="游戏 A")
+
+    assert replacement.item_id == first.item_id
+    assert replacement.release_id == "other"
+    assert [item.game_id for item in queue.list_items()] == ["game-a", "game-b"]
 
 
 def test_queue_allows_requeue_after_completed_or_deleted_item(tmp_path: Path) -> None:
@@ -47,6 +55,20 @@ def test_queue_allows_requeue_after_completed_or_deleted_item(tmp_path: Path) ->
     queue.remove(second.item_id)
     third = queue.enqueue(_plan("game-a", batch_id="c"), display_name="游戏 A")
     assert third.release_id == "c"
+
+
+def test_running_upload_keeps_one_row_and_requeues_the_latest_submission(tmp_path: Path) -> None:
+    queue = ContentUploadQueue(tmp_path)
+    first = queue.enqueue(_plan("game-a", batch_id="old"), display_name="游戏 A")
+    queue.mark_running(first.item_id)
+
+    replacement = queue.enqueue(_plan("game-a", batch_id="new"), display_name="游戏 A")
+
+    assert replacement.item_id == first.item_id
+    assert replacement.status is UploadQueueStatus.RUNNING
+    assert replacement.release_id == "new"
+    assert len([item for item in queue.list_items() if item.game_id == "game-a"]) == 1
+    assert queue.requeue_latest(first.item_id).status is UploadQueueStatus.QUEUED
 
 
 def test_queue_progress_counts_both_remote_sources(tmp_path: Path) -> None:
@@ -101,6 +123,34 @@ def test_queue_recovers_interrupted_running_item_as_resumable_pause(tmp_path: Pa
 
     assert recovered.status is UploadQueueStatus.PAUSED
     assert "上次关闭" in str(recovered.error)
+
+
+def test_build_queue_replaces_running_submission_and_keeps_one_game_row(tmp_path: Path) -> None:
+    queue = ContentBuildQueue(tmp_path)
+    first = queue.enqueue(SimpleNamespace(game_id="game-a", display_name="游戏 A"))
+    queue.enqueue(SimpleNamespace(game_id="game-b", display_name="游戏 B"))
+
+    assert queue.next_runnable().item_id == first.item_id
+    queue.mark_running(first.item_id)
+    replacement = queue.enqueue(SimpleNamespace(game_id="game-a", display_name="新游戏 A"))
+
+    assert replacement.item_id == first.item_id
+    assert replacement.status is BuildQueueStatus.RUNNING
+    assert replacement.rerun_requested is True
+    assert len([item for item in queue.list_items() if item.game_id == "game-a"]) == 1
+    queued = queue.requeue_latest(first.item_id)
+    assert queued.status is BuildQueueStatus.QUEUED
+    assert ContentBuildQueue(tmp_path).next_runnable().item_id == first.item_id
+
+
+def test_build_queue_allows_rebuild_after_completion(tmp_path: Path) -> None:
+    queue = ContentBuildQueue(tmp_path)
+    first = queue.enqueue(SimpleNamespace(game_id="game-a", display_name="游戏 A"))
+    queue.mark_completed(first.item_id, resource_count=2, artifact_count=3, total_bytes=512)
+
+    second = queue.enqueue(SimpleNamespace(game_id="game-a", display_name="游戏 A"))
+
+    assert second.status is BuildQueueStatus.QUEUED
 
 
 class _BaselineProvider:

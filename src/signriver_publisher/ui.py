@@ -5,6 +5,7 @@ from tkinter import messagebox
 from .acceptance_ui import AcceptanceUiMixin
 from .announcement_ui import AnnouncementUiMixin
 from .cartridge_management_ui import CartridgeManagementUiMixin
+from .build_queue import ContentBuildQueue
 from .content_management_ui import ContentManagementUiMixin
 from .legacy_ui import PublisherApplication as _LegacyPublisherApplication
 from .publisher_targets_ui import PublisherTargetsUiMixin
@@ -269,6 +270,7 @@ class PublisherApplication(
         # The batch service must exist before the inherited initializer calls
         # the dynamic task-workspace builder below.
         self.release_service = ReleaseService(workspace.root)
+        self.content_build_queue = ContentBuildQueue(workspace.root)
         self.content_upload_queue = ContentUploadQueue(workspace.root)
         super().__init__(workspace, settings=settings, settings_path=settings_path)
 
@@ -362,10 +364,12 @@ class PublisherApplication(
         self.content_tabs = _PageRouter(self.content_tab)
         self.sources_tab = self.content_tabs.add("本地资源")
         self.content_release_tab = self.content_tabs.add("DLC / 补丁发布")
+        self.build_queue_tab = self.content_tabs.add("构建队列")
         self.upload_queue_tab = self.content_tabs.add("上传队列")
         self.remote_tab = self.content_tabs.add("远端维护")
         self._build_sources_tab()
         self._build_content_release_tab()
+        self._build_build_queue_tab()
         self._build_upload_queue_tab()
         self._build_remote_tab()
         self.content_tabs.set("DLC / 补丁发布")

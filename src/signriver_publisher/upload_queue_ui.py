@@ -7,6 +7,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
+from .models import GameProfile
 from .release_models import ReleaseStatus
 from .upload_queue import UploadQueueError, UploadQueueStatus
 
@@ -86,20 +87,17 @@ class UploadQueueUiMixin:
         self._upload_queue_progress_widgets: dict[str, tuple[ctk.CTkLabel, ctk.CTkProgressBar]] = {}
         self._render_upload_queue()
 
-    def _enqueue_current_game_upload(self) -> None:
-        """Turn the selected, fully built game into an ordinary queue item."""
+    def _enqueue_current_game_upload(self, *, profile: GameProfile | None = None) -> None:
+        """Turn a selected or queued, fully built game into an ordinary queue item."""
+        profile = profile or self.profile
+        self._log(f"用户操作：准备将“{profile.display_name}”加入上传队列，开始读取远端差异。")
         try:
-            existing = self.content_upload_queue.active_for_game(self.profile.game_id)
-            if existing is not None:
-                raise UploadQueueError(
-                    f"“{self.profile.display_name}”已在队列中（{self._queue_status_text(existing.status)}）。"
-                )
-            plan = self._create_current_game_content_batch()
+            plan = self._create_game_content_batch_for_profile(profile)
         except Exception as error:
             messagebox.showerror("无法加入上传队列", str(error), parent=self)
             return
-        display_name = self.profile.display_name
-        game_id = self.profile.game_id
+        display_name = profile.display_name
+        game_id = profile.game_id
         self._show_queue_preview_loading(display_name)
 
         def worker() -> None:
@@ -144,14 +142,37 @@ class UploadQueueUiMixin:
             icon="warning",
             parent=self,
         ):
+            self._log(f"用户操作：取消将“{display_name}”加入上传队列。")
             self._refresh_content_release_summary()
             return
         try:
             confirmed = self.release_service.confirm_game_content_mirror_delete(plan.batch_id)
+            game_id = str(confirmed.target.get("game_id") or "")
+            previous = next(
+                (
+                    item
+                    for item in self.content_upload_queue.list_items()
+                    if item.game_id == game_id
+                ),
+                None,
+            )
             self.content_upload_queue.enqueue(confirmed, display_name=display_name)
         except Exception as error:
             messagebox.showerror("无法加入上传队列", str(error), parent=self)
             return
+        self._log(f"用户操作：已将“{display_name}”加入上传队列。")
+        if previous is None:
+            self._log(f"后台队列：新增“{display_name}”上传项。")
+        elif previous.status is UploadQueueStatus.RUNNING:
+            self._log(
+                f"后台队列：检测到“{display_name}”正在上传；"
+                "保留新提交，当前安全步骤结束后将上传最新提交。"
+            )
+        else:
+            self._log(
+                f"后台队列：覆盖“{display_name}”原有{previous.status}上传项，"
+                "已舍弃旧提交，仅保留最新提交。"
+            )
         self._refresh_content_release_summary()
         self._render_upload_queue()
         self.content_tabs.set("上传队列")
@@ -275,6 +296,8 @@ class UploadQueueUiMixin:
             detail += f" · {_display_bytes(item.completed_bytes)} / {_display_bytes(total)}"
             if item.bytes_per_second > 0:
                 detail += f" · {_display_bytes(item.bytes_per_second)}/s"
+            if item.error:
+                detail += f" · {item.error}"
         elif item.error:
             detail += f" · {item.error}"
         return detail
@@ -306,6 +329,7 @@ class UploadQueueUiMixin:
         ):
             return
         self._queue_pause_requested = False
+        self._log("用户操作：开始上传队列。")
         item = self.content_upload_queue.next_runnable()
         if item is None:
             self._end_background_mutation("upload-queue")
@@ -323,6 +347,7 @@ class UploadQueueUiMixin:
             messagebox.showwarning("无法开始上传", str(error), parent=self)
             return
         self._queue_worker_running = True
+        self._log(f"后台任务：开始上传“{item.display_name}”。")
         self._render_upload_queue()
         self._poll_upload_queue_progress(item.item_id)
 
@@ -338,7 +363,11 @@ class UploadQueueUiMixin:
                 )
                 self._post_ui(lambda value=result, queue_id=item.item_id: self._upload_queue_item_finished(queue_id, value))
             except Exception as error:
-                self._post_ui(lambda value=error, queue_id=item.item_id: self._upload_queue_item_failed(queue_id, value))
+                self._post_ui(
+                    lambda value=error, queue_id=item.item_id, release_id=item.release_id: self._upload_queue_item_failed(
+                        queue_id, value, release_id
+                    )
+                )
 
         threading.Thread(target=worker, daemon=False, name=f"content-upload-{item.game_id}").start()
 
@@ -377,6 +406,7 @@ class UploadQueueUiMixin:
         try:
             item = self.content_upload_queue.get(item_id)
             self._queue_pause_requested = True
+            self._log(f"用户操作：请求安全暂停“{item.display_name}”的上传。")
             self.release_service.request_pause(item.release_id)
             self.upload_queue_pause_button.configure(state="disabled", text="正在暂停…")
         except Exception as error:
@@ -385,10 +415,50 @@ class UploadQueueUiMixin:
     def _upload_queue_item_finished(self, item_id: str, plan) -> None:
         self._queue_worker_running = False
         self._queue_current_item_id = None
-        if plan.status is ReleaseStatus.PAUSED or self._queue_pause_requested:
+        latest = self.content_upload_queue.get(item_id)
+        if latest.release_id != plan.batch_id:
+            self.content_upload_queue.requeue_latest(item_id)
+            self._log(f"后台任务：旧提交上传结束；“{latest.display_name}”已保留最新提交并重新排队。")
+        elif plan.status is ReleaseStatus.PAUSED or self._queue_pause_requested:
             self.content_upload_queue.mark_paused(item_id)
         elif plan.status is ReleaseStatus.COMPLETED:
             self.content_upload_queue.mark_completed(item_id)
+            upload_stage = next(
+                (
+                    stage
+                    for stage in plan.stages
+                    if stage.stage_id == "game_content.upload_snapshot"
+                ),
+                None,
+            )
+            reused = (
+                upload_stage.output_summary.get("reused", {})
+                if upload_stage is not None
+                else {}
+            )
+            reuse_cache = (
+                upload_stage.output_summary.get("content_reuse_cache")
+                if upload_stage is not None
+                else None
+            )
+            profile = next(
+                (
+                    value
+                    for value in self.workspace.list_games()
+                    if value.game_id == latest.game_id
+                ),
+                None,
+            )
+            if profile is not None and isinstance(reuse_cache, dict):
+                self.workspace.save_content_reuse_cache(profile, reuse_cache)
+            reused_count = sum(
+                len(value) for value in reused.values() if isinstance(value, list)
+            )
+            if reused_count:
+                self._log(
+                    f"后台任务：已按云端构建缓存复用 {reused_count} 个附件，未重复上传。"
+                )
+            self._log(f"后台任务：已完成“{latest.display_name}”的上传。")
         else:
             self.content_upload_queue.mark_failed(item_id, "发布未完成，请查看发布记录。")
         self.upload_queue_pause_button.configure(text="暂停当前项")
@@ -399,16 +469,23 @@ class UploadQueueUiMixin:
         else:
             self._end_background_mutation("upload-queue")
 
-    def _upload_queue_item_failed(self, item_id: str, error: Exception) -> None:
+    def _upload_queue_item_failed(
+        self, item_id: str, error: Exception, running_release_id: str
+    ) -> None:
         self._queue_worker_running = False
         self._queue_current_item_id = None
         text = str(error)
-        if "发布文件" in text and ("变化" in text or "不完整" in text):
-            self.content_upload_queue.mark_needs_rebuild(item_id, text)
+        latest = self.content_upload_queue.get(item_id)
+        if latest.release_id != running_release_id:
+            self.content_upload_queue.requeue_latest(item_id)
+            self._log(f"后台任务：旧上传失败；“{latest.display_name}”的最新提交已重新排队。")
         elif self._queue_pause_requested:
             self.content_upload_queue.mark_paused(item_id)
+        elif "发布文件" in text and ("变化" in text or "不完整" in text):
+            self.content_upload_queue.mark_needs_rebuild(item_id, text)
         else:
             self.content_upload_queue.mark_failed(item_id, text)
+            self._log(f"后台任务：上传失败：{text}")
         self.upload_queue_pause_button.configure(text="暂停当前项")
         self._render_upload_queue()
         next_item = self.content_upload_queue.next_runnable()

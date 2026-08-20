@@ -25,11 +25,16 @@ MUTED = "#757575"
 RED = "#E53935"
 
 
+def _is_immutable_dlc_filename(name: str) -> bool:
+    value = name.casefold()
+    return value.startswith("dlc") and (value.endswith(".zip") or ".zip.part" in value)
+
+
 class RemoteMaintenanceUiMixin:
     """Advanced remote-resource maintenance and repository controls."""
 
     def _build_remote_tab(self) -> None:
-        self.remote_tab.grid_rowconfigure(1, weight=1)
+        self.remote_tab.grid_rowconfigure(2, weight=1)
         self.remote_tab.grid_columnconfigure((0, 1), weight=1)
         toolbar = ctk.CTkFrame(
             self.remote_tab,
@@ -73,13 +78,12 @@ class RemoteMaintenanceUiMixin:
             command=self.choose_remote_upload,
         ).grid(row=0, column=3, padx=(4, 14), pady=10)
         ctk.CTkButton(
-            toolbar, text="批次诊断", width=100, fg_color=LIGHT_BLUE,
-            command=self.diagnose_release_batch,
+            toolbar,
+            text="信任云端 DLC",
+            width=130,
+            fg_color=LIGHT_BLUE,
+            command=self.trust_remote_dlc_resources,
         ).grid(row=1, column=1, padx=4, pady=(0, 10))
-        ctk.CTkButton(
-            toolbar, text="导出审计", width=100, fg_color=LIGHT_BLUE,
-            command=self.export_release_audit,
-        ).grid(row=1, column=2, padx=4, pady=(0, 10))
         ctk.CTkButton(
             toolbar,
             text="← 返回资源入口",
@@ -93,49 +97,142 @@ class RemoteMaintenanceUiMixin:
             command=lambda: self.content_tabs.set("DLC / 补丁发布"),
         ).grid(row=1, column=3, padx=(4, 14), pady=(0, 10), sticky="e")
 
-        local_card = ctk.CTkFrame(
+        summary_card = ctk.CTkFrame(
             self.remote_tab,
             fg_color=CARD,
             border_width=1,
             border_color="#D8DEE6",
             corner_radius=14,
         )
-        local_card.grid(row=1, column=0, padx=(8, 5), pady=(4, 8), sticky="nsew")
-        remote_card = ctk.CTkFrame(
-            self.remote_tab,
-            fg_color=CARD,
-            border_width=1,
-            border_color="#D8DEE6",
-            corner_radius=14,
-        )
-        remote_card.grid(row=1, column=1, padx=(5, 8), pady=(4, 8), sticky="nsew")
-        for card in (local_card, remote_card):
-            card.grid_columnconfigure(0, weight=1)
-            card.grid_rowconfigure(1, weight=1)
+        summary_card.grid(row=1, column=0, columnspan=2, padx=8, pady=4, sticky="ew")
+        summary_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            local_card,
-            text="本地发布文件",
+            summary_card,
+            text="发布差异摘要",
+            font=("Microsoft YaHei UI", 15, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, padx=18, pady=(10, 2), sticky="w")
+        self.remote_diff_summary = ctk.CTkLabel(
+            summary_card,
+            text="刷新远程后会显示新增、更新、复用和云端多余文件的数量。",
+            text_color=MUTED,
+            anchor="w",
+        )
+        self.remote_diff_summary.grid(row=1, column=0, padx=18, pady=(0, 10), sticky="ew")
+
+        self.remote_detail_container = ctk.CTkFrame(
+            self.remote_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        self.remote_detail_container.grid(
+            row=2, column=0, columnspan=2, padx=8, pady=(4, 8), sticky="nsew"
+        )
+        self.remote_detail_container.grid_columnconfigure(1, weight=1)
+        self.remote_detail_container.grid_rowconfigure(0, weight=1)
+        self.remote_detail_sidebar = ctk.CTkFrame(
+            self.remote_detail_container,
+            width=154,
+            fg_color="#F5F8FC",
+            corner_radius=10,
+        )
+        self.remote_detail_sidebar.grid(
+            row=0, column=0, padx=(12, 8), pady=12, sticky="ns"
+        )
+        self.remote_detail_sidebar.grid_propagate(False)
+        ctk.CTkLabel(
+            self.remote_detail_sidebar,
+            text="查看内容",
+            font=("Microsoft YaHei UI", 13, "bold"),
+            text_color=MUTED,
+        ).pack(anchor="w", padx=14, pady=(14, 8))
+        self.remote_changes_nav_button = ctk.CTkButton(
+            self.remote_detail_sidebar,
+            text="变更清单",
+            anchor="w",
+            height=36,
+            command=lambda: self._select_remote_detail_page("changes"),
+        )
+        self.remote_changes_nav_button.pack(fill="x", padx=10, pady=3)
+        self.remote_details_nav_button = ctk.CTkButton(
+            self.remote_detail_sidebar,
+            text="云端详情",
+            anchor="w",
+            height=36,
+            fg_color="transparent",
+            text_color=BLUE,
+            hover_color="#EAF4FD",
+            command=lambda: self._select_remote_detail_page("details"),
+        )
+        self.remote_details_nav_button.pack(fill="x", padx=10, pady=3)
+        self.remote_detail_pages = ctk.CTkFrame(
+            self.remote_detail_container, fg_color="transparent"
+        )
+        self.remote_detail_pages.grid(
+            row=0, column=1, padx=(0, 12), pady=12, sticky="nsew"
+        )
+        self.remote_detail_pages.grid_columnconfigure(0, weight=1)
+        self.remote_detail_pages.grid_rowconfigure(0, weight=1)
+        self.remote_changes_page = ctk.CTkFrame(
+            self.remote_detail_pages, fg_color="transparent"
+        )
+        self.remote_details_page = ctk.CTkFrame(
+            self.remote_detail_pages, fg_color="transparent"
+        )
+        for page in (self.remote_changes_page, self.remote_details_page):
+            page.grid_columnconfigure(0, weight=1)
+            page.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
+            self.remote_changes_page,
+            text="仅显示本次发布需要关注的文件；缓存一致的 DLC 收进“可复用 DLC”分组。",
             font=("Microsoft YaHei UI", 19, "bold"),
             text_color=BLUE,
         ).grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
         self.remote_asset_title = ctk.CTkLabel(
-            remote_card,
+            self.remote_details_page,
             text="GitLink Release 附件",
             font=("Microsoft YaHei UI", 19, "bold"),
             text_color=BLUE,
         )
         self.remote_asset_title.grid(row=0, column=0, padx=18, pady=(14, 6), sticky="w")
         self.local_output_list = ctk.CTkScrollableFrame(
-            local_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+            self.remote_changes_page,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
         )
         self.local_output_list.grid(
             row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
         )
         self.remote_asset_list = ctk.CTkScrollableFrame(
-            remote_card, fg_color="#FAFAFA", border_width=1, border_color="#E0E0E0"
+            self.remote_details_page,
+            fg_color="#FAFAFA",
+            border_width=1,
+            border_color="#E0E0E0",
         )
         self.remote_asset_list.grid(
             row=1, column=0, padx=14, pady=(4, 14), sticky="nsew"
+        )
+        self._select_remote_detail_page("changes")
+
+    def _select_remote_detail_page(self, page: str) -> None:
+        """Switch the remote-maintenance content pane from the compact sidebar."""
+        selected = page == "changes"
+        self.remote_changes_page.grid_forget()
+        self.remote_details_page.grid_forget()
+        visible_page = self.remote_changes_page if selected else self.remote_details_page
+        visible_page.grid(row=0, column=0, sticky="nsew")
+        self.remote_changes_nav_button.configure(
+            fg_color=BLUE if selected else "transparent",
+            text_color="#FFFFFF" if selected else BLUE,
+            hover_color="#1565C0" if selected else "#EAF4FD",
+        )
+        self.remote_details_nav_button.configure(
+            fg_color="transparent" if selected else BLUE,
+            text_color=BLUE if selected else "#FFFFFF",
+            hover_color="#EAF4FD" if selected else "#1565C0",
         )
 
     def _show_remote_message(self, message: str) -> None:
@@ -146,7 +243,137 @@ class RemoteMaintenanceUiMixin:
         )
         self._schedule_scrollable_reset(self.remote_asset_list)
 
-    def _fill_remote_assets(self, assets: tuple[RemoteAsset, ...]) -> None:
+    def _fill_remote_diff(
+        self, profile: GameProfile, assets: tuple[RemoteAsset, ...]
+    ) -> None:
+        """Render the metadata-only DLC / patch publish preview.
+
+        Only immutable DLC ZIPs may be reused from the trusted cache. Patches,
+        DLLs and other mutable files always replace their same-name attachment.
+        No remote attachment is downloaded for this preview.
+        """
+        local_assets = self.workspace.publish_assets(profile)
+        local_files = tuple(asset.path for asset in local_assets)
+        remote_names = {asset.name for asset in assets}
+        target = (
+            {"owner": self.settings.github_owner, "repository": self.settings.github_repository}
+            if self._publish_target() == "github"
+            else {"owner": self.settings.owner, "repository": self.settings.repository}
+        )
+        cache = self.workspace.load_content_reuse_cache(profile)
+        cache.update(self.release_service.latest_game_content_reuse_cache(
+            game_id=profile.game_id, release_tag=profile.release_tag
+        ))
+        if not cache and self._publish_target() == "gitlink":
+            legacy = self.workspace.load_publish_state(
+                profile, self.settings.owner, self.settings.repository
+            )
+            legacy_assets = legacy.get("assets")
+            if isinstance(legacy_assets, dict):
+                cache = {"gitlink": {"target": target, "assets": legacy_assets}}
+        source_cache = cache.get(self._publish_target(), {}) if isinstance(cache, dict) else {}
+        cached_assets = source_cache.get("assets", {}) if isinstance(source_cache, dict) and source_cache.get("target") == target else {}
+        local_by_name = {asset.name: asset for asset in local_assets}
+        for child in self.local_output_list.winfo_children():
+            child.destroy()
+        if not local_files:
+            self.remote_diff_summary.configure(text="尚未生成可检测的本地发布文件。")
+            ctk.CTkLabel(
+                self.local_output_list,
+                text="尚未生成可检测的本地发布文件",
+                text_color=MUTED,
+            ).pack(pady=24)
+        else:
+            changes: list[tuple[Path, str, str]] = []
+            reusable_rows: list[tuple[Path, str, str]] = []
+            for path in local_files:
+                asset = local_by_name[path.name]
+                cached = cached_assets.get(path.name) if isinstance(cached_assets, dict) else None
+                reuse_match = (
+                    _is_immutable_dlc_filename(path.name)
+                    and path.name in remote_names
+                    and isinstance(cached, dict)
+                    and cached.get("sha256") == asset.sha256
+                    and int(cached.get("size", cached.get("size_bytes", -1))) == asset.size_bytes
+                )
+                action = (
+                    "DLC 缓存一致，将跳过上传"
+                    if reuse_match
+                    else (
+                        "每次更新，将替换云端同名文件"
+                        if path.name in remote_names
+                        else "将新增到云端"
+                    )
+                )
+                category = "DLC" if _is_immutable_dlc_filename(path.name) else "可变文件"
+                (reusable_rows if reuse_match else changes).append((path, category, action))
+
+            remote_only = remote_names - set(local_by_name)
+            self.remote_diff_summary.configure(
+                text=(
+                    f"跳过上传 {len(reusable_rows)} · 需要更新 {sum(path.name in remote_names for path, _, _ in changes)} "
+                    f"· 新增 {sum(path.name not in remote_names for path, _, _ in changes)} "
+                    f"· 云端多余 {len(remote_only)}"
+                )
+            )
+
+            def render_group(
+                title: str, rows: list[tuple[Path, str, str]], color: str
+            ) -> None:
+                if not rows:
+                    return
+                ctk.CTkLabel(
+                    self.local_output_list,
+                    text=f"{title} · {len(rows)}",
+                    font=("Microsoft YaHei UI", 13, "bold"),
+                    text_color=color,
+                    anchor="w",
+                ).pack(fill="x", padx=10, pady=(12, 4))
+                for path, category, action in rows:
+                    row = ctk.CTkFrame(
+                        self.local_output_list,
+                        fg_color=CARD,
+                        border_width=1,
+                        border_color="#E0E0E0",
+                        corner_radius=8,
+                    )
+                    row.pack(fill="x", padx=4, pady=3)
+                    ctk.CTkLabel(
+                        row, text=path.name, anchor="w", text_color=TEXT
+                    ).pack(side="left", fill="x", expand=True, padx=(10, 6), pady=8)
+                    ctk.CTkLabel(
+                        row, text=category, text_color=MUTED, width=64
+                    ).pack(side="left", padx=4, pady=8)
+                    ctk.CTkLabel(row, text=action, text_color=color).pack(
+                        side="right", padx=10, pady=8
+                    )
+            render_group("需要发布", changes, BLUE)
+            render_group("可复用 DLC", reusable_rows, "#2E7D32")
+        self._schedule_scrollable_reset(self.local_output_list)
+        reusable_names = {
+            path.name
+            for path in local_files
+            if _is_immutable_dlc_filename(path.name)
+            and isinstance(cached_assets, dict)
+            and (cached := cached_assets.get(path.name)) is not None
+            and isinstance(cached, dict)
+            and cached.get("sha256") == local_by_name[path.name].sha256
+            and int(cached.get("size", cached.get("size_bytes", -1))) == local_by_name[path.name].size_bytes
+            and path.name in remote_names
+        }
+        self._fill_remote_assets(
+            assets,
+            local_names={path.name for path in local_files},
+            reusable_names=reusable_names,
+        )
+
+    def _fill_remote_assets(
+        self,
+        assets: tuple[RemoteAsset, ...],
+        *,
+        local_names: set[str] | None = None,
+        reusable_names: set[str] | None = None,
+    ) -> None:
         for child in self.remote_asset_list.winfo_children():
             child.destroy()
         if not assets:
@@ -170,6 +397,14 @@ class RemoteMaintenanceUiMixin:
             ctk.CTkLabel(row, text=text, anchor="w", text_color=TEXT).pack(
                 side="left", fill="x", expand=True, padx=10, pady=9
             )
+            action = "DLC 缓存一致，将保留" if reusable_names and asset.name in reusable_names else (
+                "将被同名文件替换"
+                if local_names is not None and asset.name in local_names
+                else "云端保留（批量镜像发布时将删除）"
+            )
+            ctk.CTkLabel(row, text=action, text_color=MUTED).pack(
+                side="left", padx=6, pady=9
+            )
             ctk.CTkButton(
                 row,
                 text="删除",
@@ -184,8 +419,9 @@ class RemoteMaintenanceUiMixin:
         self._schedule_scrollable_reset(self.remote_asset_list)
 
     def refresh_remote_resources(self) -> None:
-        if not self._begin_remote_operation("正在读取远程资源…"):
+        if not self._begin_remote_operation("正在读取远程资源…", mutating=False):
             return
+        self._log(f"用户操作：刷新“{self.profile.display_name}”的远程 Release 资源。")
         if self._publish_target() == "github":
             try:
                 client = self._github_repository_client()
@@ -227,6 +463,77 @@ class RemoteMaintenanceUiMixin:
         )
         if path:
             self.upload_remote_file(Path(path))
+
+    def trust_remote_dlc_resources(self) -> None:
+        """Explicitly trust same-name immutable DLCs already listed remotely."""
+        release = self._current_remote_release
+        if release is None:
+            messagebox.showinfo("请先刷新远程", "请先读取当前游戏的远端 Release 附件。")
+            return
+        if not messagebox.askyesno(
+            "信任云端 DLC",
+            "将把当前远端已有、且与本地同名的 DLC ZIP 写入复用缓存。\n\n"
+            "下次发布这些 DLC 将跳过上传；补丁、DLL、catalog.json 等可变文件仍会每次更新。"
+            "此操作不下载、不上传也不删除附件。是否继续？",
+            parent=self,
+        ):
+            return
+        if not self._begin_remote_operation("正在写入云端 DLC 信任缓存…"):
+            return
+        profile = self.profile
+        target_name = self._publish_target()
+        target = (
+            {"owner": self.settings.github_owner, "repository": self.settings.github_repository}
+            if target_name == "github"
+            else {"owner": self.settings.owner, "repository": self.settings.repository}
+        )
+        remote_by_name = {asset.name: asset for asset in release.assets}
+        self._log(f"用户操作：信任“{profile.display_name}”当前远端 DLC 资源。")
+
+        def work() -> None:
+            try:
+                cache = self.workspace.load_content_reuse_cache(profile)
+                source_cache = cache.get(target_name)
+                if not isinstance(source_cache, dict) or source_cache.get("target") != target:
+                    source_cache = {"target": target, "assets": {}}
+                    cache[target_name] = source_cache
+                trusted = source_cache.setdefault("assets", {})
+                if not isinstance(trusted, dict):
+                    raise WorkspaceError("DLC 信任缓存格式无效")
+                names: list[str] = []
+                for asset in self.workspace.publish_assets(profile):
+                    remote = remote_by_name.get(asset.name)
+                    if remote is None or not _is_immutable_dlc_filename(asset.name):
+                        continue
+                    trusted[asset.name] = {
+                        "sha256": asset.sha256,
+                        "size": asset.size_bytes,
+                        "remote_id": remote.asset_id,
+                    }
+                    names.append(asset.name)
+                self.workspace.save_content_reuse_cache(profile, cache)
+                self._post_ui(
+                    lambda values=tuple(names): self._trust_remote_dlc_done(
+                        profile, release, values
+                    )
+                )
+            except Exception as error:
+                self._post_ui(lambda value=str(error): self._remote_failed(value))
+
+        threading.Thread(target=work, daemon=True, name=f"trust-dlc-{profile.game_id}").start()
+
+    def _trust_remote_dlc_done(
+        self, profile: GameProfile, release: RemoteRelease, names: tuple[str, ...]
+    ) -> None:
+        self._remote_operation_active = False
+        self._end_background_mutation("remote")
+        self._remote_operation_locks_close = False
+        self.remote_refresh_button.configure(state="normal")
+        self._fill_remote_diff(profile, release.assets)
+        summary = f"已信任 {len(names)} 个远端 DLC，后续将按缓存跳过上传。"
+        self.remote_status.configure(text=summary)
+        self._log(f"后台任务：{summary}")
+        messagebox.showinfo("信任完成", summary, parent=self)
 
     def upload_remote_file(self, path: Path) -> None:
         if not messagebox.askyesno(
@@ -445,7 +752,7 @@ class RemoteMaintenanceUiMixin:
 
     def _remote_manager(self) -> tuple[RemoteResourceManager, GameProfile]:
         repository = self._repository()
-        token = self.token_entry.get().strip() or None
+        token = self.settings.token.strip() or None
         return RemoteResourceManager(
             GitLinkAttachmentClient(token), repository
         ), self.profile
@@ -474,15 +781,16 @@ class RemoteMaintenanceUiMixin:
             assets=assets,
         )
 
-    def _begin_remote_operation(self, message: str) -> bool:
+    def _begin_remote_operation(self, message: str, *, mutating: bool = True) -> bool:
         if self._remote_operation_active:
             messagebox.showinfo("远程操作进行中", "请等待当前远程操作完成")
             return False
-        if not self._begin_background_mutation(
-            "remote", "正在处理 GitLink 远程资源"
+        if mutating and not self._begin_background_mutation(
+            "remote", "正在处理远程资源"
         ):
             return False
         self._remote_operation_active = True
+        self._remote_operation_locks_close = mutating
         self.remote_refresh_button.configure(state="disabled")
         self.remote_delete_all_button.configure(state="disabled")
         self.remote_status.configure(text=message)
@@ -492,7 +800,9 @@ class RemoteMaintenanceUiMixin:
         self, profile: GameProfile, release: RemoteRelease | None
     ) -> None:
         self._remote_operation_active = False
-        self._end_background_mutation("remote")
+        if getattr(self, "_remote_operation_locks_close", False):
+            self._end_background_mutation("remote")
+        self._remote_operation_locks_close = False
         self.remote_refresh_button.configure(state="normal")
         if profile.game_id != self.profile.game_id:
             return
@@ -502,7 +812,7 @@ class RemoteMaintenanceUiMixin:
             self.remote_status.configure(
                 text=f"{profile.release_tag} · Release 尚未创建"
             )
-            self._fill_remote_assets(())
+            self._fill_remote_diff(profile, ())
             return
         self._current_remote_release = release
         self.remote_delete_all_button.configure(
@@ -511,7 +821,7 @@ class RemoteMaintenanceUiMixin:
         self.remote_status.configure(
             text=f"{release.tag} · {len(release.assets)} 个远程附件"
         )
-        self._fill_remote_assets(release.assets)
+        self._fill_remote_diff(profile, release.assets)
 
     def _remote_mutation_done(
         self,
@@ -522,7 +832,9 @@ class RemoteMaintenanceUiMixin:
         release: RemoteRelease | None,
     ) -> None:
         self._remote_operation_active = False
-        self._end_background_mutation("remote")
+        if getattr(self, "_remote_operation_locks_close", False):
+            self._end_background_mutation("remote")
+        self._remote_operation_locks_close = False
         self.remote_refresh_button.configure(state="normal")
         self._log(f"远程资源{action}完成：{name}")
         self._complete_active_maintenance(action=action, asset=name)
@@ -533,7 +845,7 @@ class RemoteMaintenanceUiMixin:
                 self.remote_status.configure(
                     text=f"{profile.release_tag} · Release 尚未创建"
                 )
-                self._fill_remote_assets(())
+                self._fill_remote_diff(profile, ())
             else:
                 self._current_remote_release = release
                 self.remote_delete_all_button.configure(
@@ -542,7 +854,7 @@ class RemoteMaintenanceUiMixin:
                 self.remote_status.configure(
                     text=f"{release.tag} · {len(release.assets)} 个远程附件"
                 )
-                self._fill_remote_assets(release.assets)
+                self._fill_remote_diff(profile, release.assets)
         if warnings:
             messagebox.showwarning("操作完成但有警告", "\n".join(warnings))
         else:
@@ -564,7 +876,7 @@ class RemoteMaintenanceUiMixin:
             self.remote_status.configure(
                 text=f"{profile.release_tag} · {len(assets)} 个远程附件"
             )
-            self._fill_remote_assets(assets)
+            self._fill_remote_diff(profile, assets)
         summary = f"远程附件删除完成：成功 {len(result.deleted)} 个，失败 {len(result.failures)} 个。"
         self._log(summary)
         if result.failures:
@@ -578,7 +890,9 @@ class RemoteMaintenanceUiMixin:
 
     def _remote_failed(self, message: str) -> None:
         self._remote_operation_active = False
-        self._end_background_mutation("remote")
+        if getattr(self, "_remote_operation_locks_close", False):
+            self._end_background_mutation("remote")
+        self._remote_operation_locks_close = False
         self.remote_refresh_button.configure(state="normal")
         release = self._current_remote_release
         self.remote_delete_all_button.configure(
@@ -669,14 +983,21 @@ class RemoteMaintenanceUiMixin:
             self._end_background_mutation("repository-create")
 
     def _github_repository_client(self) -> GitHubReleaseClient:
-        owner = self.owner_entry.get().strip()
-        name = self.repo_entry.get().strip()
-        token = self.token_entry.get().strip()
+        owner = self.settings.github_owner.strip()
+        name = self.settings.github_repository.strip()
+        token = self.settings.github_token.strip()
         if not owner or not name:
-            raise GitHubPublisherError("请填写 GitHub 所有者和仓库名")
+            raise GitHubPublisherError("请先在“账户与测试 → 发布目标”填写 GitHub 所有者和仓库名")
         if not token:
-            raise GitHubPublisherError("请填写 GitHub token")
+            raise GitHubPublisherError("请先在“账户与测试 → 发布目标”保存 GitHub token")
         return GitHubReleaseClient(GitHubRepository(owner, name), token)
+
+    def _repository(self) -> GitLinkRepository:
+        owner = self.settings.owner.strip()
+        name = self.settings.repository.strip()
+        if not owner or not name:
+            raise GitLinkError("请先在“账户与测试 → 发布目标”填写 GitLink 所有者和仓库名")
+        return GitLinkRepository(owner, name)
 
     def _check_github_repository(self) -> None:
         try:

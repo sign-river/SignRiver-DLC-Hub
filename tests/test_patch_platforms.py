@@ -260,7 +260,7 @@ def test_engine_apply_steamos_promotes_elf_original_and_writes_json(
     assert not config_bytes.startswith(b"\xef\xbb\xbf")
     config = json.loads(config_bytes.decode("utf-8"))
     assert config["default_app_status"] == "unlocked"
-    assert result.receipt.backup_origin == "game_primary_original"
+    assert result.receipt.backup_origin == "published_original"
     assert result.audit_after.health is PatchHealth.HEALTHY
     if os.name != "nt":
         assert (game_root / "libsteam_api.so").stat().st_mode & 0o777 == 0o755

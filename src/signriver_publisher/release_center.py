@@ -90,23 +90,35 @@ class ReleaseCenter(ctk.CTkFrame):
         self.pages[name] = page
         return page
 
-    def _page_heading(self, page: ctk.CTkFrame, title: str, subtitle: str) -> ctk.CTkFrame:
+    def _page_heading(
+        self,
+        page: ctk.CTkFrame,
+        title: str,
+        subtitle: str,
+        *,
+        back_page: str | None = "home",
+    ) -> ctk.CTkFrame:
         heading = ctk.CTkFrame(page)
         heading.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        heading.grid_columnconfigure(1, weight=1)
-        ctk.CTkButton(
-            heading,
-            text="← 返回发布包与归档",
-            width=156,
-            height=40,
-            font=("Microsoft YaHei UI", 14, "bold"),
-            command=lambda: self.show_page("home"),
-        ).grid(row=0, column=0, rowspan=2, padx=10, pady=10, sticky="w")
+        title_column = 0
+        if back_page is not None:
+            heading.grid_columnconfigure(1, weight=1)
+            ctk.CTkButton(
+                heading,
+                text="← 返回发布包与归档",
+                width=156,
+                height=40,
+                font=("Microsoft YaHei UI", 14, "bold"),
+                command=lambda: self.show_page(back_page),
+            ).grid(row=0, column=0, rowspan=2, padx=10, pady=10, sticky="w")
+            title_column = 1
+        else:
+            heading.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(heading, text=title, font=("Microsoft YaHei UI", 18, "bold")).grid(
-            row=0, column=1, padx=(0, 10), pady=(9, 0), sticky="w"
+            row=0, column=title_column, padx=(12, 10), pady=(9, 0), sticky="w"
         )
         ctk.CTkLabel(heading, text=subtitle, text_color="#666666").grid(
-            row=1, column=1, padx=(0, 10), pady=(0, 9), sticky="w"
+            row=1, column=title_column, padx=(12, 10), pady=(0, 9), sticky="w"
         )
         return heading
 
@@ -243,7 +255,12 @@ class ReleaseCenter(ctk.CTkFrame):
         page = self._new_page("comparison")
         page.grid_rowconfigure(1, weight=0)
         page.grid_rowconfigure(2, weight=1)
-        self._page_heading(page, "本地与云端差异", "核验后按两侧展示待同步文件与各云端的差异；仅展示远端旧文件，不会删除它们。")
+        self._page_heading(
+            page,
+            "本地与云端差异",
+            "核验后按两侧展示待同步文件与各云端的差异；仅展示远端旧文件，不会删除它们。",
+            back_page=None,
+        )
         toolbar = ctk.CTkFrame(page, fg_color="transparent")
         toolbar.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
         ctk.CTkButton(toolbar, text="← 返回本地发布文件", command=lambda: self.show_page("preparation")).pack(side="left")
@@ -339,7 +356,11 @@ class ReleaseCenter(ctk.CTkFrame):
 
     def _build_execution_page(self) -> None:
         page = self._new_page("execution")
-        self._page_heading(page, "发布文件", "进入后会自动预检；通过后立即开始上传。预检错误会显示在下方，并且不会上传文件。")
+        self._page_heading(
+            page,
+            "发布文件",
+            "进入后会自动预检；预检通过后请点击“开始发布”。预检错误会显示在下方，且不会上传文件。",
+        )
         content = ctk.CTkFrame(page)
         content.grid(row=1, column=0, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
@@ -399,7 +420,7 @@ class ReleaseCenter(ctk.CTkFrame):
         actions = ctk.CTkFrame(content, fg_color="transparent")
         actions.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="w")
         self.execute_button = ctk.CTkButton(
-            actions, text="重新开始上传", command=self.execute, height=40,
+            actions, text="开始发布", command=self.start_program_publish, height=40,
             font=("Microsoft YaHei UI", 14, "bold"),
         )
         self.execute_button.pack(side="left", padx=(0, 6))
@@ -526,7 +547,7 @@ class ReleaseCenter(ctk.CTkFrame):
         self.show_page("preflight")
 
     def publish_program_files(self) -> None:
-        """Run preflight, freeze valid inputs, then begin uploading in one action."""
+        """Open the execution page and preflight only; publishing needs a second action."""
         try:
             plan, _reused = self._ensure_program_batch()
             self.select(plan.batch_id, show_history=False)
@@ -539,13 +560,46 @@ class ReleaseCenter(ctk.CTkFrame):
                 self.execution_status_label.configure(
                     text="预检未通过，未开始上传。\n\n" + self.execution_status_label.cget("text")
                 )
+                self.execute_button.configure(state="disabled", text="预检未通过")
                 return
-            plan = self.service.confirm(plan.batch_id)
-            self._render(plan)
-            self.execute()
+            if plan.status is ReleaseStatus.AWAITING_CONFIRMATION:
+                self.execution_status_label.configure(
+                    text="预检通过，尚未开始上传。请核对结果后点击“开始发布”。"
+                )
+                self.execute_button.configure(state="normal", text="开始发布")
+                return
+            self.execution_status_label.configure(
+                text="当前发布记录尚未准备好开始上传，请根据下方状态处理后重试。"
+            )
+            self.execute_button.configure(state="disabled", text="暂不可发布")
         except Exception as exc:
             self.execution_status_label.configure(text=f"预检或发布准备失败，未开始上传。\n\n{exc}")
+            self.execute_button.configure(state="disabled", text="预检失败")
             messagebox.showerror("无法发布文件", str(exc), parent=self)
+
+    def start_program_publish(self) -> None:
+        """Freeze a passed preflight and start the actual background upload."""
+        if not self.current_batch_id:
+            return
+        try:
+            plan = self.service.get(self.current_batch_id)
+            if plan.status is ReleaseStatus.AWAITING_CONFIRMATION:
+                plan = self.service.confirm(plan.batch_id)
+                self._render(plan)
+            elif plan.status not in {
+                ReleaseStatus.PAUSED,
+                ReleaseStatus.INTERRUPTED,
+                ReleaseStatus.DEGRADED,
+                ReleaseStatus.FAILED,
+            }:
+                self.execution_status_label.configure(
+                    text="请先完成预检；预检通过后才能开始发布。"
+                )
+                return
+            self.execute()
+        except Exception as exc:
+            self.execution_status_label.configure(text=f"无法开始发布，未上传文件。\n\n{exc}")
+            messagebox.showerror("无法开始发布", str(exc), parent=self)
 
     def refresh_and_compare_local_files(self) -> None:
         try:

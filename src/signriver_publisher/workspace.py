@@ -1169,6 +1169,27 @@ class PublisherWorkspace:
     def save_publish_state(self, profile: GameProfile, state: dict[str, object]) -> None:
         self._atomic_json(self._publish_state_path(profile), state)
 
+    def load_content_reuse_cache(self, profile: GameProfile) -> dict[str, object]:
+        """Load explicit DLC reuse trust, independent from mutable release batches."""
+        try:
+            value = json.loads(
+                self._content_reuse_cache_path(profile).read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(value, dict) or value.get("version") != 1:
+            return {}
+        sources = value.get("sources")
+        return dict(sources) if isinstance(sources, dict) else {}
+
+    def save_content_reuse_cache(
+        self, profile: GameProfile, sources: dict[str, object]
+    ) -> None:
+        self._atomic_json(
+            self._content_reuse_cache_path(profile),
+            {"version": 1, "sources": sources},
+        )
+
     @staticmethod
     def _validate_profile(profile: GameProfile) -> None:
         if not _SAFE_ID.fullmatch(profile.game_id):
@@ -1443,6 +1464,9 @@ class PublisherWorkspace:
 
     def _publish_state_path(self, profile: GameProfile) -> Path:
         return self.game_dir(profile.game_id) / ".publish-state.json"
+
+    def _content_reuse_cache_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / ".content-reuse-cache.json"
 
     @staticmethod
     def _cached_publish_digest(cached: object, size_bytes: int, mtime_ns: int) -> str:

@@ -30,7 +30,9 @@ class PublisherUiRuntimeMixin:
         registered = set(self._background_mutations)
         if resume and registered == {key}:
             return True
-        active = self._active_background_mutations()
+        # 本地构建是按游戏隔离的 FIFO 工作，不应阻止操作人切换到另一款游戏
+        # 继续导入、整理或保存卡带；它仍由 _active_background_mutations() 保护退出。
+        active = tuple(dict.fromkeys(self._background_mutations.values()))
         if active:
             detail = "\n".join(f"• {value}" for value in active)
             messagebox.showinfo(

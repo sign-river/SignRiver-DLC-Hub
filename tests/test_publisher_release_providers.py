@@ -196,13 +196,17 @@ def test_manifest_publish_exposes_remote_json_evidence(tmp_path: Path) -> None:
 
 def test_read_baseline_returns_credential_free_release_metadata() -> None:
     payload = b"verified-package"
+
+    def unexpected_download(*_args, **_kwargs):
+        raise AssertionError("读取远端目录不应下载任何附件")
+
     github = GitHubReleaseProvider(
         _GitHubClient(payload),
-        opener=lambda *_args, **_kwargs: _Response(payload),
+        opener=unexpected_download,
     )
     gitlink = GitLinkReleaseProvider(
         _GitLinkManager(payload),
-        opener=lambda *_args, **_kwargs: _Response(payload),
+        opener=unexpected_download,
     )
 
     github_snapshot = github.read_baseline()

@@ -435,7 +435,7 @@ class GitLinkAttachmentClient:
         }
         if body is not None:
             headers["Content-Type"] = "application/json; charset=utf-8"
-        connection = http.client.HTTPSConnection(self.host, self.port, timeout=60)
+        connection = http.client.HTTPSConnection(self.host, self.port, timeout=12)
         try:
             connection.request(method, target, body=body, headers=headers)
             response = connection.getresponse()

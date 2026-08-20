@@ -102,19 +102,27 @@ class ContentUploadQueue:
             raise UploadQueueError("上传项缺少游戏标识")
         game_id = str(plan.target["game_id"])
         items = self._load()
-        duplicate = next(
-            (
-                item
-                for item in items
-                if item.game_id == game_id and item.status in _ACTIVE_STATUSES
-            ),
-            None,
-        )
-        if duplicate is not None:
-            raise UploadQueueError(
-                f"“{duplicate.display_name}”已在上传队列中；请先删除、完成或处理原上传项。"
-            )
         artifacts = tuple(plan.artifacts)
+        duplicate = next((item for item in items if item.game_id == game_id), None)
+        if duplicate is not None:
+            duplicate.display_name = display_name.strip() or game_id
+            duplicate.release_tag = str(plan.target.get("release_tag") or "")
+            duplicate.release_id = plan.batch_id
+            duplicate.total_bytes = sum(max(0, int(artifact.size or 0)) for artifact in artifacts)
+            duplicate.artifact_count = len(artifacts)
+            duplicate.completed_bytes = 0
+            duplicate.current_filename = None
+            duplicate.current_source = None
+            duplicate.bytes_per_second = 0.0
+            duplicate.mirror_delete_confirmed = bool(plan.options.get("mirror_delete_confirmed"))
+            duplicate.updated_at = _utc_now()
+            if duplicate.status is UploadQueueStatus.RUNNING:
+                duplicate.error = "已保留最新提交；当前安全上传步骤结束后将上传新提交。"
+            else:
+                duplicate.status = UploadQueueStatus.QUEUED
+                duplicate.error = "已舍弃旧提交，等待上传最新提交。"
+            self._replace(duplicate)
+            return duplicate
         item = UploadQueueItem(
             item_id=uuid4().hex,
             game_id=game_id,
@@ -127,6 +135,16 @@ class ContentUploadQueue:
         )
         items.append(item)
         self._save(items)
+        return item
+
+    def requeue_latest(self, item_id: str) -> UploadQueueItem:
+        item = self._set_status(item_id, UploadQueueStatus.QUEUED)
+        item.completed_bytes = 0
+        item.current_filename = None
+        item.current_source = None
+        item.bytes_per_second = 0.0
+        item.error = "已保留最新提交，等待上传。"
+        self._replace(item)
         return item
 
     def remove(self, item_id: str) -> UploadQueueItem:

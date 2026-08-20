@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime
 from pathlib import Path
-from queue import Empty
 from tkinter import TclError, filedialog, messagebox
 
 import customtkinter as ctk
 
 from .models import GameProfile
+from .build_queue import BuildQueueError, BuildQueueStatus
 from .workspace import WorkspaceError
 
 BLUE = "#1976D2"
@@ -83,6 +84,7 @@ class ContentManagementUiMixin:
             self.dlc_card,
             "DLC 文件夹",
             self.import_dlc,
+            self.refresh_resource_lists,
             self.open_dlc_folder,
             lambda: self.clear_local_resources("dlc"),
         )
@@ -90,6 +92,7 @@ class ContentManagementUiMixin:
             self.patch_card,
             "补丁资源",
             self.import_patch,
+            self.refresh_resource_lists,
             self.open_patch_folder,
             lambda: self.clear_local_resources("patches"),
         )
@@ -103,7 +106,7 @@ class ContentManagementUiMixin:
         self.patch_list.grid(row=2, column=0, padx=16, pady=(6, 16), sticky="nsew")
 
     def _resource_header(
-        self, card, title, import_command, open_command, clear_command
+        self, card, title, import_command, refresh_command, open_command, clear_command
     ):
         bar = ctk.CTkFrame(card, fg_color="transparent")
         bar.grid(row=0, column=0, padx=16, pady=(14, 2), sticky="ew")
@@ -115,6 +118,17 @@ class ContentManagementUiMixin:
             bar, text="导入", width=72, fg_color=BLUE, command=import_command
         )
         import_button.grid(row=0, column=1, padx=4)
+        ctk.CTkButton(
+            bar,
+            text="刷新列表",
+            width=88,
+            fg_color="transparent",
+            border_width=1,
+            border_color="#90CAF9",
+            text_color=BLUE,
+            hover_color="#EAF4FD",
+            command=refresh_command,
+        ).grid(row=0, column=2, padx=4)
         clear_button = ctk.CTkButton(
             bar,
             text="清空全部",
@@ -126,10 +140,10 @@ class ContentManagementUiMixin:
             hover_color="#FFEBEE",
             command=clear_command,
         )
-        clear_button.grid(row=0, column=2, padx=4)
+        clear_button.grid(row=0, column=3, padx=4)
         ctk.CTkButton(
             bar, text="打开目录", width=88, fg_color=LIGHT_BLUE, command=open_command
-        ).grid(row=0, column=3, padx=4)
+        ).grid(row=0, column=4, padx=4)
         ctk.CTkLabel(
             card, text="可直接把资源放入对应目录，再点击刷新", text_color=MUTED
         ).grid(row=1, column=0, padx=20, pady=(0, 4), sticky="w")
@@ -139,12 +153,10 @@ class ContentManagementUiMixin:
         """Build the only game selector used for DLC/patch release work."""
         self.content_release_tab.grid_rowconfigure(0, weight=1)
         self.content_release_tab.grid_columnconfigure(0, weight=1)
-        scroll = ctk.CTkScrollableFrame(
-            self.content_release_tab, fg_color=PAGE, corner_radius=0
-        )
-        scroll.grid(row=0, column=0, sticky="nsew")
+        content = ctk.CTkFrame(self.content_release_tab, fg_color=PAGE, corner_radius=0)
+        content.grid(row=0, column=0, sticky="nsew")
 
-        scope = self._card(scroll, 0, "DLC / 补丁发布包")
+        scope = self._card(content, 0, "DLC / 补丁发布包")
         scope.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(scope, text="当前发布游戏", width=110, anchor="w").grid(
             row=1, column=0, padx=(20, 10), pady=(0, 8), sticky="w"
@@ -171,7 +183,7 @@ class ContentManagementUiMixin:
 
         actions = ctk.CTkFrame(scope, fg_color="transparent")
         actions.grid(row=3, column=0, columnspan=2, padx=20, pady=(0, 18), sticky="ew")
-        actions.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        actions.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
         ctk.CTkButton(
             actions,
             text="查看本游戏本地资源",
@@ -185,21 +197,21 @@ class ContentManagementUiMixin:
         ).grid(row=0, column=0, padx=(0, 6), sticky="ew")
         self.content_enqueue_button = ctk.CTkButton(
             actions,
-            text="加入上传队列",
+            text="加入构建队列",
             fg_color=BLUE,
-            command=self._build_and_enqueue_current_game_upload,
+            command=self._queue_current_game_build,
             height=44,
             font=("Microsoft YaHei UI", 14, "bold"),
         )
         self.content_enqueue_button.grid(row=0, column=1, padx=6, sticky="ew")
         ctk.CTkButton(
             actions,
-            text="查看上传队列",
+            text="查看构建队列",
             fg_color="transparent",
             border_width=1,
             border_color="#90CAF9",
             text_color=BLUE,
-            command=lambda: self.content_tabs.set("上传队列"),
+            command=lambda: self._open_content_queue("构建队列"),
             height=44,
             font=("Microsoft YaHei UI", 14, "bold"),
         ).grid(row=0, column=2, padx=6, sticky="ew")
@@ -210,12 +222,23 @@ class ContentManagementUiMixin:
             border_width=1,
             border_color="#90CAF9",
             text_color=BLUE,
-            command=lambda: self.content_tabs.set("远端维护"),
+            command=self._open_remote_maintenance,
             height=44,
             font=("Microsoft YaHei UI", 14, "bold"),
-        ).grid(row=0, column=3, padx=(6, 0), sticky="ew")
+        ).grid(row=0, column=3, padx=6, sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="查看上传队列",
+            fg_color="transparent",
+            border_width=1,
+            border_color="#90CAF9",
+            text_color=BLUE,
+            command=lambda: self._open_content_queue("上传队列"),
+            height=44,
+            font=("Microsoft YaHei UI", 14, "bold"),
+        ).grid(row=0, column=4, padx=(6, 0), sticky="ew")
 
-        output = self._card(scroll, 1, "发布包状态")
+        output = self._card(content, 1, "发布包状态")
         self.content_release_output_label = ctk.CTkLabel(
             output,
             text="正在读取当前游戏的发布包状态…",
@@ -228,6 +251,60 @@ class ContentManagementUiMixin:
             row=1, column=0, padx=20, pady=(0, 18), sticky="ew"
         )
 
+        log_card = self._card(content, 2, "操作日志")
+        log_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            log_card,
+            text="用户操作、构建与上传队列的后台进度都会显示在这里。",
+            text_color=MUTED,
+            anchor="w",
+        ).grid(row=1, column=0, padx=20, pady=(0, 6), sticky="ew")
+        self.content_operation_log = ctk.CTkTextbox(
+            log_card,
+            height=44,
+            font=("Cascadia Mono", 12),
+            fg_color="#FAFAFA",
+            text_color=TEXT,
+            wrap="word",
+            activate_scrollbars=True,
+        )
+        self.content_operation_log.grid(row=2, column=0, padx=20, pady=(0, 18), sticky="nsew")
+        self.content_operation_log.configure(state="disabled")
+        self._content_operation_log_lines: list[str] = []
+        self._log("已打开 DLC / 补丁发布包页面。")
+
+    def _build_build_queue_tab(self) -> None:
+        self.build_queue_tab.grid_columnconfigure(0, weight=1)
+        self.build_queue_tab.grid_rowconfigure(1, weight=1)
+        header = self._card(self.build_queue_tab, 0, "资源构建队列")
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkButton(
+            header, text="← 返回资源入口", width=142, height=34,
+            fg_color="transparent", text_color=BLUE, border_width=1,
+            border_color="#90CAF9", hover_color="#EAF4FD",
+            command=lambda: self.content_tabs.set("DLC / 补丁发布"),
+        ).grid(row=0, column=1, padx=20, pady=(14, 8), sticky="e")
+        ctk.CTkLabel(
+            header,
+            text="构建按顺序执行。当前游戏构建时仍可切换并整理其他游戏；构建完成后再手动加入上传队列。",
+            text_color=MUTED, anchor="w",
+        ).grid(row=1, column=0, padx=20, pady=(0, 12), sticky="ew")
+        self.build_queue_summary = ctk.CTkLabel(header, text="构建队列正在读取…", text_color=MUTED, anchor="w")
+        self.build_queue_summary.grid(row=2, column=0, padx=20, pady=(0, 14), sticky="w")
+        ctk.CTkButton(
+            header, text="刷新", width=82, fg_color="transparent", border_width=1,
+            border_color="#D8DEE6", text_color="#455A64", command=self._render_build_queue,
+        ).grid(row=2, column=1, padx=20, pady=(0, 14), sticky="e")
+        self.build_queue_list = ctk.CTkScrollableFrame(
+            self.build_queue_tab, fg_color="#F7F9FC", corner_radius=12,
+            border_width=1, border_color="#D8DEE6",
+        )
+        self.build_queue_list.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
+        self._build_current_item_id: str | None = None
+        self._pending_build_progress: tuple[str, str, int, int, str, str] | None = None
+        self._build_progress_notification_pending = False
+        self._render_build_queue()
+
     def _open_game_content_release_pipeline(self) -> None:
         """Enter the DLC/patch package page with the active profile in view."""
         self.tabs.set("资源管理")
@@ -235,8 +312,17 @@ class ContentManagementUiMixin:
         self._refresh_content_release_summary()
 
     def _open_selected_game_sources(self) -> None:
+        self._log(f"用户操作：查看“{self.profile.display_name}”的本地资源。")
         self.tabs.set("资源管理")
         self.content_tabs.set("本地资源")
+
+    def _open_content_queue(self, page: str) -> None:
+        self._log(f"用户操作：查看{page}。")
+        self.content_tabs.set(page)
+
+    def _open_remote_maintenance(self) -> None:
+        self._log("用户操作：打开远端资源维护。")
+        self.content_tabs.set("远端维护")
 
     def _create_or_open_game_content_release_batch(self) -> None:
         try:
@@ -274,15 +360,9 @@ class ContentManagementUiMixin:
     def _build_games_tab(self) -> None:
         self.games_tab.grid_rowconfigure(0, weight=1)
         self.games_tab.grid_columnconfigure(0, weight=1)
-        self.games_scroll = ctk.CTkScrollableFrame(
-            self.games_tab,
-            fg_color=PAGE,
-            corner_radius=0,
-        )
-        self.games_scroll.grid(row=0, column=0, sticky="nsew")
-        card = self._card(self.games_scroll, 0, "游戏卡带配置")
+        card = self._card(self.games_tab, 0, "游戏卡带配置")
         form = ctk.CTkFrame(card, fg_color="transparent")
-        form.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
+        form.grid(row=1, column=0, padx=20, pady=(0, 8), sticky="ew")
         form.grid_columnconfigure(1, weight=1)
         labels = (
             ("游戏 ID", "game_id"),
@@ -303,7 +383,7 @@ class ContentManagementUiMixin:
         self.profile_entries: dict[str, object] = {}
         for row, (label, key) in enumerate(labels):
             ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(
-                row=row, column=0, pady=6, sticky="w"
+                row=row, column=0, pady=3, sticky="w"
             )
             if key in PROFILE_OPTION_LABELS:
                 values = list(PROFILE_OPTION_LABELS[key].values())
@@ -312,19 +392,20 @@ class ContentManagementUiMixin:
                     values=values,
                     fg_color=LIGHT_BLUE,
                     button_color=BLUE,
+                    height=32,
                 )
             else:
-                entry = ctk.CTkEntry(form, border_color="#BDBDBD")
-            entry.grid(row=row, column=1, pady=6, sticky="ew")
+                entry = ctk.CTkEntry(form, border_color="#BDBDBD", height=32)
+            entry.grid(row=row, column=1, pady=3, sticky="ew")
             if key == "appinfo_name":
                 entry.configure(state="disabled")
             self.profile_entries[key] = entry
         ctk.CTkButton(
-            form, text="保存当前卡带", fg_color=BLUE, command=self.save_profile
-        ).grid(row=len(labels), column=1, pady=10, sticky="e")
+            form, text="保存当前卡带", fg_color=BLUE, height=34, command=self.save_profile
+        ).grid(row=len(labels), column=1, pady=(7, 2), sticky="e")
         ctk.CTkButton(
-            form, text="新增游戏卡带", fg_color=LIGHT_BLUE, command=self.add_game
-        ).grid(row=len(labels), column=0, pady=10, sticky="w")
+            form, text="新增游戏卡带", fg_color=LIGHT_BLUE, height=34, command=self.add_game
+        ).grid(row=len(labels), column=0, pady=(7, 2), sticky="w")
 
     def refresh(self) -> None:
         games = self.workspace.list_games()
@@ -333,9 +414,7 @@ class ContentManagementUiMixin:
         self.game_menu.configure(values=labels or ["尚未配置游戏"])
         self.game_menu.set(self.profile.display_name)
         self._refresh_content_release_summary()
-        dlcs, patches = self.workspace.scan_sources(self.profile)
-        self._fill_resources(self.dlc_list, dlcs, "dlc")
-        self._fill_resources(self.patch_list, patches, "patches")
+        self.refresh_resource_lists()
         for key, entry in self.profile_entries.items():
             if key in PROFILE_OPTION_LABELS:
                 value = getattr(self.profile, key)
@@ -361,6 +440,12 @@ class ContentManagementUiMixin:
         self._update_freshness_summary()
         if hasattr(self, "cartridge_list"):
             self.refresh_cartridge_management()
+
+    def refresh_resource_lists(self) -> None:
+        """Rescan only the local DLC and patch folders shown on this page."""
+        dlcs, patches = self.workspace.scan_sources(self.profile)
+        self._fill_resources(self.dlc_list, dlcs, "dlc")
+        self._fill_resources(self.patch_list, patches, "patches")
 
     def _fill_resources(self, parent, resources: tuple[Path, ...], kind: str) -> None:
         for child in parent.winfo_children():
@@ -402,6 +487,7 @@ class ContentManagementUiMixin:
         self.profile = next(
             item for item in self.workspace.list_games() if item.game_id == game_id
         )
+        self._log(f"用户操作：切换当前游戏为“{self.profile.display_name}”。")
         self.refresh()
 
     def _fill_local_outputs(self) -> None:
@@ -442,6 +528,7 @@ class ContentManagementUiMixin:
         path = filedialog.askdirectory(title="选择 DLC 文件夹")
         if not path:
             return
+        self._log(f"用户操作：开始导入 DLC 文件夹 {Path(path).name}。")
         source = Path(path)
         profile = self.profile
         collection = self.workspace.is_dlc_collection(profile, source)
@@ -525,6 +612,7 @@ class ContentManagementUiMixin:
         self.game_menu.configure(state="normal")
         if self.profile.game_id == profile.game_id:
             self.refresh()
+        self._log(f"后台任务：已完成“{profile.display_name}”的 DLC 导入，共 {len(imported)} 项。")
         messagebox.showinfo("导入完成", f"已导入 {len(imported)} 个 DLC 文件夹")
 
     def _import_dlc_failed(self, message: str) -> None:
@@ -532,6 +620,7 @@ class ContentManagementUiMixin:
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
         self.game_menu.configure(state="normal")
+        self._log(f"后台任务：DLC 导入失败：{message}")
         if not self.winfo_exists():
             return
         messagebox.showerror("导入失败", message)
@@ -541,6 +630,7 @@ class ContentManagementUiMixin:
         if not path:
             path = filedialog.askdirectory(title="或选择补丁文件夹")
         if path:
+            self._log(f"用户操作：导入补丁资源 {Path(path).name}。")
             self._run_action(
                 lambda: self.workspace.import_patch(self.profile, Path(path)),
                 "补丁已导入",
@@ -552,6 +642,7 @@ class ContentManagementUiMixin:
             f"从发布工作区删除 {name}？\n此操作不会删除 GitLink 上已经发布的附件。",
         ):
             return
+        self._log(f"用户操作：删除本地{kind}资源 {name}。")
         self._run_action(
             lambda: self.workspace.remove_source(self.profile, kind, name), "资源已删除"
         )
@@ -581,6 +672,7 @@ class ContentManagementUiMixin:
             operation_key, f"正在清空本地{label}"
         ):
             return
+        self._log(f"用户操作：开始清空“{self.profile.display_name}”的{label}。")
         import_button.configure(state="disabled")
         clear_button.configure(state="disabled", text="正在清空…")
         self.game_menu.configure(state="disabled")
@@ -624,6 +716,7 @@ class ContentManagementUiMixin:
         self.game_menu.configure(state="normal")
         if self.profile.game_id == profile.game_id:
             self.refresh()
+        self._log(f"后台任务：已清空“{profile.display_name}”的{label}，共 {count} 项。")
         messagebox.showinfo("清理完成", f"已删除 {count} 项本地{label}")
 
     def _clear_local_resources_failed(
@@ -633,6 +726,7 @@ class ContentManagementUiMixin:
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
         self.game_menu.configure(state="normal")
+        self._log(f"后台任务：清空本地资源失败：{message}")
         messagebox.showerror("清理失败", message)
 
     def save_profile(self) -> None:
@@ -640,6 +734,7 @@ class ContentManagementUiMixin:
             "profile-save", "正在保存游戏卡带配置"
         ):
             return
+        self._log(f"用户操作：保存“{self.profile.display_name}”的游戏卡带配置。")
         try:
             values = {
                 key: entry.get().strip() for key, entry in self.profile_entries.items()
@@ -663,8 +758,10 @@ class ContentManagementUiMixin:
             self.workspace.save_game(profile)
             self.profile = profile
             self.refresh()
+            self._log(f"后台任务：已保存“{profile.display_name}”的游戏卡带配置。")
             messagebox.showinfo("保存成功", "游戏卡带配置已保存")
         except (WorkspaceError, OSError) as error:
+            self._log(f"后台任务：保存游戏卡带配置失败：{error}")
             messagebox.showerror("保存失败", str(error))
         finally:
             self._end_background_mutation("profile-save")
@@ -678,6 +775,7 @@ class ContentManagementUiMixin:
             "game-add", "正在新增游戏卡带"
         ):
             return
+        self._log(f"用户操作：新增游戏卡带“{display.strip()}”。")
         try:
             normalized_id = game_id.strip().lower()
             profile = GameProfile.create(
@@ -688,9 +786,11 @@ class ContentManagementUiMixin:
             ):
                 raise WorkspaceError("该游戏已经存在")
             self.workspace.save_game(profile)
+            self._log(f"后台任务：已新增游戏卡带“{profile.display_name}”。")
             self.profile = profile
             self.refresh()
         except (WorkspaceError, OSError) as error:
+            self._log(f"后台任务：新增游戏卡带失败：{error}")
             messagebox.showerror("新增失败", str(error))
         finally:
             self._end_background_mutation("game-add")
@@ -836,134 +936,260 @@ class ContentManagementUiMixin:
         return result["value"]
 
     def _build_and_enqueue_current_game_upload(self) -> None:
-        """Build the selected game first, then enter the normal queue flow."""
+        """Compatibility entry point for the queue-oriented build workflow."""
+        self._queue_current_game_build()
+
+    def _queue_current_game_build(self) -> bool:
+        """Queue the selected game without blocking work on other games."""
         try:
-            existing = self.content_upload_queue.active_for_game(self.profile.game_id)
-            if existing is not None:
-                raise WorkspaceError(
-                    f"“{self.profile.display_name}”已在上传队列中，请先处理现有上传项。"
-                )
-        except WorkspaceError as error:
-            messagebox.showinfo("无法加入上传队列", str(error), parent=self)
-            return
-        self._enqueue_after_build_game_id = self.profile.game_id
-        if not self.build_all():
-            self._enqueue_after_build_game_id = None
+            previous = next(
+                (
+                    item
+                    for item in self.content_build_queue.list_items()
+                    if item.game_id == self.profile.game_id
+                ),
+                None,
+            )
+            self.content_build_queue.enqueue(self.profile)
+        except BuildQueueError as error:
+            messagebox.showinfo("无法加入构建队列", str(error), parent=self)
+            return False
+        self._log(f"用户操作：提交“{self.profile.display_name}”到构建队列。")
+        if previous is None:
+            self._log(f"后台队列：新增“{self.profile.display_name}”构建项。")
+        elif previous.status is BuildQueueStatus.RUNNING:
+            self._log(
+                f"后台队列：检测到“{self.profile.display_name}”正在构建；"
+                "保留新提交，当前构建结束后将舍弃旧结果并重新构建。"
+            )
+        else:
+            self._log(
+                f"后台队列：覆盖“{self.profile.display_name}”原有{previous.status}构建项，"
+                "已舍弃旧提交，仅保留最新提交。"
+            )
+        self._render_build_queue()
+        self._start_next_content_build()
+        return True
 
     def build_all(self) -> bool:
-        if not self._begin_background_mutation(
-            "build", "正在构建发布文件"
-        ):
-            return False
-        self.build_button.configure(state="disabled", text="正在构建…")
-        if hasattr(self, "content_enqueue_button"):
-            self.content_enqueue_button.configure(state="disabled", text="正在构建…")
-        self.steam_button.configure(state="disabled")
-        self.publish_button.configure(state="disabled")
-        self.adopt_remote_button.configure(state="disabled")
-        self.game_menu.configure(state="disabled")
+        return self._queue_current_game_build()
+
+    def _start_next_content_build(self) -> None:
+        if self._build_operation_active:
+            return
+        item = self.content_build_queue.next_runnable()
+        if item is None:
+            return
+        try:
+            profile = next(
+                value for value in self.workspace.list_games() if value.game_id == item.game_id
+            )
+            self.content_build_queue.mark_running(item.item_id)
+        except (StopIteration, BuildQueueError) as error:
+            self.content_build_queue.mark_failed(item.item_id, str(error))
+            self._render_build_queue()
+            self.after(80, self._start_next_content_build)
+            return
         self._build_operation_active = True
-        profile = self.profile
+        self._build_current_item_id = item.item_id
         workers = self.workspace.compression_worker_count()
         self._log(
-            f"开始构建 {profile.display_name}：ZIP 压缩等级保持不变，"
+            f"构建队列开始 {profile.display_name}：ZIP 压缩等级保持不变，"
             f"最多并行处理 {workers} 个 DLC。"
         )
-
-        def progress(
-            stage: str, index: int, total: int, name: str, detail: str
-        ) -> None:
-            self._build_progress_events.put((stage, index, total, name, detail))
-
-        self.after(50, self._poll_build_progress)
+        self._render_build_queue()
 
         def work() -> None:
             try:
-                records = self.workspace.build(profile, progress=progress)
+                records = self.workspace.build(
+                    profile,
+                    progress=lambda stage, index, total, name, detail: self._queue_build_progress(
+                        item.item_id, stage, index, total, name, detail
+                    ),
+                )
                 files = self.workspace.publish_files(profile)
                 size = sum(path.stat().st_size for path in files)
                 self._post_ui(
                     lambda: self._build_done(
-                        profile.game_id, len(records), len(files), size
+                        item.item_id, profile, len(records), len(files), size
                     )
                 )
             except Exception as error:
                 message = str(error)
-                self._post_ui(lambda value=message: self._build_failed(value))
+                self._post_ui(
+                    lambda value=message: self._build_failed(item.item_id, value)
+                )
 
-        threading.Thread(target=work, daemon=True).start()
-        return True
-
-    def _poll_build_progress(self) -> None:
-        while True:
-            try:
-                event = self._build_progress_events.get_nowait()
-            except Empty:
-                break
-            self._build_progress(*event)
-        if self._build_operation_active:
-            self.after(80, self._poll_build_progress)
+        threading.Thread(target=work, daemon=False, name=f"content-build-{profile.game_id}").start()
 
     def _build_progress(
-        self, stage: str, index: int, total: int, name: str, detail: str
+        self, item_id: str, stage: str, index: int, total: int, name: str, detail: str
     ) -> None:
-        self.build_button.configure(text=f"正在构建 · {stage}")
-        if hasattr(self, "content_enqueue_button"):
-            self.content_enqueue_button.configure(text=f"正在构建 · {stage}")
+        if item_id != self._build_current_item_id:
+            return
         position = f"[{index}/{total}] " if index > 0 and total > 0 else ""
         subject = f" {name}" if name else ""
         suffix = f" · {detail}" if detail else ""
         self._log(f"{position}{stage}{subject}{suffix}")
 
-    def _build_done(self, game_id: str, resources: int, files: int, size: int) -> None:
+    def _queue_build_progress(
+        self, item_id: str, stage: str, index: int, total: int, name: str, detail: str
+    ) -> None:
+        """Coalesce worker updates so ZIP progress cannot flood Tk's event pump."""
+        self._pending_build_progress = (item_id, stage, index, total, name, detail)
+        if self._build_progress_notification_pending:
+            return
+        self._build_progress_notification_pending = True
+        self._post_ui(self._flush_build_progress)
+
+    def _flush_build_progress(self) -> None:
+        self._build_progress_notification_pending = False
+        event = self._pending_build_progress
+        self._pending_build_progress = None
+        if event is not None:
+            self._build_progress(*event)
+
+    def _build_done(
+        self, item_id: str, profile: GameProfile, resources: int, files: int, size: int
+    ) -> None:
         self._build_operation_active = False
-        self._end_background_mutation("build")
-        self._poll_build_progress()
-        self.build_button.configure(state="normal", text="生成全部发布文件")
-        if hasattr(self, "content_enqueue_button"):
-            self.content_enqueue_button.configure(state="normal", text="加入上传队列")
-        self.steam_button.configure(state="normal")
-        self.publish_button.configure(state="normal")
-        self.adopt_remote_button.configure(state="normal")
-        self.game_menu.configure(state="normal")
-        self.build_summary.configure(
-            text=(
-                f"{resources} 个资源 · {files} 个文件（含 catalog.json） · "
-                f"{size / 1024 / 1024:.1f} MiB"
-            )
+        self._build_current_item_id = None
+        current = self.content_build_queue.get(item_id)
+        self.content_build_queue.mark_completed(
+            item_id, resource_count=resources, artifact_count=files, total_bytes=size
         )
         self._log(
             "已生成静态目录 catalog.json；发布到 Release 时会作为最后一个附件上传。"
         )
-        self._log(f"本地构建完成：{game_id}，共 {files} 个发布文件。")
-        self._fill_local_outputs()
-        self._update_freshness_summary()
-        self._refresh_content_release_summary()
-        self.refresh_acceptance()
-        if getattr(self, "_enqueue_after_build_game_id", None) == game_id:
-            self._enqueue_after_build_game_id = None
-            self._enqueue_current_game_upload()
+        self._log(f"本地构建完成：{profile.game_id}，共 {files} 个发布文件。")
+        if self.profile.game_id == profile.game_id:
+            self._fill_local_outputs()
+            self._update_freshness_summary()
+            self._refresh_content_release_summary()
+        if current.rerun_requested:
+            self.content_build_queue.requeue_latest(item_id)
+            self._log(f"{profile.display_name} 收到新提交，已舍弃刚完成的旧构建并重新排队。")
+        self._render_build_queue()
+        self.after(80, self._start_next_content_build)
 
-    def _build_failed(self, message: str) -> None:
+    def _build_failed(self, item_id: str, message: str) -> None:
         self._build_operation_active = False
-        self._end_background_mutation("build")
-        self._poll_build_progress()
-        self.build_button.configure(state="normal", text="生成全部发布文件")
-        if hasattr(self, "content_enqueue_button"):
-            self.content_enqueue_button.configure(state="normal", text="加入上传队列")
-        self._enqueue_after_build_game_id = None
-        self.steam_button.configure(state="normal")
-        self.publish_button.configure(state="normal")
-        self.adopt_remote_button.configure(state="normal")
-        self.game_menu.configure(state="normal")
+        self._build_current_item_id = None
+        current = self.content_build_queue.get(item_id)
+        if current.rerun_requested:
+            self.content_build_queue.requeue_latest(item_id)
+            self._log("旧构建未完成，但已保留新提交并重新排队。")
+        else:
+            self.content_build_queue.mark_failed(item_id, message)
         self._log(f"本地构建失败：{message}")
-        messagebox.showerror("构建失败", message)
+        self._render_build_queue()
+        self.after(80, self._start_next_content_build)
+
+    def _render_build_queue(self) -> None:
+        if not hasattr(self, "build_queue_list"):
+            return
+        for child in self.build_queue_list.winfo_children():
+            child.destroy()
+        items = self.content_build_queue.list_items()
+        running = next((item for item in items if item.status is BuildQueueStatus.RUNNING), None)
+        queued = sum(item.status is BuildQueueStatus.QUEUED for item in items)
+        completed = sum(item.status is BuildQueueStatus.COMPLETED for item in items)
+        self.build_queue_summary.configure(
+            text=f"构建队列：{len(items)} 项 · 正在构建 {'1' if running else '0'} 项 · 等待 {queued} 项 · 已完成 {completed} 项"
+        )
+        if not items:
+            ctk.CTkLabel(
+                self.build_queue_list, text="暂无构建项。请在“DLC / 补丁发布”加入构建队列。", text_color=MUTED
+            ).pack(pady=28)
+            return
+        for row, item in enumerate(items):
+            self._render_build_queue_item(row, item)
+
+    def _render_build_queue_item(self, row: int, item) -> None:
+        card = ctk.CTkFrame(self.build_queue_list, fg_color="#FFFFFF", border_width=1, border_color="#D8DEE6", corner_radius=10)
+        card.pack(fill="x", padx=10, pady=(10 if row == 0 else 4, 4))
+        card.grid_columnconfigure(1, weight=1)
+        status_text = {
+            BuildQueueStatus.QUEUED: "等待构建",
+            BuildQueueStatus.RUNNING: "正在构建",
+            BuildQueueStatus.COMPLETED: "构建完成，待加入上传队列",
+            BuildQueueStatus.FAILED: "构建失败",
+            BuildQueueStatus.CANCELLED: "已取消",
+        }[item.status]
+        ctk.CTkLabel(card, text=f"#{row + 1}", width=36, text_color=BLUE).grid(row=0, column=0, rowspan=2, padx=(14, 6), pady=12)
+        ctk.CTkLabel(card, text=item.display_name, font=("Microsoft YaHei UI", 15, "bold"), anchor="w").grid(row=0, column=1, padx=(0, 12), pady=(12, 1), sticky="ew")
+        ctk.CTkLabel(card, text=status_text, text_color=BLUE if item.status is BuildQueueStatus.RUNNING else MUTED).grid(row=0, column=2, padx=(6, 14), pady=(12, 1), sticky="e")
+        detail = f"{item.resource_count} 个资源 · {item.artifact_count} 个文件 · {item.total_bytes / 1024 / 1024:.1f} MiB" if item.status is BuildQueueStatus.COMPLETED else (item.error or "按顺序等待执行")
+        ctk.CTkLabel(card, text=detail, text_color=MUTED, anchor="w").grid(row=1, column=1, columnspan=2, padx=(0, 12), pady=(1, 10), sticky="ew")
+        # Empty CTkFrame instances retain their default height.  Do not create
+        # an action container for a running item, which deliberately has no
+        # available actions, or its otherwise blank frame would stretch the row.
+        if item.status is not BuildQueueStatus.RUNNING:
+            actions = ctk.CTkFrame(card, fg_color="transparent")
+            actions.grid(row=0, column=3, rowspan=2, padx=(6, 14), pady=10)
+            if item.status is BuildQueueStatus.COMPLETED:
+                ctk.CTkButton(
+                    actions,
+                    text="加入上传队列",
+                    width=110,
+                    fg_color=BLUE,
+                    command=lambda value=item.game_id: self._enqueue_built_game_upload(value),
+                ).pack(side="left", padx=3)
+            ctk.CTkButton(
+                actions,
+                text="删除",
+                width=56,
+                fg_color="transparent",
+                border_width=1,
+                border_color=RED,
+                text_color=RED,
+                hover_color="#FFEBEE",
+                command=lambda value=item.item_id: self._remove_build_queue_item(value),
+            ).pack(side="left", padx=3)
+
+    def _remove_build_queue_item(self, item_id: str) -> None:
+        try:
+            self.content_build_queue.remove(item_id)
+            self._log("用户操作：已从构建队列移除一项任务。")
+        except BuildQueueError as error:
+            self._log(f"用户操作：移除构建队列任务失败：{error}")
+            messagebox.showwarning("无法移除构建项", str(error), parent=self)
+        self._render_build_queue()
+
+    def _enqueue_built_game_upload(self, game_id: str) -> None:
+        profile = next((item for item in self.workspace.list_games() if item.game_id == game_id), None)
+        if profile is None:
+            messagebox.showerror("无法加入上传队列", "找不到构建项对应的游戏配置。", parent=self)
+            return
+        self._log(f"用户操作：将“{profile.display_name}”的已构建文件加入上传队列。")
+        self._enqueue_current_game_upload(profile=profile)
+
+    def _log(self, message: str) -> None:
+        """Append a bounded, timestamped operation trail to the release page."""
+        line = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
+        lines = getattr(self, "_content_operation_log_lines", None)
+        if lines is None:
+            return
+        lines.append(line)
+        overflow = len(lines) > 500
+        if overflow:
+            del lines[:-500]
+        widget = getattr(self, "content_operation_log", None)
+        if widget is None:
+            return
+        visible_lines = lines[-8:]
+        widget.configure(state="normal", height=max(44, len(visible_lines) * 25 + 12))
+        widget.delete("1.0", "end")
+        widget.insert("1.0", "\n".join(lines))
+        widget.see("end")
+        widget.configure(state="disabled")
 
     def refresh_steam_data(self) -> None:
         if not self._begin_background_mutation(
             "steam-refresh", "正在刷新 Steam 数据"
         ):
             return
+        self._log(f"用户操作：刷新“{self.profile.display_name}”的 Steam 数据。")
         self.steam_button.configure(state="disabled", text="正在查询…")
         profile = self.profile
 
@@ -988,6 +1214,7 @@ class ContentManagementUiMixin:
     def _steam_refresh_failed(self, message: str) -> None:
         self._end_background_mutation("steam-refresh")
         self.steam_button.configure(state="normal", text="刷新 Steam 数据")
+        self._log(f"后台任务：Steam 数据更新失败：{message}")
         messagebox.showerror("Steam 数据更新失败", message)
 
     def open_dlc_folder(self) -> None:

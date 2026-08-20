@@ -7,6 +7,7 @@ recovery.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import threading
 import time
@@ -342,6 +343,26 @@ class ReleaseService:
                 return plan
         return None
 
+    def latest_game_content_reuse_cache(
+        self, *, game_id: str, release_tag: str
+    ) -> dict[str, object]:
+        """Return verified per-source content hashes from the latest completed run."""
+        for plan in self.history():
+            if (
+                plan.kind is ReleaseKind.GAME_CONTENT
+                and plan.status is ReleaseStatus.COMPLETED
+                and str(plan.target.get("game_id") or "") == game_id
+                and str(plan.target.get("release_tag") or "") == release_tag
+            ):
+                stage = next(
+                    (item for item in plan.stages if item.stage_id == "game_content.upload_snapshot"),
+                    None,
+                )
+                cache = stage.output_summary.get("content_reuse_cache") if stage else None
+                if isinstance(cache, dict):
+                    return deepcopy(cache)
+        return {}
+
     def create_game_content_batch(
         self,
         *,
@@ -351,6 +372,7 @@ class ReleaseService:
         catalog: Path,
         remote_targets: Mapping[str, Mapping[str, object]],
         output_dir: Path | str | None = None,
+        reuse_cache: Mapping[str, object] | None = None,
     ) -> ReleasePlan:
         game_id = game_id.strip()
         release_tag = release_tag.strip()
@@ -376,6 +398,7 @@ class ReleaseService:
                 "catalog": catalog.name,
             },
             "remote_baseline": {},
+            "content_reuse_cache": deepcopy(dict(reuse_cache or {})),
         }
         plan.remote_targets = _copy_remote_target_summaries(remote_targets)
         return self.store.create(plan)

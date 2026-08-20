@@ -200,7 +200,6 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
     guarded = (
         "import_dlc",
         "clear_local_resources",
-        "build_all",
         "refresh_steam_data",
         "publish_cartridge_hub_mirror",
         "publish_cartridge_hub",
@@ -222,6 +221,141 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
     start_source = inspect.getsource(PublisherApplication._start_publish)
     assert "_start_publish(" in publish_source
     assert "_begin_background_mutation" in start_source
+
+
+def test_read_only_remote_refresh_does_not_block_publisher_close() -> None:
+    refresh_source = inspect.getsource(PublisherApplication.refresh_remote_resources)
+    guard_source = inspect.getsource(PublisherApplication._begin_remote_operation)
+
+    assert 'mutating=False' in refresh_source
+    assert 'if mutating and not self._begin_background_mutation(' in guard_source
+
+
+def test_remote_maintenance_uses_saved_target_settings_not_removed_legacy_entries() -> None:
+    source = inspect.getsource(PublisherApplication._github_repository_client)
+    gitlink_source = inspect.getsource(PublisherApplication._remote_manager)
+
+    assert "self.settings.github_owner" in source
+    assert "self.settings.github_repository" in source
+    assert "self.settings.github_token" in source
+    assert "owner_entry" not in source
+    assert "repo_entry" not in source
+    assert "token_entry" not in source
+    assert "self.settings.token" in gitlink_source
+
+
+def test_local_resource_cards_offer_folder_rescan() -> None:
+    source = inspect.getsource(PublisherApplication._build_sources_tab)
+    resource_header = inspect.getsource(PublisherApplication._resource_header)
+
+    assert source.count("self.refresh_resource_lists") == 2
+    assert 'text="刷新列表"' in resource_header
+    assert "def refresh_resource_lists" in _publisher_ui_sources()
+
+
+def test_content_build_uses_a_separate_queue_without_locking_other_game_controls() -> None:
+    source = _publisher_ui_sources()
+    build_source = inspect.getsource(PublisherApplication._start_next_content_build)
+
+    assert "ContentBuildQueue(workspace.root)" in inspect.getsource(PublisherApplication)
+    assert 'self.content_tabs.add("构建队列")' in source
+    assert 'text="加入构建队列"' in source
+    assert 'text="查看上传队列"' in source
+    assert "self._begin_background_mutation" not in build_source
+    assert "steam_button" not in build_source
+    assert "game_menu.configure" not in build_source
+    assert "def _queue_build_progress" in source
+    assert "def _flush_build_progress" in source
+
+
+def test_game_configuration_form_uses_a_compact_non_scrolling_layout() -> None:
+    source = inspect.getsource(PublisherApplication._build_games_tab)
+
+    assert "CTkScrollableFrame" not in source
+    assert "self._card(self.games_tab, 0, \"游戏卡带配置\")" in source
+    assert "height=32" in source
+
+
+def test_content_release_page_has_a_bounded_operation_log_for_user_and_background_events() -> None:
+    source = inspect.getsource(PublisherApplication._build_content_release_tab)
+    log_source = inspect.getsource(PublisherApplication._log)
+    upload_source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+
+    assert '"操作日志"' in source
+    assert "CTkTextbox" in source
+    assert "activate_scrollbars=True" in source
+    assert "_content_operation_log_lines" in source
+    assert "strftime('%H:%M:%S')" in log_source
+    assert "del lines[:-500]" in log_source
+    assert "visible_lines = lines[-8:]" in log_source
+    assert 'widget.insert("1.0", "\\n".join(lines))' in log_source
+    queue_source = inspect.getsource(PublisherApplication._queue_current_game_build)
+    assert "覆盖“{self.profile.display_name}”原有" in queue_source
+    assert "当前构建结束后将舍弃旧结果并重新构建" in queue_source
+    assert "后台任务：开始上传" in upload_source
+
+
+def test_running_build_item_does_not_create_an_empty_action_frame() -> None:
+    source = inspect.getsource(PublisherApplication._render_build_queue_item)
+
+    assert "if item.status is not BuildQueueStatus.RUNNING:" in source
+    assert "Empty CTkFrame instances retain their default height" in source
+
+
+def test_remote_maintenance_toolbar_keeps_only_resource_operations() -> None:
+    source = inspect.getsource(PublisherApplication._build_remote_tab)
+
+    assert 'text="刷新远程"' in source
+    assert 'text="选择文件上传"' in source
+    assert 'text="批次诊断"' not in source
+    assert 'text="导出审计"' not in source
+
+
+def test_remote_maintenance_uses_a_summary_and_sidebar_for_change_details() -> None:
+    source = inspect.getsource(PublisherApplication._build_remote_tab)
+
+    assert 'text="发布差异摘要"' in source
+    assert "self.remote_detail_sidebar" in source
+    assert 'text="变更清单"' in source
+    assert 'text="云端详情"' in source
+    assert "self.remote_diff_summary" in source
+    assert "_select_remote_detail_page" in source
+
+
+def test_remote_resource_refresh_renders_a_metadata_only_change_preview() -> None:
+    source = inspect.getsource(PublisherApplication._fill_remote_diff)
+    remote_source = inspect.getsource(PublisherApplication._fill_remote_assets)
+
+    assert "DLC 缓存一致，将跳过上传" in source
+    assert "每次更新，将替换云端同名文件" in source
+    assert "将新增到云端" in source
+    assert "No remote attachment is downloaded" in source
+    assert "云端保留（批量镜像发布时将删除）" in remote_source
+    assert 'render_group("需要发布"' in source
+    assert 'render_group("可复用 DLC"' in source
+
+
+def test_content_upload_log_reports_cache_reuse() -> None:
+    source = inspect.getsource(PublisherApplication._upload_queue_item_finished)
+
+    assert "云端构建缓存复用" in source
+    assert "未重复上传" in source
+
+
+def test_remote_maintenance_can_explicitly_trust_current_dlc_resources() -> None:
+    source = inspect.getsource(PublisherApplication._build_remote_tab)
+    trust_source = inspect.getsource(PublisherApplication.trust_remote_dlc_resources)
+
+    assert 'text="信任云端 DLC"' in source
+    assert "不下载、不上传也不删除附件" in trust_source
+    assert "save_content_reuse_cache" in trust_source
+
+
+def test_comparison_page_keeps_only_its_specific_back_button() -> None:
+    source = inspect.getsource(ReleaseCenter._build_comparison_page)
+
+    assert "back_page=None" in source
+    assert 'text="← 返回本地发布文件"' in source
 
 
 def test_publisher_worker_functions_do_not_touch_obvious_tk_apis_directly() -> None:
@@ -661,6 +795,7 @@ def test_release_center_uses_replaceable_pages_for_specialist_operations() -> No
     assert 'text="验证并查看差异"' in source
     assert 'text="发布文件  →"' in source
     assert 'def publish_program_files(self) -> None' in source
+    assert 'def start_program_publish(self) -> None' in source
     assert 'def select(self, batch_id: str, *, show_history: bool = True)' in source
     assert 'self.select(plan.batch_id, show_history=False)' in source
     board_source = inspect.getsource(ReleaseCenter._build_batches_page)
@@ -674,9 +809,52 @@ def test_release_center_uses_replaceable_pages_for_specialist_operations() -> No
 class _ButtonHarness:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.values: dict[str, object] = {}
 
     def configure(self, **kwargs) -> None:
         self.calls.append(kwargs)
+        self.values.update(kwargs)
+
+    def cget(self, key: str):
+        return self.values.get(key, "")
+
+
+def test_release_center_preflight_waits_for_explicit_start_before_upload() -> None:
+    calls: list[object] = []
+    plan = SimpleNamespace(
+        batch_id="batch",
+        status=ReleaseStatus.AWAITING_CONFIRMATION,
+    )
+    execute_button = _ButtonHarness()
+    execution_status_label = _ButtonHarness()
+    harness = SimpleNamespace(
+        current_batch_id="batch",
+        execute_button=execute_button,
+        execution_status_label=execution_status_label,
+        _ensure_program_batch=lambda: (plan, False),
+        select=lambda *args, **kwargs: calls.append(("select", args, kwargs)),
+        refresh_history=lambda: calls.append("history"),
+        show_page=lambda name: calls.append(("page", name)),
+        service=SimpleNamespace(
+            preflight=lambda batch_id: calls.append(("preflight", batch_id)) or plan,
+            get=lambda batch_id: calls.append(("get", batch_id)) or plan,
+            confirm=lambda batch_id: calls.append(("confirm", batch_id)) or plan,
+        ),
+        _render=lambda value: calls.append(("render", value)),
+        execute=lambda: calls.append("execute"),
+    )
+
+    ReleaseCenter.publish_program_files(harness)
+
+    assert ("preflight", "batch") in calls
+    assert ("confirm", "batch") not in calls
+    assert "execute" not in calls
+    assert execute_button.calls[-1] == {"state": "normal", "text": "开始发布"}
+
+    ReleaseCenter.start_program_publish(harness)
+
+    assert ("confirm", "batch") in calls
+    assert calls[-2:] == [("render", plan), "execute"]
 
 
 def test_release_center_execution_starts_progress_monitor_and_keeps_pause_for_running_state() -> None:

@@ -1,10 +1,89 @@
 # 当前任务交接
 
-> 最后更新：2026-08-19（Asia/Shanghai）
+> 最后更新：2026-08-21（Asia/Shanghai）
 > 分支：`main`
-> HEAD：`9f402e3`（`feat(client): 优化设置页与游戏选择体验`）
-> 上游状态：`main` 相对 `origin/main` 领先 5、落后 0；本轮仅更新交接与决策文档，禁止自动提交或推送。
-> 工作区：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py` 有未提交的客户端启动修复；`app/versions/0.2.0/` 是被忽略的活动发布目录，已同步该修复。另有发布器 UI 与交接文档的既有未提交改动，必须保留。未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
+> HEAD：`bdae05f`（`refactor(publisher): 重构发布中心与上传队列，优化资源与程序发布流程`）
+> 上游状态：`main` 相对 `origin/main` 领先 7、落后 0；禁止自动提交或推送。
+> 工作区：本轮有客户端基线、测试和本交接文件的未提交改动；`app/versions/0.2.0/` 是被忽略的活动发布目录，已同步相关客户端修复。未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
+
+## 2026-08-21：恢复任务后的基础回归与测试契约同步
+
+- 实际工作区以 `main` 的 `bdae05f`（`refactor(publisher): 重构发布中心与上传队列，优化资源与程序发布流程`）为准，相对 `origin/main` 领先 7、落后 0；此前页首记录的 `9f402e3`、领先 5 及既有未提交改动已过期。
+- 修复客户端基线的静态检查：延迟焦点回调改为捕获已导入的 `TclError`，两处事件回调改为具名局部函数，并移除无用局部变量；同样改动已同步到被 Git 忽略的活动目录 `app/versions/0.2.0/app_entry.py`。
+- SteamOS 补丁测试已对齐发布资产优先级：旧调用即使从游戏主库取得后备原生库，安装凭据也统一标记为 `published_original`。
+- 程序发布批次测试已按现行门禁补充当前版本模块归档，并对齐“程序包及模块归档均同名直接替换、随后回读校验”的行为；不再断言远端同哈希文件可跳过上传。
+- 已用源码入口启动 `publisher.py`（PID 163128），但未进行人工 GUI 操作或真实双源连通性、上传和发布。
+
+验证（2026-08-21）：
+
+```powershell
+python -m pytest -q
+python -m ruff check .
+python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0
+git diff --check
+```
+
+结果：全部通过；`git diff --check` 仅显示 Windows 工作副本的 LF/CRLF 转换警告。当前跟踪改动为 `app/versions/0.1.0/app_entry.py`、`tests/test_patch_platforms.py`、`tests/test_publisher_release_batches.py` 和本交接文件；未 commit 或 push。
+
+下一步：人工检查已启动的发布器四个工作区和上传队列 UI；确认后由用户决定是否提交当前改动。不要进行真实上传、构建发布包或 push，除非用户明确要求。
+
+## 2026-08-21：本地 DLC / 补丁资源列表手动刷新
+
+- “资源管理 → 本地资源”中的 DLC 文件夹与补丁资源卡片各新增“刷新列表”按钮；点击后只重新扫描当前游戏对应的本地资源目录并重绘两张列表，不读取云端、不创建发布记录，也不影响发布队列。
+- 导入、清理等已有操作完成后仍会自动刷新，手动把文件复制到已打开目录后可用新按钮立即显示。
+- “本地与云端差异”页移除了页首泛用的“返回发布包与归档”，仅保留工具栏中更准确的“返回本地发布文件”。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_workspace.py tests/test_publisher_content_pipelines.py -q`（通过）、相关 Ruff 与 `py_compile` 通过、`git diff --check` 仅有 Windows LF/CRLF 提示。
+- 已重建 `dist/publisher/SignRiver-Publisher.exe`：15,712,192 B，SHA-256 `68A825449917387CBAF75431A59B0C9F87B66DA34FBA9EB4D391483594ABD285`。未启动新 EXE 做人工验收，未 commit 或 push。
+
+## 2026-08-21：修复“加入上传队列”自动构建的遗留控件引用
+
+- 根因：资源页面已改为只有“加入上传队列”入口，但 `build_all()` 及其进度/完成/失败回调仍直接访问已不存在的旧 `build_button`，因此点击队列入口会在构建开始前抛出 `AttributeError`。
+- 构建状态现在统一通过 `_configure_build_actions()` 更新当前页面实际存在的按钮；旧布局若仍提供 `build_button` 也兼容，当前队列页面只更新 `content_enqueue_button`。构建完成后再自动进入既有的队列流程。
+- 验证：`python -m pytest tests/test_publisher_workspace.py tests/test_publisher_upload_queue.py tests/test_publisher_ui_threading.py -q`（通过）、`python -m pytest -q`（通过）、相关 Ruff 和 `py_compile` 通过。已重建 `dist/publisher/SignRiver-Publisher.exe`：15,713,850 B，SHA-256 `2D239635C03DB76DE2033F508A1F0C291F8902130A99F2DACF1457D5DE8EA2BF`。未真实构建游戏资源、上传、commit 或 push。
+
+## 2026-08-21：资源构建改为独立队列并恢复上传入口
+
+- 新增持久化 `ContentBuildQueue`：DLC / 补丁发布页的“加入构建队列”会按 FIFO 一次构建一个游戏，构建中的项目在重启后安全重新排队。构建不再占用全局写锁，操作人可以切换到其他游戏继续整理资源；关闭发布器仍会提示等待当前构建结束。
+- 构建完成的项目明确显示“待加入上传队列”，只有操作人点击该项的“加入上传队列”才会读取云端差异并要求镜像删除确认，避免构建完成后自动触发远端操作。
+- 主发布页现同时保留“查看构建队列”和“查看上传队列”入口；此前后者被错误替换的问题已修复。构建进度改为合并最新事件后再写入 Tk，避免大量压缩进度更新与日志刷新导致界面抽搐。
+- 验证：`python -m pytest -q`（通过）、构建队列/上传队列/UI/工作区专项测试、Ruff 与 `py_compile` 通过，`git diff --check` 仅有 LF/CRLF 工作副本提示。已重建 `dist/publisher/SignRiver-Publisher.exe`：15,723,104 B，SHA-256 `8D8EFB4C1BC7AEA95E772F2D3F5A94AF797BC76C2B3A3BC942C2B035F5EAA39E`。未真实上传、commit 或 push。
+
+## 2026-08-21：修复远端维护页读取已移除控件
+
+- 根因：远端维护页已迁移到“账户与测试 → 发布目标”配置，但 GitHub 刷新仍读取旧 `owner_entry/repo_entry/token_entry`，GitLink 路径也保留旧 `token_entry`。点击刷新会抛出 `AttributeError`，使页面停在“正在读取远程资源”。
+- GitHub 与 GitLink 远端维护现在统一从已保存的 `PublisherSettings` 读取目标和令牌；配置不完整时会走既有失败收尾，恢复刷新按钮和状态提示，不再卡住。
+- 验证：远端维护/UI/工作区/Provider 专项测试、`python -m pytest -q`、相关 Ruff 和 `py_compile` 均通过；`git diff --check` 仅有 LF/CRLF 工作副本提示。已重建 `dist/publisher/SignRiver-Publisher.exe`：15,723,721 B，SHA-256 `A0D734CFEF42E79DCCDC7C7FC379F7A3592400EE5A6B1F52ED1BFB545817F544`。未连接真实远端、上传、commit 或 push。
+
+## 2026-08-21：构建与上传队列按游戏保留最新提交
+
+- 构建队列和上传队列现在以 `game_id` 为唯一键：同游戏的新提交在原队列位置替换旧提交，任何状态下都不会出现第二行同游戏项目。已完成、失败、暂停或等待项会立即改为等待最新提交。
+- 若构建或上传正在安全执行，新提交不会强杀当前 ZIP/网络步骤；该唯一队列项会标记“已保留最新提交”。构建的当前步骤结束后自动以最新源文件重新排队；上传的当前步骤结束或失败后自动回到等待状态，以最新 Release 批次重传。这样不会丢失新提交，也不会制造重复项。
+- 验证：构建/上传队列、UI、工作区和内容流水线专项测试、`python -m pytest -q`、相关 Ruff 与 `py_compile` 通过；`git diff --check` 仅有 LF/CRLF 工作副本提示。已重建 `dist/publisher/SignRiver-Publisher.exe`：15,724,823 B，SHA-256 `58E0BE4A97B2DA69303F60792336585D1B37B13D180778C722BFC13CB73264D4`。未真实上传、commit 或 push。
+
+## 2026-08-21：程序“发布文件”改为预检后显式开始
+
+- 点击“发布文件”现在只进入执行子页面并自动完成预检；预检通过时明确提示操作人核对结果，并启用“开始发布”按钮。该阶段不会冻结输入、创建上传线程或写入远端。
+- 只有点击“开始发布”才会冻结已通过预检的批次，并启动实际后台上传；已暂停、中断、降级或失败的既有批次仍可通过同一按钮继续执行。预检失败及其他未就绪状态均不会上传。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_service.py tests/test_publisher_release_batches.py -q`（通过）、`python -m pytest -q`（通过）、相关 Ruff 与 `py_compile` 通过。已重建 `dist/publisher/SignRiver-Publisher.exe`：15,712,843 B，SHA-256 `BEA08202E23872A2FA19CF9B6515C6B313080D858A62007D87BE50B6ACD558C4`；未进行真实上传、未 commit 或 push。
+
+## 2026-08-21：修复远端检测误下载与只读操作阻止退出
+
+- 远端目录、差异和连通性检测现只读取 GitHub/GitLink API 的仓库或 Release 元数据；程序与模块基线不再下载 `update-manifest.json`，游戏内容镜像预览也不下载附件。
+- DLC、补丁和 Hub 发布不再在上传前完整下载远端同名附件来判断复用。由于 Release 列表不提供可信 SHA-256，现统一同名直接替换上传，并保留上传后的完整分块回读哈希校验；删除附件则按元数据中的附件 ID 删除并重新读取列表确认。
+- “刷新远程资源”改为只读守护任务，不再占用关闭保护；网络卡住时用户可关闭发布器。真正上传、删除和发布仍受关闭保护。GitHub/GitLink API 元数据请求超时已收敛到 12 秒。
+- 已重建 `dist/publisher/SignRiver-Publisher.exe`：15,713,215 B，SHA-256 `603CD56C9E6AA268AAE5A54D117727499F643C6A9DA24B8CEF21FE4939565DC3`。
+
+验证（2026-08-21）：
+
+```powershell
+python -m pytest -q
+python -m ruff check .
+python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0
+python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
+git diff --check
+```
+
+结果：pytest、Ruff、编译检查通过；发布器 EXE 构建成功。未启动新 EXE 进行人工 UI 验收，未连接真实 GitLink/GitHub、未读取或修改本地令牌、未真实上传/删除、未 commit 或 push。
 
 ## 2026-08-20：移除卡带配置页的旧 Hub / 公告入口
 
@@ -1196,3 +1275,91 @@ git diff --check
 - 移除“兼容发布”页面后，遗留基类初始化仍会调用旧的发布目标同步方法，而该方法读取已被移除的 `publish_target_menu`，导致发布器启动即报 `AttributeError`。
 - `PublisherApplication` 现在直接从 `PublisherSettings.publish_target` 取得发布目标，并将仅服务于旧兼容页面的控件同步改为安全空操作；新的“发布目标”页面仍会自行重建界面。
 - 验证：`tests/test_publisher_ui_threading.py`、`tests/test_ui_theme.py` 共 87 项通过，`py_compile`、Ruff 与 `git diff --check` 通过。未启动 GUI、未构建、未 commit 或 push。
+
+## 2026-08-21：DLC / 补丁发布包操作日志
+
+- “资源管理 → DLC / 补丁发布”页面在发布包状态下方新增只读、自动滚动的“操作日志”框；每行带本地时间戳，最多保留最近 500 条，防止长时间运行导致界面日志无限增长。
+- 当前页面的用户操作（切换游戏、查看资源/队列、加入或移除构建项、加入上传、导入/清理本地资源、保存或新增卡带、刷新 Steam/远端资源）以及构建、上传、远端维护等后台任务的开始、进度、成功、失败和“同游戏保留最新提交”的重排结果，均统一写入该日志。
+- 所有后台日志都沿用已有的 `_post_ui` 回调回到 Tk 主线程后输出；日志控件不存在或页面尚未创建时安全忽略，避免影响后台任务和窗口关闭。
+
+验证（2026-08-21）：
+
+```powershell
+python -m pytest -q
+python -m ruff check src/signriver_publisher/content_management_ui.py src/signriver_publisher/upload_queue_ui.py src/signriver_publisher/remote_maintenance_ui.py tests/test_publisher_ui_threading.py
+python -m py_compile src/signriver_publisher/content_management_ui.py src/signriver_publisher/upload_queue_ui.py src/signriver_publisher/remote_maintenance_ui.py
+python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64
+```
+
+结果：全量 pytest 通过；Ruff 与 `py_compile` 通过。已重建 `dist/publisher/SignRiver-Publisher.exe`（15,727,262 bytes，SHA-256 `5ED437285D267895BAC159E5C39B62C8197862CA8055D189C041580D32A113F9`）。构建中 UPX 对 `_uuid.pyd` 报“不可压缩”警告，PyInstaller 自动保留原文件，构建仍成功。未启动 GUI、未执行真实远端操作、未 commit 或 push。
+
+### 后续验证约定（2026-08-21）
+
+- 用户已确认：日常发布器开发默认直接运行 `\.venv\Scripts\python.exe publisher.py` 并执行相关测试；不再因每次发布器源码改动自动重建 EXE。仅在用户明确要求构建、需要交付 EXE 或准备正式发布时才运行 `tools/build_publisher.py`。
+
+### 操作日志无滚动条调整（2026-08-21）
+
+- 用户要求移除 DLC / 补丁发布页的滚动条。该页现改用普通容器，不再创建外层滚动条；日志文本框也关闭自身滚动条。
+- 日志框初始仅一行，并随最新日志自适应增长；页面仅展示最近 8 条，避免空白区域或大量日志把页面撑出可视区域。完整内存日志仍保留最近 500 条，供后续写入时取最新 8 条显示。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_upload_queue.py -q`（53 项通过）、Ruff 与 `py_compile` 通过。按用户确认的日常验证约定，未重新构建 EXE。
+
+### 同游戏提交覆盖日志（2026-08-21）
+
+- 构建与上传队列在接受提交前读取同游戏已有项，并在操作日志明确输出实际队列决策：新增项、覆盖非运行旧项，或运行中项保留新提交并在当前安全步骤/构建结束后重新执行。
+- 日志不再以“同游戏保留最新提交”的泛化文案掩盖实际行为，方便操作员逐步核对后台队列执行了什么。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_upload_queue.py -q`（53 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 构建队列运行项高度修复（2026-08-21）
+
+- 根因：正在构建的项目没有可用操作，但仍创建了空的 `CTkFrame` 操作容器；CustomTkinter 空框保留默认高度，网格布局因此把整项撑大。
+- 运行项现在不创建操作容器，仅展示名称、状态和进度说明；完成、等待和失败项仍保留相应按钮，卡片统一保持紧凑两行高度。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_upload_queue.py -q`（54 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 操作日志历史滚动（2026-08-21）
+
+- 按用户最新要求，DLC / 补丁发布页仍没有外层页面滚动条，但操作日志框恢复内部滚动条。日志框高度仅按最近 8 行自适应，框内则完整渲染并可翻阅最近 500 条记录；每次新增事件仍自动定位到最新行。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_upload_queue.py -q`（54 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 移除远端维护页旧审计入口（2026-08-21）
+
+- “批次诊断”只汇总当前发布批次状态/事件，“导出审计”只导出 JSON 留档；两者不参与远端刷新、上传或资源维护，且当前操作日志和发布记录已满足日常查看需求。
+- 已从“远端资源维护”工具栏移除两个入口，并保留底层审计服务与测试，避免影响既有批次历史或排障能力。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_release_audit.py -q`（51 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### DLC / 补丁云端变更预览（2026-08-21）
+
+- “远端资源维护 → 刷新远程”现在同步渲染本地发布文件与远端附件的元数据差异：本地文件标记“将新增到云端”或“将替换云端同名文件”；远端附件标记“将被同名文件替换”或“云端保留（批量镜像发布时将删除）”。
+- 差异只读取本地目录和远端附件列表/元数据，明确不下载远端附件；手动维护页面本身不会删除云端仅有文件，删除仅会发生在已有二次确认的批量镜像上传流程中。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_content_pipelines.py tests/test_publisher_upload_queue.py -q`（66 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### DLC / 补丁按已验证构建缓存复用（2026-08-21）
+
+- 纠正此前错误地把 DLC / 补丁同名文件预览为“必须替换”的逻辑。内容发布与程序发布不同：DLC / 补丁附件只有在本地 SHA-256、大小与此前成功回读验证所保存的同源缓存一致，并且当前远端列表仍存在该附件时，才复用并跳过上传；缺失、缓存不一致或远端附件标识变化时才上传替换。`catalog.json` 仍始终最后发布。
+- 每次成功的游戏内容发布都会把双源经回读验证的附件哈希、大小和远端标识写入发布批次阶段结果；创建下一批同游戏内容时自动带入。旧 GitLink `.publish-state.json` 也会迁移性地作为首轮缓存来源，避免旧工作区被迫全量重传。
+- 云端检测预览现在显示“云端缓存一致，将跳过上传 / 将保留”；上传完成的操作日志会汇总实际复用数量。复用决策只读取远端目录元数据和本地已验证缓存，不下载附件；对缓存未覆盖或不可信的附件仍上传后完整回读校验。
+- 验证：`python -m pytest tests/test_publisher_content_pipelines.py tests/test_publisher_upload_queue.py tests/test_publisher_ui_threading.py -q`（68 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### DLC 不变资源分类与显式云端信任（2026-08-21）
+
+- 分类规则已收紧：只有文件名为 `dlc*.zip`（含 DLC 分卷）的不可变 DLC 附件可以按缓存复用；补丁、DLL、其他附件均视为可变内容，即使同名且存在缓存也会每次上传替换；`catalog.json` 继续固定最后发布。
+- “远端资源维护”新增“信任云端 DLC”按钮。用户确认后，程序仅对当前远端列表中与本地同名的 DLC ZIP 写入 `.content-reuse-cache.json`（保存本地 SHA-256、大小和远端附件标识），不下载、不上传、不删除任何附件；下一批发布即可跳过这些 DLC。成功上传的验证缓存也会同步写入该文件。
+- 差异预览明确区分“DLC 缓存一致，将跳过上传”和“每次更新，将替换云端同名文件”。
+- 验证：`python -m pytest -q`（全量通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 远端资源维护差异清单重排（2026-08-21）
+
+- 远端维护页不再并排重复展示本地与远端的大量文件。顶部新增“发布差异摘要”，显示跳过上传、需要更新、新增和云端多余的计数。
+- 内容区改为“变更清单 / 云端详情”页签：默认变更清单按“需要发布”和“可复用 DLC”分组，以紧凑的文件名、分类、动作标签展示；云端附件、大小与删除按钮移至云端详情页，仍保留所有维护能力。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_content_pipelines.py tests/test_publisher_upload_queue.py -q`（71 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 游戏卡带配置单页紧凑布局（2026-08-21）
+
+- “游戏支持数据 → 游戏配置”移除外层 `CTkScrollableFrame`；该页改为固定单页表单，不再显示右侧滚动条。
+- 14 个字段的行间距收紧至 3 px，输入框/下拉框固定为 32 px，底部新增/保存按钮调整为 34 px 并缩小垂直边距，确保常用窗口高度内完整显示。
+- 验证：`python -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_workspace.py -q`（120 项通过）、Ruff 与 `py_compile` 通过。未重新构建 EXE。
+
+### 远端资源维护详情侧边栏（2026-08-21）
+
+- “远端资源维护”的“变更清单 / 云端详情”不再使用位于内容中央的分段页签；内容卡片改为左侧紧凑导航栏、右侧详情区域，默认打开“变更清单”。
+- 两个页面仍复用原有的差异清单、云端附件列表和删除控件，仅调整导航与布局，不改变远端读取、缓存复用或维护行为。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests/test_publisher_ui_threading.py tests/test_publisher_content_pipelines.py tests/test_publisher_upload_queue.py -q`、Ruff、`py_compile` 与 `git diff --check` 通过（仅已有 CRLF 提示）。未重新构建 EXE、未启动 GUI、未执行真实远端操作、未 commit 或 push。

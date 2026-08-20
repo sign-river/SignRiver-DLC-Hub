@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ class SnapshotProvider:
         self.remote_names: set[str] = set()
 
     def inspect(self, key: str) -> RemoteVerification:
-        return self.assets.get(key, RemoteVerification(False))
+        raise AssertionError(f"发布前不应下载远端附件来检查复用：{key}")
 
     def upload(self, artifact, path: Path) -> RemoteVerification:
         self.calls.append(f"asset:{path.name}")
@@ -76,7 +77,7 @@ def test_game_catalog_is_uploaded_only_after_all_attachments_are_verified(tmp_pa
         assert provider.calls[-1] == "index:catalog.json"
 
 
-def test_matching_snapshot_attachment_is_reused(tmp_path: Path) -> None:
+def test_matching_snapshot_attachment_is_replaced_without_pre_download(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "ws")
     attachment = file(tmp_path / "cartridge.json", b"snapshot")
     plan = service.create_hub_batch(
@@ -90,8 +91,74 @@ def test_matching_snapshot_attachment_is_reused(tmp_path: Path) -> None:
 
     service.execute_hub(plan.batch_id, providers)
 
-    assert f"asset:{artifact.filename}" not in providers["gitlink"].calls
+    assert f"asset:{artifact.filename}" in providers["gitlink"].calls
     assert f"asset:{artifact.filename}" in providers["github"].calls
+
+
+def test_game_content_reuses_matching_verified_cache_without_downloading(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    attachment = file(tmp_path / "dlc.zip", b"cached-content")
+    catalog = file(tmp_path / "catalog.json", b"{}")
+    digest = hashlib.sha256(attachment.read_bytes()).hexdigest()
+    cache = {
+        source: {
+            "target": target,
+            "assets": {
+                "dlc.zip": {"sha256": digest, "size": attachment.stat().st_size, "remote_id": ""}
+            },
+        }
+        for source, target in targets().items()
+    }
+    plan = service.create_game_content_batch(
+        game_id="game",
+        release_tag="game-v1",
+        attachments=[attachment],
+        catalog=catalog,
+        remote_targets=targets(),
+        reuse_cache=cache,
+    )
+    confirmed(service, plan.batch_id)
+    providers = {name: SnapshotProvider(name) for name in ("gitlink", "github")}
+    for provider in providers.values():
+        provider.remote_names.add("dlc.zip")
+
+    completed = service.execute_game_content(plan.batch_id, providers)
+
+    assert completed.status is ReleaseStatus.COMPLETED
+    assert all("asset:dlc.zip" not in provider.calls for provider in providers.values())
+    assert all("index:catalog.json" in provider.calls for provider in providers.values())
+
+
+def test_non_dlc_content_is_replaced_even_when_a_cache_entry_matches(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    attachment = file(tmp_path / "patch.dll", b"new-patch")
+    catalog = file(tmp_path / "catalog.json", b"{}")
+    digest = hashlib.sha256(attachment.read_bytes()).hexdigest()
+    cache = {
+        source: {
+            "target": target,
+            "assets": {
+                "patch.dll": {"sha256": digest, "size": attachment.stat().st_size, "remote_id": ""}
+            },
+        }
+        for source, target in targets().items()
+    }
+    plan = service.create_game_content_batch(
+        game_id="game",
+        release_tag="game-v1",
+        attachments=[attachment],
+        catalog=catalog,
+        remote_targets=targets(),
+        reuse_cache=cache,
+    )
+    confirmed(service, plan.batch_id)
+    providers = {name: SnapshotProvider(name) for name in ("gitlink", "github")}
+    for provider in providers.values():
+        provider.remote_names.add("patch.dll")
+
+    service.execute_game_content(plan.batch_id, providers)
+
+    assert all("asset:patch.dll" in provider.calls for provider in providers.values())
 
 
 def test_hub_second_source_index_failure_becomes_degraded(tmp_path: Path) -> None:
@@ -134,7 +201,7 @@ def test_hub_degraded_resume_only_switches_failed_index_source(tmp_path: Path) -
     resumed = service.execute_hub(plan.batch_id, providers)
 
     assert resumed.status is ReleaseStatus.COMPLETED
-    assert providers["gitlink"].calls == gitlink_calls
+    assert providers["gitlink"].calls == gitlink_calls + ["index:hub-catalog.json"]
     assert providers["github"].calls.count("index:hub-catalog.json") == 2
 
 

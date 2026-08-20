@@ -39,7 +39,7 @@
 ## 其他注意
 
 - 版本切换需同步：`src/signriver_launcher/constants.py` 的 `LAUNCHER_VERSION`、`app/state.json` 的 `active_version`（并清空 `bad_versions`）。
-- 发布器界面代码在 `src/signriver_publisher/`；改完用 `tools/build_publisher.py --upx-dir ...` 重新构建 `dist/publisher/SignRiver-Publisher.exe`。
+- 发布器界面代码在 `src/signriver_publisher/`；日常开发验证默认使用 `\.venv\Scripts\python.exe publisher.py` 直接运行源码，不必重新构建 EXE。仅在用户明确要求“构建发布器”、需要交付 EXE 或准备正式发布时，才用 `tools/build_publisher.py --upx-dir ...` 重新构建 `dist/publisher/SignRiver-Publisher.exe`。
 - 客户端 UI 代码在 `app/versions/0.1.0/app_entry.py`；改动后同步到目标版本目录再构建。
 - 发布器暂停按钮 / 更新说明对话框等上传流程如有改动，必须跑 `tests/test_publisher_ui_threading.py`。
 - 发布新版本时，若旧版本（如 0.1.6）已发布，必须用更高的新版本号（如 0.1.7）承载后续修复，否则旧版本用户检测不到更新。

@@ -2003,7 +2003,7 @@ class DlcHubApplication:
             return
         try:
             search.focus_force()
-        except tkinter.TclError:
+        except TclError:
             # The close button can destroy the popup between winfo_exists()
             # and focus_force(); the popup is already gone, so no action remains.
             return
@@ -2494,7 +2494,9 @@ class DlcHubApplication:
             summary_label.pack(fill="x", padx=16, pady=(0, 12))
             arrow = ctk.CTkLabel(card, text="→", text_color=UI["primary"], font=ctk.CTkFont(size=18), anchor="e")
             arrow.place(relx=1, rely=0.5, x=-18, anchor="e")
-            callback = lambda _event, key=article_id: self._show_solution_detail(key)
+            def callback(_event, key=article_id) -> None:
+                self._show_solution_detail(key)
+
             for widget in (card, title_label, summary_label, arrow):
                 widget.bind("<Button-1>", callback)
 
@@ -4108,7 +4110,9 @@ class DlcHubApplication:
                 text_color=UI["muted"], anchor="w", font=ctk.CTkFont(size=11),
             )
             timestamp.pack(fill="x", padx=12, pady=(4, 10))
-            callback = lambda _event, event_id=report.event_id: self._select_problem_from_card(event_id)
+            def callback(_event, event_id=report.event_id) -> None:
+                self._select_problem_from_card(event_id)
+
             for widget in (row, tag, title, timestamp):
                 widget.bind("<Button-1>", callback)
         self._update_problem_badge()
@@ -7691,7 +7695,6 @@ class DlcHubApplication:
             return
         game_root = installation.root
         entries = tuple(self.catalog_entries)
-        cartridge = self.cartridge
         snapshots = {
             item.spec.task_id: item for item in queue.snapshots()
         }
