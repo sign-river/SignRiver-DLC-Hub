@@ -48,7 +48,7 @@ class RemoteMaintenanceUiMixin:
         self.remote_status = ctk.CTkLabel(
             toolbar, text="选择当前游戏后刷新远程 Release", text_color=MUTED, anchor="w"
         )
-        self.remote_status.grid(row=0, column=0, padx=18, pady=14, sticky="ew")
+        self.remote_status.grid(row=0, column=0, padx=18, pady=(13, 5), sticky="ew")
         self.remote_refresh_button = ctk.CTkButton(
             toolbar,
             text="刷新远程",
@@ -56,7 +56,7 @@ class RemoteMaintenanceUiMixin:
             fg_color=LIGHT_BLUE,
             command=self.refresh_remote_resources,
         )
-        self.remote_refresh_button.grid(row=0, column=1, padx=4, pady=10)
+        self.remote_refresh_button.grid(row=0, column=1, padx=4, pady=(10, 5))
         self.remote_delete_all_button = ctk.CTkButton(
             toolbar,
             text="全部删除",
@@ -69,21 +69,14 @@ class RemoteMaintenanceUiMixin:
             state="disabled",
             command=self.delete_all_remote_resources,
         )
-        self.remote_delete_all_button.grid(row=0, column=2, padx=4, pady=10)
+        self.remote_delete_all_button.grid(row=0, column=3, padx=(4, 14), pady=(10, 5))
         ctk.CTkButton(
             toolbar,
             text="选择文件上传",
             width=130,
             fg_color=BLUE,
             command=self.choose_remote_upload,
-        ).grid(row=0, column=3, padx=(4, 14), pady=10)
-        ctk.CTkButton(
-            toolbar,
-            text="信任云端 DLC",
-            width=130,
-            fg_color=LIGHT_BLUE,
-            command=self.trust_remote_dlc_resources,
-        ).grid(row=1, column=1, padx=4, pady=(0, 10))
+        ).grid(row=0, column=2, padx=4, pady=(10, 5))
         ctk.CTkButton(
             toolbar,
             text="← 返回资源入口",
@@ -95,7 +88,7 @@ class RemoteMaintenanceUiMixin:
             border_color="#90CAF9",
             hover_color="#EAF4FD",
             command=lambda: self.content_tabs.set("DLC / 补丁发布"),
-        ).grid(row=1, column=3, padx=(4, 14), pady=(0, 10), sticky="e")
+        ).grid(row=1, column=3, padx=(4, 14), pady=(4, 11), sticky="e")
 
         summary_card = ctk.CTkFrame(
             self.remote_tab,
@@ -254,12 +247,35 @@ class RemoteMaintenanceUiMixin:
         """
         local_assets = self.workspace.publish_assets(profile)
         local_files = tuple(asset.path for asset in local_assets)
-        remote_names = {asset.name for asset in assets}
+        # Release attachment names are effectively case-insensitive on the
+        # Windows publishing workflow.  Compare normalized keys here as the
+        # actual upload pipeline does; otherwise a legacy attachment whose
+        # capitalization differs is misleadingly shown as "新增" instead of
+        # "需要更新".
+        remote_names = {asset.name.casefold() for asset in assets}
         target = (
             {"owner": self.settings.github_owner, "repository": self.settings.github_repository}
             if self._publish_target() == "github"
             else {"owner": self.settings.owner, "repository": self.settings.repository}
         )
+        # GitLink can retain a historical attachment title that differs from
+        # the logical filename recorded by an earlier publisher version.  An
+        # attachment ID that is still present is authoritative evidence that
+        # the corresponding logical asset exists remotely, so use it as a
+        # comparison alias.  This only affects the preview label: mutable
+        # same-name assets continue through the normal replacement path.
+        publish_state = self.workspace.load_publish_state(
+            profile, target["owner"], target["repository"]
+        )
+        tracked_assets = publish_state.get("assets", {})
+        if isinstance(tracked_assets, dict):
+            live_attachment_ids = {asset.asset_id for asset in assets}
+            remote_names.update(
+                str(name).casefold()
+                for name, value in tracked_assets.items()
+                if isinstance(value, dict)
+                and str(value.get("attachment_id") or "") in live_attachment_ids
+            )
         cache = self.workspace.load_content_reuse_cache(profile)
         cache.update(self.release_service.latest_game_content_reuse_cache(
             game_id=profile.game_id, release_tag=profile.release_tag
@@ -273,7 +289,11 @@ class RemoteMaintenanceUiMixin:
                 cache = {"gitlink": {"target": target, "assets": legacy_assets}}
         source_cache = cache.get(self._publish_target(), {}) if isinstance(cache, dict) else {}
         cached_assets = source_cache.get("assets", {}) if isinstance(source_cache, dict) and source_cache.get("target") == target else {}
-        local_by_name = {asset.name: asset for asset in local_assets}
+        cached_by_name = {
+            str(name).casefold(): value
+            for name, value in cached_assets.items()
+        } if isinstance(cached_assets, dict) else {}
+        local_by_name = {asset.name.casefold(): asset for asset in local_assets}
         for child in self.local_output_list.winfo_children():
             child.destroy()
         if not local_files:
@@ -287,11 +307,12 @@ class RemoteMaintenanceUiMixin:
             changes: list[tuple[Path, str, str]] = []
             reusable_rows: list[tuple[Path, str, str]] = []
             for path in local_files:
-                asset = local_by_name[path.name]
-                cached = cached_assets.get(path.name) if isinstance(cached_assets, dict) else None
+                name_key = path.name.casefold()
+                asset = local_by_name[name_key]
+                cached = cached_by_name.get(name_key)
                 reuse_match = (
                     _is_immutable_dlc_filename(path.name)
-                    and path.name in remote_names
+                    and name_key in remote_names
                     and isinstance(cached, dict)
                     and cached.get("sha256") == asset.sha256
                     and int(cached.get("size", cached.get("size_bytes", -1))) == asset.size_bytes
@@ -301,7 +322,7 @@ class RemoteMaintenanceUiMixin:
                     if reuse_match
                     else (
                         "每次更新，将替换云端同名文件"
-                        if path.name in remote_names
+                        if name_key in remote_names
                         else "将新增到云端"
                     )
                 )
@@ -309,11 +330,13 @@ class RemoteMaintenanceUiMixin:
                 (reusable_rows if reuse_match else changes).append((path, category, action))
 
             remote_only = remote_names - set(local_by_name)
+            preserve_remote_only_files = self.workspace.load_preserve_remote_only_files()
+            remote_only_label = "云端保留" if preserve_remote_only_files else "云端多余"
             self.remote_diff_summary.configure(
                 text=(
-                    f"跳过上传 {len(reusable_rows)} · 需要更新 {sum(path.name in remote_names for path, _, _ in changes)} "
-                    f"· 新增 {sum(path.name not in remote_names for path, _, _ in changes)} "
-                    f"· 云端多余 {len(remote_only)}"
+                    f"跳过上传 {len(reusable_rows)} · 需要更新 {sum(path.name.casefold() in remote_names for path, _, _ in changes)} "
+                    f"· 新增 {sum(path.name.casefold() not in remote_names for path, _, _ in changes)} "
+                    f"· {remote_only_label} {len(remote_only)}"
                 )
             )
 
@@ -354,18 +377,22 @@ class RemoteMaintenanceUiMixin:
             path.name
             for path in local_files
             if _is_immutable_dlc_filename(path.name)
-            and isinstance(cached_assets, dict)
-            and (cached := cached_assets.get(path.name)) is not None
+            and (cached := cached_by_name.get(path.name.casefold())) is not None
             and isinstance(cached, dict)
             and cached.get("sha256") == local_by_name[path.name].sha256
             and int(cached.get("size", cached.get("size_bytes", -1))) == local_by_name[path.name].size_bytes
-            and path.name in remote_names
+            and path.name.casefold() in remote_names
         }
         self._fill_remote_assets(
             assets,
             local_names={path.name for path in local_files},
             reusable_names=reusable_names,
+            preserve_remote_only_files=self.workspace.load_preserve_remote_only_files(),
         )
+        # A refresh is primarily a publish-diff operation.  Always return to
+        # that page after rendering so the result cannot remain hidden behind
+        # the raw cloud-attachment detail page.
+        self._select_remote_detail_page("changes")
 
     def _fill_remote_assets(
         self,
@@ -373,6 +400,7 @@ class RemoteMaintenanceUiMixin:
         *,
         local_names: set[str] | None = None,
         reusable_names: set[str] | None = None,
+        preserve_remote_only_files: bool = False,
     ) -> None:
         for child in self.remote_asset_list.winfo_children():
             child.destroy()
@@ -400,7 +428,11 @@ class RemoteMaintenanceUiMixin:
             action = "DLC 缓存一致，将保留" if reusable_names and asset.name in reusable_names else (
                 "将被同名文件替换"
                 if local_names is not None and asset.name in local_names
-                else "云端保留（批量镜像发布时将删除）"
+                else (
+                    "云端保留（兼容发布时不会删除）"
+                    if preserve_remote_only_files
+                    else "云端保留（批量镜像发布时将删除）"
+                )
             )
             ctk.CTkLabel(row, text=action, text_color=MUTED).pack(
                 side="left", padx=6, pady=9
@@ -463,77 +495,6 @@ class RemoteMaintenanceUiMixin:
         )
         if path:
             self.upload_remote_file(Path(path))
-
-    def trust_remote_dlc_resources(self) -> None:
-        """Explicitly trust same-name immutable DLCs already listed remotely."""
-        release = self._current_remote_release
-        if release is None:
-            messagebox.showinfo("请先刷新远程", "请先读取当前游戏的远端 Release 附件。")
-            return
-        if not messagebox.askyesno(
-            "信任云端 DLC",
-            "将把当前远端已有、且与本地同名的 DLC ZIP 写入复用缓存。\n\n"
-            "下次发布这些 DLC 将跳过上传；补丁、DLL、catalog.json 等可变文件仍会每次更新。"
-            "此操作不下载、不上传也不删除附件。是否继续？",
-            parent=self,
-        ):
-            return
-        if not self._begin_remote_operation("正在写入云端 DLC 信任缓存…"):
-            return
-        profile = self.profile
-        target_name = self._publish_target()
-        target = (
-            {"owner": self.settings.github_owner, "repository": self.settings.github_repository}
-            if target_name == "github"
-            else {"owner": self.settings.owner, "repository": self.settings.repository}
-        )
-        remote_by_name = {asset.name: asset for asset in release.assets}
-        self._log(f"用户操作：信任“{profile.display_name}”当前远端 DLC 资源。")
-
-        def work() -> None:
-            try:
-                cache = self.workspace.load_content_reuse_cache(profile)
-                source_cache = cache.get(target_name)
-                if not isinstance(source_cache, dict) or source_cache.get("target") != target:
-                    source_cache = {"target": target, "assets": {}}
-                    cache[target_name] = source_cache
-                trusted = source_cache.setdefault("assets", {})
-                if not isinstance(trusted, dict):
-                    raise WorkspaceError("DLC 信任缓存格式无效")
-                names: list[str] = []
-                for asset in self.workspace.publish_assets(profile):
-                    remote = remote_by_name.get(asset.name)
-                    if remote is None or not _is_immutable_dlc_filename(asset.name):
-                        continue
-                    trusted[asset.name] = {
-                        "sha256": asset.sha256,
-                        "size": asset.size_bytes,
-                        "remote_id": remote.asset_id,
-                    }
-                    names.append(asset.name)
-                self.workspace.save_content_reuse_cache(profile, cache)
-                self._post_ui(
-                    lambda values=tuple(names): self._trust_remote_dlc_done(
-                        profile, release, values
-                    )
-                )
-            except Exception as error:
-                self._post_ui(lambda value=str(error): self._remote_failed(value))
-
-        threading.Thread(target=work, daemon=True, name=f"trust-dlc-{profile.game_id}").start()
-
-    def _trust_remote_dlc_done(
-        self, profile: GameProfile, release: RemoteRelease, names: tuple[str, ...]
-    ) -> None:
-        self._remote_operation_active = False
-        self._end_background_mutation("remote")
-        self._remote_operation_locks_close = False
-        self.remote_refresh_button.configure(state="normal")
-        self._fill_remote_diff(profile, release.assets)
-        summary = f"已信任 {len(names)} 个远端 DLC，后续将按缓存跳过上传。"
-        self.remote_status.configure(text=summary)
-        self._log(f"后台任务：{summary}")
-        messagebox.showinfo("信任完成", summary, parent=self)
 
     def upload_remote_file(self, path: Path) -> None:
         if not messagebox.askyesno(

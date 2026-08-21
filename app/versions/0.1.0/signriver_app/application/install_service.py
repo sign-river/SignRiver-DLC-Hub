@@ -244,10 +244,10 @@ class DlcInstallService:
         self, package_path: Path, *, known_sha256: str | None = None
     ) -> str:
         # Planning performs the authoritative package validation. This lookup
-        # only finds a possible predecessor for the same descriptor ID.
+        # only finds a possible predecessor for the same package ID.
         if self.package_inspector is None:
-            from ..infrastructure.catalog import inspect_stellaris_package
-            inspector = inspect_stellaris_package
+            from ..infrastructure.catalog import inspect_directory_package
+            inspector = inspect_directory_package
         else:
             inspector = self.package_inspector
         return inspector(

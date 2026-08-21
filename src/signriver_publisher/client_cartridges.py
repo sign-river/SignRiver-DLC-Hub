@@ -37,6 +37,7 @@ def build_client_cartridge_document(
         "release_tag": profile.release_tag,
         "executable_relative_path": executable,
         "dlc_relative_dir": profile.dlc_relative_dir,
+        "dlc_delivery_mode": profile.dlc_delivery_mode,
         "package_inspector": inspector,
         "install_directory_from_slug": bool(profile.install_directory_from_slug),
         "dlc_group_search_roots": list(profile.dlc_group_search_roots),
@@ -59,6 +60,9 @@ def build_client_cartridge_document(
             "runtime_original_library_name": profile.patch_runtime_original_name,
             "appinfo_asset_name": profile.appinfo_name,
             "install_relative_dir": profile.patch_relative_dir,
+            "additional_install_relative_dirs": list(
+                profile.patch_additional_relative_dirs
+            ),
             "ini_target_name": profile.ini_target_name,
             "language": profile.patch_language,
             "unlock_all": bool(profile.patch_unlock_all),

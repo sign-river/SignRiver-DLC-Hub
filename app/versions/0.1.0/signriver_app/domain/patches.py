@@ -87,6 +87,7 @@ class PatchProfile:
     template: PatchTemplate
     install_relative_dir: str = "."
     platform: PatchPlatform = PatchPlatform.WINDOWS
+    additional_install_relative_dirs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
@@ -111,6 +112,22 @@ class PatchProfile:
                 field_name="patch install directory",
             ),
         )
+        additional_dirs = tuple(
+            normalize_game_relative_directory(
+                directory,
+                field_name="additional patch install directory",
+            )
+            for directory in self.additional_install_relative_dirs
+        )
+        all_dirs = (self.install_relative_dir, *additional_dirs)
+        if len({directory.casefold() for directory in all_dirs}) != len(all_dirs):
+            raise ValueError("patch install directories must not repeat")
+        object.__setattr__(self, "additional_install_relative_dirs", additional_dirs)
+
+    @property
+    def install_relative_dirs(self) -> tuple[str, ...]:
+        """All game-relative directories that receive the complete patch."""
+        return (self.install_relative_dir, *self.additional_install_relative_dirs)
 
     @property
     def patch_file_names(self) -> tuple[str, ...]:
@@ -125,9 +142,19 @@ class PatchProfile:
         prefix = "" if self.install_relative_dir == "." else f"{self.install_relative_dir}/"
         return f"{prefix}{filename}"
 
+    def relative_file_paths(self, filename: str) -> tuple[str, ...]:
+        return tuple(
+            f"{'' if directory == '.' else f'{directory}/'}{filename}"
+            for directory in self.install_relative_dirs
+        )
+
     @property
     def patch_file_paths(self) -> tuple[str, ...]:
-        return tuple(self.relative_file_path(name) for name in self.patch_file_names)
+        return tuple(
+            path
+            for name in self.patch_file_names
+            for path in self.relative_file_paths(name)
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+import socket
 import urllib.error
 
 import pytest
@@ -227,6 +228,7 @@ def test_github_asset_upload_retries_after_connection_reset(tmp_path, monkeypatc
         GitHubRepository("sign-river", "assets"), "token", opener=opener
     )
     monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr(client, "_uploaded_asset_if_present", lambda *_args: None)
     monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
     release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
 
@@ -258,6 +260,7 @@ def test_github_asset_upload_recovers_from_existing_asset_conflict(
         GitHubRepository("sign-river", "assets"), "token", opener=opener
     )
     monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr(client, "_uploaded_asset_if_present", lambda *_args: None)
     monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
     release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
 
@@ -286,6 +289,7 @@ def test_github_asset_upload_retries_transient_server_error(
         GitHubRepository("sign-river", "assets"), "token", opener=opener
     )
     monkeypatch.setattr(client, "_remove_partial_asset", lambda *_args: None)
+    monkeypatch.setattr(client, "_uploaded_asset_if_present", lambda *_args: None)
     monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
     release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
 
@@ -320,3 +324,79 @@ def test_github_api_get_retries_transient_server_error(monkeypatch) -> None:
 
     assert release is not None
     assert attempts == ["GET", "GET"]
+
+
+def test_github_asset_upload_recovers_when_success_response_is_lost(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "asset.zip"
+    path.write_bytes(b"asset")
+    release = GitHubRelease(1, "tag", "https://uploads.example.test/1{?name}", ())
+    attempts = []
+
+    def opener(request, *, timeout: int):
+        attempts.append((request.get_method(), timeout))
+        raise socket.timeout("The read operation timed out")
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr(
+        client,
+        "get_release_by_tag",
+        lambda _tag: GitHubRelease(
+            1,
+            "tag",
+            release.upload_url,
+            ({"id": 7, "name": path.name, "size": path.stat().st_size},),
+        ),
+    )
+
+    result = client.upload_asset(release, path)
+
+    assert result["id"] == 7
+    assert attempts == [("POST", 20)]
+
+
+def test_github_api_get_retries_a_response_read_timeout(monkeypatch) -> None:
+    attempts = []
+
+    class _TimeoutResponse(_Response):
+        def read(self) -> bytes:
+            raise socket.timeout("The read operation timed out")
+
+    def opener(request, *, timeout: int):
+        attempts.append((request.get_method(), timeout))
+        if len(attempts) < 3:
+            return _TimeoutResponse({})
+        return _Response({"name": "assets"})
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+
+    assert client.repository_info() == {"name": "assets"}
+    assert attempts == [("GET", 12), ("GET", 12), ("GET", 12)]
+
+
+def test_github_api_get_reports_persistent_read_timeout_without_connection_error(
+    monkeypatch,
+) -> None:
+    class _TimeoutResponse(_Response):
+        def read(self) -> bytes:
+            raise socket.timeout("The read operation timed out")
+
+    def opener(_request, *, timeout: int):
+        assert timeout == 12
+        return _TimeoutResponse({})
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token", opener=opener
+    )
+    monkeypatch.setattr("signriver_publisher.github.time.sleep", lambda _seconds: None)
+
+    with pytest.raises(GitHubPublisherError, match="读取超时.*重试 3 次") as raised:
+        client.repository_info()
+
+    assert "连接失败" not in str(raised.value)

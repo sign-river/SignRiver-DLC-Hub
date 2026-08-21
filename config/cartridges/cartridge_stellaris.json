@@ -7,7 +7,7 @@
   "release_tag": "stellaris",
   "executable_relative_path": "stellaris.exe",
   "dlc_relative_dir": "dlc",
-  "package_inspector": "stellaris_zip",
+  "package_inspector": "directory",
   "install_directory_from_slug": false,
   "repository": {
     "owner": "signriver",

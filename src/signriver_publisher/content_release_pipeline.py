@@ -6,7 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Mapping
 
-from .release_interfaces import RemoteReleaseProvider, StageExecutionResult
+from .release_interfaces import RemoteReleaseProvider, RemoteVerification, StageExecutionResult
 from .release_models import ReleaseArtifact, ReleasePlan, ReleaseStatus
 from .release_orchestrator import ReleaseStageError
 
@@ -26,11 +26,11 @@ def _validate_providers(providers: Mapping[str, RemoteReleaseProvider]) -> None:
             )
 
 
-def _verified(result, artifact: ReleaseArtifact) -> bool:
+def _trusted_remote_record(result, artifact: ReleaseArtifact) -> bool:
     return bool(
         result.exists
         and result.size == artifact.size
-        and result.sha256 == artifact.sha256
+        and result.remote_id
     )
 
 
@@ -40,7 +40,7 @@ def _is_immutable_dlc(artifact: ReleaseArtifact) -> bool:
 
 
 def _content_reuse_assets(plan: ReleasePlan, source: str) -> dict[str, object]:
-    """Return trusted hashes recorded after a prior verified content upload."""
+    """Return local fingerprints paired with a trusted remote attachment ID."""
     cache = plan.options.get("content_reuse_cache")
     if not isinstance(cache, dict):
         return {}
@@ -71,6 +71,51 @@ def _cache_content_asset(
         }
 
 
+def _stage_progress(plan: ReleasePlan, stage_id: str) -> dict[str, object]:
+    record = next((item for item in plan.stages if item.stage_id == stage_id), None)
+    if record is None:
+        return {}
+    if not isinstance(record.output_summary, dict):
+        record.output_summary = {}
+    return record.output_summary
+
+
+def _trusted_record_matches(
+    record: object, remote: object, artifact: ReleaseArtifact
+) -> bool:
+    return bool(
+        isinstance(record, dict)
+        and record.get("size") == artifact.size
+        and record.get("remote_id")
+        and isinstance(remote, dict)
+        and remote.get("remote_id")
+        and str(record["remote_id"]) == str(remote["remote_id"])
+    )
+
+
+def _remote_upload_recovered(
+    provider: RemoteReleaseProvider, artifact: ReleaseArtifact
+):
+    """Confirm an upload whose server response was lost, without downloading it."""
+    baseline = provider.read_baseline()
+    remote = next(
+        (
+            item
+            for item in baseline.get("assets", [])
+            if isinstance(item, dict) and item.get("name") == artifact.filename
+        ),
+        None,
+    )
+    if not isinstance(remote, dict) or not remote.get("remote_id"):
+        return None
+    remote_size = remote.get("size")
+    if remote_size is not None and remote_size != artifact.size:
+        return None
+    return RemoteVerification(
+        True, size=artifact.size, remote_id=str(remote["remote_id"])
+    )
+
+
 class UploadSnapshotAttachmentsStage:
     order = 20
     safe_checkpoint = True
@@ -96,15 +141,21 @@ class UploadSnapshotAttachmentsStage:
             raise ReleaseStageError("发布快照没有附件", retryable=False)
         desired_names = {artifact.filename for artifact in attachments}
         desired_names.add(next(item.filename for item in plan.artifacts if item.role == self.index_role))
-        delete_confirmed = bool(plan.options.get("mirror_delete_confirmed"))
+        preserve_remote_only_files = bool(plan.options.get("preserve_remote_only_files"))
+        delete_confirmed = bool(plan.options.get("mirror_delete_confirmed")) and not preserve_remote_only_files
         ready: dict[str, list[str]] = {}
         reused: dict[str, list[str]] = {}
+        recovered: dict[str, list[str]] = {}
+        continued: dict[str, list[str]] = {}
         deleted: dict[str, list[str]] = {}
         pending_deletes: dict[str, list[str]] = {}
         reuse_enabled = isinstance(plan.options.get("content_reuse_cache"), dict)
         next_reuse_cache = deepcopy(plan.options.get("content_reuse_cache", {})) if reuse_enabled else {}
+        progress = _stage_progress(plan, self.stage_id)
+        prior_trusted = progress.get("trusted", {})
+        trusted = deepcopy(prior_trusted) if isinstance(prior_trusted, dict) else {}
         for source, provider in self.providers.items():
-            ready[source], reused[source], deleted[source], pending_deletes[source] = [], [], [], []
+            ready[source], reused[source], recovered[source], continued[source], deleted[source], pending_deletes[source] = [], [], [], [], [], []
             read_baseline = getattr(provider, "read_baseline", None)
             if not callable(read_baseline):
                 raise ReleaseStageError(f"{source} 不支持读取远端资源目录", retryable=False)
@@ -115,6 +166,10 @@ class UploadSnapshotAttachmentsStage:
                 if isinstance(item, dict) and str(item.get("name") or "")
             }
             cached_assets = _content_reuse_assets(plan, source) if reuse_enabled else {}
+            source_trusted = trusted.setdefault(source, {})
+            if not isinstance(source_trusted, dict):
+                source_trusted = {}
+                trusted[source] = source_trusted
             for artifact in attachments:
                 if self.checkpoint:
                     self.checkpoint(plan)
@@ -125,11 +180,11 @@ class UploadSnapshotAttachmentsStage:
                     and cached.get("size") == artifact.size
                 )
                 remote_id_matches = (
-                    not isinstance(cached, dict)
-                    or not cached.get("remote_id")
-                    or not isinstance(remote, dict)
-                    or not remote.get("remote_id")
-                    or str(cached["remote_id"]) == str(remote["remote_id"])
+                    isinstance(cached, dict)
+                    and bool(cached.get("remote_id"))
+                    and isinstance(remote, dict)
+                    and bool(remote.get("remote_id"))
+                    and str(cached["remote_id"]) == str(remote["remote_id"])
                 )
                 if (
                     _is_immutable_dlc(artifact)
@@ -140,12 +195,53 @@ class UploadSnapshotAttachmentsStage:
                     ready[source].append(artifact.filename)
                     reused[source].append(artifact.filename)
                     continue
-                result = provider.upload(artifact, Path(artifact.local_path or ""))
-                if not _verified(result, artifact):
-                    raise ReleaseStageError(f"{source} 附件回读失败：{artifact.filename}")
+                previous = source_trusted.get(artifact.filename)
+                if _trusted_record_matches(previous, remote, artifact):
+                    ready[source].append(artifact.filename)
+                    continued[source].append(artifact.filename)
+                    if reuse_enabled:
+                        _cache_content_asset(
+                            next_reuse_cache,
+                            plan,
+                            source,
+                            artifact,
+                            RemoteVerification(
+                                True,
+                                size=artifact.size,
+                                remote_id=str(previous["remote_id"]),
+                            ),
+                        )
+                    continue
+                try:
+                    result = provider.upload(artifact, Path(artifact.local_path or ""))
+                except Exception:
+                    result = _remote_upload_recovered(provider, artifact)
+                    if result is None:
+                        raise
+                    recovered[source].append(artifact.filename)
+                if not _trusted_remote_record(result, artifact):
+                    raise ReleaseStageError(
+                        f"{source} 附件上传后未取得可信的附件 ID 或大小：{artifact.filename}"
+                    )
                 ready[source].append(artifact.filename)
-                if reuse_enabled and _is_immutable_dlc(artifact):
+                source_trusted[artifact.filename] = {
+                    "remote_id": result.remote_id,
+                    "size": artifact.size,
+                }
+                if reuse_enabled:
                     _cache_content_asset(next_reuse_cache, plan, source, artifact, result)
+                progress.update(
+                    {
+                        "ready": ready,
+                        "reused": reused,
+                        "recovered": recovered,
+                        "continued": continued,
+                        "trusted": trusted,
+                        "content_reuse_cache": next_reuse_cache,
+                    }
+                )
+                if self.checkpoint:
+                    self.checkpoint(plan)
             # Legacy direct publishing only replaces the declared attachments.
             # The queue-driven mirror workflow explicitly asks the operator to
             # confirm remote deletion first; only that path requires a remote
@@ -191,8 +287,12 @@ class UploadSnapshotAttachmentsStage:
             {
                 "ready": ready,
                 "reused": reused,
+                "recovered": recovered,
+                "continued": continued,
                 "deleted": deleted,
+                "preserved_remote_only_files": preserve_remote_only_files,
                 "content_reuse_cache": next_reuse_cache,
+                "trusted": trusted,
             },
             {"all_snapshot_attachments_ready": all(len(value) == len(attachments) for value in ready.values())},
         )
@@ -229,9 +329,9 @@ class PublishSnapshotIndexStage:
                     f"{source} 主表切换失败：{exc}",
                     status=ReleaseStatus.DEGRADED if switched else ReleaseStatus.FAILED,
                 ) from exc
-            if not _verified(result, index):
+            if not _trusted_remote_record(result, index):
                 raise ReleaseStageError(
-                    f"{source} 主表回读失败",
+                    f"{source} 主表上传后未取得可信的附件 ID 或大小",
                     status=ReleaseStatus.DEGRADED if switched else ReleaseStatus.FAILED,
                 )
             switched.append(source)
@@ -247,14 +347,14 @@ def _snapshot_stages(prefix: str, providers: Mapping[str, RemoteReleaseProvider]
     return (
         UploadSnapshotAttachmentsStage(
             stage_id=upload_id,
-            display_name="上传并回读完整附件快照",
+            display_name="上传完整附件快照并记录远端 ID",
             providers=providers,
             index_role=index_role,
             checkpoint=checkpoint,
         ),
         PublishSnapshotIndexStage(
             stage_id=f"{prefix}.publish_index",
-            display_name="最后切换并回读主表",
+            display_name="最后切换主表并记录远端 ID",
             providers=providers,
             index_role=index_role,
             upload_stage_id=upload_id,

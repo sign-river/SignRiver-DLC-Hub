@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import time
 from typing import Callable
 
 from .gitlink import GitLinkError, GitLinkRepository, UploadControl
@@ -454,32 +455,41 @@ class RemoteResourceManager:
             if current
             else []
         )
-        try:
-            if current:
-                self.client.update_release(
-                    self.repository,
-                    release_id=current.release_id,
-                    tag=current.tag,
-                    name=current.name or release_name,
-                    body=current.body,
-                    attachment_ids=[*retained, new_id],
-                )
-                action = "替换" if old_same else "添加"
-            else:
-                self.client.create_release(
-                    self.repository,
-                    tag=tag,
-                    name=release_name,
-                    body="SignRiver Publisher 远程资源管理",
-                    attachment_ids=[new_id],
-                )
-                action = "创建并添加"
-        except Exception:
+        action = "替换" if current and old_same else "添加" if current else "创建并添加"
+        for attempt in range(3):
             try:
-                self.client.delete_attachment(new_id)
+                if current:
+                    # This request has a fixed Release ID and a complete,
+                    # deterministic attachment list, so repeating it is safe.
+                    self.client.update_release(
+                        self.repository,
+                        release_id=current.release_id,
+                        tag=current.tag,
+                        name=current.name or release_name,
+                        body=current.body,
+                        attachment_ids=[*retained, new_id],
+                    )
+                else:
+                    self.client.create_release(
+                        self.repository,
+                        tag=tag,
+                        name=release_name,
+                        body="SignRiver Publisher 远程资源管理",
+                        attachment_ids=[new_id],
+                    )
+                break
             except Exception:
-                pass
-            raise
+                try:
+                    refreshed = self.get_release(tag)
+                except Exception:
+                    refreshed = None
+                if refreshed is not None and any(
+                    asset.asset_id == new_id for asset in refreshed.assets
+                ):
+                    break
+                if attempt == 2:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
         warnings = self._cleanup_assets(old_same)
         return RemoteMutationResult(action, new_asset, warnings)
 

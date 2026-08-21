@@ -32,6 +32,7 @@ class ConfiguredSteamCartridge:
         executable_relative_path: str,
         patch_profile: PatchProfile,
         package_inspector,
+        dlc_delivery_mode: str = "download_packages",
         repository_owner: str = "signriver",
         repository_name: str = "signriver-dlc-assets",
         repositories: dict[str, dict[str, str]] | None = None,
@@ -47,6 +48,7 @@ class ConfiguredSteamCartridge:
         self.store_app_id = store_app_id
         self.release_tag = release_tag
         self.dlc_relative_dir = dlc_relative_dir
+        self.dlc_delivery_mode = dlc_delivery_mode
         self.executable_name = executable_relative_path
         self.patch_profile = patch_profile
         self.repository_owner = repository_owner
@@ -139,6 +141,32 @@ class ConfiguredSteamCartridge:
                 path = children.get(entry.slug.casefold())
                 if path is not None:
                     installed[entry.dlc_id.casefold()] = path
+        elif self.dlc_group_search_roots == (".",):
+            # Some launchers (currently Age of Wonders 4) keep every DLC as a
+            # JSON descriptor plus PNG thumbnail directly in one shared
+            # directory.  They are individual install units despite not
+            # having individual directories.
+            try:
+                dlc_root = resolve_game_directory(
+                    game_root, self.dlc_relative_dir,
+                    field_name="DLC install directory",
+                )
+                files = {
+                    path.name.casefold(): path
+                    for path in dlc_root.iterdir()
+                    if path.is_file() and not path.is_symlink()
+                }
+            except (OSError, ValueError):
+                files = {}
+            for entry in catalog_entries:
+                slug = entry.slug.casefold()
+                descriptor = (
+                    files.get(f"{slug}.dlc.json")
+                    or files.get(f"{slug}.json")
+                )
+                thumbnail = files.get(f"{slug}.png")
+                if descriptor is not None and thumbnail is not None:
+                    installed[entry.dlc_id.casefold()] = descriptor
         elif self.dlc_group_search_roots:
             try:
                 dlc_root = resolve_game_directory(
@@ -180,6 +208,8 @@ class ConfiguredSteamCartridge:
 
     def remove_installed_dlc(self, game_root: Path, dlc_id: str) -> Path:
         target = self._installed_paths.get(dlc_id.casefold())
+        if target is not None and self.dlc_group_search_roots == (".",):
+            return self._remove_shared_file_pair(game_root, dlc_id, target)
         if target is not None and self.dlc_group_search_roots:
             return self._remove_grouped_installed_dlc(game_root, target.name)
         if target is None or re.match(r"^dlc\d{3,}_", target.name, re.I):
@@ -223,6 +253,34 @@ class ConfiguredSteamCartridge:
             if value.name.casefold() != install_name.casefold()
         }
         return removed[0]
+
+    def _remove_shared_file_pair(
+        self, game_root: Path, dlc_id: str, descriptor: Path
+    ) -> Path:
+        """Remove only one launcher DLC file pair, never its shared folder."""
+        dlc_root = resolve_game_directory(
+            game_root, self.dlc_relative_dir, field_name="DLC install directory"
+        ).resolve(strict=True)
+        resolved = descriptor.resolve(strict=True)
+        if resolved.parent != dlc_root or not resolved.is_file():
+            raise ValueError("refusing to remove an unsafe shared DLC file")
+        lower_name = resolved.name.casefold()
+        if lower_name.endswith(".dlc.json"):
+            slug = resolved.name[:-len(".dlc.json")]
+        elif lower_name.endswith(".json"):
+            slug = resolved.name[:-len(".json")]
+        else:
+            raise ValueError("shared DLC descriptor must be a JSON file")
+        thumbnail = dlc_root / f"{slug}.png"
+        for candidate in (resolved, thumbnail):
+            if not candidate.exists():
+                continue
+            candidate_resolved = candidate.resolve(strict=True)
+            if candidate_resolved.parent != dlc_root or candidate_resolved.is_symlink():
+                raise ValueError("refusing to remove an unsafe shared DLC file")
+            candidate_resolved.unlink()
+        self._installed_paths.pop(dlc_id.casefold(), None)
+        return resolved
 
 
 __all__ = ["ConfiguredSteamCartridge"]

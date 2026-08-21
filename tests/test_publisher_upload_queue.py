@@ -101,6 +101,20 @@ def test_running_item_must_be_paused_before_removal(tmp_path: Path) -> None:
     assert queue.remove(item.item_id).item_id == item.item_id
 
 
+def test_clear_removes_queue_records_but_refuses_running_upload(tmp_path: Path) -> None:
+    queue = ContentUploadQueue(tmp_path)
+    first = queue.enqueue(_plan("game-a", batch_id="a"), display_name="游戏 A")
+    second = queue.enqueue(_plan("game-b", batch_id="b"), display_name="游戏 B")
+
+    assert [item.item_id for item in queue.clear()] == [first.item_id, second.item_id]
+    assert queue.list_items() == ()
+
+    running = queue.enqueue(_plan("game-a"), display_name="游戏 A")
+    queue.mark_running(running.item_id)
+    with pytest.raises(UploadQueueError, match="先暂停"):
+        queue.clear()
+
+
 def test_queue_cannot_start_a_later_item_before_pending_predecessor(tmp_path: Path) -> None:
     queue = ContentUploadQueue(tmp_path)
     first = queue.enqueue(_plan("game-a", batch_id="a"), display_name="游戏 A")

@@ -48,6 +48,27 @@ def test_initializes_stellaris_workspace(tmp_path: Path) -> None:
     assert (workspace.game_dir("stellaris") / "patches").is_dir()
 
 
+def test_imports_age_of_wonders_shared_launcher_dlc_file_pairs(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    profile = next(item for item in workspace.list_games() if item.game_id == "age_of_wonders_4")
+    source = tmp_path / "Age of Wonders 4" / "Launcher" / "dlc"
+    source.mkdir(parents=True)
+    (source / "archonprophecy.dlc.json").write_text("{}", encoding="utf-8")
+    (source / "archonprophecy.png").write_bytes(b"png")
+    (source / "secretsofthearchmages.json").write_text("{}", encoding="utf-8")
+    (source / "secretsofthearchmages.png").write_bytes(b"png")
+
+    assert workspace.is_dlc_collection(profile, source)
+    imported = workspace.import_dlc_collection(profile, source)
+
+    assert [path.name for path in imported] == [
+        "dlc001_archonprophecy", "dlc002_secretsofthearchmages",
+    ]
+    assert (imported[0] / "archonprophecy.dlc.json").is_file()
+    assert (imported[1] / "secretsofthearchmages.png").is_file()
+
+
 def test_initialize_migrates_legacy_rimworld_patch_directory(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()
@@ -62,6 +83,78 @@ def test_initialize_migrates_legacy_rimworld_patch_directory(tmp_path: Path) -> 
         profile for profile in workspace.list_games() if profile.game_id == "rimworld"
     )
     assert rimworld.patch_relative_dir == "RimWorldWin64_Data/Plugins/x86_64"
+
+
+def test_initialize_migrates_age_of_wonders_content_layout_to_shared_pairs(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    path = workspace.game_dir("age_of_wonders_4") / "game.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.update({
+        "dlc_relative_dir": "Launcher",
+        "dlc_archive_root_mode": "strip_id_prefix",
+        "dlc_import_layout_mode": "children_if_root",
+        "dlc_group_search_roots": [],
+        "package_inspector": "directory",
+        "install_directory_from_slug": True,
+    })
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    workspace.initialize()
+
+    profile = next(item for item in workspace.list_games() if item.game_id == "age_of_wonders_4")
+    assert profile.dlc_relative_dir == "Launcher/dlc"
+    assert profile.dlc_import_layout_mode == "shared_file_pairs"
+    assert profile.dlc_group_search_roots == (".",)
+
+
+def test_initialize_migrates_legacy_stellaris_inspector_to_directory(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    path = workspace.game_dir("stellaris") / "game.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["package_inspector"] = "stellaris_zip"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    workspace.initialize()
+
+    stellaris = next(
+        profile for profile in workspace.list_games() if profile.game_id == "stellaris"
+    )
+    assert stellaris.package_inspector == "directory"
+
+
+def test_content_publish_compatibility_preference_is_publisher_wide(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    stellaris = workspace.initialize()
+    other = GameProfile.create("other_game", "Other Game", "123")
+    workspace.save_game(other)
+
+    assert workspace.load_preserve_remote_only_files() is False
+    workspace.save_preserve_remote_only_files(True)
+
+    assert workspace.load_preserve_remote_only_files() is True
+    assert (workspace.root / ".content-publish-options.json").is_file()
+    assert not (workspace.game_dir(stellaris.game_id) / ".content-publish-options.json").exists()
+    assert other.game_id != stellaris.game_id
+
+
+def test_initialize_migrates_any_legacy_game_compatibility_preference(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    profile = workspace.initialize()
+    legacy_path = workspace.game_dir(profile.game_id) / ".content-publish-options.json"
+    legacy_path.write_text(
+        '{"version": 1, "preserve_remote_only_files": true}', encoding="utf-8"
+    )
+    (workspace.root / ".content-publish-options.json").unlink(missing_ok=True)
+
+    workspace.initialize()
+
+    assert workspace.load_preserve_remote_only_files() is True
 
 
 def test_large_release_archive_is_split_without_changing_bytes(tmp_path: Path) -> None:
@@ -161,6 +254,17 @@ def test_server_cartridge_rejects_unsafe_install_directories(tmp_path: Path) -> 
     with pytest.raises(WorkspaceError, match="DLC 安装目录"):
         workspace.save_game(unsafe)
 
+    unsafe_patch_target = PublisherCartridge(
+        cartridge.game_id,
+        cartridge.display_name,
+        cartridge.release_tag,
+        cartridge.appinfo_name,
+        cartridge.steam_app_id,
+        patch_additional_relative_dirs=("../outside",),
+    )
+    with pytest.raises(WorkspaceError, match="额外补丁目录"):
+        workspace.save_game(unsafe_patch_target)
+
 
 def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
@@ -174,10 +278,62 @@ def test_empty_server_workspace_is_seeded_from_builtin_cartridge_registry(tmp_pa
     assert builtins["civilization_6"].dlc_import_layout_mode == "children_if_root"
     assert builtins["stellaris"].dlc_import_naming_mode == "manual_prefixed"
     assert builtins["stellaris"].dlc_import_layout_mode == "single_directory"
+    assert builtins["stellaris"].package_inspector == "directory"
     assert builtins["hearts_of_iron_4"].dlc_import_naming_mode == "manual_prefixed"
     assert builtins["hearts_of_iron_4"].patch_platforms["steamos"][
         "executable_relative_path"
     ] == "hoi4"
+    assert builtins["civilization_7"].dlc_delivery_mode == "built_in"
+    assert builtins["age_of_wonders_4"].patch_additional_relative_dirs == (
+        "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib",
+    )
+
+
+def test_built_in_dlc_profile_excludes_local_dlc_and_rejects_import(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    profile = next(
+        item for item in workspace.list_games() if item.game_id == "civilization_7"
+    )
+    source = tmp_path / "DLC"
+    source.mkdir()
+    (source / "content.dat").write_bytes(b"not needed")
+
+    assert workspace.scan_sources(profile)[0] == ()
+    with pytest.raises(WorkspaceError, match="已随本体安装"):
+        workspace.import_dlc(profile, source)
+
+
+def test_built_in_dlc_profile_builds_patch_and_appinfo_without_dlc_packages(
+    tmp_path: Path,
+) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher",
+        appinfo_provider=lambda app_id: SteamAppInfo(
+            app_id, "Civilization VII", "2026-08-21", ()
+        ),
+    )
+    workspace.initialize()
+    profile = next(
+        item for item in workspace.list_games() if item.game_id == "civilization_7"
+    )
+    dlc = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_ignored"
+    dlc.mkdir()
+    (dlc / "payload.dat").write_bytes(b"already in game")
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"unlocker")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"original")
+
+    records = workspace.build(profile)
+    output = workspace.output_dir / profile.game_id
+
+    assert not any(record.kind == "dlc" for record in records)
+    assert not tuple(output.glob("dlc*.zip"))
+    assert (output / "unlocker.dll").is_file()
+    assert (output / "original.dll").is_file()
+    assert (output / profile.appinfo_name).is_file()
 
 
 def test_rejects_appinfo_name_that_does_not_match_game_id(tmp_path: Path) -> None:
@@ -275,7 +431,7 @@ def test_successful_build_writes_verified_completion_manifest(tmp_path: Path) ->
     ]
 
 
-def test_failed_rebuild_invalidates_previous_publishable_output(tmp_path: Path) -> None:
+def test_failed_rebuild_keeps_last_complete_output_publishable(tmp_path: Path) -> None:
     workspace, profile = built_minimal_workspace(tmp_path)
     patches = workspace.game_dir(profile.game_id) / "patches"
     (patches / profile.patch_unlocker_name).unlink()
@@ -285,11 +441,10 @@ def test_failed_rebuild_invalidates_previous_publishable_output(tmp_path: Path) 
 
     assert (workspace.output_dir / profile.game_id / profile.appinfo_name).is_file()
     assert not (workspace.game_dir(profile.game_id) / ".build-complete.json").exists()
-    with pytest.raises(WorkspaceError, match="完整构建凭证"):
-        workspace.publish_assets(profile)
+    assert workspace.publish_assets(profile)
 
 
-def test_legacy_output_without_completion_manifest_is_not_publishable(
+def test_legacy_output_without_completion_manifest_is_publishable(
     tmp_path: Path,
 ) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
@@ -300,19 +455,21 @@ def test_legacy_output_without_completion_manifest_is_not_publishable(
     for name in profile.patch_asset_names:
         (output / name).write_bytes(b"legacy")
 
-    with pytest.raises(WorkspaceError, match="完整构建凭证"):
-        workspace.publish_files(profile)
+    names = [path.name for path in workspace.publish_files(profile)]
+    assert set(names[:-1]) == {profile.appinfo_name, *profile.patch_asset_names}
+    assert names[-1] == "catalog.json"
 
 
-def test_publish_rejects_tampered_output_even_when_size_is_unchanged(
+def test_publish_hashes_current_output_without_a_stale_completion_manifest(
     tmp_path: Path,
 ) -> None:
     workspace, profile = built_minimal_workspace(tmp_path)
     output = workspace.output_dir / profile.game_id / "unlocker.dll"
     output.write_bytes(b"BAD")
 
-    with pytest.raises(WorkspaceError, match="校验失败"):
-        workspace.publish_assets(profile)
+    assets = workspace.publish_assets(profile)
+
+    assert next(asset for asset in assets if asset.name == "unlocker.dll").sha256
 
 
 def test_publish_rejects_missing_release_part(
@@ -337,28 +494,26 @@ def test_publish_rejects_missing_release_part(
 
     parts[1].unlink()
 
-    with pytest.raises(WorkspaceError, match="完整构建凭证"):
+    with pytest.raises(WorkspaceError, match="DLC 分卷不完整"):
         workspace.publish_files(profile)
 
 
-def test_standalone_appinfo_refresh_invalidates_complete_build(tmp_path: Path) -> None:
+def test_standalone_appinfo_refresh_does_not_block_current_output_publish(tmp_path: Path) -> None:
     workspace, profile = built_minimal_workspace(tmp_path)
 
     workspace.refresh_appinfo(profile)
 
-    with pytest.raises(WorkspaceError, match="完整构建凭证"):
-        workspace.publish_assets(profile)
+    assert workspace.publish_assets(profile)
 
 
-def test_source_change_invalidates_complete_build(tmp_path: Path) -> None:
+def test_source_change_does_not_block_existing_output_publish(tmp_path: Path) -> None:
     workspace, profile = built_minimal_workspace(tmp_path)
     source = tmp_path / "optional_patch.txt"
     source.write_text("changed source set", encoding="utf-8")
 
     workspace.import_patch(profile, source)
 
-    with pytest.raises(WorkspaceError, match="完整构建凭证"):
-        workspace.publish_assets(profile)
+    assert workspace.publish_assets(profile)
 
 
 def test_build_rejects_non_dlc_attachment_over_safe_limit(
@@ -577,7 +732,7 @@ def test_clear_local_sources_resets_dlc_import_state_without_touching_patches(
     assert workspace._next_dlc_import_number(profile) == 1
 
 
-def test_auto_prefix_cartridge_imports_raw_folder_with_monotonic_number(tmp_path: Path) -> None:
+def test_auto_prefix_cartridge_reuses_number_after_deleted_folder_and_restart(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()
     profile = next(
@@ -593,10 +748,17 @@ def test_auto_prefix_cartridge_imports_raw_folder_with_monotonic_number(tmp_path
     second = tmp_path / "VikingsScenario"
     second.mkdir()
     (second / "content.dat").write_bytes(b"second")
-    imported_second = workspace.import_dlc(profile, second)
+    # Recreate the workspace to prove the stale import-state file cannot keep
+    # a deleted number reserved across publisher restarts.
+    restarted = PublisherWorkspace(tmp_path / "publisher")
+    restarted.initialize()
+    profile = next(
+        item for item in restarted.list_games() if item.game_id == "civilization_6"
+    )
+    imported_second = restarted.import_dlc(profile, second)
 
     assert imported_first.name == "dlc001_Expansion1"
-    assert imported_second.name == "dlc002_VikingsScenario"
+    assert imported_second.name == "dlc001_VikingsScenario"
     assert (imported_second / "content.dat").read_bytes() == b"second"
 
 
@@ -637,6 +799,64 @@ def test_civilization_root_import_splits_immediate_children(tmp_path: Path) -> N
     ]
     assert not (workspace.game_dir(profile.game_id) / "dlc" / "dlc001_DLC").exists()
     assert progress[-1] == (3, 3, "KublaiKhan_Vietnam")
+
+
+def test_victoria_root_import_preserves_already_managed_child_names(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    victoria = next(
+        item for item in workspace.list_games() if item.game_id == "victoria_3"
+    )
+    source = tmp_path / "game" / "dlc"
+    for name in ("dlc001_preorder", "dlc002_american_buildings"):
+        child = source / name
+        child.mkdir(parents=True)
+        (child / "content.dat").write_text(name, encoding="utf-8")
+
+    assert workspace.is_dlc_collection(victoria, source)
+    imported = workspace.import_dlc_collection(victoria, source)
+
+    assert [path.name for path in imported] == [
+        "dlc001_preorder",
+        "dlc002_american_buildings",
+    ]
+    assert (imported[0] / "content.dat").read_text(encoding="utf-8") == "dlc001_preorder"
+
+
+def test_build_preserves_an_empty_managed_dlc_directory_as_a_package(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    dlc_root = workspace.game_dir(profile.game_id) / "dlc"
+    (dlc_root / "dlc001_nonempty").mkdir()
+    (dlc_root / "dlc001_nonempty" / "content.dat").write_bytes(b"content")
+    (dlc_root / "dlc002_placeholder").mkdir()
+    events: list[tuple[str, int, int, str, str]] = []
+
+    records = workspace.build(profile, progress=lambda *event: events.append(event))
+    output = workspace.output_dir / profile.game_id
+
+    assert (output / "dlc001_nonempty.zip").is_file()
+    empty_package = output / "dlc002_placeholder.zip"
+    assert empty_package.is_file()
+    with zipfile.ZipFile(empty_package) as archive:
+        assert archive.namelist() == ["dlc002_placeholder/"]
+    assert any(record.asset_name == "dlc002_placeholder.zip" for record in records)
+    assert not any(event[0] == "跳过空目录" for event in events)
+
+
+def test_initialize_migrates_victoria_to_root_collection_import(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    path = workspace.game_dir("victoria_3") / "game.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["dlc_import_layout_mode"] = "single_directory"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    workspace.initialize()
+
+    victoria = next(
+        item for item in workspace.list_games() if item.game_id == "victoria_3"
+    )
+    assert victoria.dlc_import_layout_mode == "children_if_root"
 
 
 def test_grouped_leaf_import_merges_same_dlc_across_declared_branches(
@@ -982,6 +1202,40 @@ def test_release_api_uses_bearer_token_without_cli(monkeypatch: pytest.MonkeyPat
     args, kwargs = Connection.instance.request_args
     assert args[:2] == ("GET", "/api/signriver/signriver-dlc-assets/releases.json?page=1&limit=100")
     assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+
+def test_release_api_retries_transient_metadata_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        status = 200
+
+        @staticmethod
+        def read(_limit: int) -> bytes:
+            return b'{"releases":[]}'
+
+    class Connection:
+        attempts = 0
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def request(self, *_args, **_kwargs) -> None:
+            Connection.attempts += 1
+            if Connection.attempts < 3:
+                raise TimeoutError("The read operation timed out")
+
+        def getresponse(self) -> Response:
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("signriver_publisher.gitlink.http.client.HTTPSConnection", Connection)
+    monkeypatch.setattr("signriver_publisher.gitlink.time.sleep", lambda _seconds: None)
+
+    assert GitLinkAttachmentClient("secret-token").list_releases(GitLinkRepository()) == {
+        "releases": []
+    }
+    assert Connection.attempts == 3
 
 
 def test_release_api_rejects_application_level_404(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1367,7 +1621,7 @@ def test_remote_delete_all_reports_deleted_and_unmanaged_assets() -> None:
     assert result.failures == ("manual.zip：缺少可删除的上传 UUID",)
 
 
-def test_remote_upload_cleans_new_attachment_if_release_update_fails(tmp_path: Path) -> None:
+def test_remote_upload_keeps_new_attachment_when_release_update_outcome_is_unknown(tmp_path: Path) -> None:
     source = tmp_path / "new.zip"
     source.write_bytes(b"new")
 
@@ -1384,7 +1638,9 @@ def test_remote_upload_cleans_new_attachment_if_release_update_fails(tmp_path: P
     with pytest.raises(GitLinkError, match="update failed"):
         RemoteResourceManager(client, GitLinkRepository()).upload_file(GameProfile("stellaris", "Stellaris", "stellaris", "stellaris_appinfo.json", "281990"), source)
 
-    assert client.deleted == ["orphan"]
+    # The update may have reached GitLink even though its response failed.
+    # Keep the attachment so a later metadata recovery can recognise it.
+    assert client.deleted == []
 
 
 def test_release_sync_reuses_unchanged_asset_but_always_replaces_appinfo(tmp_path: Path) -> None:

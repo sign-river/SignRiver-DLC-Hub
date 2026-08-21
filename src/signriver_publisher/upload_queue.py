@@ -137,6 +137,53 @@ class ContentUploadQueue:
         self._save(items)
         return item
 
+    def enqueue_built_game(
+        self,
+        *,
+        game_id: str,
+        display_name: str,
+        release_tag: str,
+        artifact_count: int,
+        total_bytes: int,
+    ) -> UploadQueueItem:
+        """Add a completed local build without recreating its release record yet."""
+        game_id = game_id.strip()
+        if not game_id:
+            raise UploadQueueError("上传项缺少游戏标识")
+        items = self._load()
+        duplicate = next((item for item in items if item.game_id == game_id), None)
+        if duplicate is not None:
+            duplicate.display_name = display_name.strip() or game_id
+            duplicate.release_tag = release_tag
+            duplicate.release_id = ""
+            duplicate.artifact_count = max(0, artifact_count)
+            duplicate.total_bytes = max(0, total_bytes)
+            duplicate.completed_bytes = 0
+            duplicate.current_filename = None
+            duplicate.current_source = None
+            duplicate.bytes_per_second = 0.0
+            duplicate.mirror_delete_confirmed = False
+            duplicate.updated_at = _utc_now()
+            if duplicate.status is UploadQueueStatus.RUNNING:
+                duplicate.error = "已保留最新构建；当前安全上传步骤结束后将上传新构建。"
+            else:
+                duplicate.status = UploadQueueStatus.QUEUED
+                duplicate.error = "已替换为最新构建，等待上传。"
+            self._replace(duplicate)
+            return duplicate
+        item = UploadQueueItem(
+            item_id=uuid4().hex,
+            game_id=game_id,
+            display_name=display_name.strip() or game_id,
+            release_tag=release_tag,
+            release_id="",
+            artifact_count=max(0, artifact_count),
+            total_bytes=max(0, total_bytes),
+        )
+        items.append(item)
+        self._save(items)
+        return item
+
     def requeue_latest(self, item_id: str) -> UploadQueueItem:
         item = self._set_status(item_id, UploadQueueStatus.QUEUED)
         item.completed_bytes = 0
@@ -158,6 +205,15 @@ class ContentUploadQueue:
             self._save(items)
             return removed
         raise UploadQueueError("找不到上传项")
+
+    def clear(self) -> tuple[UploadQueueItem, ...]:
+        """Remove all non-running queue records without touching local artifacts."""
+        items = self._load()
+        running = next((item for item in items if item.status is UploadQueueStatus.RUNNING), None)
+        if running is not None:
+            raise UploadQueueError(f"“{running.display_name}”正在上传，请先暂停后再清空队列")
+        self._save([])
+        return tuple(items)
 
     def move(self, item_id: str, offset: int) -> tuple[UploadQueueItem, ...]:
         """Move a non-running item while keeping the queue strictly FIFO."""

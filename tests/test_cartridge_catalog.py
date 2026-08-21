@@ -54,13 +54,29 @@ def test_builtin_cartridges_are_built_from_bootstrap_documents() -> None:
         for item in create_builtin_cartridges(BOOTSTRAP, platform="windows")
     }
     assert cartridges["stellaris"].release_tag == "stellaris"
+    assert cartridges["stellaris"].package_inspector.__name__ == "inspect_directory_package"
     assert cartridges["civilization_6"].dlc_relative_dir == "DLC"
     assert cartridges["hearts_of_iron_4"].store_app_id == "394360"
     assert cartridges["cities_skylines"].store_app_id == "255710"
     assert cartridges["rimworld"].dlc_relative_dir == "Data"
+    assert cartridges["civilization_7"].dlc_delivery_mode == "built_in"
+    assert cartridges["age_of_wonders_4"].patch_profile.install_relative_dirs == (
+        ".",
+        "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib",
+    )
     assert cartridges["rimworld"].patch_profile.install_relative_dir == (
         "RimWorldWin64_Data/Plugins/x86_64"
     )
+
+
+def test_client_ui_describes_built_in_dlc_as_patch_only_activation() -> None:
+    source = (ROOT / "app" / "versions" / "0.1.0" / "app_entry.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "def _uses_built_in_dlc_delivery" in source
+    assert "DLC 已随游戏本体安装，无需额外下载；安装补丁后即可激活。" in source
+    assert 'text = "安装补丁并激活"' in source
 
 
 def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) -> None:

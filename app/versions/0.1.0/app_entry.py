@@ -4390,6 +4390,15 @@ class DlcHubApplication:
 
     def _refresh_catalog_capacity_summary(self) -> None:
         """Show known catalog and selected-DLC capacity beside the item count."""
+        if self._uses_built_in_dlc_delivery():
+            patch_suffix = "补丁资源已就绪" if self.patch_bundle is not None else "缺少补丁资源"
+            self.catalog_status.configure(
+                text=(
+                    f"{self.cartridge.adapter.descriptor.display_name} · DLC 已随游戏本体安装"
+                    f" · 无需下载 · {patch_suffix}"
+                )
+            )
+            return
         entries = self.catalog_entries
         if not entries:
             return
@@ -4426,6 +4435,14 @@ class DlcHubApplication:
                 f"当前选中 {len(selected_entries)} 项（{selected_text}）"
             )
         )
+
+    def _uses_built_in_dlc_delivery(self) -> bool:
+        """Whether this cartridge activates base-game DLC payloads by patch only."""
+        return getattr(self.cartridge, "dlc_delivery_mode", "download_packages") == "built_in"
+
+    @staticmethod
+    def _built_in_dlc_message() -> str:
+        return "DLC 已随游戏本体安装，无需额外下载；安装补丁后即可激活。"
 
     def _refresh_catalog(self) -> None:
         self.catalog_request_generation += 1
@@ -4491,6 +4508,25 @@ class DlcHubApplication:
             else {}
         )
         self.catalog_missing_patch_assets = snapshot.missing_patch_assets
+        if self._uses_built_in_dlc_delivery():
+            self.selected_dlc_ids.clear()
+            self.catalog_selection_initialized = True
+            self.catalog_refresh_button.configure(state="normal")
+            self._refresh_catalog_capacity_summary()
+            self._refresh_catalog_freshness_label(catalog_count=0)
+            self._clear_catalog_views(self._built_in_dlc_message())
+            self.selection_toggle_button.configure(state="disabled", text="无需下载 DLC")
+            self.advanced_view_button.configure(state="disabled")
+            self._set_batch_download_state(self.batch_download_state)
+            if snapshot.patch_bundle is None:
+                self.catalog_patch_warning.configure(
+                    text="补丁资源缺失，暂无法激活内置 DLC。"
+                )
+                self.catalog_preview.configure(text="请刷新目录后重试。")
+            else:
+                self.catalog_patch_warning.configure(text="")
+                self.catalog_preview.configure(text=self._built_in_dlc_message())
+            return
         # A refresh is a new user-facing selection session. Keep installed
         # entries disabled, and select every DLC that can currently be acted on.
         if entries:
@@ -5348,7 +5384,11 @@ class DlcHubApplication:
     def _notify_patch_healthy_and_continue(self, selected_entries) -> None:
         if not selected_entries:
             self.catalog_preview.configure(
-                text="补丁已经健康；未勾选 DLC 时无需下载。"
+                text=(
+                    "补丁已经健康；内置 DLC 已随游戏本体提供，无需下载。"
+                    if self._uses_built_in_dlc_delivery()
+                    else "补丁已经健康；未勾选 DLC 时无需下载。"
+                )
             )
             self._set_batch_download_state("idle")
             self._maybe_finish_unlock_workflow()
@@ -5443,7 +5483,13 @@ class DlcHubApplication:
             "repairing": ("正在一键修复…", False),
             "restoring": ("正在恢复原版…", False),
         }[state]
-        if enabled and self.catalog_entries and self.patch_bundle is None:
+        if state == "idle" and self._uses_built_in_dlc_delivery():
+            text = "安装补丁并激活"
+        if (
+            enabled
+            and (self.catalog_entries or self._uses_built_in_dlc_delivery())
+            and self.patch_bundle is None
+        ):
             text = "补丁资源缺失"
             enabled = False
         self.download_selected_button.configure(
@@ -6362,7 +6408,12 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
-        if installed_count:
+        if self._uses_built_in_dlc_delivery():
+            detail = (
+                f"{game_name} 的 DLC 已随游戏本体安装；补丁已经正确应用，"
+                "无需下载额外 DLC。"
+            )
+        elif installed_count:
             detail = (
                 f"{game_name} 的补丁已经正确应用，选择的 "
                 f"{installed_count} 个 DLC 均已安装完成。"
@@ -7528,6 +7579,8 @@ class DlcHubApplication:
         self._start_repair_preparation()
 
     def _repair_catalog_error(self) -> str | None:
+        if self._uses_built_in_dlc_delivery():
+            return None
         if not self.catalog_entries:
             return "当前资源目录没有 DLC，无法执行一键修复；尚未改动游戏文件"
         normalized = [entry.dlc_id.casefold() for entry in self.catalog_entries]

@@ -7,6 +7,7 @@
   "release_tag": "civilization_7",
   "executable_relative_path": "Base/Binaries/Win64/Civ7_Win64_DX12_FinalRelease.exe",
   "dlc_relative_dir": "DLC",
+  "dlc_delivery_mode": "built_in",
   "package_inspector": "directory",
   "install_directory_from_slug": true,
   "repository": {

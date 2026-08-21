@@ -10,6 +10,7 @@ import subprocess
 import re
 import socket
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -435,43 +436,55 @@ class GitLinkAttachmentClient:
         }
         if body is not None:
             headers["Content-Type"] = "application/json; charset=utf-8"
-        connection = http.client.HTTPSConnection(self.host, self.port, timeout=12)
-        try:
-            connection.request(method, target, body=body, headers=headers)
-            response = connection.getresponse()
-            raw = response.read(2 * 1024 * 1024 + 1)
-            if len(raw) > 2 * 1024 * 1024:
-                raise GitLinkError("GitLink 响应过大")
-            if response.status < 200 or response.status >= 300:
-                message = raw.decode("utf-8", errors="replace").strip()
-                raise GitLinkError(
-                    f"GitLink API 请求失败（HTTP {response.status}）：{message[:300]}"
-                )
-            if allow_empty and not raw.strip():
-                return {}
+        # Only metadata reads are retried.  Repeating a write after an
+        # indeterminate network failure could create duplicate releases or
+        # attachments, whereas a GET is safe and GitLink is occasionally slow.
+        attempts = 3 if method.upper() == "GET" else 1
+        last_error: OSError | None = None
+        for attempt in range(attempts):
+            connection = http.client.HTTPSConnection(self.host, self.port, timeout=10)
             try:
-                value = json.loads(raw)
-            except json.JSONDecodeError as error:
-                raise GitLinkError("GitLink 返回了无法识别的结果") from error
-            if not isinstance(value, dict):
-                raise GitLinkError("GitLink 返回格式不正确")
-            api_status = value.get("status")
-            try:
-                api_status_code = int(api_status) if api_status is not None else 0
-            except (TypeError, ValueError):
-                api_status_code = 0
-            if api_status_code >= 400:
-                api_message = str(
-                    value.get("message") or value.get("error") or "请求失败"
-                ).strip()
-                raise GitLinkError(
-                    f"GitLink API 返回错误（{api_status_code}）：{api_message}"
-                )
-            return value
-        except OSError as error:
-            raise GitLinkError(f"GitLink 连接失败：{error}") from error
-        finally:
-            connection.close()
+                connection.request(method, target, body=body, headers=headers)
+                response = connection.getresponse()
+                raw = response.read(2 * 1024 * 1024 + 1)
+                if len(raw) > 2 * 1024 * 1024:
+                    raise GitLinkError("GitLink 响应过大")
+                if response.status < 200 or response.status >= 300:
+                    message = raw.decode("utf-8", errors="replace").strip()
+                    raise GitLinkError(
+                        f"GitLink API 请求失败（HTTP {response.status}）：{message[:300]}"
+                    )
+                if allow_empty and not raw.strip():
+                    return {}
+                try:
+                    value = json.loads(raw)
+                except json.JSONDecodeError as error:
+                    raise GitLinkError("GitLink 返回了无法识别的结果") from error
+                if not isinstance(value, dict):
+                    raise GitLinkError("GitLink 返回格式不正确")
+                api_status = value.get("status")
+                try:
+                    api_status_code = int(api_status) if api_status is not None else 0
+                except (TypeError, ValueError):
+                    api_status_code = 0
+                if api_status_code >= 400:
+                    api_message = str(
+                        value.get("message") or value.get("error") or "请求失败"
+                    ).strip()
+                    raise GitLinkError(
+                        f"GitLink API 返回错误（{api_status_code}）：{api_message}"
+                    )
+                return value
+            except OSError as error:
+                last_error = error
+                if attempt + 1 < attempts:
+                    time.sleep(0.35 * (attempt + 1))
+                    continue
+            finally:
+                connection.close()
+        assert last_error is not None
+        suffix = f"（已重试 {attempts} 次）" if attempts > 1 else ""
+        raise GitLinkError(f"GitLink 连接失败{suffix}：{last_error}") from last_error
 
 
 def find_release_id(payload: dict[str, object], tag: str) -> str | None:

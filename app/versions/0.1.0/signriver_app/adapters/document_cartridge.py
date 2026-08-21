@@ -13,7 +13,6 @@ from ..domain import (
 from ..infrastructure.catalog import (
     inspect_directory_package,
     inspect_grouped_directory_package,
-    inspect_stellaris_package,
 )
 from .configured_cartridge import ConfiguredSteamCartridge
 
@@ -36,7 +35,10 @@ def build_cartridge_from_document(
         fields.get("dlc_relative_dir") or document.dlc_relative_dir
     )
     inspectors = {
-        "stellaris_zip": inspect_stellaris_package,
+        # Legacy online cartridges used this label.  Their downloadable outer
+        # package is still the shared one-root DLC directory format, so map it
+        # to the common verifier rather than making old cached documents fail.
+        "stellaris_zip": inspect_directory_package,
         "directory": inspect_directory_package,
         "grouped_directory": inspect_grouped_directory_package,
     }
@@ -47,6 +49,7 @@ def build_cartridge_from_document(
         store_app_id=document.store_app_id,
         release_tag=document.release_tag,
         dlc_relative_dir=dlc_relative_dir,
+        dlc_delivery_mode=document.dlc_delivery_mode,
         executable_relative_path=executable_relative_path,
         platform=selected.value,
         patch_profile=PatchProfile(
@@ -54,6 +57,10 @@ def build_cartridge_from_document(
             runtime_original_library_name=str(fields["runtime_original_library_name"]),
             appinfo_asset_name=str(fields["appinfo_asset_name"]),
             install_relative_dir=str(fields["install_relative_dir"]),
+            additional_install_relative_dirs=tuple(
+                str(item)
+                for item in fields.get("additional_install_relative_dirs", ())
+            ),
             template=PatchTemplate(
                 ini_target_name=str(fields["ini_target_name"]),
                 language=str(fields["language"]),

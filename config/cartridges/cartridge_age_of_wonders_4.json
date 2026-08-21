@@ -6,9 +6,12 @@
   "store_app_id": "1669000",
   "release_tag": "age_of_wonders_4",
   "executable_relative_path": "AOW4.exe",
-  "dlc_relative_dir": "Content",
-  "package_inspector": "directory",
-  "install_directory_from_slug": true,
+  "dlc_relative_dir": "Launcher/dlc",
+  "package_inspector": "grouped_directory",
+  "install_directory_from_slug": false,
+  "dlc_group_search_roots": [
+    "."
+  ],
   "repository": {
     "owner": "signriver",
     "repository": "signriver-dlc-assets"
@@ -28,6 +31,9 @@
     "runtime_original_library_name": "steam_api64_o.dll",
     "appinfo_asset_name": "age_of_wonders_4_appinfo.json",
     "install_relative_dir": ".",
+    "additional_install_relative_dirs": [
+      "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib"
+    ],
     "ini_target_name": "cream_api.ini",
     "language": "schinese",
     "unlock_all": true,

@@ -268,11 +268,37 @@ def test_content_build_uses_a_separate_queue_without_locking_other_game_controls
     assert "def _flush_build_progress" in source
 
 
-def test_game_configuration_form_uses_a_compact_non_scrolling_layout() -> None:
+def test_build_queue_can_batch_enqueue_completed_items_in_order() -> None:
+    source = inspect.getsource(PublisherApplication._enqueue_all_built_game_uploads)
+    upload_source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+
+    assert "if item.status is BuildQueueStatus.COMPLETED" in source
+    assert "_enqueue_built_game_item" in source
+    assert "_create_game_content_batch_for_profile" not in source
+    assert "threading.Thread" not in source
+    assert "preview_game_content_mirror" not in source
+    assert "preview_game_content_mirror" in upload_source
+
+
+def test_build_queue_header_does_not_mix_geometry_managers() -> None:
+    source = inspect.getsource(PublisherApplication._build_build_queue_tab)
+
+    assert "header_actions.grid(" in source
+    assert "header_actions, text=\"一键加入上传队列\"" in source
+    assert "header, text=\"一键加入上传队列\"" not in source
+
+
+def test_build_queue_logs_preserved_empty_dlc_directly() -> None:
+    source = inspect.getsource(PublisherApplication._queue_build_progress)
+
+    assert 'stage == "保留空目录"' in source
+
+
+def test_game_configuration_form_uses_an_internal_scroll_container() -> None:
     source = inspect.getsource(PublisherApplication._build_games_tab)
 
-    assert "CTkScrollableFrame" not in source
-    assert "self._card(self.games_tab, 0, \"游戏卡带配置\")" in source
+    assert "card = ctk.CTkScrollableFrame(" in source
+    assert "self._card(self.games_tab, 0, \"游戏卡带配置\")" not in source
     assert "height=32" in source
 
 
@@ -314,12 +340,17 @@ def test_remote_maintenance_toolbar_keeps_only_resource_operations() -> None:
 def test_remote_maintenance_uses_a_summary_and_sidebar_for_change_details() -> None:
     source = inspect.getsource(PublisherApplication._build_remote_tab)
 
-    assert 'text="发布差异摘要"' in source
     assert "self.remote_detail_sidebar" in source
     assert 'text="变更清单"' in source
     assert 'text="云端详情"' in source
     assert "self.remote_diff_summary" in source
     assert "_select_remote_detail_page" in source
+
+
+def test_game_content_queue_does_not_require_gitlink_cli() -> None:
+    source = inspect.getsource(PublisherApplication._release_center_providers)
+
+    assert "GitLinkCli" not in source
 
 
 def test_remote_resource_refresh_renders_a_metadata_only_change_preview() -> None:
@@ -329,10 +360,13 @@ def test_remote_resource_refresh_renders_a_metadata_only_change_preview() -> Non
     assert "DLC 缓存一致，将跳过上传" in source
     assert "每次更新，将替换云端同名文件" in source
     assert "将新增到云端" in source
+    assert "asset.name.casefold()" in source
+    assert "live_attachment_ids" in source
     assert "No remote attachment is downloaded" in source
     assert "云端保留（批量镜像发布时将删除）" in remote_source
     assert 'render_group("需要发布"' in source
     assert 'render_group("可复用 DLC"' in source
+    assert '_select_remote_detail_page("changes")' in source
 
 
 def test_content_upload_log_reports_cache_reuse() -> None:
@@ -342,13 +376,28 @@ def test_content_upload_log_reports_cache_reuse() -> None:
     assert "未重复上传" in source
 
 
-def test_remote_maintenance_can_explicitly_trust_current_dlc_resources() -> None:
-    source = inspect.getsource(PublisherApplication._build_remote_tab)
-    trust_source = inspect.getsource(PublisherApplication.trust_remote_dlc_resources)
+def test_build_queue_exposes_publisher_wide_compatibility_mode_instead_of_remote_toggle() -> None:
+    build_source = inspect.getsource(PublisherApplication._build_build_queue_tab)
+    remote_source = inspect.getsource(PublisherApplication._build_remote_tab)
+    compatibility_source = inspect.getsource(PublisherApplication._set_build_queue_compatibility_mode)
 
-    assert 'text="信任云端 DLC"' in source
-    assert "不下载、不上传也不删除附件" in trust_source
-    assert "save_content_reuse_cache" in trust_source
+    assert 'text="兼容发布：保留云端仅有文件"' in build_source
+    assert "兼容发布：保留云端仅有文件" not in remote_source
+    assert "save_preserve_remote_only_files(enabled)" in compatibility_source
+    assert "已开启（保留云端仅有文件）" in inspect.getsource(
+        PublisherApplication._render_build_queue_compatibility_status
+    )
+
+
+def test_bulk_upload_enqueue_is_local_and_defers_remote_preflight_to_execution() -> None:
+    source = inspect.getsource(PublisherApplication._enqueue_all_built_game_uploads)
+    upload_source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+    confirmation_source = inspect.getsource(PublisherApplication._confirm_upload_queue_remote_preview)
+
+    assert "preview_game_content_mirror" not in source
+    assert "_create_game_content_batch_for_profile" in upload_source
+    assert "preview_game_content_mirror" in upload_source
+    assert "确认本项云端变更" in confirmation_source
 
 
 def test_comparison_page_keeps_only_its_specific_back_button() -> None:

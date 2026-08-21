@@ -444,7 +444,9 @@ def test_all_rebuilt_publisher_scroll_lists_reset_after_refresh() -> None:
 
     assert "def _reset_scrollable_frame" in source
     assert "self.after_idle(after_layout)" in source
-    assert resources_method.count("self._schedule_scrollable_reset(parent)") == 2
+    # Normal empty, built-in-DLC explanatory, and populated resource states
+    # all rebuild the scrollable surface.
+    assert resources_method.count("self._schedule_scrollable_reset(parent)") == 3
     assert local_method.count(
         "self._schedule_scrollable_reset(self.local_output_list)"
     ) == 2

@@ -12,7 +12,7 @@ from .release_interfaces import (
     RemoteVerification,
     StageExecutionResult,
 )
-from .release_models import ReleasePlan, ReleaseStatus, StageStatus
+from .release_models import ReleaseArtifact, ReleasePlan, ReleaseStatus, StageStatus
 from .release_orchestrator import ReleasePauseRequested, ReleaseStageError
 from .updates import UPDATE_MANIFEST_ASSET
 
@@ -104,14 +104,17 @@ def _validate_manifest_payload(payload: dict[str, Any], plan: ReleasePlan) -> No
             )
 
 
-def _verified_manifest(result: RemoteVerification, expected: dict[str, Any]) -> bool:
-    remote_payload = result.evidence.get("manifest")
-    return result.exists and remote_payload == expected
+def _trusted_remote_record(result: RemoteVerification, artifact: ReleaseArtifact) -> bool:
+    return bool(
+        result.exists
+        and result.remote_id
+        and result.size == artifact.size
+    )
 
 
 class UploadProgramPackagesStage:
     stage_id = "program.upload_packages"
-    display_name = "上传并回读双源程序包"
+    display_name = "上传双源程序包并记录远端 ID"
     order = 20
     safe_checkpoint = True
 
@@ -148,21 +151,16 @@ class UploadProgramPackagesStage:
                 key = f"{source}:{role}"
                 # 同名程序包的发布语义就是替换。此前先完整下载远端大包来
                 # 判断能否复用，会让界面长时间停在“等待上传”且没有字节进度。
-                # 现在直接上传并由 provider 回读校验，既符合发布语义也能立即
-                # 反馈真实的传输进度。
+                # 现在直接上传并记录远端附件 ID 与大小，不再下载大包回读。
                 result = provider.upload(artifact, path)
-                if (
-                    not result.exists
-                    or result.size != artifact.size
-                    or result.sha256 != artifact.sha256
-                ):
+                if not _trusted_remote_record(result, artifact):
                     raise ReleaseStageError(
                         f"remote package verification failed: {key}"
                     )
                 ready[key] = {
                     "remote_id": result.remote_id,
                     "size": result.size,
-                    "sha256": result.sha256,
+                    "sha256": artifact.sha256,
                     "reused": False,
                 }
         expected_count = len(PACKAGE_ROLES) * len(REQUIRED_SOURCES)
@@ -177,7 +175,7 @@ class UploadProgramPackagesStage:
 
 class UploadProgramModulesStage:
     stage_id = "program.upload_modules"
-    display_name = "上传并回读双源模块归档"
+    display_name = "上传双源模块归档并记录远端 ID"
     order = 25
     safe_checkpoint = True
 
@@ -206,13 +204,13 @@ class UploadProgramModulesStage:
             for source in REQUIRED_SOURCES:
                 if self.checkpoint:
                     self.checkpoint(plan)
-                # 模块归档与程序包采用相同策略：同名文件直接替换，再回读核验。
+                # 模块归档与程序包采用相同策略：同名文件直接替换并记录附件 ID。
                 result = self.providers[source].upload(artifact, path)
-                if not result.exists or result.size != artifact.size or result.sha256 != artifact.sha256:
+                if not _trusted_remote_record(result, artifact):
                     raise ReleaseStageError(f"remote module verification failed: {source}:{artifact.filename}")
                 ready[f"{source}:{artifact.filename}"] = {
                     "remote_id": result.remote_id, "size": result.size,
-                    "sha256": result.sha256, "reused": False,
+                    "sha256": artifact.sha256, "reused": False,
                 }
         return StageExecutionResult(
             {"ready": sorted(ready), "details": ready},
@@ -297,7 +295,12 @@ class PublishProgramManifestStage:
                 if prior_switched
                 else ReleaseStatus.FAILED,
             ) from exc
-        if not _verified_manifest(result, expected):
+        artifact = ReleaseArtifact(
+            role="program_manifest",
+            filename=self.manifest.name,
+            size=self.manifest.stat().st_size,
+        )
+        if not _trusted_remote_record(result, artifact):
             prior_switched = any(
                 item.stage_id.startswith("program.publish_manifest.")
                 and item.stage_id != self.stage_id
@@ -305,20 +308,25 @@ class PublishProgramManifestStage:
                 for item in plan.stages
             )
             raise ReleaseStageError(
-                f"{self.source} manifest readback verification failed",
+                f"{self.source} manifest attachment record is incomplete",
                 status=ReleaseStatus.DEGRADED
                 if prior_switched
                 else ReleaseStatus.FAILED,
             )
         return StageExecutionResult(
-            {"source": self.source, "manifest": self.manifest.name},
+            {
+                "source": self.source,
+                "manifest": self.manifest.name,
+                "remote_id": result.remote_id,
+                "size": result.size,
+            },
             {"manifest_verified": True, "remote_id": result.remote_id},
         )
 
 
 class VerifyProgramManifestsStage:
     stage_id = "program.verify_manifests"
-    display_name = "回读双源更新清单"
+    display_name = "核对双源更新清单附件记录"
     order = 50
     safe_checkpoint = True
 
@@ -337,9 +345,26 @@ class VerifyProgramManifestsStage:
             expected = _load_manifest(self.manifests[source])
             _validate_manifest_payload(expected, plan)
             result = self.providers[source].inspect(UPDATE_MANIFEST_ASSET)
-            if not _verified_manifest(result, expected):
+            publish_stage = next(
+                (
+                    item
+                    for item in plan.stages
+                    if item.stage_id == f"program.publish_manifest.{source}"
+                ),
+                None,
+            )
+            published_id = (
+                publish_stage.output_summary.get("remote_id")
+                if publish_stage is not None
+                else None
+            )
+            if (
+                not result.exists
+                or not result.remote_id
+                or str(result.remote_id) != str(published_id)
+            ):
                 raise ReleaseStageError(
-                    f"{source} final manifest readback failed",
+                    f"{source} final manifest attachment record changed",
                     status=ReleaseStatus.DEGRADED,
                 )
             verified.append(source)

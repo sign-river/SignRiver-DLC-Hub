@@ -216,14 +216,14 @@ def inspect_module_archive(package: Path) -> ModuleArchiveInfo:
 
 
 def release_asset_url(
-    target: str, owner: str, repository: str, asset_name: str,
+    target: str, owner: str, repository: str, asset_name: str, *, release_tag: str = UPDATE_RELEASE_TAG,
 ) -> str:
-    """Return the stable public attachment URL for the updates Release."""
+    """Return the stable public attachment URL for a Release tag."""
     target = target.casefold()
     if target == "github":
-        return f"https://github.com/{owner}/{repository}/releases/download/{UPDATE_RELEASE_TAG}/{asset_name}"
+        return f"https://github.com/{owner}/{repository}/releases/download/{release_tag}/{asset_name}"
     if target == "gitlink":
-        return f"https://gitlink.org.cn/{owner}/{repository}/releases/download/{UPDATE_RELEASE_TAG}/{asset_name}"
+        return f"https://gitlink.org.cn/{owner}/{repository}/releases/download/{release_tag}/{asset_name}"
     raise ValueError("publish target must be gitlink or github")
 
 

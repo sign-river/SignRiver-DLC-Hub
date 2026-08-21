@@ -280,6 +280,55 @@ def test_patch_operations_use_cartridge_owned_nested_directory(tmp_path: Path) -
     assert (patch_dir / "custom_api.dll").read_bytes() == VANILLA_GAME_DLL
 
 
+def test_patch_operations_replace_and_restore_every_declared_target(
+    tmp_path: Path,
+) -> None:
+    profile = PatchProfile(
+        unlocker_dll_name="steam_api64.dll",
+        runtime_original_library_name="steam_api64_o.dll",
+        appinfo_asset_name="other_appinfo.json",
+        template=PatchTemplate(ini_target_name="cream_api.ini"),
+        additional_install_relative_dirs=(
+            "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib",
+        ),
+    )
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    engine = PatchEngine(profile, data_root)
+    game = tmp_path / "game"
+    secondary = game / "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib"
+    secondary.mkdir(parents=True)
+    (game / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
+    (secondary / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="age_of_wonders_4",
+    )
+
+    for directory in (game, secondary):
+        assert (directory / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+        assert (directory / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
+        assert (directory / "cream_api.ini").is_file()
+    assert (
+        "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib/steam_api64.dll"
+        in result.audit_after.matching
+    )
+
+    touched = engine.remove(game)
+    assert (game / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert (secondary / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert not (secondary / "steam_api64_o.dll").exists()
+    assert (
+        "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib/steam_api64.dll"
+        in touched
+    )
+
+
 def test_patch_profile_rejects_unsafe_install_directory() -> None:
     with pytest.raises(ValueError, match="game root"):
         PatchProfile(

@@ -1,11 +1,4 @@
-"""Regression: remote cartridge documents must verify downloaded packages.
-
-The online Stellaris cartridge document uses ``engine=steam_configured_v1``
-with ``package_inspector=stellaris_zip``, so the client builds a
-``ConfiguredSteamCartridge`` whose ``inspect_package`` forwards the download
-verifier's ``asset_name`` keyword. ``inspect_stellaris_package`` must accept
-that keyword (it previously raised TypeError and failed every DLC download).
-"""
+"""Regression: shared directory validation accepts current and legacy cards."""
 from __future__ import annotations
 
 import hashlib
@@ -28,7 +21,7 @@ def _stellaris_document() -> CartridgeDocument:
             "release_tag": "stellaris",
             "executable_relative_path": "stellaris.exe",
             "dlc_relative_dir": "dlc",
-            "package_inspector": "stellaris_zip",
+            "package_inspector": "directory",
             "patch": {
                 "unlocker_dll_name": "steam_api64.dll",
                 "runtime_original_library_name": "steam_api64_o.dll",
@@ -61,7 +54,7 @@ def _write_stellaris_package(path: Path) -> None:
         package.writestr(root + "dlc001.zip", nested.getvalue())
 
 
-def test_remote_stellaris_cartridge_verifier_accepts_asset_name(
+def test_remote_stellaris_cartridge_uses_shared_directory_verifier(
     tmp_path: Path,
 ) -> None:
     cartridge = build_cartridge_from_document(
@@ -78,4 +71,16 @@ def test_remote_stellaris_cartridge_verifier_accepts_asset_name(
     )
 
     assert metadata.dlc_id == "dlc001"
-    assert metadata.display_name == "Symbols of Domination"
+    assert metadata.display_name == "Symbols Of Domination"
+
+
+def test_legacy_stellaris_inspector_label_remains_compatible(tmp_path: Path) -> None:
+    payload = _stellaris_document().to_dict()
+    payload["package_inspector"] = "stellaris_zip"
+    cartridge = build_cartridge_from_document(
+        CartridgeDocument.from_dict(payload), platform="windows"
+    )
+    package = tmp_path / "dlc001_symbols_of_domination.zip"
+    _write_stellaris_package(package)
+
+    assert cartridge.inspect_package(package).dlc_id == "dlc001"

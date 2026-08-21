@@ -320,7 +320,12 @@ class ReleaseService:
         self.store.save(plan)
 
     def find_reusable_game_content_batch(
-        self, *, game_id: str, release_tag: str, output_dir: Path | str
+        self,
+        *,
+        game_id: str,
+        release_tag: str,
+        output_dir: Path | str,
+        preserve_remote_only_files: bool | None = None,
     ) -> ReleasePlan | None:
         """Return the newest unexecuted batch for the same built game output."""
         normalized_output = str(Path(output_dir).resolve())
@@ -339,6 +344,11 @@ class ReleaseService:
                 and str(plan.target.get("release_tag") or "") == release_tag
                 and existing_output
                 and str(Path(existing_output).resolve()) == normalized_output
+                and (
+                    preserve_remote_only_files is None
+                    or bool(plan.options.get("preserve_remote_only_files"))
+                    == bool(preserve_remote_only_files)
+                )
             ):
                 return plan
         return None
@@ -373,6 +383,7 @@ class ReleaseService:
         remote_targets: Mapping[str, Mapping[str, object]],
         output_dir: Path | str | None = None,
         reuse_cache: Mapping[str, object] | None = None,
+        preserve_remote_only_files: bool = False,
     ) -> ReleasePlan:
         game_id = game_id.strip()
         release_tag = release_tag.strip()
@@ -399,6 +410,7 @@ class ReleaseService:
             },
             "remote_baseline": {},
             "content_reuse_cache": deepcopy(dict(reuse_cache or {})),
+            "preserve_remote_only_files": bool(preserve_remote_only_files),
         }
         plan.remote_targets = _copy_remote_target_summaries(remote_targets)
         return self.store.create(plan)
@@ -408,6 +420,8 @@ class ReleaseService:
         plan = self.get(batch_id)
         if plan.kind is not ReleaseKind.GAME_CONTENT:
             raise ReleaseServiceError("当前批次不是游戏内容发布")
+        if plan.options.get("preserve_remote_only_files"):
+            raise ReleaseServiceError("兼容发布已开启，不会删除云端仅有文件")
         plan.options["mirror_delete_confirmed"] = True
         self.store.save(plan)
         return plan
@@ -436,6 +450,9 @@ class ReleaseService:
         plan.options["remote_mirror_preview"] = {
             "generated_at": utc_now(),
             "extra_files": extras,
+            "preserve_remote_only_files": bool(
+                plan.options.get("preserve_remote_only_files")
+            ),
         }
         self.store.save(plan)
         return plan
@@ -554,11 +571,12 @@ class ReleaseService:
     ) -> None:
         """Persist a throttled, credential-free sample from the active provider."""
 
-        def report(source: str, artifact, sent: int, total: int) -> None:
+        def report(source: str, artifact, sent: int, total: int, operation: str = "上传") -> None:
             now = time.monotonic()
             sent_value = max(0, int(sent))
             total_value = max(0, int(total))
-            key = (plan.batch_id, source, artifact.filename)
+            filename = str(getattr(artifact, "filename", artifact))
+            key = (plan.batch_id, source, filename)
             with self._upload_progress_lock:
                 previous = self._upload_progress_samples.get(key)
                 speed = 0.0
@@ -575,10 +593,11 @@ class ReleaseService:
                 self._upload_progress_last_saved[key] = now
                 plan.options["upload_progress"] = {
                     "source": source,
-                    "filename": artifact.filename,
+                    "filename": filename,
                     "sent": sent_value,
                     "total": total_value,
                     "bytes_per_second": round(speed, 1),
+                    "operation": operation,
                     "updated_at": utc_now(),
                 }
                 self.store.save(plan)
@@ -593,6 +612,9 @@ class ReleaseService:
                 setter = getattr(provider, "set_upload_progress_reporter", None)
                 if callable(setter):
                     setter(report)
+                transfer_setter = getattr(provider, "set_transfer_progress_reporter", None)
+                if callable(transfer_setter):
+                    transfer_setter(report)
 
     def execute_program(
         self,

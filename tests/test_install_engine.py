@@ -20,6 +20,7 @@ from signriver_app.infrastructure.installs import (
     InstallSpaceError,
     StellarisInstallEngine,
 )
+from signriver_app.infrastructure.catalog import PackageInspectionError
 
 
 def make_game(root: Path) -> Path:
@@ -45,6 +46,14 @@ def make_package(path: Path, *, root: str = "dlc001_symbols_of_domination") -> s
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def make_empty_directory_package(
+    path: Path, *, root: str = "dlc001_placeholder"
+) -> str:
+    with zipfile.ZipFile(path, "w") as package:
+        package.writestr(f"{root}/", b"")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def test_install_new_dlc_commits_journal_and_receipt(tmp_path: Path) -> None:
     game = make_game(tmp_path / "Stellaris")
     package = tmp_path / "dlc001.zip"
@@ -59,6 +68,25 @@ def test_install_new_dlc_commits_journal_and_receipt(tmp_path: Path) -> None:
     journal = json.loads(plan.journal_path.read_text(encoding="utf-8"))
     assert journal["phase"] == InstallPhase.COMMITTED
     assert journal["target"] == "dlc/dlc001_symbols_of_domination"
+
+
+def test_install_empty_directory_package_creates_the_dlc_directory(
+    tmp_path: Path,
+) -> None:
+    game = make_game(tmp_path / "Stellaris")
+    package = tmp_path / "dlc001_placeholder.zip"
+    digest = make_empty_directory_package(package)
+    engine = StellarisInstallEngine(tmp_path / "data")
+
+    plan = engine.plan(package, game, expected_sha256=digest, transaction_id="empty")
+    receipt = engine.install(plan)
+
+    assert receipt.target_path.is_dir()
+    assert not tuple(receipt.target_path.iterdir())
+    assert receipt.owned_files == ()
+    assert engine.verify(receipt, game)
+    engine.uninstall(receipt, game)
+    assert not receipt.target_path.exists()
 
 
 def test_install_preflight_reserves_staging_and_safe_commit_space(
@@ -366,7 +394,7 @@ def test_plan_rejects_mismatched_package_directory(tmp_path: Path) -> None:
     game = make_game(tmp_path / "Stellaris")
     package = tmp_path / "bad.zip"
     digest = make_package(package, root="dlc999_wrong")
-    with pytest.raises(InstallError, match="descriptor DLC ID"):
+    with pytest.raises(PackageInspectionError, match="文件名或顶层目录"):
         StellarisInstallEngine(tmp_path / "data").plan(
             package, game, expected_sha256=digest
         )

@@ -12,7 +12,7 @@ from ...domain import PatchBundle, ReleaseAsset
 from ...infrastructure.catalog import (
     GitLinkReleaseSource,
     GitLinkSourceConfig,
-    inspect_stellaris_package,
+    inspect_directory_package,
 )
 from ...infrastructure.installs import StellarisInstallEngine
 from .adapter import (
@@ -88,7 +88,9 @@ class StellarisGameCartridge:
         asset_name: str | None = None,
         known_sha256: str | None = None,
     ):
-        return inspect_stellaris_package(path, known_sha256=known_sha256)
+        return inspect_directory_package(
+            path, asset_name=asset_name, known_sha256=known_sha256
+        )
 
     def discover_installed_dlc(self, game_root: Path, catalog_entries=()) -> dict[str, Path]:
         return discover_installed_dlc(game_root, self.dlc_relative_dir)

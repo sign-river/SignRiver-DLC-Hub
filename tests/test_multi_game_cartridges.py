@@ -95,7 +95,8 @@ def test_client_registry_contains_independent_cartridges() -> None:
     assert civ7.patch_profile.install_relative_dir == "Base/Binaries/Win64"
     aow4 = cartridges["age_of_wonders_4"]
     assert aow4.store_app_id == "1669000"
-    assert aow4.dlc_relative_dir == "Content"
+    assert aow4.dlc_relative_dir == "Launcher/dlc"
+    assert aow4.dlc_group_search_roots == (".",)
     assert aow4.patch_profile.install_relative_dir == "."
 
 
@@ -137,7 +138,7 @@ def test_configured_adapters_validate_each_games_own_layout(tmp_path: Path) -> N
         "civilization_7": (
             "Base/Binaries/Win64/Civ7_Win64_DX12_FinalRelease.exe", "DLC",
         ),
-        "age_of_wonders_4": ("AOW4.exe", "Content"),
+        "age_of_wonders_4": ("AOW4.exe", "Launcher/dlc"),
     }
     for game_id, (executable, dlc_dir) in layouts.items():
         root = tmp_path / game_id
@@ -240,6 +241,45 @@ def test_grouped_package_overlays_multiple_paths_and_uninstall_restores_predeces
     assert engine.uninstall_committed(receipt)
 
 
+def test_age_of_wonders_shared_launcher_file_pairs_install_detect_and_remove(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "dlc001_archonprophecy.zip"
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr(
+            "dlc001_archonprophecy/archonprophecy.dlc.json", b'{"id": 1}'
+        )
+        archive.writestr("dlc001_archonprophecy/archonprophecy.png", b"png")
+    digest = hashlib.sha256(package.read_bytes()).hexdigest()
+    aow4 = {
+        item.adapter.descriptor.game_id: item
+        for item in create_builtin_cartridges(platform="windows")
+    }["age_of_wonders_4"]
+    game = tmp_path / "Age of Wonders 4"
+    (game / "AOW4.exe").parent.mkdir(parents=True)
+    (game / "AOW4.exe").write_bytes(b"exe")
+    launcher_dlc = game / "Launcher" / "dlc"
+    launcher_dlc.mkdir(parents=True)
+    (launcher_dlc / "unrelated.dlc.json").write_bytes(b"old")
+    (launcher_dlc / "unrelated.png").write_bytes(b"old-png")
+
+    engine = aow4.create_install_engine(tmp_path / "data")
+    receipt = engine.install(engine.plan(package, game, expected_sha256=digest))
+
+    assert receipt.install_mode == "overlay"
+    assert (launcher_dlc / "archonprophecy.dlc.json").is_file()
+    assert (launcher_dlc / "archonprophecy.png").is_file()
+    assert (launcher_dlc / "unrelated.png").read_bytes() == b"old-png"
+    entry = SimpleNamespace(dlc_id="dlc001", slug="archonprophecy")
+    assert aow4.discover_installed_dlc(game, (entry,))["dlc001"].name == "archonprophecy.dlc.json"
+
+    aow4.remove_installed_dlc(game, "dlc001")
+
+    assert not (launcher_dlc / "archonprophecy.dlc.json").exists()
+    assert not (launcher_dlc / "archonprophecy.png").exists()
+    assert (launcher_dlc / "unrelated.dlc.json").is_file()
+
+
 def test_grouped_cartridge_discovers_and_removes_all_matching_branches(
     tmp_path: Path,
 ) -> None:
@@ -306,7 +346,11 @@ def test_publisher_seeds_all_game_cartridges_without_overwriting_existing(tmp_pa
     assert profiles["victoria_3"].dlc_relative_dir == "game/dlc"
     assert profiles["workers_resources_soviet_republic"].steam_app_id == "784150"
     assert profiles["civilization_7"].patch_relative_dir == "Base/Binaries/Win64"
-    assert profiles["age_of_wonders_4"].dlc_relative_dir == "Content"
+    assert profiles["age_of_wonders_4"].dlc_relative_dir == "Launcher/dlc"
+    assert profiles["age_of_wonders_4"].dlc_import_layout_mode == "shared_file_pairs"
+    assert profiles["age_of_wonders_4"].patch_additional_relative_dirs == (
+        "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib",
+    )
     assert len(publisher_cartridges()) == 10
 
 

@@ -12,6 +12,8 @@ from pathlib import Path, PurePosixPath
 from .stellaris_package import PackageInspectionError
 
 _ASSET_NAME = re.compile(r"^(dlc\d{3,})_([a-z0-9_]+)\.zip$", re.I)
+_PACKAGE_ROOT = re.compile(r"^(dlc\d{3,})_([a-z0-9_]+)$", re.I)
+_SHORT_TEMP_NAME = re.compile(r"^dlc\d{3,}\.zip$", re.I)
 _INSTALL_DIRECTORY = re.compile(r"^[a-z0-9][a-z0-9_. -]*$", re.I)
 
 
@@ -83,9 +85,19 @@ def inspect_directory_package(
     # supplied instead of mistaking the internal temporary name for the asset.
     package_name = Path(asset_name).name if asset_name is not None else path.name
     match = _ASSET_NAME.fullmatch(package_name)
+    if (
+        match is None
+        and asset_name is None
+        and _SHORT_TEMP_NAME.fullmatch(path.name)
+    ):
+        # The release downloader preserves the attachment filename, but the
+        # install engine is also used by recovery and offline callers that may
+        # retain only a short temporary filename such as ``dlc001.zip``.  The
+        # already validated single package root carries the same identity.
+        match = _PACKAGE_ROOT.fullmatch(root)
     if match is None:
         raise PackageInspectionError(
-            "资源包文件名必须使用管理编号格式，例如 dlc001_name.zip"
+            "资源包文件名或顶层目录必须使用管理编号格式，例如 dlc001_name"
         )
     return DirectoryPackageMetadata(
         dlc_id=match.group(1).lower(),

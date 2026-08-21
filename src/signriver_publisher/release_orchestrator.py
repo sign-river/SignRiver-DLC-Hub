@@ -130,6 +130,10 @@ class ReleaseOrchestrator:
         """Raise only between idempotent remote operations."""
         if self.pause_requested(plan):
             raise ReleasePauseRequested("release paused at a safe checkpoint")
+        # Stages may append a completed remote operation to their record before
+        # calling this checkpoint. Persist that small recovery point so a
+        # network failure only needs to retry the source/file that is missing.
+        self.store.save(plan)
 
     def execute(
         self, plan: ReleasePlan, stages: Iterable[ReleasePipelineStage]

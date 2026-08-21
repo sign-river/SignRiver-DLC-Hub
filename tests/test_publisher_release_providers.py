@@ -11,7 +11,6 @@ from signriver_publisher.remote_release_providers import (
     GitHubReleaseProvider,
     GitLinkReleaseProvider,
 )
-from signriver_publisher.release_orchestrator import ReleasePauseRequested
 
 
 class _Response(io.BytesIO):
@@ -60,17 +59,14 @@ class _GitHubClient:
         return {"id": 9}
 
 
-def test_github_provider_wraps_existing_client_and_verifies_download(
+def test_github_provider_records_uploaded_attachment_id_without_download(
     tmp_path: Path,
 ) -> None:
     payload = b"verified-package"
     package = tmp_path / "package.zip"
     package.write_bytes(payload)
     client = _GitHubClient(payload)
-    provider = GitHubReleaseProvider(
-        client,
-        opener=lambda *_args, **_kwargs: _Response(client.payload),
-    )
+    provider = GitHubReleaseProvider(client, opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("不得回读附件")))
     artifact = ReleaseArtifact(
         role="windows_full",
         filename=package.name,
@@ -83,15 +79,28 @@ def test_github_provider_wraps_existing_client_and_verifies_download(
     assert client.uploaded == 1
     assert result.exists
     assert result.size == artifact.size
-    assert result.sha256 == artifact.sha256
+    assert result.remote_id == "9"
+    assert result.sha256 is None
 
 
-def test_game_content_github_provider_ensures_repository_once() -> None:
+def test_game_content_github_provider_only_ensures_repository_when_writing(
+    tmp_path: Path,
+) -> None:
     client = _GitHubClient(b"package")
-    provider = GitHubReleaseProvider(client, ensure_repository=True)
+    provider = GitHubReleaseProvider(
+        client,
+        ensure_repository=True,
+        opener=lambda *_args, **_kwargs: _Response(client.payload),
+    )
 
     provider.read_baseline()
     provider.read_baseline()
+
+    package = tmp_path / "package.zip"
+    package.write_bytes(b"package")
+    provider.upload(
+        ReleaseArtifact(role="content", filename=package.name, size=7), package
+    )
 
     assert client.repository_ensures == 1
 
@@ -125,17 +134,14 @@ class _GitLinkManager:
             progress(len(self.payload), len(self.payload))
 
 
-def test_gitlink_provider_wraps_resource_manager_and_verifies_download(
+def test_gitlink_provider_records_uploaded_attachment_id_without_download(
     tmp_path: Path,
 ) -> None:
     payload = b"verified-package"
     package = tmp_path / "package.zip"
     package.write_bytes(payload)
     manager = _GitLinkManager(payload)
-    provider = GitLinkReleaseProvider(
-        manager,
-        opener=lambda *_args, **_kwargs: _Response(manager.payload),
-    )
+    provider = GitLinkReleaseProvider(manager, opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("不得回读附件")))
     artifact = ReleaseArtifact(
         role="windows_full",
         filename=package.name,
@@ -148,23 +154,46 @@ def test_gitlink_provider_wraps_resource_manager_and_verifies_download(
     assert manager.uploaded == 1
     assert result.exists
     assert result.size == artifact.size
-    assert result.sha256 == artifact.sha256
+    assert result.remote_id == "attachment"
+    assert result.sha256 is None
 
 
-def test_game_content_gitlink_provider_ensures_repository_once() -> None:
+def test_gitlink_inspect_reads_metadata_without_downloading_attachment() -> None:
+    provider = GitLinkReleaseProvider(
+        _GitLinkManager(b"package"),
+        release_tag="game-content-stellaris",
+        opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("不得下载附件")),
+    )
+
+    provider.inspect("package.zip")
+
+    assert provider.inspect("package.zip").remote_id == "attachment"
+
+
+def test_game_content_gitlink_provider_only_ensures_repository_when_writing(
+    tmp_path: Path,
+) -> None:
     manager = _GitLinkManager(b"package")
     ensures: list[bool] = []
     provider = GitLinkReleaseProvider(
-        manager, repository_ensurer=lambda: ensures.append(True)
+        manager,
+        repository_ensurer=lambda: ensures.append(True),
+        opener=lambda *_args, **_kwargs: _Response(manager.payload),
     )
 
     provider.read_baseline()
     provider.read_baseline()
 
+    package = tmp_path / "package.zip"
+    package.write_bytes(b"package")
+    provider.upload(
+        ReleaseArtifact(role="content", filename=package.name, size=7), package
+    )
+
     assert ensures == [True]
 
 
-def test_manifest_publish_exposes_remote_json_evidence(tmp_path: Path) -> None:
+def test_manifest_publish_records_uploaded_attachment_id(tmp_path: Path) -> None:
     payload = b'{"schema_version":1,"channel":"stable","releases":[]}'
     manifest = tmp_path / "update-manifest.json"
     manifest.write_bytes(payload)
@@ -191,7 +220,9 @@ def test_manifest_publish_exposes_remote_json_evidence(tmp_path: Path) -> None:
         ReleasePlan.create(ReleaseKind.PROGRAM, {"version": "0.2.0"}), manifest
     )
 
-    assert result.evidence["manifest"]["channel"] == "stable"
+    assert result.remote_id == "9"
+    assert result.size == len(payload)
+    assert result.evidence == {}
 
 
 def test_read_baseline_returns_credential_free_release_metadata() -> None:
@@ -259,16 +290,11 @@ def test_release_providers_forward_file_upload_progress(tmp_path: Path) -> None:
     assert ("gitlink", package.name, len(payload), len(payload)) in reports
 
 
-def test_remote_readback_honors_safety_pause_before_downloading() -> None:
+def test_remote_inspect_does_not_download_when_pause_is_requested() -> None:
     provider = GitHubReleaseProvider(
         _GitHubClient(b"verified-package"),
         opener=lambda *_args, **_kwargs: _Response(b"unexpected-read"),
         pause_requested=lambda: True,
     )
 
-    try:
-        provider.inspect("package.zip")
-    except ReleasePauseRequested:
-        pass
-    else:
-        raise AssertionError("远端回读应在暂停请求后立即停止")
+    assert provider.inspect("package.zip").exists

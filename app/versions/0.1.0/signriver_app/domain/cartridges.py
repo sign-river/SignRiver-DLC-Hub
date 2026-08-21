@@ -16,6 +16,7 @@ _SUPPORTED_ENGINES = frozenset({"steam_configured_v1"})
 _SUPPORTED_INSPECTORS = frozenset(
     {"directory", "grouped_directory", "stellaris_zip"}
 )
+_SUPPORTED_DLC_DELIVERY_MODES = frozenset({"download_packages", "built_in"})
 _SUPPORTED_PLATFORMS = frozenset({"windows", "steamos", "macos"})
 _SUPPORTED_CONFIG_FORMATS = frozenset({"cream_ini", "smokeapi_json"})
 CARTRIDGE_INDEX_SCHEMA = 1
@@ -43,6 +44,17 @@ def _require_nonempty(value: object, *, field: str) -> str:
     if not text:
         raise ValueError(f"{field} is required")
     return text
+
+
+def _relative_directories(value: object) -> tuple[str, ...]:
+    """Read optional patch target directories without changing old cartridges."""
+    if isinstance(value, (list, tuple)):
+        values = value
+    elif value is None:
+        values = ()
+    else:
+        values = str(value).split(";")
+    return tuple(str(item).strip() for item in values if str(item).strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +231,7 @@ class CartridgePatchVariant:
     force_offline: bool = False
     executable_relative_path: str | None = None
     dlc_relative_dir: str | None = None
+    additional_install_relative_dirs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         platform = str(self.platform or "").strip().lower()
@@ -242,6 +255,7 @@ class CartridgePatchVariant:
             "runtime_original_library_name": self.runtime_original_library_name,
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.install_relative_dir,
+            "additional_install_relative_dirs": list(self.additional_install_relative_dirs),
             "ini_target_name": self.ini_target_name,
             "config_format": self.config_format,
             "language": self.language,
@@ -268,11 +282,13 @@ class CartridgeDocument:
     release_tag: str
     executable_relative_path: str
     dlc_relative_dir: str
+    dlc_delivery_mode: str
     package_inspector: str
     unlocker_dll_name: str
     runtime_original_library_name: str
     appinfo_asset_name: str
     patch_install_relative_dir: str
+    patch_additional_install_relative_dirs: tuple[str, ...] = ()
     ini_target_name: str = "cream_api.ini"
     config_format: str = "cream_ini"
     language: str = "schinese"
@@ -298,6 +314,10 @@ class CartridgeDocument:
             raise ValueError(
                 f"unsupported package_inspector: {self.package_inspector}"
             )
+        if self.dlc_delivery_mode not in _SUPPORTED_DLC_DELIVERY_MODES:
+            raise ValueError(
+                f"unsupported dlc_delivery_mode: {self.dlc_delivery_mode}"
+            )
 
     @property
     def patch_platforms(self) -> tuple[str, ...]:
@@ -322,6 +342,7 @@ class CartridgeDocument:
             "runtime_original_library_name": self.runtime_original_library_name,
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.patch_install_relative_dir,
+            "additional_install_relative_dirs": list(self.patch_additional_install_relative_dirs),
             "ini_target_name": self.ini_target_name,
             "config_format": self.config_format,
             "language": self.language,
@@ -398,6 +419,9 @@ class CartridgeDocument:
                     install_relative_dir=str(
                         merged.get("install_relative_dir") or "."
                     ),
+                    additional_install_relative_dirs=_relative_directories(
+                        merged.get("additional_install_relative_dirs")
+                    ),
                     ini_target_name=str(
                         merged.get("ini_target_name") or "cream_api.ini"
                     ),
@@ -443,6 +467,9 @@ class CartridgeDocument:
             dlc_relative_dir=_require_nonempty(
                 value.get("dlc_relative_dir"), field="dlc_relative_dir"
             ),
+            dlc_delivery_mode=str(
+                value.get("dlc_delivery_mode") or "download_packages"
+            ),
             package_inspector=str(value.get("package_inspector") or "directory"),
             unlocker_dll_name=_require_nonempty(
                 patch.get("unlocker_dll_name"), field="unlocker_dll_name"
@@ -457,6 +484,9 @@ class CartridgeDocument:
             ),
             patch_install_relative_dir=str(
                 patch.get("install_relative_dir") or "."
+            ),
+            patch_additional_install_relative_dirs=_relative_directories(
+                patch.get("additional_install_relative_dirs")
             ),
             ini_target_name=str(patch.get("ini_target_name") or "cream_api.ini"),
             config_format=str(patch.get("config_format") or "cream_ini"),
@@ -488,6 +518,7 @@ class CartridgeDocument:
             "release_tag": self.release_tag,
             "executable_relative_path": self.executable_relative_path,
             "dlc_relative_dir": self.dlc_relative_dir,
+            "dlc_delivery_mode": self.dlc_delivery_mode,
             "package_inspector": self.package_inspector,
             "install_directory_from_slug": self.install_directory_from_slug,
             "dlc_group_search_roots": list(self.dlc_group_search_roots),
@@ -501,6 +532,9 @@ class CartridgeDocument:
                 "runtime_original_library_name": self.runtime_original_library_name,
                 "appinfo_asset_name": self.appinfo_asset_name,
                 "install_relative_dir": self.patch_install_relative_dir,
+                "additional_install_relative_dirs": list(
+                    self.patch_additional_install_relative_dirs
+                ),
                 "ini_target_name": self.ini_target_name,
                 "config_format": self.config_format,
                 "language": self.language,
@@ -513,6 +547,9 @@ class CartridgeDocument:
                         "runtime_original_library_name": variant.runtime_original_library_name,
                         "appinfo_asset_name": variant.appinfo_asset_name,
                         "install_relative_dir": variant.install_relative_dir,
+                        "additional_install_relative_dirs": list(
+                            variant.additional_install_relative_dirs
+                        ),
                         "ini_target_name": variant.ini_target_name,
                         "config_format": variant.config_format,
                         "language": variant.language,

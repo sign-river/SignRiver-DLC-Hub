@@ -15,7 +15,7 @@ from typing import Callable
 from urllib.parse import quote
 
 _TRANSIENT_HTTP_STATUS = frozenset({500, 502, 503, 504})
-_RETRYABLE_API_METHODS = frozenset({"GET", "PUT", "PATCH", "DELETE"})
+_RETRYABLE_API_METHODS = frozenset({"GET"})
 
 
 class GitHubPublisherError(RuntimeError):
@@ -236,6 +236,9 @@ class GitHubReleaseClient:
             except socket.timeout as error:
                 if should_pause is not None and should_pause():
                     raise GitHubUploadPaused(f"发布已暂停：{path.name}") from error
+                recovered = self._uploaded_asset_if_present(release.tag, path.name, size)
+                if recovered is not None:
+                    return recovered
                 if attempt == 2:
                     raise GitHubPublisherError(
                         f"GitHub 上传超时，已重试 3 次：{path.name}"
@@ -244,8 +247,10 @@ class GitHubReleaseClient:
                 continue
             except urllib.error.HTTPError as error:
                 detail = error.read().decode("utf-8", errors="replace")
+                recovered = self._uploaded_asset_if_present(release.tag, path.name, size)
+                if recovered is not None:
+                    return recovered
                 if error.code in _TRANSIENT_HTTP_STATUS and attempt < 2:
-                    self._remove_partial_asset(release.tag, path.name)
                     time.sleep(1 << attempt)
                     continue
                 if (
@@ -253,6 +258,9 @@ class GitHubReleaseClient:
                     and "already_exists" in detail
                     and attempt < 2
                 ):
+                    # A same-name asset with a different size is a stale or
+                    # partial prior attempt. It cannot be trusted, so replace
+                    # only after the metadata recovery check above failed.
                     self._remove_partial_asset(release.tag, path.name)
                     time.sleep(1 << attempt)
                     continue
@@ -260,15 +268,36 @@ class GitHubReleaseClient:
                     f"GitHub 上传失败 HTTP {error.code}: {detail}"
                 ) from error
             except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                recovered = self._uploaded_asset_if_present(release.tag, path.name, size)
+                if recovered is not None:
+                    return recovered
                 if attempt == 2:
                     raise GitHubPublisherError(
                         f"GitHub 上传失败，已重试 3 次：{error}"
                     ) from error
-                self._remove_partial_asset(release.tag, path.name)
                 time.sleep(1 << attempt)
         if not isinstance(payload, dict):
             raise GitHubPublisherError("GitHub 上传返回了异常响应")
         return payload
+
+    def _uploaded_asset_if_present(
+        self, tag: str, name: str, expected_size: int
+    ) -> dict[str, object] | None:
+        """Recover a completed upload whose success response was lost."""
+        try:
+            release = self.get_release_by_tag(tag)
+        except GitHubPublisherError:
+            return None
+        if release is None:
+            return None
+        for asset in release.assets:
+            if (
+                str(asset.get("name") or "") == name
+                and int(asset.get("size") or -1) == expected_size
+                and asset.get("id") is not None
+            ):
+                return dict(asset)
+        return None
 
     def _remove_partial_asset(self, tag: str, name: str) -> None:
         """Clear a server-side asset when the connection closed after upload."""
@@ -311,18 +340,38 @@ class GitHubReleaseClient:
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
-        try:
-            with self._open_request(request, timeout=12) as response:
-                raw = response.read()
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")
-            raise GitHubPublisherError(
-                f"GitHub API HTTP {error.code}: {detail}"
-            ) from error
-        except OSError as error:
-            raise GitHubPublisherError(
-                f"GitHub 连接失败，请检查网络或代理设置：{error}"
-            ) from error
+        retryable = method in _RETRYABLE_API_METHODS
+        for attempt in range(3):
+            try:
+                # Keep the response read inside the retry boundary.  A TCP
+                # connection can succeed while its first body read times out.
+                with self._opener(request, timeout=12) as response:
+                    raw = response.read()
+                break
+            except urllib.error.HTTPError as error:
+                if (
+                    retryable
+                    and error.code in _TRANSIENT_HTTP_STATUS
+                    and attempt < 2
+                ):
+                    time.sleep(1 << attempt)
+                    continue
+                detail = error.read().decode("utf-8", errors="replace")
+                raise GitHubPublisherError(
+                    f"GitHub API HTTP {error.code}: {detail}"
+                ) from error
+            except (urllib.error.URLError, OSError) as error:
+                if retryable and attempt < 2:
+                    time.sleep(1 << attempt)
+                    continue
+                if _is_timeout_error(error):
+                    suffix = "，已自动重试 3 次" if retryable else ""
+                    raise GitHubPublisherError(
+                        f"GitHub API 读取超时{suffix}；请稍后重试：{error}"
+                    ) from error
+                raise GitHubPublisherError(
+                    f"GitHub API 读取失败，请检查网络或代理设置：{error}"
+                ) from error
         if not expect_json or not raw:
             return {}
         try:
@@ -330,23 +379,11 @@ class GitHubReleaseClient:
         except (UnicodeError, json.JSONDecodeError) as error:
             raise GitHubPublisherError(f"GitHub API 响应不是 JSON：{error}") from error
 
-    def _open_request(self, request, *, timeout: int):
-        for attempt in range(3):
-            try:
-                return self._opener(request, timeout=timeout)
-            except urllib.error.HTTPError as error:
-                if (
-                    request.get_method() in _RETRYABLE_API_METHODS
-                    and error.code in _TRANSIENT_HTTP_STATUS
-                    and attempt < 2
-                ):
-                    time.sleep(1 << attempt)
-                    continue
-                raise
-            except (urllib.error.URLError, OSError):
-                if attempt == 2:
-                    raise
-                time.sleep(1 << attempt)
+def _is_timeout_error(error: BaseException) -> bool:
+    reason = getattr(error, "reason", error)
+    if isinstance(reason, (socket.timeout, TimeoutError)):
+        return True
+    return "timed out" in str(reason).casefold()
 
 
 class _FileUploadBody:

@@ -30,7 +30,7 @@ from ...domain import (
     OwnedFile,
     game_relative_path, normalize_game_relative_directory, resolve_game_directory,
 )
-from ..catalog import inspect_stellaris_package
+from ..catalog import inspect_directory_package
 
 _DLC_DIRECTORY = re.compile(r"^dlc\d{3,}_[a-z0-9_]+$", re.I)
 LOGGER = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class StellarisInstallEngine:
         dlc_relative_dir: str = "dlc",
         executable_name: str = "stellaris.exe",
         game_id: str = "stellaris",
-        package_inspector=inspect_stellaris_package,
+        package_inspector=inspect_directory_package,
         sleep: Callable[[float], None] = time.sleep,
         replace_retry_delays: tuple[float, ...] = (0.15, 0.4, 0.8),
         disk_usage: Callable[[Path], object] = shutil.disk_usage,
@@ -381,6 +381,11 @@ class StellarisInstallEngine:
     def _overlay_member_allowed(self, relative: PurePosixPath) -> bool:
         if not self._overlay_allowed_roots:
             return False
+        # A root of '.' denotes a deliberately flat shared launcher folder.
+        # Keep it flat: accepting nested paths here would let one DLC package
+        # overwrite another launcher's arbitrary private resources.
+        if self._overlay_allowed_roots == (Path(),):
+            return len(relative.parts) == 1
         candidate = tuple(part.casefold() for part in relative.parts)
         return any(
             candidate[:len(root.parts)] == tuple(

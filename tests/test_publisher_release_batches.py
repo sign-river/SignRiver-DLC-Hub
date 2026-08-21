@@ -374,7 +374,7 @@ class _FakeProvider:
         if self.timeout_upload:
             raise TimeoutError("simulated timeout")
         result = RemoteVerification(
-            not self.fail_upload, artifact.size, artifact.sha256
+            not self.fail_upload, artifact.size, artifact.sha256, artifact.filename
         )
         if not self.fail_upload:
             self.assets[artifact.filename] = result
@@ -393,6 +393,7 @@ class _FakeProvider:
             True,
             len(payload),
             hashlib.sha256(payload).hexdigest(),
+            Path(local_path).name,
             evidence={"manifest": json.loads(payload)},
         )
         self.assets[Path(local_path).name] = result

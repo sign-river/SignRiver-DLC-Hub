@@ -78,13 +78,13 @@ PROFILE_OPTION_LABELS = {
     },
     "dlc_import_layout_mode": {
         "grouped_leaf_paths": "跨分支按同名 DLC 目录合并",
+        "shared_file_pairs": "共享目录按 JSON / PNG 文件组拆分",
         "single_directory": "每次导入一个 DLC 目录",
         "children_if_root": "选择 DLC 根目录时批量拆分",
     },
     "package_inspector": {
         "grouped_directory": "多路径聚合目录包",
         "directory": "通用目录包",
-        "stellaris_zip": "Stellaris ZIP 描述包",
     },
 }
 

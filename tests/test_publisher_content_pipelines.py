@@ -11,9 +11,11 @@ from signriver_publisher.release_service import ReleaseService
 
 
 class SnapshotProvider:
-    def __init__(self, source_id: str, *, fail_index: bool = False) -> None:
+    def __init__(self, source_id: str, *, fail_index: bool = False, fail_upload: bool = False, lose_upload_response: bool = False) -> None:
         self.source_id = source_id
         self.fail_index = fail_index
+        self.fail_upload = fail_upload
+        self.lose_upload_response = lose_upload_response
         self.assets: dict[str, RemoteVerification] = {}
         self.calls: list[str] = []
         self.remote_names: set[str] = set()
@@ -23,13 +25,27 @@ class SnapshotProvider:
 
     def upload(self, artifact, path: Path) -> RemoteVerification:
         self.calls.append(f"asset:{path.name}")
+        if self.fail_upload:
+            raise TimeoutError(f"{self.source_id} upload timeout")
         result = RemoteVerification(True, artifact.size, artifact.sha256, path.name)
         self.assets[path.name] = result
         self.remote_names.add(path.name)
+        if self.lose_upload_response:
+            raise TimeoutError(f"{self.source_id} response timeout")
         return result
 
     def read_baseline(self) -> dict[str, object]:
-        return {"assets": [{"name": name} for name in sorted(self.remote_names)]}
+        return {
+            "assets": [
+                {
+                    "name": name,
+                    "remote_id": self.assets.get(
+                        name, RemoteVerification(False, remote_id=f"{name}-id")
+                    ).remote_id,
+                }
+                for name in sorted(self.remote_names)
+            ]
+        }
 
     def delete(self, key: str) -> RemoteVerification:
         self.remote_names.discard(key)
@@ -104,7 +120,7 @@ def test_game_content_reuses_matching_verified_cache_without_downloading(tmp_pat
         source: {
             "target": target,
             "assets": {
-                "dlc.zip": {"sha256": digest, "size": attachment.stat().st_size, "remote_id": ""}
+                "dlc.zip": {"sha256": digest, "size": attachment.stat().st_size, "remote_id": "dlc.zip-id"}
             },
         }
         for source, target in targets().items()
@@ -127,6 +143,49 @@ def test_game_content_reuses_matching_verified_cache_without_downloading(tmp_pat
     assert completed.status is ReleaseStatus.COMPLETED
     assert all("asset:dlc.zip" not in provider.calls for provider in providers.values())
     assert all("index:catalog.json" in provider.calls for provider in providers.values())
+
+
+def test_content_stage_recovers_an_upload_whose_response_was_lost(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    plan = service.create_game_content_batch(
+        game_id="game", release_tag="v1",
+        attachments=[file(tmp_path / "asset.zip", b"asset")],
+        catalog=file(tmp_path / "catalog.json", b"{}"), remote_targets=targets(),
+    )
+    confirmed(service, plan.batch_id)
+    providers = {
+        "gitlink": SnapshotProvider("gitlink", lose_upload_response=True),
+        "github": SnapshotProvider("github"),
+    }
+
+    completed = service.execute_game_content(plan.batch_id, providers)
+
+    assert completed.status is ReleaseStatus.COMPLETED
+    assert providers["gitlink"].calls.count("asset:asset.zip") == 1
+
+
+def test_content_retry_only_reuploads_the_source_that_is_still_missing(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    plan = service.create_game_content_batch(
+        game_id="game", release_tag="v1",
+        attachments=[file(tmp_path / "asset.zip", b"asset")],
+        catalog=file(tmp_path / "catalog.json", b"{}"), remote_targets=targets(),
+    )
+    confirmed(service, plan.batch_id)
+    gitlink = SnapshotProvider("gitlink")
+    github = SnapshotProvider("github", fail_upload=True)
+
+    with pytest.raises(TimeoutError, match="github upload timeout"):
+        service.execute_game_content(plan.batch_id, {"gitlink": gitlink, "github": github})
+
+    github.fail_upload = False
+    completed = service.execute_game_content(
+        plan.batch_id, {"gitlink": gitlink, "github": github}
+    )
+
+    assert completed.status is ReleaseStatus.COMPLETED
+    assert gitlink.calls.count("asset:asset.zip") == 1
+    assert github.calls.count("asset:asset.zip") == 2
 
 
 def test_non_dlc_content_is_replaced_even_when_a_cache_entry_matches(tmp_path: Path) -> None:
@@ -294,3 +353,31 @@ def test_mirror_execution_rejects_a_remote_change_after_confirmation(tmp_path: P
 
     with pytest.raises(RuntimeError, match="远端目录已发生变化"):
         service.execute_game_content(plan.batch_id, providers)
+
+
+def test_compatibility_publish_never_deletes_remote_only_files(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    plan = service.create_game_content_batch(
+        game_id="game",
+        release_tag="v1",
+        attachments=[file(tmp_path / "asset.zip", b"asset")],
+        catalog=file(tmp_path / "catalog.json", b"{}"),
+        remote_targets=targets(),
+        preserve_remote_only_files=True,
+    )
+    providers = {name: SnapshotProvider(name) for name in ("gitlink", "github")}
+    for provider in providers.values():
+        provider.remote_names.add("old-client-asset.zip")
+    plan = service.preview_game_content_mirror(plan.batch_id, providers)
+    # Defend against old or manually edited queue records that still claim deletion.
+    plan.options["mirror_delete_confirmed"] = True
+    service.store.save(plan)
+    confirmed(service, plan.batch_id)
+
+    completed = service.execute_game_content(plan.batch_id, providers)
+
+    assert completed.status is ReleaseStatus.COMPLETED
+    assert all("old-client-asset.zip" in provider.remote_names for provider in providers.values())
+    stage = next(item for item in completed.stages if item.stage_id == "content.upload_snapshot")
+    assert stage.output_summary["deleted"] == {"gitlink": [], "github": []}
+    assert stage.output_summary["preserved_remote_only_files"] is True

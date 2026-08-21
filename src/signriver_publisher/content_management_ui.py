@@ -19,7 +19,20 @@ TEXT = "#212121"
 MUTED = "#757575"
 RED = "#E53935"
 
+
+def _display_bytes(value: float) -> str:
+    amount = max(0.0, float(value))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if amount < 1024 or unit == "TB":
+            return f"{amount:.1f} {unit}" if unit != "B" else f"{int(amount)} B"
+        amount /= 1024
+    return f"{amount:.1f} TB"
+
 PROFILE_OPTION_LABELS = {
+    "dlc_delivery_mode": {
+        "download_packages": "下载式 DLC：构建并发布资源包",
+        "built_in": "内置 DLC：仅发布补丁以激活",
+    },
     "dlc_archive_root_mode": {
         "source": "保留管理目录名",
         "strip_id_prefix": "去掉管理编号，恢复游戏原目录名",
@@ -30,13 +43,13 @@ PROFILE_OPTION_LABELS = {
     },
     "dlc_import_layout_mode": {
         "grouped_leaf_paths": "跨分支按同名 DLC 目录合并",
+        "shared_file_pairs": "共享目录按 JSON / PNG 文件组拆分",
         "single_directory": "每次导入一个 DLC 目录",
         "children_if_root": "选择 DLC 根目录时批量拆分",
     },
     "package_inspector": {
         "grouped_directory": "多路径聚合目录包",
         "directory": "通用目录包",
-        "stellaris_zip": "Stellaris ZIP 描述包",
     },
 }
 
@@ -271,6 +284,17 @@ class ContentManagementUiMixin:
         self.content_operation_log.grid(row=2, column=0, padx=20, pady=(0, 18), sticky="nsew")
         self.content_operation_log.configure(state="disabled")
         self._content_operation_log_lines: list[str] = []
+        transfer_card = self._card(content, 3, "当前文件传输")
+        transfer_card.grid_columnconfigure(0, weight=1)
+        self.content_transfer_label = ctk.CTkLabel(
+            transfer_card, text="等待上传队列开始。", text_color=MUTED, anchor="w"
+        )
+        self.content_transfer_label.grid(row=1, column=0, padx=20, pady=(0, 6), sticky="ew")
+        self.content_transfer_progress = ctk.CTkProgressBar(
+            transfer_card, height=12, progress_color=BLUE
+        )
+        self.content_transfer_progress.set(0)
+        self.content_transfer_progress.grid(row=2, column=0, padx=20, pady=(0, 18), sticky="ew")
         self._log("已打开 DLC / 补丁发布包页面。")
 
     def _build_build_queue_tab(self) -> None:
@@ -291,10 +315,29 @@ class ContentManagementUiMixin:
         ).grid(row=1, column=0, padx=20, pady=(0, 12), sticky="ew")
         self.build_queue_summary = ctk.CTkLabel(header, text="构建队列正在读取…", text_color=MUTED, anchor="w")
         self.build_queue_summary.grid(row=2, column=0, padx=20, pady=(0, 14), sticky="w")
+        header_actions = ctk.CTkFrame(header, fg_color="transparent")
+        header_actions.grid(row=2, column=1, padx=20, pady=(0, 14), sticky="e")
+        self.build_queue_enqueue_all_button = ctk.CTkButton(
+            header_actions, text="一键加入上传队列", width=156, fg_color=BLUE,
+            command=self._enqueue_all_built_game_uploads,
+        )
+        self.build_queue_enqueue_all_button.pack(side="left", padx=(0, 8))
+        self.build_queue_compatibility_switch = ctk.CTkSwitch(
+            header_actions,
+            text="兼容发布：保留云端仅有文件",
+            text_color=MUTED,
+            fg_color="#90CAF9",
+            progress_color=LIGHT_BLUE,
+            command=self._set_build_queue_compatibility_mode,
+        )
+        if self.workspace.load_preserve_remote_only_files():
+            self.build_queue_compatibility_switch.select()
+        self.build_queue_compatibility_switch.pack(side="left", padx=(0, 8))
+        self._render_build_queue_compatibility_status()
         ctk.CTkButton(
-            header, text="刷新", width=82, fg_color="transparent", border_width=1,
+            header_actions, text="刷新", width=82, fg_color="transparent", border_width=1,
             border_color="#D8DEE6", text_color="#455A64", command=self._render_build_queue,
-        ).grid(row=2, column=1, padx=20, pady=(0, 14), sticky="e")
+        ).pack(side="left")
         self.build_queue_list = ctk.CTkScrollableFrame(
             self.build_queue_tab, fg_color="#F7F9FC", corner_radius=12,
             border_width=1, border_color="#D8DEE6",
@@ -304,6 +347,29 @@ class ContentManagementUiMixin:
         self._pending_build_progress: tuple[str, str, int, int, str, str] | None = None
         self._build_progress_notification_pending = False
         self._render_build_queue()
+
+    def _set_build_queue_compatibility_mode(self) -> None:
+        enabled = bool(self.build_queue_compatibility_switch.get())
+        self.workspace.save_preserve_remote_only_files(enabled)
+        self._render_build_queue_compatibility_status()
+        message = (
+            "已开启全局兼容发布：之后加入上传队列的全部构建项将保留云端仅有文件。"
+            if enabled
+            else "已关闭全局兼容发布：之后加入上传队列的全部构建项将按镜像清单删除云端仅有文件。"
+        )
+        self._log(f"用户操作：{message}")
+
+    def _render_build_queue_compatibility_status(self) -> None:
+        """Make the global policy visible without requiring the content log."""
+        enabled = bool(self.build_queue_compatibility_switch.get())
+        self.build_queue_compatibility_switch.configure(
+            text=(
+                "兼容发布：已开启（保留云端仅有文件）"
+                if enabled
+                else "兼容发布：已关闭（镜像删除云端仅有文件）"
+            ),
+            text_color=BLUE if enabled else MUTED,
+        )
 
     def _open_game_content_release_pipeline(self) -> None:
         """Enter the DLC/patch package page with the active profile in view."""
@@ -343,11 +409,21 @@ class ContentManagementUiMixin:
         )
         catalog = next((path for path in files if path.name == "catalog.json"), None)
         if catalog is None:
+            preparation = (
+                "请先在“本地资源”准备补丁，然后点击“加入构建队列”，"
+                "程序会自动构建发布文件。"
+                if self.profile.dlc_delivery_mode == "built_in"
+                else "请先在“本地资源”准备 DLC / 补丁，然后点击“加入构建队列”，"
+                "程序会自动构建发布文件。"
+            )
             text = (
                 f"当前游戏：{self.profile.display_name}（{self.profile.game_id}）\n"
-                "尚未准备可发布的 catalog.json。请先在“本地资源”准备 DLC / 补丁，"
-                "然后点击“加入上传队列”，程序会自动构建发布文件。"
+                "此游戏的 DLC 已随本体安装，无需构建或发布 DLC 压缩包。\n"
+                if self.profile.dlc_delivery_mode == "built_in" else
+                f"当前游戏：{self.profile.display_name}（{self.profile.game_id}）\n"
+                "尚未准备可发布的 catalog.json。"
             )
+            text += preparation
         else:
             attachments = [path for path in files if path != catalog]
             total_size = sum(path.stat().st_size for path in files)
@@ -360,7 +436,21 @@ class ContentManagementUiMixin:
     def _build_games_tab(self) -> None:
         self.games_tab.grid_rowconfigure(0, weight=1)
         self.games_tab.grid_columnconfigure(0, weight=1)
-        card = self._card(self.games_tab, 0, "游戏卡带配置")
+        card = ctk.CTkScrollableFrame(
+            self.games_tab,
+            fg_color=CARD,
+            border_width=1,
+            border_color="#D8DEE6",
+            corner_radius=14,
+        )
+        card.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            card,
+            text="游戏卡带配置",
+            font=("Microsoft YaHei UI", 20, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
         form = ctk.CTkFrame(card, fg_color="transparent")
         form.grid(row=1, column=0, padx=20, pady=(0, 8), sticky="ew")
         form.grid_columnconfigure(1, weight=1)
@@ -373,7 +463,9 @@ class ContentManagementUiMixin:
             ("可执行文件", "executable_relative_path"),
             ("补丁 DLL", "patch_unlocker_name"),
             ("DLC 安装目录", "dlc_relative_dir"),
+            ("DLC 交付方式", "dlc_delivery_mode"),
             ("补丁安装目录", "patch_relative_dir"),
+            ("额外补丁目录", "patch_additional_relative_dirs"),
             ("包校验方式", "package_inspector"),
             ("压缩包目录结构", "dlc_archive_root_mode"),
             ("导入编号方式", "dlc_import_naming_mode"),
@@ -424,14 +516,23 @@ class ContentManagementUiMixin:
                 entry.configure(state="normal")
             entry.delete(0, "end")
             value = getattr(self.profile, key)
-            if key == "dlc_group_search_roots":
+            if key in {"dlc_group_search_roots", "patch_additional_relative_dirs"}:
                 value = "; ".join(value)
             entry.insert(0, value)
             if key == "appinfo_name":
                 entry.configure(state="disabled")
         if hasattr(self, "local_output_list"):
-            self._fill_local_outputs()
-            self._show_remote_message("点击“刷新远程”读取当前游戏的 Release")
+            # Keep a successfully fetched remote snapshot visible when this
+            # page refreshes (for example after switching back from another
+            # resource view).  The old reset cleared only the cloud-detail
+            # pane, leaving the status count behind and making the change
+            # preview appear to have disappeared.
+            release = getattr(self, "_current_remote_release", None)
+            if release is not None:
+                self._fill_remote_diff(self.profile, release.assets)
+            else:
+                self._fill_local_outputs()
+                self._show_remote_message("点击“刷新远程”读取当前游戏的 Release")
         if hasattr(self, "acceptance_case_list"):
             try:
                 self.after_idle(self.refresh_acceptance)
@@ -444,12 +545,27 @@ class ContentManagementUiMixin:
     def refresh_resource_lists(self) -> None:
         """Rescan only the local DLC and patch folders shown on this page."""
         dlcs, patches = self.workspace.scan_sources(self.profile)
-        self._fill_resources(self.dlc_list, dlcs, "dlc")
+        built_in = self.profile.dlc_delivery_mode == "built_in"
+        self.dlc_import_button.configure(
+            state="disabled" if built_in else "normal",
+            text="无需导入" if built_in else "导入",
+        )
+        self.dlc_clear_button.configure(state="disabled" if built_in else "normal")
+        self._fill_resources(self.dlc_list, dlcs, "built_in" if built_in else "dlc")
         self._fill_resources(self.patch_list, patches, "patches")
 
     def _fill_resources(self, parent, resources: tuple[Path, ...], kind: str) -> None:
         for child in parent.winfo_children():
             child.destroy()
+        if kind == "built_in":
+            ctk.CTkLabel(
+                parent,
+                text="DLC 已随游戏本体安装，无需导入、构建或发布。\n仅准备补丁资源即可激活。",
+                text_color=MUTED,
+                justify="center",
+            ).pack(pady=24)
+            self._schedule_scrollable_reset(parent)
+            return
         if not resources:
             ctk.CTkLabel(parent, text="暂无资源", text_color=MUTED).pack(pady=24)
             self._schedule_scrollable_reset(parent)
@@ -525,6 +641,13 @@ class ContentManagementUiMixin:
         self._schedule_scrollable_reset(self.local_output_list)
 
     def import_dlc(self) -> None:
+        if self.profile.dlc_delivery_mode == "built_in":
+            messagebox.showinfo(
+                "无需导入 DLC",
+                "当前游戏的 DLC 已随本体安装，无需导入或发布 DLC 文件夹；请准备补丁资源即可。",
+                parent=self,
+            )
+            return
         path = filedialog.askdirectory(title="选择 DLC 文件夹")
         if not path:
             return
@@ -749,6 +872,11 @@ class ContentManagementUiMixin:
             values["dlc_group_search_roots"] = [
                 item.strip()
                 for item in values.get("dlc_group_search_roots", "").split(";")
+                if item.strip()
+            ]
+            values["patch_additional_relative_dirs"] = [
+                item.strip()
+                for item in values.get("patch_additional_relative_dirs", "").split(";")
                 if item.strip()
             ]
             merged = {**self.profile.to_dict(), **values}
@@ -1036,6 +1164,11 @@ class ContentManagementUiMixin:
         self, item_id: str, stage: str, index: int, total: int, name: str, detail: str
     ) -> None:
         """Coalesce worker updates so ZIP progress cannot flood Tk's event pump."""
+        if stage == "保留空目录":
+            self._post_ui(
+                lambda: self._build_progress(item_id, stage, index, total, name, detail)
+            )
+            return
         self._pending_build_progress = (item_id, stage, index, total, name, detail)
         if self._build_progress_notification_pending:
             return
@@ -1094,9 +1227,16 @@ class ContentManagementUiMixin:
         running = next((item for item in items if item.status is BuildQueueStatus.RUNNING), None)
         queued = sum(item.status is BuildQueueStatus.QUEUED for item in items)
         completed = sum(item.status is BuildQueueStatus.COMPLETED for item in items)
-        self.build_queue_summary.configure(
-            text=f"构建队列：{len(items)} 项 · 正在构建 {'1' if running else '0'} 项 · 等待 {queued} 项 · 已完成 {completed} 项"
+        summary = (
+            f"构建队列：{len(items)} 项 · 正在构建 {'1' if running else '0'} 项 · "
+            f"等待 {queued} 项 · 已完成 {completed} 项"
         )
+        self.build_queue_summary.configure(text=summary)
+        if hasattr(self, "build_queue_enqueue_all_button"):
+            self.build_queue_enqueue_all_button.configure(
+                text=f"一键加入上传队列（{completed}）",
+                state="disabled" if completed == 0 else "normal",
+            )
         if not items:
             ctk.CTkLabel(
                 self.build_queue_list, text="暂无构建项。请在“DLC / 补丁发布”加入构建队列。", text_color=MUTED
@@ -1157,12 +1297,93 @@ class ContentManagementUiMixin:
         self._render_build_queue()
 
     def _enqueue_built_game_upload(self, game_id: str) -> None:
-        profile = next((item for item in self.workspace.list_games() if item.game_id == game_id), None)
-        if profile is None:
+        item = next(
+            (value for value in self.content_build_queue.list_items() if value.game_id == game_id),
+            None,
+        )
+        profile = next((value for value in self.workspace.list_games() if value.game_id == game_id), None)
+        if item is None or profile is None:
             messagebox.showerror("无法加入上传队列", "找不到构建项对应的游戏配置。", parent=self)
             return
         self._log(f"用户操作：将“{profile.display_name}”的已构建文件加入上传队列。")
-        self._enqueue_current_game_upload(profile=profile)
+        self._enqueue_built_game_item(item, profile)
+
+    def _enqueue_all_built_game_uploads(self) -> None:
+        """Move completed local builds into the upload FIFO without further preparation."""
+        completed = [
+            item
+            for item in self.content_build_queue.list_items()
+            if item.status is BuildQueueStatus.COMPLETED
+        ]
+        if not completed:
+            messagebox.showinfo("暂无可加入项", "构建队列中没有已完成的项目。", parent=self)
+            return
+        profiles = {item.game_id: item for item in self.workspace.list_games()}
+        missing = [item.display_name for item in completed if item.game_id not in profiles]
+        if missing:
+            messagebox.showerror(
+                "无法批量加入上传队列",
+                "找不到以下构建项的游戏配置：\n" + "\n".join(missing),
+                parent=self,
+            )
+            return
+
+        failures: list[str] = []
+        queued = 0
+        for item in completed:
+            profile = profiles[item.game_id]
+            try:
+                self._enqueue_built_game_item(item, profile)
+                queued += 1
+            except Exception as error:
+                failures.append(f"• {profile.display_name}：{error}")
+        self._render_upload_queue()
+        self._render_build_queue()
+        if queued:
+            self._log(
+                f"用户操作：已按构建顺序将 {queued} 项加入上传队列；"
+                "远端差异会在每项实际开始上传前读取。"
+            )
+            self.content_tabs.set("上传队列")
+        if failures:
+            messagebox.showwarning(
+                "部分构建项未加入上传队列", "\n".join(failures), parent=self
+            )
+
+    def _enqueue_built_game_item(self, item, profile: GameProfile) -> None:
+        """Persist an already-completed build as a queue row without revalidating it."""
+        self.content_upload_queue.enqueue_built_game(
+            game_id=profile.game_id,
+            display_name=profile.display_name,
+            release_tag=profile.release_tag,
+            artifact_count=item.artifact_count,
+            total_bytes=item.total_bytes,
+        )
+
+    def _log_background(self, message: str) -> None:
+        """Marshal background progress back to Tk before writing the operation log."""
+        self._post_ui(lambda value=message: self._log(value))
+
+    def _update_content_transfer_progress(self, sample: dict[str, object]) -> None:
+        """Show the active upload/readback as one 0–100% file operation."""
+        label = getattr(self, "content_transfer_label", None)
+        progress = getattr(self, "content_transfer_progress", None)
+        if label is None or progress is None:
+            return
+        sent = max(0, int(sample.get("sent") or 0))
+        total = max(0, int(sample.get("total") or 0))
+        percent = min(1.0, sent / total) if total else 0.0
+        operation = str(sample.get("operation") or "上传")
+        source = str(sample.get("source") or "")
+        filename = str(sample.get("filename") or "")
+        speed = float(sample.get("bytes_per_second") or 0.0)
+        label.configure(
+            text=(
+                f"{operation} · {source} · {filename} · {percent:.0%} · "
+                f"{_display_bytes(sent)} / {_display_bytes(total)} · {_display_bytes(speed)}/s"
+            )
+        )
+        progress.set(percent)
 
     def _log(self, message: str) -> None:
         """Append a bounded, timestamped operation trail to the release page."""

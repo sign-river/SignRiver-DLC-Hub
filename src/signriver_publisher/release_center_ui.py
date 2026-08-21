@@ -5,7 +5,7 @@ from collections.abc import Callable
 from tkinter import filedialog, messagebox
 
 from .github import GitHubReleaseClient, GitHubRepository
-from .gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository
+from .gitlink import GitLinkAttachmentClient, GitLinkRepository
 from .models import GameProfile
 from .release_center import ReleaseCenter
 from .release_models import ReleaseKind, ReleasePlan
@@ -42,10 +42,12 @@ class ReleaseCenterUiMixin:
     def _create_game_content_batch_for_profile(self, profile: GameProfile) -> ReleasePlan:
         """Create a content batch for a queued build without changing UI selection."""
         output_dir = self.workspace.output_dir / profile.game_id
+        preserve_remote_only_files = self.workspace.load_preserve_remote_only_files()
         existing = self.release_service.find_reusable_game_content_batch(
             game_id=profile.game_id,
             release_tag=profile.release_tag,
             output_dir=output_dir,
+            preserve_remote_only_files=preserve_remote_only_files,
         )
         if existing is not None:
             return existing
@@ -84,6 +86,7 @@ class ReleaseCenterUiMixin:
             output_dir=output_dir,
             remote_targets=targets,
             reuse_cache=reuse_cache,
+            preserve_remote_only_files=preserve_remote_only_files,
         )
 
     def _release_center_remote_targets(self) -> dict[str, dict[str, str]]:
@@ -146,13 +149,10 @@ class ReleaseCenterUiMixin:
             release_tag=release_tag,
             release_name=f"SignRiver {release_tag}",
             pause_requested=pause_requested,
-            repository_ensurer=(
-                (lambda: GitLinkCli().ensure_repository(
-                    gitlink_target, repository_description
-                ))
-                if is_game_content
-                else None
-            ),
+            # Previewing and publishing an existing GitLink repository use
+            # the built-in HTTP client.  Do not make the optional CLI a
+            # hidden requirement for normal game-content uploads.
+            repository_ensurer=None,
         )
         return {"gitlink": gitlink, "github": github}
 

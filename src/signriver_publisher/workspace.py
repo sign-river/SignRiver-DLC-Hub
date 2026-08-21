@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import time
 import uuid
@@ -20,6 +21,8 @@ from .dlc_naming import (
     AUTO_PREFIX,
     CHILDREN_IF_ROOT,
     GROUPED_LEAF_PATHS,
+    SHARED_FILE_PAIRS,
+    SINGLE_DIRECTORY,
     VALID_DLC_IMPORT_LAYOUT_MODES,
     VALID_DLC_IMPORT_NAMING_MODES,
     auto_managed_folder,
@@ -68,6 +71,7 @@ class PublisherWorkspace:
         self.games_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         initial = self.list_games()
+        self._migrate_content_publish_options(initial)
         existing = {profile.game_id: profile for profile in initial}
         builtins = create_builtin_cartridges()
         for profile in builtins:
@@ -77,6 +81,17 @@ class PublisherWorkspace:
                 continue
             if current_profile.display_name != profile.display_name:
                 updated = replace(current_profile, display_name=profile.display_name)
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "stellaris"
+                and current_profile.package_inspector == "stellaris_zip"
+            ):
+                # Older workspaces kept the first implementation's special
+                # label even though their released outer ZIP uses the shared
+                # one-root directory package format.
+                updated = replace(current_profile, package_inspector="directory")
                 self.save_game(updated)
                 existing[profile.game_id] = updated
                 current_profile = updated
@@ -103,6 +118,61 @@ class PublisherWorkspace:
                 updated = replace(
                     current_profile,
                     patch_relative_dir=profile.patch_relative_dir,
+                )
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+            if (
+                profile.game_id == "victoria_3"
+                and current_profile.dlc_import_layout_mode == SINGLE_DIRECTORY
+            ):
+                # Victoria 3's game/dlc directory is a collection of already
+                # numbered dlcNNN_* folders, not one DLC package itself.
+                updated = replace(
+                    current_profile,
+                    dlc_import_layout_mode=CHILDREN_IF_ROOT,
+                )
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "age_of_wonders_4"
+                and current_profile.dlc_relative_dir in {"Content", "Launcher"}
+                and current_profile.dlc_import_layout_mode == CHILDREN_IF_ROOT
+                and current_profile.package_inspector == "directory"
+            ):
+                # Age of Wonders 4 keeps all DLC descriptors as file pairs in
+                # Launcher/dlc, rather than one Content/<DLC> directory each.
+                updated = replace(
+                    current_profile,
+                    dlc_relative_dir="Launcher/dlc",
+                    dlc_archive_root_mode="source",
+                    dlc_import_layout_mode=SHARED_FILE_PAIRS,
+                    dlc_group_search_roots=(".",),
+                    package_inspector="grouped_directory",
+                    install_directory_from_slug=False,
+                )
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "civilization_7"
+                and current_profile.dlc_delivery_mode != profile.dlc_delivery_mode
+            ):
+                updated = replace(
+                    current_profile,
+                    dlc_delivery_mode=profile.dlc_delivery_mode,
+                )
+                self.save_game(updated)
+                existing[profile.game_id] = updated
+                current_profile = updated
+            if (
+                profile.game_id == "age_of_wonders_4"
+                and current_profile.patch_additional_relative_dirs
+                != profile.patch_additional_relative_dirs
+            ):
+                updated = replace(
+                    current_profile,
+                    patch_additional_relative_dirs=profile.patch_additional_relative_dirs,
                 )
                 self.save_game(updated)
                 existing[profile.game_id] = updated
@@ -192,11 +262,15 @@ class PublisherWorkspace:
 
     def scan_sources(self, profile: GameProfile) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
         game_dir = self.game_dir(profile.game_id)
-        dlcs = tuple(sorted(path for path in (game_dir / "dlc").iterdir() if path.is_dir()))
+        dlcs = () if profile.dlc_delivery_mode == "built_in" else tuple(
+            sorted(path for path in (game_dir / "dlc").iterdir() if path.is_dir())
+        )
         patches = tuple(sorted(path for path in (game_dir / "patches").iterdir()))
         return dlcs, patches
 
     def import_dlc(self, profile: GameProfile, source: Path) -> Path:
+        if profile.dlc_delivery_mode == "built_in":
+            raise WorkspaceError("当前游戏的 DLC 已随本体安装，无需导入或发布 DLC 文件夹")
         source = source.resolve()
         if not source.is_dir():
             raise WorkspaceError("请选择一个 DLC 文件夹")
@@ -229,15 +303,23 @@ class PublisherWorkspace:
         return destination
 
     def is_dlc_collection(self, profile: GameProfile, source: Path) -> bool:
+        if profile.dlc_delivery_mode == "built_in":
+            return False
         source = source.resolve()
         configured_root = PurePosixPath(
             profile.dlc_relative_dir.replace("\\", "/")
         ).name
         return (
-            profile.dlc_import_layout_mode in {CHILDREN_IF_ROOT, GROUPED_LEAF_PATHS}
+            profile.dlc_import_layout_mode in {
+                CHILDREN_IF_ROOT, GROUPED_LEAF_PATHS, SHARED_FILE_PAIRS,
+            }
             and source.is_dir()
             and source.name.casefold() == configured_root.casefold()
-            and any(path.is_dir() and not path.is_symlink() for path in source.iterdir())
+            and (
+                any(path.is_file() and not path.is_symlink() for path in source.iterdir())
+                if profile.dlc_import_layout_mode == SHARED_FILE_PAIRS
+                else any(path.is_dir() and not path.is_symlink() for path in source.iterdir())
+            )
         )
 
     def import_dlc_collection(
@@ -250,6 +332,8 @@ class PublisherWorkspace:
             return self._import_grouped_leaf_collection(
                 profile, source, progress=progress
             )
+        if profile.dlc_import_layout_mode == SHARED_FILE_PAIRS:
+            return self._import_shared_file_pairs(profile, source, progress=progress)
         children = tuple(
             sorted(
                 (
@@ -272,10 +356,16 @@ class PublisherWorkspace:
         for offset, child in enumerate(children):
             if child.name.casefold() in existing_install_names:
                 raise WorkspaceError(f"DLC 已存在：{child.name}")
-            try:
-                managed_name = auto_managed_folder(child.name, first_number + offset)
-            except ValueError as error:
-                raise WorkspaceError(str(error)) from error
+            # Some games (for example Victoria 3) already expose their DLC
+            # directories as dlcNNN_name.  Treat those names as authoritative
+            # instead of prefixing a second publisher-managed number.
+            if parse_managed_folder(child.name) is not None:
+                managed_name = child.name
+            else:
+                try:
+                    managed_name = auto_managed_folder(child.name, first_number + offset)
+                except ValueError as error:
+                    raise WorkspaceError(str(error)) from error
             destination = dlc_root / managed_name
             if destination.exists():
                 raise WorkspaceError(f"DLC 已存在：{managed_name}")
@@ -311,6 +401,96 @@ class PublisherWorkspace:
         )
         self._invalidate_build_complete(profile)
         return tuple(destination for _, destination in planned)
+
+    def _import_shared_file_pairs(
+        self, profile: GameProfile, source: Path, *, progress=None
+    ) -> tuple[Path, ...]:
+        """Import a flat launcher directory as one managed DLC per file pair.
+
+        Age of Wonders 4 stores each DLC as ``slug(.dlc).json`` plus
+        ``slug.png`` directly in ``Launcher/dlc``.  The publisher workspace
+        still gives every logical DLC an isolated managed directory so it can
+        be built, cached and released independently.
+        """
+        groups: dict[str, dict[str, Path]] = {}
+        unexpected: list[str] = []
+        for path in sorted(source.iterdir(), key=lambda item: item.name.casefold()):
+            if path.is_symlink() or path.is_dir():
+                unexpected.append(path.name)
+                continue
+            suffix = path.suffix.casefold()
+            if suffix == ".png":
+                key = path.stem.casefold()
+                group = groups.setdefault(key, {})
+                if "thumbnail" in group:
+                    raise WorkspaceError(f"DLC 缩略图重名：{path.name}")
+                group["thumbnail"] = path
+            elif suffix == ".json":
+                stem = path.stem
+                key = (stem[:-4] if stem.casefold().endswith(".dlc") else stem).casefold()
+                group = groups.setdefault(key, {})
+                if "descriptor" in group:
+                    raise WorkspaceError(f"DLC JSON 描述重名：{path.name}")
+                group["descriptor"] = path
+            else:
+                unexpected.append(path.name)
+        if unexpected:
+            raise WorkspaceError(
+                "共享 DLC 目录仅允许 JSON 描述和 PNG 缩略图："
+                + "、".join(unexpected[:5])
+            )
+        incomplete = [key for key, files in groups.items() if set(files) != {"descriptor", "thumbnail"}]
+        if incomplete:
+            raise WorkspaceError(
+                "DLC 文件缺少 JSON 描述或 PNG 缩略图：" + "、".join(incomplete[:5])
+            )
+        dlc_root = self.game_dir(profile.game_id) / "dlc"
+        existing_names = {
+            parsed[1].casefold()
+            for path in dlc_root.iterdir() if path.is_dir()
+            for parsed in [parse_managed_folder(path.name)] if parsed is not None
+        }
+        first_number = self._next_dlc_import_number(profile)
+        planned: list[tuple[str, dict[str, Path], Path]] = []
+        for offset, key in enumerate(sorted(groups)):
+            if key in existing_names:
+                raise WorkspaceError(f"DLC 已存在：{key}")
+            try:
+                managed_name = auto_managed_folder(key, first_number + offset)
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            destination = dlc_root / managed_name
+            if destination.exists():
+                raise WorkspaceError(f"DLC 已存在：{managed_name}")
+            planned.append((key, groups[key], destination))
+        staging_root = self._import_staging_root(profile)
+        staging_root.mkdir(parents=True, exist_ok=True)
+        batch = staging_root / uuid.uuid4().hex[:8]
+        batch.mkdir()
+        committed: list[tuple[Path, Path]] = []
+        try:
+            for index, (key, files, destination) in enumerate(planned, start=1):
+                if progress is not None:
+                    progress(index, len(planned), key)
+                staged = batch / destination.name
+                staged.mkdir()
+                for path in files.values():
+                    shutil.copy2(path, staged / path.name)
+            for _, _, destination in planned:
+                staged = batch / destination.name
+                staged.replace(destination)
+                committed.append((destination, staged))
+        except (OSError, shutil.Error) as error:
+            for destination, staged in reversed(committed):
+                if destination.exists():
+                    destination.replace(staged)
+            raise self._copy_workspace_error(source.name, error) from error
+        finally:
+            if batch.exists():
+                self._remove_tree(batch, ignore_errors=True)
+        self._sync_dlc_import_number(profile)
+        self._invalidate_build_complete(profile)
+        return tuple(destination for _, _, destination in planned)
 
     def _import_grouped_leaf_collection(
         self, profile: GameProfile, source: Path, *, progress=None
@@ -557,6 +737,8 @@ class PublisherWorkspace:
     def remove_source(self, profile: GameProfile, kind: str, name: str) -> None:
         if kind not in {"dlc", "patches"}:
             raise WorkspaceError("未知资源类型")
+        if kind == "dlc" and profile.dlc_delivery_mode == "built_in":
+            raise WorkspaceError("当前游戏的 DLC 已随本体安装，无需管理本地 DLC 文件夹")
         root = (self.game_dir(profile.game_id) / kind).resolve()
         target = (root / name).resolve()
         if target.parent != root or not target.exists():
@@ -565,11 +747,19 @@ class PublisherWorkspace:
             self._remove_tree(target)
         else:
             target.unlink()
+        if kind == "dlc":
+            # Import numbering is only a convenient local name allocator.  A
+            # deleted DLC must not leave a persistent high-water mark behind:
+            # otherwise repeated import/delete cycles keep producing larger
+            # and larger dlcNNN prefixes, including after a publisher restart.
+            self._sync_dlc_import_number(profile)
         self._invalidate_build_complete(profile)
 
     def clear_sources(self, profile: GameProfile, kind: str) -> int:
         if kind not in {"dlc", "patches"}:
             raise WorkspaceError("未知资源类型")
+        if kind == "dlc" and profile.dlc_delivery_mode == "built_in":
+            raise WorkspaceError("当前游戏的 DLC 已随本体安装，无需清理本地 DLC 文件夹")
         root = (self.game_dir(profile.game_id) / kind).resolve()
         resources = tuple(root.iterdir())
         for target in resources:
@@ -621,6 +811,8 @@ class PublisherWorkspace:
         for index, source in enumerate(dlcs, start=1):
             report("正在检查", index, source.name)
             dlc_id, display_name = self._parse_dlc_folder(source.name)
+            if not any(path.is_file() for path in source.rglob("*")):
+                report("保留空目录", index, source.name, "将生成可安装目录包")
             asset_name = f"{source.name}.zip"
             output = target / asset_name
             archive_root = self._dlc_archive_root(profile, source)
@@ -679,7 +871,10 @@ class PublisherWorkspace:
             report("开始压缩", index, source.name)
             started = time.monotonic()
             self._zip_directory(
-                source, output, include_root=True, archive_root=archive_root
+                source,
+                output,
+                include_root=True,
+                archive_root=archive_root,
             )
             digest = self._file_sha256(output)
             elapsed = time.monotonic() - started
@@ -1050,69 +1245,30 @@ class PublisherWorkspace:
     def _validated_publish_assets(
         self, profile: GameProfile
     ) -> tuple[PublishAsset, ...]:
+        """Validate the *current* publish directory before it enters a queue.
+
+        ``.build-complete.json`` is deliberately only an optional build
+        diagnostic.  It used to be treated as a second, fragile credential for
+        the output directory.  That meant an otherwise valid completed build
+        could no longer be queued simply because an unrelated edit invalidated
+        the marker.  The directory itself is the publish input: validate its
+        required files, part layout, sizes, and hashes directly every time.
+        """
         self._validate_profile(profile)
-        files = self._unvalidated_publish_files(profile)
-        manifest_path = self._build_complete_path(profile)
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise WorkspaceError(
-                "发布文件没有完整构建凭证，请重新生成全部发布文件"
-            ) from error
-        if (
-            not isinstance(manifest, dict)
-            or manifest.get("version") != _BUILD_COMPLETE_VERSION
-            or manifest.get("profile") != profile.to_dict()
-            or not isinstance(manifest.get("assets"), list)
-        ):
-            raise WorkspaceError("构建凭证与当前游戏卡带不一致，请重新构建")
-
-        recorded: dict[str, dict[str, object]] = {}
-        recorded_casefold: set[str] = set()
-        for value in manifest["assets"]:
-            if not isinstance(value, dict):
-                raise WorkspaceError("构建凭证中的附件记录无效，请重新构建")
-            name = str(value.get("name", ""))
-            folded = name.casefold()
-            if (
-                not name
-                or Path(name).name != name
-                or folded in recorded_casefold
-            ):
-                raise WorkspaceError("构建凭证中的附件名称无效或重复，请重新构建")
-            recorded[name] = value
-            recorded_casefold.add(folded)
-
         target = self.output_dir / profile.game_id
-        # Sweep leftovers from interrupted atomic writes; they would break the
-        # exact filename-set invariant checked below.
+        # Interrupted atomic writes are never release assets.
         for stale in target.glob("*.tmp"):
             try:
                 stale.unlink()
             except OSError:
                 pass
-        # catalog.json is a derived final attachment, generated from the
-        # verified build assets after this check. It is deliberately not part
-        # of the immutable build-complete evidence to avoid a self-reference.
-        actual_all = tuple(sorted(
-            path for path in target.iterdir()
-            if path.is_file() and path.name != _CATALOG_ASSET_NAME
-        ))
-        actual_names = {path.name for path in actual_all}
-        if actual_names != set(recorded):
-            raise WorkspaceError("发布文件与完整构建凭证不一致，请重新构建")
-        if {path.name for path in files} != actual_names:
-            raise WorkspaceError("发布目录包含不应上传的完整压缩包，请重新构建")
-
-        self._validate_release_parts(tuple(recorded))
+        files = self._unvalidated_publish_files(profile)
+        self._validate_release_parts(tuple(path.name for path in files))
         assets: list[PublishAsset] = []
         for path in files:
-            value = recorded[path.name]
             try:
-                expected_size = int(value.get("size_bytes", -1))
-                expected_sha256 = str(value.get("sha256", ""))
                 stat = path.stat()
-            except (OSError, TypeError, ValueError) as error:
+            except OSError as error:
                 raise WorkspaceError(
                     f"无法验证发布文件：{path.name}"
                 ) from error
@@ -1120,11 +1276,7 @@ class PublisherWorkspace:
                 raise WorkspaceError(
                     f"发布附件超过安全上限 280 MiB：{path.name}"
                 )
-            if expected_size != stat.st_size or len(expected_sha256) != 64:
-                raise WorkspaceError(f"发布文件已变化，请重新构建：{path.name}")
             digest = self._verified_file_sha256(path)
-            if digest != expected_sha256:
-                raise WorkspaceError(f"发布文件校验失败，请重新构建：{path.name}")
             assets.append(PublishAsset(path, path.name, stat.st_size, digest))
         return tuple(assets)
 
@@ -1190,6 +1342,51 @@ class PublisherWorkspace:
             {"version": 1, "sources": sources},
         )
 
+    def load_preserve_remote_only_files(self) -> bool:
+        """Return the publisher-wide compatibility publishing preference."""
+        try:
+            value = json.loads(
+                self._content_publish_options_path().read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+        return bool(
+            isinstance(value, dict)
+            and value.get("version") == 1
+            and value.get("preserve_remote_only_files")
+        )
+
+    def save_preserve_remote_only_files(self, enabled: bool) -> None:
+        """Persist the default retained-file policy for future content batches."""
+        self._atomic_json(
+            self._content_publish_options_path(),
+            {"version": 1, "preserve_remote_only_files": bool(enabled)},
+        )
+
+    def _migrate_content_publish_options(
+        self, profiles: tuple[GameProfile, ...]
+    ) -> None:
+        """Promote the former per-game toggle to one publisher-wide default."""
+        if self._content_publish_options_path().is_file():
+            return
+        legacy_enabled = False
+        for profile in profiles:
+            try:
+                value = json.loads(
+                    self._legacy_content_publish_options_path(profile).read_text(
+                        encoding="utf-8"
+                    )
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            legacy_enabled = legacy_enabled or bool(
+                isinstance(value, dict)
+                and value.get("version") == 1
+                and value.get("preserve_remote_only_files")
+            )
+        if legacy_enabled:
+            self.save_preserve_remote_only_files(True)
+
     @staticmethod
     def _validate_profile(profile: GameProfile) -> None:
         if not _SAFE_ID.fullmatch(profile.game_id):
@@ -1213,15 +1410,25 @@ class PublisherWorkspace:
         PublisherWorkspace._validate_relative_directory(
             profile.patch_relative_dir, "补丁安装目录"
         )
+        patch_dirs = (
+            profile.patch_relative_dir,
+            *profile.patch_additional_relative_dirs,
+        )
+        if len({value.casefold() for value in patch_dirs}) != len(patch_dirs):
+            raise WorkspaceError("补丁安装目录不能重复")
+        for value in profile.patch_additional_relative_dirs:
+            PublisherWorkspace._validate_relative_directory(value, "额外补丁目录")
         if profile.dlc_archive_root_mode not in {"source", "strip_id_prefix"}:
             raise WorkspaceError("DLC 压缩根目录模式只能是 source 或 strip_id_prefix")
+        if profile.dlc_delivery_mode not in {"download_packages", "built_in"}:
+            raise WorkspaceError("DLC 交付方式只能是 download_packages 或 built_in")
         if profile.dlc_import_naming_mode not in VALID_DLC_IMPORT_NAMING_MODES:
             raise WorkspaceError(
                 "DLC 导入命名模式只能是 manual_prefixed 或 auto_prefix"
             )
         if profile.dlc_import_layout_mode not in VALID_DLC_IMPORT_LAYOUT_MODES:
             raise WorkspaceError(
-                "DLC 导入布局模式只能是 single_directory、children_if_root 或 grouped_leaf_paths"
+                "DLC 导入布局模式只能是 single_directory、children_if_root、grouped_leaf_paths 或 shared_file_pairs"
             )
         if profile.dlc_import_layout_mode == GROUPED_LEAF_PATHS:
             if not profile.dlc_group_search_roots:
@@ -1230,23 +1437,26 @@ class PublisherWorkspace:
                 PublisherWorkspace._validate_relative_directory(
                     value, "DLC 聚合扫描目录"
                 )
+        if profile.dlc_import_layout_mode == SHARED_FILE_PAIRS:
+            if tuple(profile.dlc_group_search_roots) != (".",):
+                raise WorkspaceError("共享 DLC 文件组模式只能使用 DLC 根目录")
+            if profile.package_inspector != "grouped_directory":
+                raise WorkspaceError("共享 DLC 文件组模式必须使用 grouped_directory 校验")
 
     def _next_dlc_import_number(self, profile: GameProfile) -> int:
-        state_path = self.game_dir(profile.game_id) / ".dlc-import-state.json"
-        stored = 1
-        try:
-            value = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(value, dict):
-                stored = max(1, int(value.get("next_number", 1)))
-        except (OSError, ValueError, TypeError):
-            pass
+        """Return the first number after the DLC folders that still exist.
+
+        ``.dlc-import-state.json`` is retained as diagnostic/migration state,
+        but it must never reserve numbers for deleted resources.  The local
+        directory is the source of truth, including after a restart.
+        """
         existing = 0
         dlc_dir = self.game_dir(profile.game_id) / "dlc"
         for path in dlc_dir.iterdir():
             parsed = parse_managed_folder(path.name) if path.is_dir() else None
             if parsed is not None:
                 existing = max(existing, parsed[2])
-        return max(stored, existing + 1)
+        return existing + 1
 
     def _advance_dlc_import_number(self, profile: GameProfile, managed_name: str) -> None:
         parsed = parse_managed_folder(managed_name)
@@ -1255,6 +1465,13 @@ class PublisherWorkspace:
         path = self.game_dir(profile.game_id) / ".dlc-import-state.json"
         next_number = max(self._next_dlc_import_number(profile), parsed[2] + 1)
         self._atomic_json(path, {"version": 1, "next_number": next_number})
+
+    def _sync_dlc_import_number(self, profile: GameProfile) -> None:
+        """Persist the current directory-derived next number for visibility."""
+        self._atomic_json(
+            self.game_dir(profile.game_id) / ".dlc-import-state.json",
+            {"version": 1, "next_number": self._next_dlc_import_number(profile)},
+        )
 
     def _import_staging_root(self, profile: GameProfile) -> Path:
         return self.root / ".staging" / profile.game_id
@@ -1345,9 +1562,10 @@ class PublisherWorkspace:
     def _zip_directory(
         source: Path, destination: Path, *, include_root: bool,
         archive_root: str | None = None,
+        allow_empty: bool = True,
     ) -> None:
         files = sorted(path for path in source.rglob("*") if path.is_file())
-        if not files:
+        if not files and not allow_empty:
             raise WorkspaceError(f"文件夹为空：{source.name}")
         if any(path.is_symlink() for path in source.rglob("*")):
             raise WorkspaceError(f"不允许符号链接：{source.name}")
@@ -1356,6 +1574,21 @@ class PublisherWorkspace:
             temporary = Path(handle.name)
         try:
             with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+                if not files:
+                    if not include_root:
+                        raise WorkspaceError("空目录包必须保留顶层目录")
+                    root_name = Path(archive_root or source.name)
+                    directories = (source, *sorted(
+                        (path for path in source.rglob("*") if path.is_dir()),
+                        key=lambda path: path.relative_to(source).as_posix(),
+                    ))
+                    for path in directories:
+                        arcname = root_name / path.relative_to(source)
+                        directory = zipfile.ZipInfo(arcname.as_posix().rstrip("/") + "/")
+                        directory.date_time = (2020, 1, 1, 0, 0, 0)
+                        directory.external_attr = (stat.S_IFDIR | 0o755) << 16 | 0x10
+                        directory.compress_type = zipfile.ZIP_STORED
+                        archive.writestr(directory, b"")
                 for path in files:
                     relative = path.relative_to(source)
                     root_name = archive_root or source.name
@@ -1468,6 +1701,12 @@ class PublisherWorkspace:
     def _content_reuse_cache_path(self, profile: GameProfile) -> Path:
         return self.game_dir(profile.game_id) / ".content-reuse-cache.json"
 
+    def _content_publish_options_path(self) -> Path:
+        return self.root / ".content-publish-options.json"
+
+    def _legacy_content_publish_options_path(self, profile: GameProfile) -> Path:
+        return self.game_dir(profile.game_id) / ".content-publish-options.json"
+
     @staticmethod
     def _cached_publish_digest(cached: object, size_bytes: int, mtime_ns: int) -> str:
         if not isinstance(cached, dict):
@@ -1494,9 +1733,16 @@ class PublisherWorkspace:
         if any(path.is_symlink() for path in entries):
             raise WorkspaceError(f"不允许符号链接：{source.name}")
         files = tuple(path for path in entries if path.is_file())
-        if not files:
-            raise WorkspaceError(f"文件夹为空：{source.name}")
         digest = hashlib.sha256()
+        if not files:
+            # ZIP can preserve a directory entry without manufacturing a
+            # placeholder file.  Keep a stable signature so this tiny package
+            # is also eligible for the normal incremental-build cache.
+            digest.update(b"empty-directory\n")
+            for path in entries:
+                if path.is_dir():
+                    digest.update(path.relative_to(source).as_posix().encode("utf-8"))
+                    digest.update(b"/\n")
         for path in files:
             stat = path.stat()
             digest.update(path.relative_to(source).as_posix().encode("utf-8"))
@@ -1571,10 +1817,10 @@ class PublisherWorkspace:
         if not output.is_file():
             return False
         files = tuple(sorted((path for path in source.rglob("*") if path.is_file()), key=lambda item: item.relative_to(source).as_posix()))
-        if not files or any(path.is_symlink() for path in source.rglob("*")):
+        if any(path.is_symlink() for path in source.rglob("*")):
             return False
         try:
-            if output.stat().st_mtime_ns < max(path.stat().st_mtime_ns for path in files):
+            if files and output.stat().st_mtime_ns < max(path.stat().st_mtime_ns for path in files):
                 return False
             expected = {
                 (Path(archive_root or source.name) / path.relative_to(source)).as_posix(): path.stat().st_size
@@ -1584,6 +1830,17 @@ class PublisherWorkspace:
                 actual = {item.filename: item.file_size for item in archive.infolist() if not item.is_dir()}
                 if len(actual) != len(tuple(item for item in archive.infolist() if not item.is_dir())):
                     return False
+                if not files:
+                    roots = {
+                        PurePosixPath(item.filename).parts[0]
+                        for item in archive.infolist()
+                        if item.filename
+                    }
+                    return (
+                        actual == {}
+                        and roots == {archive_root or source.name}
+                        and any(item.is_dir() for item in archive.infolist())
+                    )
             return actual == expected
         except (OSError, zipfile.BadZipFile, ValueError):
             return False

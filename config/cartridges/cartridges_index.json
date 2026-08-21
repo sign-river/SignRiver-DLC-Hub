@@ -11,8 +11,8 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "6ec7b4706daee62d368dabc0a48f78396d5070708279c00fe24af6f2617afc74",
-      "size_bytes": 1794
+      "sha256": "b37e610eb3dae29e6ed341e91726050c72bdbe34dfa6d71e9069a16fdf097fb8",
+      "size_bytes": 1789
     },
     {
       "game_id": "civilization_6",
@@ -67,15 +67,15 @@
       "game_id": "civilization_7",
       "display_name": "文明7 (Sid Meier's Civilization VII)",
       "asset_name": "cartridge_civilization_7.json",
-      "sha256": "1302c58538ae192a8a3fa597ddb458001e40d248f7034f405a4a13485ee03891",
-      "size_bytes": 1125
+      "sha256": "c64ed7b8f2788734f611692e27d228a4e4ff83468fd3d4e0ff3b038b4166ad6c",
+      "size_bytes": 1158
     },
     {
       "game_id": "age_of_wonders_4",
       "display_name": "奇迹时代4 (Age of Wonders 4)",
       "asset_name": "cartridge_age_of_wonders_4.json",
-      "sha256": "94ea4192e6cbe2104aa9708708f5ebf0344542fb25841b3d87a8c5e9a60726ee",
-      "size_bytes": 1067
+      "sha256": "d816ce85cc837ef64b8c997b6ca379369f98004d5bab07e6d956309e8b0a3d15",
+      "size_bytes": 1245
     }
   ]
 }

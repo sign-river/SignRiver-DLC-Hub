@@ -114,6 +114,12 @@ class PublisherCartridge:
     patch_extra_protection: bool = False
     patch_force_offline: bool = False
     patch_platforms: dict[str, dict[str, object]] = field(default_factory=dict)
+    # ``built_in`` means the game ships DLC payloads with its base install;
+    # publishing only supplies the unlock patch and AppInfo metadata.
+    dlc_delivery_mode: str = "download_packages"
+    # Additional game-relative directories that require the same complete
+    # proxy-library patch transaction as ``patch_relative_dir``.
+    patch_additional_relative_dirs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.patch_platforms and self.game_id in BUILTIN_PATCH_PLATFORMS:
@@ -139,6 +145,9 @@ class PublisherCartridge:
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["dlc_group_search_roots"] = list(self.dlc_group_search_roots)
+        payload["patch_additional_relative_dirs"] = list(
+            self.patch_additional_relative_dirs
+        )
         return payload
 
     @classmethod
@@ -160,6 +169,15 @@ class PublisherCartridge:
         for spec in patch_platforms.values():
             if "runtime_original_library_name" not in spec and spec.get("original_backup_dll_name"):
                 spec["runtime_original_library_name"] = spec.pop("original_backup_dll_name")
+
+        raw_group_roots = value.get("dlc_group_search_roots", ())
+        group_roots = tuple(
+            str(item).strip() for item in raw_group_roots if str(item).strip()
+        ) if isinstance(raw_group_roots, (list, tuple)) else tuple(
+            item.strip() for item in str(raw_group_roots or "").split(";") if item.strip()
+        )
+        if game_id == "age_of_wonders_4" and not group_roots:
+            group_roots = (".",)
 
         auto_prefix_games = {
             "civilization_6", "cities_skylines", "rimworld",
@@ -189,7 +207,7 @@ class PublisherCartridge:
             "victoria_3": "game/dlc",
             "workers_resources_soviet_republic": "media_soviet",
             "civilization_7": "DLC",
-            "age_of_wonders_4": "Content",
+            "age_of_wonders_4": "Launcher/dlc",
         }
         builtin_patch_dirs = {
             "civilization_6": "Base/Binaries/Win64Steam",
@@ -210,7 +228,6 @@ class PublisherCartridge:
             "civilization_7": "Base/Binaries/Win64/Civ7_Win64_DX12_FinalRelease.exe",
             "age_of_wonders_4": "AOW4.exe",
         }
-        builtin_inspectors = {"stellaris": "stellaris_zip"}
         return cls(
             game_id=game_id,
             display_name=str(value["display_name"]),
@@ -226,12 +243,24 @@ class PublisherCartridge:
             dlc_relative_dir=str(
                 value.get("dlc_relative_dir") or builtin_dlc_dirs.get(game_id, "dlc")
             ),
+            dlc_delivery_mode=str(
+                value.get("dlc_delivery_mode") or "download_packages"
+            ),
             patch_relative_dir=str(
                 value.get("patch_relative_dir") or builtin_patch_dirs.get(game_id, ".")
             ),
+            patch_additional_relative_dirs=tuple(
+                str(item).strip()
+                for item in value.get("patch_additional_relative_dirs", ())
+                if str(item).strip()
+            ) if isinstance(value.get("patch_additional_relative_dirs", ()), (list, tuple)) else tuple(
+                item.strip()
+                for item in str(value.get("patch_additional_relative_dirs") or "").split(";")
+                if item.strip()
+            ),
             dlc_archive_root_mode=str(
                 value.get("dlc_archive_root_mode")
-                or builtin_archive_modes.get(game_id, "source")
+                or ("source" if game_id == "age_of_wonders_4" else builtin_archive_modes.get(game_id, "source"))
             ),
             dlc_import_naming_mode=str(
                 value.get("dlc_import_naming_mode")
@@ -239,29 +268,21 @@ class PublisherCartridge:
             ),
             dlc_import_layout_mode=str(
                 value.get("dlc_import_layout_mode")
-                or builtin_layout_modes.get(game_id, "single_directory")
+                or ("shared_file_pairs" if game_id == "age_of_wonders_4" else builtin_layout_modes.get(game_id, "single_directory"))
             ),
-            dlc_group_search_roots=tuple(
-                str(item).strip()
-                for item in value.get("dlc_group_search_roots", ())
-                if str(item).strip()
-            ) if isinstance(value.get("dlc_group_search_roots", ()), (list, tuple)) else tuple(
-                item.strip()
-                for item in str(value.get("dlc_group_search_roots") or "").split(";")
-                if item.strip()
-            ),
+            dlc_group_search_roots=group_roots,
             executable_relative_path=str(
                 value.get("executable_relative_path")
                 or builtin_executables.get(game_id, "")
             ),
             package_inspector=str(
                 value.get("package_inspector")
-                or builtin_inspectors.get(game_id, "directory")
+                or ("grouped_directory" if game_id == "age_of_wonders_4" else "directory")
             ),
             install_directory_from_slug=bool(
                 value.get(
                     "install_directory_from_slug",
-                    game_id in auto_prefix_games,
+                    False if game_id == "age_of_wonders_4" else game_id in auto_prefix_games,
                 )
             ),
             ini_target_name=str(value.get("ini_target_name") or "cream_api.ini"),
