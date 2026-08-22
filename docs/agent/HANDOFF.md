@@ -1709,3 +1709,8 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 下载源切换后，客户端现在先显示“正在重新加载”，只有 Hub 主表和当前默认卡带完成加载、游戏扫描与 DLC 列表刷新后，才提示“下载和程序更新源已切换为 GitHub，卡带已重新加载”。
 - 远程主表或卡带只能回退本地缓存时，不再显示成功提示，改为明确的缓存回退警告；原有切换失败回滚逻辑未改变。
 - 验证（2026-08-22）：`pytest -q tests\test_ui_theme.py -k "download_source or patch_only_release or active_cartridge_switch"`（5 通过）；`pytest -q tests\test_cartridge_catalog.py tests\test_cartridge_default_fallback.py tests\test_platform_content.py`（21 通过）；后续同步发布器滚动发布页对应断言后，完整 `pytest -q`、相关 Ruff、`compileall` 与 `git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
+
+### 一键排错理念已固化为长期决策（2026-08-22）
+
+- 已将“一键排错只做内置非破坏性检查、三端共用通用项、Windows 渐进扩展、SteamOS/macOS 保持简单可靠、修复工具按平台按需下载并经用户确认”的完整理念写入 `docs/agent/DECISIONS.md`，后续 AI 读取长期决策即可获得一致约束。
+- 本次仅更新项目记忆，未修改客户端、未构建、未上传、未推送。
