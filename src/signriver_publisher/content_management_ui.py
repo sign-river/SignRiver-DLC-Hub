@@ -471,6 +471,7 @@ class ContentManagementUiMixin:
             ("导入编号方式", "dlc_import_naming_mode"),
             ("批量导入方式", "dlc_import_layout_mode"),
             ("聚合扫描目录", "dlc_group_search_roots"),
+            ("已发布平台资源 (JSON)", "published_platform_resources"),
         )
         self.profile_entries: dict[str, object] = {}
         for row, (label, key) in enumerate(labels):
@@ -518,6 +519,9 @@ class ContentManagementUiMixin:
             value = getattr(self.profile, key)
             if key in {"dlc_group_search_roots", "patch_additional_relative_dirs"}:
                 value = "; ".join(value)
+            elif key == "published_platform_resources":
+                import json
+                value = "" if value is None else json.dumps(value, ensure_ascii=False)
             entry.insert(0, value)
             if key == "appinfo_name":
                 entry.configure(state="disabled")

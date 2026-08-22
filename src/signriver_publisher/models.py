@@ -114,6 +114,12 @@ class PublisherCartridge:
     patch_extra_protection: bool = False
     patch_force_offline: bool = False
     patch_platforms: dict[str, dict[str, object]] = field(default_factory=dict)
+    # Exact cloud availability explicitly confirmed by the publisher.  This is
+    # intentionally separate from ``patch_platforms``: a platform may have a
+    # cartridge variant while its patch files have not been uploaded yet.
+    # ``None`` keeps old profiles compatible and lets the workspace derive the
+    # conservative Windows-only state from a completed remote publish record.
+    published_platform_resources: dict[str, dict[str, bool]] | None = None
     # ``built_in`` means the game ships DLC payloads with its base install;
     # publishing only supplies the unlock patch and AppInfo metadata.
     dlc_delivery_mode: str = "download_packages"
@@ -170,6 +176,32 @@ class PublisherCartridge:
             if "runtime_original_library_name" not in spec and spec.get("original_backup_dll_name"):
                 spec["runtime_original_library_name"] = spec.pop("original_backup_dll_name")
 
+        raw_resources = value.get("published_platform_resources")
+        published_platform_resources: dict[str, dict[str, bool]] | None = None
+        if raw_resources is not None:
+            if isinstance(raw_resources, str):
+                raw_resources = raw_resources.strip()
+                if not raw_resources:
+                    raw_resources = None
+                else:
+                    import json
+                    try:
+                        raw_resources = json.loads(raw_resources)
+                    except json.JSONDecodeError as error:
+                        raise ValueError("已发布平台资源必须是 JSON 对象") from error
+            if raw_resources is None:
+                pass
+            elif not isinstance(raw_resources, dict):
+                raise ValueError("已发布平台资源必须是 JSON 对象")
+            else:
+                published_platform_resources = {
+                    str(platform).strip().lower().split("-", 1)[0]: {
+                        "patch": bool(spec.get("patch")),
+                        "dlc": bool(spec.get("dlc")),
+                    }
+                    for platform, spec in raw_resources.items()
+                    if isinstance(spec, dict) and str(platform).strip()
+                }
         raw_group_roots = value.get("dlc_group_search_roots", ())
         group_roots = tuple(
             str(item).strip() for item in raw_group_roots if str(item).strip()
@@ -291,6 +323,7 @@ class PublisherCartridge:
             patch_extra_protection=bool(value.get("patch_extra_protection", False)),
             patch_force_offline=bool(value.get("patch_force_offline", False)),
             patch_platforms=patch_platforms,
+            published_platform_resources=published_platform_resources,
         )
 
 

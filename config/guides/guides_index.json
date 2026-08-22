@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "guides": [
+    {
+      "guide_id": "network-basics",
+      "title": "网络、下载与目录刷新失败",
+      "summary": "检查下载源、网络连接和重试方式。",
+      "asset_name": "guide_network_basics.json",
+      "platforms": ["all"]
+    }
+  ]
+}

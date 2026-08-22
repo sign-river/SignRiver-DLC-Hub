@@ -141,6 +141,10 @@ class CartridgeCatalogService:
             self.refresh_index(allow_network=allow_network)
         assert self.index is not None
         entry = self.index.entry_for(game_id)
+        if not entry.is_available_on(self._current_platform_name()):
+            raise CartridgeCatalogError(
+                f"游戏卡带 {entry.display_name} 当前平台暂无已发布的 DLC 或补丁资源"
+            )
         existing = self._loaded.get(game_id)
         if existing is not None and existing.entry.sha256 == entry.sha256:
             return existing
@@ -223,13 +227,14 @@ class CartridgeCatalogService:
         if self.index is None:
             self.refresh_index(allow_network=allow_network)
         assert self.index is not None
+        default_error: CartridgeCatalogError | None = None
         try:
             return self.load_cartridge(
                 self.index.default_game_id,
                 allow_network=allow_network,
             )
-        except CartridgeCatalogError:
-            pass
+        except CartridgeCatalogError as error:
+            default_error = error
         # The hub index may name a cartridge this installation cannot load
         # (e.g. a newer game absent from the local bootstrap, or a stale
         # default_game_id). Fall back to the first locally available
@@ -241,7 +246,10 @@ class CartridgeCatalogService:
                 return self.load_cartridge(entry.game_id, allow_network=False)
             except CartridgeCatalogError:
                 continue
-        raise CartridgeCatalogError(f"????????????{self.index.default_game_id}")
+        assert default_error is not None
+        raise CartridgeCatalogError(
+            f"无法加载默认游戏卡带 {self.index.default_game_id}：{default_error}"
+        ) from default_error
 
     def get_loaded(self, game_id: str) -> LoadedCartridge | None:
         return self._loaded.get(game_id)
@@ -249,6 +257,7 @@ class CartridgeCatalogService:
     def selection_records(self) -> tuple[dict[str, str], ...]:
         if self.index is None:
             return ()
+        platform = self._current_platform_name()
         return tuple(
             {
                 "selection_name": item.selection_name,
@@ -258,6 +267,7 @@ class CartridgeCatalogService:
                 "display_name": item.display_name,
             }
             for item in self.index.cartridges
+            if item.is_available_on(platform)
         )
 
     def _fetch_remote_index(self) -> CartridgeIndex:

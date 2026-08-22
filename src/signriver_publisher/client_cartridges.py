@@ -98,20 +98,43 @@ def build_client_cartridge_index(
     *,
     documents: dict[str, Path],
     default_game_id: str | None = None,
+    resource_availability_by_game: dict[str, dict[str, dict[str, bool]]] | None = None,
 ) -> dict[str, object]:
     if not profiles:
         raise ValueError("至少需要一张游戏卡带才能生成主表")
     default_id = default_game_id or profiles[0].game_id
     cartridges = []
+    availability_by_game = resource_availability_by_game or {}
     for profile in profiles:
         path = documents[profile.game_id]
         payload = path.read_bytes()
+        # Callers that have inspected the published game release may supply an
+        # exact resource map.  During local export we retain a useful default:
+        # every configured patch platform has a patch, and downloadable DLC is
+        # game-wide rather than duplicated per platform.  ``built_in`` games
+        # (for example Civilization VII) intentionally remain patch-only.
+        supplied = availability_by_game.get(profile.game_id)
+        if supplied is None:
+            patch_platforms = {"windows", *profile.patch_platforms}
+            dlc_available = profile.dlc_delivery_mode != "built_in"
+            supplied = {
+                platform: {"patch": True, "dlc": dlc_available}
+                for platform in patch_platforms
+            }
+        platform_resources = {
+            str(platform).split("-", 1)[0]: {
+                "patch": bool(values.get("patch")),
+                "dlc": bool(values.get("dlc")),
+            }
+            for platform, values in supplied.items()
+        }
         cartridges.append({
             "game_id": profile.game_id,
             "display_name": profile.display_name,
             "asset_name": path.name,
             "sha256": hashlib.sha256(payload).hexdigest(),
             "size_bytes": len(payload),
+            "platform_resources": platform_resources,
         })
     return {
         "schema_version": CARTRIDGE_INDEX_SCHEMA,
@@ -132,6 +155,7 @@ def export_hub_cartridges(
     default_game_id: str | None = None,
     announcement_path: Path | None = None,
     freshness_by_game: dict[str, dict[str, object]] | None = None,
+    resource_availability_by_game: dict[str, dict[str, dict[str, bool]]] | None = None,
 ) -> tuple[Path, ...]:
     """Write every client cartridge plus the hub index into ``output_dir``."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -147,7 +171,10 @@ def export_hub_cartridges(
         documents[profile.game_id] = path
         written.append(path)
     index = build_client_cartridge_index(
-        profiles, documents=documents, default_game_id=default_game_id,
+        profiles,
+        documents=documents,
+        default_game_id=default_game_id,
+        resource_availability_by_game=resource_availability_by_game,
     )
     index_path = output_dir / INDEX_ASSET_NAME
     index_path.write_text(

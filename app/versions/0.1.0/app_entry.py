@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 
 import customtkinter as ctk
 from tkinter import BooleanVar, StringVar, TclError, filedialog, messagebox
-from signriver_common.platforms import open_directory
+from signriver_common.platforms import detect_host_platform, open_directory
 from signriver_common.problems import (
     ProblemAction,
     ProblemCategory,
@@ -33,6 +34,9 @@ from .signriver_app.application import (
     DlcInstallService,
     DownloadQueue,
     GameDiscoveryService,
+    GuideCatalogError,
+    GuideCatalogService,
+    GuideTool,
     OriginalStateRestoreService,
     RestoreOriginalError,
 )
@@ -335,6 +339,13 @@ class DlcHubApplication:
             bootstrap_path=self.context.paths.root / "config" / "announcement.json",
             download_source="gitlink",
         )
+        self.host_platform = detect_host_platform().value
+        self.guide_catalog = GuideCatalogService(
+            self.context.paths.data / "guides",
+            bootstrap_dir=self.context.paths.root / "config" / "guides",
+            download_source="gitlink",
+            platform=self.host_platform,
+        )
         self.current_announcement: Announcement | None = None
         self.announcement_dialog = None
         # The searchable game picker is created only while the selector is open,
@@ -554,6 +565,7 @@ class DlcHubApplication:
         self.window.after(900, self._refresh_announcement)
         self.window.after(1200, self._update_global_status)
         self.window.after(200, self._refresh_remote_cartridge_index)
+        self.window.after(260, self._refresh_remote_solution_guides)
         self.window.after(350, self._scan_games)
         self.window.after(500, self._refresh_catalog)
         if self.context.updates.enabled and self.context.updates.check_on_startup:
@@ -2083,6 +2095,17 @@ class DlcHubApplication:
         self._hide_game_picker()
         self._select_game(display_name)
 
+    def _refresh_remote_solution_guides(self) -> None:
+        """Refresh optional guide data without mutating UI state off-thread."""
+        def worker() -> None:
+            try:
+                articles = self._load_remote_solution_articles(allow_network=True)
+            except Exception:
+                self.context.logger.exception("Remote troubleshooting guide refresh failed")
+                return
+            self._post_ui(lambda: self._merge_remote_solution_articles(articles))
+        threading.Thread(target=worker, daemon=True).start()
+
     def _refresh_remote_cartridge_index(self) -> None:
         if self.cartridge_loading:
             return
@@ -2409,6 +2432,7 @@ class DlcHubApplication:
             "security": ("安全软件拦截", "文件下载或写入后消失", (("heading", "建议操作"), ("text", "在安全软件记录中核对文件来源和哈希；确认误报后仅恢复该文件，不要关闭整机防护。"), ("button", "查看问题记录", "问题记录"))),
             "update": ("程序更新与模块异常", "更新回滚、模块加载失败或程序意外退出", (("heading", "建议操作"), ("text", "重新检查更新；若问题仍然存在，请运行一键排错并导出诊断信息。"), ("button", "运行一键排错", "简单错误检测"))),
         }
+        self._load_remote_solution_articles(allow_network=False)
         solution_search_bar = ctk.CTkFrame(
             self.guide_tutorial_card, fg_color="transparent"
         )
@@ -2444,6 +2468,84 @@ class DlcHubApplication:
         ctk.CTkButton(detail_header, text="← 返回解决方案", width=120, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._show_solution_list).pack(side="left")
         self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    def _load_remote_solution_articles(self, *, allow_network: bool) -> dict[str, tuple[object, ...]]:
+        """Load optional cloud guides; callers merge the result on the UI thread."""
+        articles: dict[str, tuple[object, ...]] = {}
+        try:
+            entries = self.guide_catalog.refresh_index(allow_network=allow_network)
+        except Exception:
+            self.context.logger.exception("Unable to refresh troubleshooting guides")
+            return articles
+        for entry in entries:
+            try:
+                document = self.guide_catalog.load_guide(entry, allow_network=allow_network)
+            except GuideCatalogError:
+                self.context.logger.warning("Unable to load troubleshooting guide %s", entry.guide_id)
+                continue
+            blocks: list[tuple[object, ...]] = list(document.blocks)
+            blocks.extend(("tool", tool) for tool in document.tools)
+            articles[f"remote_{entry.guide_id}"] = (
+                entry.title, entry.summary, tuple(blocks),
+            )
+        return articles
+
+    def _merge_remote_solution_articles(self, articles: dict[str, tuple[object, ...]]) -> None:
+        self.solution_articles.update(articles)
+        self._render_solution_articles()
+
+    def _download_and_run_guide_tool(self, tool: GuideTool) -> None:
+        prompt = (
+            f"将下载工具：{tool.title}\n\n{tool.description or '工具用途由该指南提供。'}"
+            "\n\n下载完成后会按工具声明的方式启动。是否继续？"
+        )
+        if not messagebox.askyesno("下载修复工具", prompt, parent=self.window):
+            return
+        def worker() -> None:
+            try:
+                path = self.guide_catalog.download_tool(tool)
+                self._run_downloaded_guide_tool(path, tool)
+            except Exception as error:
+                self.context.logger.exception("Guide tool failed: %s", tool.tool_id)
+                report = ProblemReport.create(
+                    code=ProblemCode.APP_UNEXPECTED,
+                    category=ProblemCategory.APPLICATION,
+                    severity=ProblemSeverity.ERROR,
+                    stage="guide-tool",
+                    summary=f"修复工具执行失败：{tool.title}",
+                    suggestion="请稍后重试；如仍失败，请导出诊断信息并反馈。",
+                    technical_details=str(error),
+                    app_version=self.context.app_version,
+                    launcher_version=self.context.launcher_version,
+                    platform=self.host_platform,
+                )
+                self._record_problem(report)
+                message = str(error)
+                self._post_ui(lambda value=message: self._notify(f"修复工具失败：{value}", error=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_downloaded_guide_tool(self, path: Path, tool: GuideTool) -> None:
+        if not tool.applies_to(self.host_platform):
+            raise RuntimeError("该工具不适用于当前平台")
+        if tool.run_mode == "powershell":
+            command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(path)]
+        elif tool.run_mode == "cmd":
+            command = ["cmd", "/c", str(path)]
+        elif tool.run_mode == "shell":
+            command = ["/bin/sh", str(path)]
+        else:
+            if self.host_platform == "windows":
+                os.startfile(path)  # type: ignore[attr-defined]
+            else:
+                command = ["open" if self.host_platform == "macos" else "xdg-open", str(path)]
+                subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._post_ui(lambda: self._notify(f"已下载并打开工具：{tool.title}"))
+            return
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or f"退出码 {completed.returncode}").strip())
+        self.context.logger.info("Guide tool completed: %s", tool.tool_id)
+        self._post_ui(lambda: self._notify(f"修复工具已完成：{tool.title}"))
 
     @staticmethod
     def _normalize_solution_search_text(text: str) -> str:
@@ -2524,6 +2626,14 @@ class DlcHubApplication:
                     ctk.CTkLabel(self.solution_detail_body, text="", image=image).pack(anchor="w", pady=(0, 16))
             elif kind == "button":
                 ctk.CTkButton(self.solution_detail_body, text=values[0], width=132, command=lambda target=values[1]: self._show_page(target)).pack(anchor="w", pady=(0, 16))
+            elif kind == "tool":
+                tool = values[0]
+                ctk.CTkButton(
+                    self.solution_detail_body,
+                    text=f"下载并运行：{tool.title}",
+                    width=190,
+                    command=lambda selected_tool=tool: self._download_and_run_guide_tool(selected_tool),
+                ).pack(anchor="w", pady=(0, 16))
             elif kind == "action":
                 ctk.CTkButton(
                     self.solution_detail_body,
@@ -2578,9 +2688,21 @@ class DlcHubApplication:
         self.quick_check_steps = [
             self._quick_check_network,
             self._quick_check_game_directory,
-            self._quick_check_patch_state,
-            self._quick_check_recent_problems,
         ]
+        # Patch auditing is useful only when the current cartridge has a
+        # native patch variant.  SteamOS/macOS keep the small common set when
+        # their platform-specific repair implementation is not available.
+        loaded = self.cartridge_catalog.get_loaded(
+            self.cartridge.adapter.descriptor.game_id
+        )
+        if loaded is not None:
+            try:
+                loaded.document.patch_fields_for(self.host_platform)
+            except ValueError:
+                pass
+            else:
+                self.quick_check_steps.append(self._quick_check_patch_state)
+        self.quick_check_steps.append(self._quick_check_recent_problems)
         self.quick_check_running = True
         self.quick_check_paused = False
         self._render_quick_check_output()
@@ -3511,12 +3633,54 @@ class DlcHubApplication:
                 except Exception as fatal:
                     message = str(fatal) or "切换下载源失败"
                     self._post_ui(
-                        lambda message=message: messagebox.showerror(
-                            "切换下载源失败", message, parent=self.window,
+                        lambda message=message: self._finish_download_source_error(
+                            previous, selected, source_generation, message
                         )
                     )
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_download_source_error(
+        self, previous, selected: str, source_generation: int, message: str,
+    ) -> None:
+        if (
+            source_generation != self.download_source_generation
+            or selected != self.user_settings.download_source
+        ):
+            return
+        try:
+            if self.settings_repository is not None:
+                self.settings_repository.save(previous)
+        except Exception:
+            self.context.logger.exception(
+                "Unable to restore download source after switch failure"
+            )
+            restore_note = "自动恢复原下载源设置失败；重启后请在设置中重新选择下载源。"
+        else:
+            restore_note = (
+                f"已自动恢复为 {provider_display_name(previous.download_source)}。"
+            )
+        self.user_settings = previous
+        self.download_source_generation += 1
+        self.game_selection_generation += 1
+        self.context.updates.set_download_source(previous.download_source)
+        self.cartridge_catalog.set_download_source(previous.download_source)
+        self.announcement_service.set_download_source(previous.download_source)
+        self.download_source_menu.set(
+            provider_display_name(previous.download_source)
+        )
+        self.catalog_preview.configure(
+            text=f"切换到 {provider_display_name(selected)} 失败；{restore_note}"
+        )
+        self._notify(
+            f"切换到 {provider_display_name(selected)} 失败；{restore_note}",
+            error=True,
+        )
+        messagebox.showerror(
+            "切换下载源失败",
+            f"{message}\n\n{restore_note}",
+            parent=self.window,
+        )
 
     def _on_download_source_ready(
         self, loaded, source: str, source_generation: int,

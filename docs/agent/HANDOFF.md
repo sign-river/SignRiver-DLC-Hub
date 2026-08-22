@@ -1520,3 +1520,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 上传调用发生超时、EOF 或响应丢失后，程序会立即从 Release 元数据中查找同名附件：若有附件 ID，且可获得的远端大小与本地一致，即视为服务端已接收并继续。队列详情日志会明确显示“上传响应丢失，已从远端附件记录恢复”或“沿用本批此前已成功的上传端”。
 - GitHub 上传响应丢失时先查 Release 内同名同大小附件，不再先删除潜在已成功的上传。GitLink 绑定已上传附件到 Release 的更新请求使用同一附件 ID/完整列表有限重试；最终结果未知时不删除新附件，保留给下一次元数据恢复确认。
 - 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_content_pipelines.py tests\test_publisher_github.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py -q`（176 项通过）、Ruff、`py_compile` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未执行真实远端操作、未构建 EXE、未 commit 或 push。
+
+## 2026-08-22：多端卡带资源筛选与云端报错指南
+
+- 客户端卡带主表新增 `platform_resources`；当前平台只要补丁或 DLC 任一已发布就显示。补丁-only 的内置 DLC 游戏（如《文明 VII》）保持可见，历史主表缺该字段时只兼容 Windows，避免把旧 Windows 资源展示给 SteamOS/macOS。
+- 发布器现在导出云端确认的资源状态：已成功发布记录只能保守确认 Windows；SteamOS/macOS 必须在游戏卡带的“已发布平台资源 (JSON)”中明确标为可用。该状态与平台变体声明分离，未上传资源不会因声明而显示。
+- 报错指南使用独立 hub 主表与按条目详情；通用指南跨平台显示，脚本工具仅在适用平台显示并按需 HTTPS 下载，用户确认后执行。下载使用临时文件原子替换；不引入额外签名或复杂哈希体系。
+- 验证（2026-08-22）：`pytest -q tests/test_platform_content.py tests/test_publisher_content_pipelines.py tests/test_cartridge_catalog.py tests/test_cartridge_default_fallback.py`（35 通过）；`pytest -q tests/test_publisher_ui_threading.py`（69 通过）；`pytest -q tests/test_ui_theme.py -k "patch_only_release or catalog_assigns_entries or active_cartridge_switch"`（3 通过）；`python -m compileall -q app/versions/0.1.0 src`、相关 `ruff check`、`git diff --check` 通过。未同步忽略的 `app/versions/0.2.0`，未构建、未上传、未推送。

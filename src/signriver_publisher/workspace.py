@@ -1129,13 +1129,64 @@ class PublisherWorkspace:
             profile.game_id: self.refresh_resource_freshness(profile).to_client_dict()
             for profile in profiles
         }
+        availability = {
+            profile.game_id: self.published_platform_resources(profile)
+            for profile in profiles
+        }
         return export_hub_cartridges(
             profiles,
             self.output_dir / "hub",
             default_game_id=default_game_id or profiles[0].game_id,
             announcement_path=announcement if announcement.is_file() else None,
             freshness_by_game=freshness,
+            resource_availability_by_game=availability,
         )
+
+    def published_platform_resources(
+        self, profile: GameProfile
+    ) -> dict[str, dict[str, bool]]:
+        """Return the cloud-confirmed resources exported to the client hub.
+
+        An explicitly saved map wins.  Old profiles fall back only when a
+        completed local publish record proves that the current Release contains
+        the required Windows assets.  We never infer SteamOS/macOS availability
+        from a cartridge declaration or a local build directory.
+        """
+        if profile.published_platform_resources is not None:
+            return {
+                platform: {"patch": bool(values.get("patch")), "dlc": bool(values.get("dlc"))}
+                for platform, values in profile.published_platform_resources.items()
+            }
+        state = self._load_any_publish_state(profile)
+        assets = state.get("assets") if isinstance(state, dict) else None
+        if not isinstance(assets, dict):
+            return {}
+        names = {str(name).casefold() for name in assets}
+        patch_ready = {
+            *map(str.casefold, profile.patch_asset_names),
+            profile.appinfo_name.casefold(),
+        }.issubset(names)
+        dlc_ready = profile.dlc_delivery_mode != "built_in" and any(
+            name.startswith("dlc") and ".zip" in name for name in names
+        )
+        if not patch_ready and not dlc_ready:
+            return {}
+        return {"windows": {"patch": patch_ready, "dlc": dlc_ready}}
+
+    def _load_any_publish_state(self, profile: GameProfile) -> dict[str, object]:
+        """Read a compatible completed publish record without trusting its owner."""
+        try:
+            value = json.loads(self._publish_state_path(profile).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return {}
+        if (
+            not isinstance(value, dict)
+            or value.get("version") != 1
+            or value.get("release_tag") != profile.release_tag
+            or not isinstance(value.get("assets"), dict)
+        ):
+            return {}
+        return value
 
     @staticmethod
     def hub_release_profile() -> GameProfile:

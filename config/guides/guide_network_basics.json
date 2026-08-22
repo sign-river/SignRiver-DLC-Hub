@@ -1,0 +1,8 @@
+{
+  "guide_id": "network-basics",
+  "blocks": [
+    {"kind": "heading", "text": "建议操作"},
+    {"kind": "text", "text": "请先稍候重试；仍失败时切换下载源，并检查网络连接。下载工具会在需要时单独显示，不会自动下载或执行。"}
+  ],
+  "tools": []
+}

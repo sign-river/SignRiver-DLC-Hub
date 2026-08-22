@@ -67,6 +67,29 @@ class CartridgeIndexEntry:
     sha256: str
     size_bytes: int | None = None
     min_client_version: str | None = None
+    platform_resources: dict[str, dict[str, bool]] | None = None
+
+    @staticmethod
+    def _normalize_platform_key(value: object) -> str:
+        """Accept both host names and release-style ``platform-arch`` keys."""
+        key = str(value or "").strip().lower().replace("_", "-")
+        return key.split("-", 1)[0]
+
+    def resource_availability(self, platform: object) -> dict[str, bool]:
+        """Return the published resource types for one host platform.
+
+        Older hub indexes did not include this metadata.  They are deliberately
+        treated as Windows-only for compatibility rather than exposing their
+        historically Windows-centric assets on SteamOS or macOS.
+        """
+        normalized = self._normalize_platform_key(platform)
+        if self.platform_resources is None:
+            return {"patch": normalized == "windows", "dlc": normalized == "windows"}
+        return dict(self.platform_resources.get(normalized, {}))
+
+    def is_available_on(self, platform: object) -> bool:
+        resources = self.resource_availability(platform)
+        return bool(resources.get("patch") or resources.get("dlc"))
 
     @property
     def selection_name(self) -> str:
@@ -79,6 +102,23 @@ class CartridgeIndexEntry:
         if size_bytes is not None and size_bytes < 0:
             raise ValueError("size_bytes cannot be negative")
         min_version = value.get("min_client_version")
+        raw_resources = value.get("platform_resources")
+        platform_resources: dict[str, dict[str, bool]] | None = None
+        if raw_resources is not None:
+            if not isinstance(raw_resources, dict):
+                raise ValueError("platform_resources must be an object")
+            platform_resources = {}
+            for raw_platform, raw_availability in raw_resources.items():
+                platform = cls._normalize_platform_key(raw_platform)
+                if platform not in _SUPPORTED_PLATFORMS:
+                    raise ValueError(f"unsupported platform_resources platform: {platform}")
+                if not isinstance(raw_availability, dict):
+                    raise ValueError("platform resource availability must be an object")
+                patch = raw_availability.get("patch", False)
+                dlc = raw_availability.get("dlc", False)
+                if not isinstance(patch, bool) or not isinstance(dlc, bool):
+                    raise ValueError("platform resource availability values must be booleans")
+                platform_resources[platform] = {"patch": patch, "dlc": dlc}
         return cls(
             game_id=_require_id(value.get("game_id"), field="game_id"),
             display_name=_require_nonempty(value.get("display_name"), field="display_name"),
@@ -88,6 +128,7 @@ class CartridgeIndexEntry:
             min_client_version=(
                 None if min_version in (None, "") else str(min_version).strip()
             ),
+            platform_resources=platform_resources,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -101,6 +142,11 @@ class CartridgeIndexEntry:
             payload["size_bytes"] = self.size_bytes
         if self.min_client_version:
             payload["min_client_version"] = self.min_client_version
+        if self.platform_resources is not None:
+            payload["platform_resources"] = {
+                platform: {"patch": bool(values.get("patch")), "dlc": bool(values.get("dlc"))}
+                for platform, values in sorted(self.platform_resources.items())
+            }
         return payload
 
 
