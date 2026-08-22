@@ -1,11 +1,11 @@
 ---
 name: commit-current-changes
-description: 为 SignRiver DLC Hub 进行一次本地 Git 提交。用户以自然语言要求“进行一次提交”“提交当前改动”“commit”“创建本地提交”时使用；检查改动范围、验证结果和提交信息后提交，但绝不自动推送。
+description: 为 SignRiver DLC Hub 在任务完成时进行一次本地 Git 提交；检查改动范围、验证结果和提交信息后提交，但绝不自动推送。
 ---
 
 # 进行一次本地提交
 
-用户明确要求提交时，创建一个本地 Git commit；此技能**绝不执行 push**。用户说“提交并推送”时，改用 `commit-and-push`。
+任务完成且验证通过时，创建一个本地 Git commit；此技能**绝不执行 push**。用户明确说“暂不提交”时跳过本地提交；用户说“提交并推送”时，提交完成后再按明确授权执行 push。
 
 ## 提交前检查
 
@@ -33,6 +33,6 @@ description: 为 SignRiver DLC Hub 进行一次本地 Git 提交。用户以自�
 
 ## 禁止事项
 
-- 不执行 `git push`、`git commit --amend`、强制推送、重写历史或 `git reset`，除非用户分别明确提出。
+- 不执行 `git push`、`git commit --amend`、强制推送、重写历史或 `git reset`；push 只有在用户明确提出时才执行。
 - 不提交 `publisher-workspace/` 中的本地配置、账号/令牌、缓存、测试临时目录或未获确认的构建产物。
 - 即使提交完成，也提醒用户：按项目规则，发布资产上传并核验后再由用户决定是否推送。

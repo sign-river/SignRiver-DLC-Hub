@@ -4539,12 +4539,27 @@ class DlcHubApplication:
         self._refresh_catalog_capacity_summary()
         self._refresh_catalog_freshness_label(catalog_count=len(entries))
         if not entries:
-            self.catalog_preview.configure(text="Release 中没有符合命名规则的 DLC ZIP")
             self._clear_catalog_views("当前 Release 中没有可用的 DLC 资源")
             self.selection_toggle_button.configure(state="disabled", text="全选 DLC")
-            self.download_selected_button.configure(
-                state="disabled", text="暂无可用 DLC"
-            )
+            if snapshot.patch_bundle is None:
+                self.catalog_patch_warning.configure(
+                    text="补丁资源缺失，暂无法一键解锁。"
+                )
+                self.catalog_preview.configure(
+                    text="Release 中没有 DLC 资源，且补丁资源也不可用；请刷新目录后重试。"
+                )
+                self.download_selected_button.configure(
+                    state="disabled", text="暂无可用 DLC"
+                )
+            else:
+                # A Release may intentionally contain only the patch assets.
+                # Keep the unlock action available so users can install the
+                # patch even when there is no DLC ZIP to download.
+                self.catalog_patch_warning.configure(text="")
+                self.catalog_preview.configure(
+                    text="当前 Release 没有 DLC 资源；可直接安装补丁。"
+                )
+                self._set_batch_download_state(self.batch_download_state)
             return
         self.selection_toggle_button.configure(state="normal")
         self._set_batch_download_state(self.batch_download_state)

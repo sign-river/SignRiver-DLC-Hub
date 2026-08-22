@@ -992,6 +992,20 @@ def test_catalog_assigns_entries_before_scanning_slug_based_installs() -> None:
     assert assign < scan
 
 
+def test_patch_only_release_keeps_unlock_button_available() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _show_catalog(", 1)[1].split(
+        "def _show_catalog_error", 1
+    )[0]
+
+    no_entries = method.split("if not entries:", 1)[1].split(
+        "return", 1
+    )[0]
+    assert "if snapshot.patch_bundle is None:" in no_entries
+    assert "self._set_batch_download_state(self.batch_download_state)" in no_entries
+    assert "当前 Release 没有 DLC 资源；可直接安装补丁。" in no_entries
+
+
 def test_repair_prepares_every_resource_before_destructive_cleanup() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
