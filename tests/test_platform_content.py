@@ -83,6 +83,30 @@ def test_publisher_index_keeps_built_in_dlc_game_patch_only(tmp_path: Path) -> N
     assert availability == {"windows": {"patch": True, "dlc": False}}
 
 
+def test_direct_publisher_index_fallback_does_not_assume_declared_native_assets(
+    tmp_path: Path,
+) -> None:
+    profile = PublisherCartridge.from_dict({
+        "game_id": "test_game",
+        "display_name": "测试游戏",
+        "release_tag": "test_game",
+        "appinfo_name": "test_game_appinfo.json",
+        "executable_relative_path": "game.exe",
+        "dlc_relative_dir": "DLC",
+        "patch_platforms": {"steamos": {"executable_relative_path": "game"}},
+    })
+    document = tmp_path / "cartridge_test_game.json"
+    document.write_text("{}", encoding="utf-8")
+
+    index = build_client_cartridge_index(
+        (profile,), documents={profile.game_id: document},
+    )
+
+    assert index["cartridges"][0]["platform_resources"] == {
+        "windows": {"patch": True, "dlc": True}
+    }
+
+
 def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Path) -> None:
     service = GuideCatalogService(
         tmp_path / "cache", bootstrap_dir=GUIDES, platform="steamos", opener=object(),

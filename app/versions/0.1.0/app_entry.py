@@ -2659,7 +2659,20 @@ class DlcHubApplication:
         header.pack(fill="x", padx=24, pady=(18, 8))
         ctk.CTkLabel(header, text="一键排错", text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
         ctk.CTkButton(header, text="返回指南", width=92, command=lambda: self._show_page("报错指南")).pack(side="right")
-        ctk.CTkLabel(self.quick_check_card, text="仅检查常见环境问题，不会修改游戏文件、设置或网络配置；未发现异常不代表所有问题均已排除。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=24, pady=(0, 10))
+        platform_note = (
+            "Windows 会逐步补充更多本地检查；SteamOS 与 macOS 当前只运行通用检查，"
+            "并在当前游戏已有对应平台补丁时检查补丁状态。"
+            if self.host_platform == "windows"
+            else "当前平台仅运行通用检查；若当前游戏已有对应平台补丁，也会检查补丁状态。"
+        )
+        ctk.CTkLabel(
+            self.quick_check_card,
+            text=(
+                "仅检查常见环境问题，不会修改游戏文件、设置或网络配置；"
+                "未发现异常不代表所有问题均已排除。\n" + platform_note
+            ),
+            text_color=UI["text_secondary"], anchor="w", justify="left",
+        ).pack(fill="x", padx=24, pady=(0, 10))
         self.quick_check_output = ctk.CTkScrollableFrame(self.quick_check_card, height=360, fg_color=UI["panel"], border_color=UI["border"], border_width=1)
         self.quick_check_output.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         controls = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")

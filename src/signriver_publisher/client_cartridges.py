@@ -108,18 +108,19 @@ def build_client_cartridge_index(
     for profile in profiles:
         path = documents[profile.game_id]
         payload = path.read_bytes()
-        # Callers that have inspected the published game release may supply an
-        # exact resource map.  During local export we retain a useful default:
-        # every configured patch platform has a patch, and downloadable DLC is
-        # game-wide rather than duplicated per platform.  ``built_in`` games
-        # (for example Civilization VII) intentionally remain patch-only.
+        # Callers that have inspected the published game release must supply
+        # the exact resource map.  The compatibility fallback deliberately
+        # describes only the historic Windows release: a declared SteamOS or
+        # macOS variant proves the client can run there, not that matching
+        # cloud assets have already been uploaded.  ``built_in`` games (for
+        # example Civilization VII) intentionally remain patch-only.
         supplied = availability_by_game.get(profile.game_id)
         if supplied is None:
-            patch_platforms = {"windows", *profile.patch_platforms}
-            dlc_available = profile.dlc_delivery_mode != "built_in"
             supplied = {
-                platform: {"patch": True, "dlc": dlc_available}
-                for platform in patch_platforms
+                "windows": {
+                    "patch": True,
+                    "dlc": profile.dlc_delivery_mode != "built_in",
+                }
             }
         platform_resources = {
             str(platform).split("-", 1)[0]: {

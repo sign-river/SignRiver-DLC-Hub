@@ -1,10 +1,16 @@
 # 当前任务交接
 
-> 最后更新：2026-08-21（Asia/Shanghai）
+> 最后更新：2026-08-22（Asia/Shanghai）
 > 分支：`main`
-> HEAD：`f39210d`（`feat(publisher): 优化内容发布队列与远端维护`）
-> 上游状态：`main` 相对 `origin/main` 领先 8、落后 0；禁止自动提交或推送。
-> 工作区：群星统一通用目录包与本轮远端兼容发布改动均未提交；未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
+> HEAD：`913d115`（`feat: 完善多端卡带与报错指南分化`）
+> 工作区：存在多组此前任务留下的未提交发布器、测试、文档和本地状态改动，必须保留；本轮仅新增了客户端一键排错说明、主表保守兼容导出和对应测试。未读取、展示或修改 `config/publisher.local.json`，未进行真实发布、上传或远端写入。
+
+## 2026-08-22：多端卡带与报错指南完成性审计
+
+- 已确认 `tools/build_release.py` 使用 `copytree(ROOT / "config", release / "config")` 递归复制完整配置目录，因此 `config/guides/` 会随 Windows 全量更新包和首次安装包交付；模块更新包只包含模块源码，客户端仍可通过本地缓存或云端 Hub Release 获取指南。
+- 一键排错的通用项（网络、游戏目录、近期异常）保持三端可用；仅当当前游戏为本平台声明补丁字段时，才加入补丁状态检查。界面明确提示：Windows 后续可增加更多本地检查，SteamOS/macOS 目前只运行通用检查与可用的补丁状态检查。
+- 直接调用 `build_client_cartridge_index()` 而未传入云端资源状态时，兼容回退现仅标记历史 Windows 资源；不能再因 `patch_platforms` 声明而把未上传的 SteamOS/macOS 资源写进主表。正常工作区导出本来就传入精确资源图；文明 VII 仍为 Windows patch-only，不会被隐藏。
+- 验证（2026-08-22）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_platform_content.py tests\test_publisher_content_pipelines.py tests\test_cartridge_catalog.py tests\test_cartridge_default_fallback.py`（36 项通过）；` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_ui_threading.py`（69 项通过）；` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py -k "patch_only_release or catalog_assigns_entries or active_cartridge_switch"`（3 项通过）；`compileall -q app\versions\0.1.0 src`、相关 Ruff 和 `git diff --check` 通过（后者仅既有 CRLF 提示）。未同步忽略的 `app/versions/0.2.0`，未构建、未上传、未推送。
 
 ## 2026-08-21：奇迹时代4共享 Launcher DLC 文件组
 

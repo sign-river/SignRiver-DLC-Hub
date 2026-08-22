@@ -568,5 +568,5 @@ Windows 构建环境安装了可选的 NumPy/MKL，`PyInstaller --collect-all PI
 
 - 游戏的 `patch_platforms` 只声明客户端可解析的平台变体，**不**代表对应 Release 已上传可用资源；客户端主表另行使用 `platform_resources` 表示已发布的补丁/DLC 状态。
 - 当前平台的卡带可用条件是 `patch OR dlc`，因此补丁-only 与 DLC-only 都是合法状态；内置 DLC 游戏不能因 `dlc=false` 被隐藏。
-- 旧发布器 profile 没有明确状态时，只能由成功发布记录保守导出 Windows 可用性；SteamOS/macOS 需要维护者明确确认，禁止由本地构建目录或平台声明推断。
+- 旧发布器 profile 没有明确状态时，只能由成功发布记录保守导出 Windows 可用性；SteamOS/macOS 需要维护者明确确认，禁止由本地构建目录或平台声明推断。即使直接调用主表构建工具而跳过工作区导出，也只能使用 Windows 兼容回退，不能依据 `patch_platforms` 推断原生云端资源。
 - 报错指南的可执行工具遵循平台过滤、HTTPS、非空下载和用户确认执行；不使用签名链、证书链或额外哈希发布合同，以控制单人维护复杂度。
