@@ -1533,3 +1533,8 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 发布器现在导出云端确认的资源状态：已成功发布记录只能保守确认 Windows；SteamOS/macOS 必须在游戏卡带的“已发布平台资源 (JSON)”中明确标为可用。该状态与平台变体声明分离，未上传资源不会因声明而显示。
 - 报错指南使用独立 hub 主表与按条目详情；通用指南跨平台显示，脚本工具仅在适用平台显示并按需 HTTPS 下载，用户确认后执行。下载使用临时文件原子替换；不引入额外签名或复杂哈希体系。
 - 验证（2026-08-22）：`pytest -q tests/test_platform_content.py tests/test_publisher_content_pipelines.py tests/test_cartridge_catalog.py tests/test_cartridge_default_fallback.py`（35 通过）；`pytest -q tests/test_publisher_ui_threading.py`（69 通过）；`pytest -q tests/test_ui_theme.py -k "patch_only_release or catalog_assigns_entries or active_cartridge_switch"`（3 通过）；`python -m compileall -q app/versions/0.1.0 src`、相关 `ruff check`、`git diff --check` 通过。未同步忽略的 `app/versions/0.2.0`，未构建、未上传、未推送。
+### 下载源切换成功提示延后（2026-08-22）
+
+- 下载源切换后，客户端现在先显示“正在重新加载”，只有 Hub 主表和当前默认卡带完成加载、游戏扫描与 DLC 列表刷新后，才提示“下载和程序更新源已切换为 GitHub，卡带已重新加载”。
+- 远程主表或卡带只能回退本地缓存时，不再显示成功提示，改为明确的缓存回退警告；原有切换失败回滚逻辑未改变。
+- 验证（2026-08-22）：`pytest -q tests\test_ui_theme.py -k "download_source or patch_only_release or active_cartridge_switch"`（5 通过）；`pytest -q tests\test_cartridge_catalog.py tests\test_cartridge_default_fallback.py tests\test_platform_content.py`（21 通过）；相关 Ruff、`compileall` 与本任务文件 `git diff --check` 通过。执行完整 `tests/test_ui_theme.py` 时有 1 项既有发布器 UI 文案断言失败（`src/signriver_publisher/ui.py` 的未提交改动），与本次客户端下载源提示无关。未启动 GUI、未构建、未上传、未推送。

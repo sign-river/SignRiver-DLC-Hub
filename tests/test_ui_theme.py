@@ -992,6 +992,81 @@ def test_catalog_assigns_entries_before_scanning_slug_based_installs() -> None:
     assert assign < scan
 
 
+def _download_source_ready_fixture():
+    events: list[object] = []
+    notifications: list[tuple[str, bool]] = []
+    game_id = "stellaris"
+    loaded = SimpleNamespace(
+        cartridge=SimpleNamespace(
+            adapter=SimpleNamespace(descriptor=SimpleNamespace(game_id=game_id))
+        )
+    )
+    application = SimpleNamespace(
+        download_source_generation=3,
+        user_settings=SimpleNamespace(download_source="github"),
+        cartridge=SimpleNamespace(
+            adapter=SimpleNamespace(descriptor=SimpleNamespace(game_id=game_id)),
+            platform_name="Steam",
+            store_app_id="281990",
+        ),
+        selected_game_name="群星 (Stellaris)",
+        platform_status=SimpleNamespace(
+            configure=lambda **kwargs: events.append(("platform", kwargs))
+        ),
+        _activate_loaded_cartridge=lambda loaded, **kwargs: events.append("activate"),
+        _sync_game_selector_values=lambda: events.append("sync_selector"),
+        _set_game_selector_text=lambda value: events.append(("selector", value)),
+        _scan_games=lambda: events.append("scan_games"),
+        _refresh_catalog=lambda: events.append("refresh_catalog"),
+        _notify=lambda message, error=False: notifications.append((message, error)),
+    )
+    return application, loaded, events, notifications
+
+
+def test_download_source_success_notice_waits_for_cartridge_reload() -> None:
+    switch_method = _app_method_source("_on_download_source_selected")
+    ready_method = _app_method("_on_download_source_ready")
+    ready_method.__globals__["provider_display_name"] = lambda source: {"github": "GitHub"}[source]
+    application, loaded, events, notifications = _download_source_ready_fixture()
+
+    assert "卡带已重新加载" not in switch_method
+
+    assert ready_method(
+        application,
+        loaded,
+        "github",
+        3,
+        remote_loaded=True,
+    ) is True
+
+    assert events.index("activate") < events.index("scan_games")
+    assert events.index("scan_games") < events.index("refresh_catalog")
+    assert notifications == [
+        ("下载和程序更新源已切换为 GitHub，卡带已重新加载", False)
+    ]
+
+
+def test_download_source_cache_fallback_only_shows_warning() -> None:
+    ready_method = _app_method("_on_download_source_ready")
+    ready_method.__globals__["provider_display_name"] = lambda source: {"github": "GitHub"}[source]
+    application, loaded, events, notifications = _download_source_ready_fixture()
+
+    assert ready_method(
+        application,
+        loaded,
+        "github",
+        3,
+        remote_loaded=False,
+        fallback_message="连接超时",
+    ) is True
+
+    assert events[-1] == "refresh_catalog"
+    assert notifications == [
+        ("远程主表或当前卡带不可用，已使用本地缓存（连接超时）", True)
+    ]
+    assert all("卡带已重新加载" not in message for message, _ in notifications)
+
+
 def test_patch_only_release_keeps_unlock_button_available() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     method = source.split("def _show_catalog(", 1)[1].split(

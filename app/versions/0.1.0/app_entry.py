@@ -3609,9 +3609,6 @@ class DlcHubApplication:
         self.catalog_preview.configure(
             text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
         )
-        self._notify(
-            f"下载和程序更新源已切换为 {provider_display_name(selected)}"
-        )
 
         def worker() -> None:
             try:
@@ -3619,9 +3616,16 @@ class DlcHubApplication:
                 loaded = self.cartridge_catalog.load_default_cartridge(
                     allow_network=True,
                 )
+                remote_loaded = (
+                    self.cartridge_catalog.index_source == "remote"
+                    and loaded.source == "remote"
+                )
                 self._post_ui(
-                    lambda loaded=loaded: self._on_download_source_ready(
-                        loaded, selected, source_generation
+                    lambda loaded=loaded, remote_loaded=remote_loaded: self._on_download_source_ready(
+                        loaded,
+                        selected,
+                        source_generation,
+                        remote_loaded=remote_loaded,
                     )
                 )
             except Exception as error:
@@ -3633,13 +3637,12 @@ class DlcHubApplication:
                     message = str(error)
 
                     def finish(loaded=loaded, message=message) -> None:
-                        if not self._on_download_source_ready(
-                            loaded, selected, source_generation
-                        ):
-                            return
-                        self._notify(
-                            f"远程主表不可用，已使用本地缓存（{message}）",
-                            error=True,
+                        self._on_download_source_ready(
+                            loaded,
+                            selected,
+                            source_generation,
+                            remote_loaded=False,
+                            fallback_message=message,
                         )
 
                     self._post_ui(finish)
@@ -3696,7 +3699,13 @@ class DlcHubApplication:
         )
 
     def _on_download_source_ready(
-        self, loaded, source: str, source_generation: int,
+        self,
+        loaded,
+        source: str,
+        source_generation: int,
+        *,
+        remote_loaded: bool,
+        fallback_message: str | None = None,
     ) -> bool:
         if (
             source_generation != self.download_source_generation
@@ -3719,6 +3728,15 @@ class DlcHubApplication:
         )
         self._scan_games()
         self._refresh_catalog()
+        if remote_loaded:
+            self._notify(
+                f"下载和程序更新源已切换为 {provider_display_name(source)}，卡带已重新加载"
+            )
+        else:
+            message = "远程主表或当前卡带不可用，已使用本地缓存"
+            if fallback_message:
+                message = f"{message}（{fallback_message}）"
+            self._notify(message, error=True)
         return True
 
     def _run_speed_test(self) -> None:
