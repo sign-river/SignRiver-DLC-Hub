@@ -9,7 +9,12 @@ import json
 import shutil
 from pathlib import Path
 
-from signriver_app.application.cartridge_catalog import CartridgeCatalogService
+import pytest
+
+from signriver_app.application.cartridge_catalog import (
+    CartridgeCatalogError,
+    CartridgeCatalogService,
+)
 from signriver_app.domain import INDEX_ASSET_NAME
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,3 +66,36 @@ def test_default_cartridge_falls_back_when_default_missing_locally(
 
     assert loaded.document.game_id != "cities_skylines_2"
     assert loaded.source in {"bootstrap", "cache"}
+
+
+def test_default_cartridge_failure_preserves_the_real_error(tmp_path: Path) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    index_payload = {
+        "schema_version": 1,
+        "default_game_id": "stellaris",
+        "cartridges": [
+            {
+                "game_id": "stellaris",
+                "display_name": "群星 (Stellaris)",
+                "asset_name": "cartridge_stellaris.json",
+                "sha256": "0" * 64,
+                "size_bytes": 123,
+            }
+        ],
+    }
+    (bootstrap / INDEX_ASSET_NAME).write_text(
+        json.dumps(index_payload, ensure_ascii=False), encoding="utf-8"
+    )
+    service = CartridgeCatalogService(
+        tmp_path / "cache",
+        bootstrap_dir=bootstrap,
+        source=object(),
+    )
+    service.refresh_index(allow_network=False)
+
+    with pytest.raises(
+        CartridgeCatalogError,
+        match="无法加载默认游戏卡带 stellaris：本地也没有可用的游戏卡带：stellaris",
+    ):
+        service.load_default_cartridge(allow_network=False)

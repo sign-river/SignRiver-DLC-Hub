@@ -318,7 +318,7 @@ class RemoteMaintenanceUiMixin:
                     and int(cached.get("size", cached.get("size_bytes", -1))) == asset.size_bytes
                 )
                 action = (
-                    "DLC 缓存一致，将跳过上传"
+                    "云端缓存命中：DLC 一致，将跳过上传"
                     if reuse_match
                     else (
                         "每次更新，将替换云端同名文件"
@@ -371,7 +371,7 @@ class RemoteMaintenanceUiMixin:
                         side="right", padx=10, pady=8
                     )
             render_group("需要发布", changes, BLUE)
-            render_group("可复用 DLC", reusable_rows, "#2E7D32")
+            render_group("云端缓存命中（可复用 DLC）", reusable_rows, "#2E7D32")
         self._schedule_scrollable_reset(self.local_output_list)
         reusable_names = {
             path.name
@@ -425,7 +425,7 @@ class RemoteMaintenanceUiMixin:
             ctk.CTkLabel(row, text=text, anchor="w", text_color=TEXT).pack(
                 side="left", fill="x", expand=True, padx=10, pady=9
             )
-            action = "DLC 缓存一致，将保留" if reusable_names and asset.name in reusable_names else (
+            action = "云端缓存命中：DLC 一致，将保留" if reusable_names and asset.name in reusable_names else (
                 "将被同名文件替换"
                 if local_names is not None and asset.name in local_names
                 else (

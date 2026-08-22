@@ -396,20 +396,32 @@ class UploadQueueUiMixin:
     def _start_upload_queue_item(self, item_id: str) -> None:
         if self._queue_worker_running:
             return
-        try:
-            item = self.content_upload_queue.mark_running(item_id)
-            self._queue_current_item_id = item.item_id
-        except UploadQueueError as error:
-            messagebox.showwarning("无法开始上传", str(error), parent=self)
-            return
         self._queue_worker_running = True
+        self._queue_current_item_id = item_id
         self._last_logged_transfer = None
-        self._log(f"后台任务：开始上传“{item.display_name}”。")
-        self._render_upload_queue()
-        self._poll_upload_queue_progress(item.item_id)
 
         def worker() -> None:
-            release_id = item.release_id
+            release_id = ""
+            try:
+                # Queue persistence can briefly wait for a concurrent stage
+                # checkpoint on Windows.  Keep that I/O out of Tk's button
+                # callback so “开始队列” always returns control immediately.
+                item = self.content_upload_queue.mark_running(item_id)
+                release_id = item.release_id
+                if release_id and self.release_service.clear_pause_request(release_id):
+                    self._log_background(
+                        f"后台任务：已解除“{item.display_name}”上次暂停留下的执行锁，直接开始重试。"
+                    )
+                self._post_ui(
+                    lambda value=item: self._upload_queue_item_started(value)
+                )
+            except UploadQueueError as error:
+                self._post_ui(
+                    lambda value=error, queue_id=item_id: self._upload_queue_item_start_failed(
+                        queue_id, value
+                    )
+                )
+                return
             try:
                 if not release_id:
                     self._log_background(
@@ -426,6 +438,12 @@ class UploadQueueUiMixin:
                     if profile is None:
                         raise ValueError("找不到上传项对应的游戏配置。")
                     plan = self._create_game_content_batch_for_profile(profile)
+                    if self._queue_pause_requested:
+                        # The operator paused while the local snapshot was
+                        # being prepared.  It has not touched the network, so
+                        # keep the original queue row paused and do not let
+                        # this late worker turn it back into queued/running.
+                        return
                     self.content_upload_queue.enqueue(plan, display_name=item.display_name)
                     release_id = plan.batch_id
                 self._log_background(
@@ -436,7 +454,11 @@ class UploadQueueUiMixin:
                 )
                 plan = self.release_service.preflight(release_id)
                 if plan.status is ReleaseStatus.PREFLIGHT_FAILED:
-                    raise ValueError("本地发布文件已变化或不完整，请重新构建后再加入队列。")
+                    raise ValueError(
+                        "当前本地发布文件与排队时的旧发布记录不一致；"
+                        "若刚构建完成，请从构建队列再次点击“加入上传队列”以更新本项，"
+                        "无需重复构建。"
+                    )
                 self._post_ui(
                     lambda value=plan, queue_id=item.item_id: self._confirm_upload_queue_remote_preview(
                         queue_id, value
@@ -444,16 +466,51 @@ class UploadQueueUiMixin:
                 )
             except Exception as error:
                 self._post_ui(
-                    lambda value=error, queue_id=item.item_id, release_id=release_id: self._upload_queue_item_failed(
+                    lambda value=error, queue_id=item_id, release_id=release_id: self._upload_queue_item_failed(
                         queue_id, value, release_id
                     )
                 )
 
-        threading.Thread(target=worker, daemon=False, name=f"content-upload-{item.game_id}").start()
+        threading.Thread(target=worker, daemon=False, name=f"content-upload-{item_id[:8]}").start()
+
+    def _upload_queue_item_started(self, item) -> None:
+        """Render a persisted running item after its worker acquired the FIFO slot."""
+        if item.item_id != self._queue_current_item_id or not self._queue_worker_running:
+            return
+        self._log(f"后台任务：开始上传“{item.display_name}”。")
+        self._render_upload_queue()
+        self._poll_upload_queue_progress(item.item_id)
+
+    def _upload_queue_item_start_failed(self, item_id: str, error: Exception) -> None:
+        """Release the close reservation when the worker cannot claim the FIFO item."""
+        if item_id != self._queue_current_item_id:
+            return
+        self._queue_worker_running = False
+        self._queue_current_item_id = None
+        self._end_background_mutation("upload-queue")
+        self._render_upload_queue()
+        messagebox.showwarning("无法开始上传", str(error), parent=self)
 
     def _confirm_upload_queue_remote_preview(self, item_id: str, plan) -> None:
         """Ask for strict-mirror deletion only when this FIFO item reaches upload."""
         if item_id != self._queue_current_item_id:
+            return
+        latest = self.content_upload_queue.get(item_id)
+        if latest.release_id != plan.batch_id:
+            # A completed rebuild may replace this queue row while the old
+            # snapshot is reading remote metadata.  Never ask the operator to
+            # confirm, or upload, that superseded snapshot.
+            self.content_upload_queue.requeue_latest(item_id)
+            self._queue_worker_running = False
+            self._queue_current_item_id = None
+            self._log(
+                f"后台任务：旧构建预检已完成，但“{latest.display_name}”已替换为最新构建；"
+                "将重新读取最新构建的云端差异。"
+            )
+            self._render_upload_queue()
+            self._end_background_mutation("upload-queue")
+            if not self._queue_pause_requested:
+                self.after(100, self._start_upload_queue)
             return
         self._log_upload_queue_preflight_details(plan)
         preserve_remote_only_files = bool(plan.options.get("preserve_remote_only_files"))
@@ -535,7 +592,7 @@ class UploadQueueUiMixin:
                     if artifact is None:
                         continue
                     if name in reused_names:
-                        result = "复用可信云端附件记录"
+                        result = "云端缓存命中：复用可信附件记录，未重复上传"
                     elif name in recovered_names:
                         result = "上传响应丢失，已从远端附件记录恢复"
                     elif name in continued_names:
@@ -551,7 +608,7 @@ class UploadQueueUiMixin:
                 for name in source_deleted:
                     self._log(f"{source} 云端差异处理：已删除远端仅有文件 {name}。")
         index_stage = next(
-            (stage for stage in plan.stages if stage.stage_id == "game_content.publish_index"),
+            (stage for stage in plan.stages if stage.stage_id == "content.publish_index"),
             None,
         )
         catalog = next((item for item in plan.artifacts if item.filename == "catalog.json"), None)
@@ -599,7 +656,37 @@ class UploadQueueUiMixin:
             return
         try:
             item = self.content_upload_queue.get(item_id)
+            if not item.release_id:
+                # A bulk-enqueued build gets its durable Release snapshot in
+                # the worker.  Do not repeatedly load an empty batch ID on
+                # Tk's thread while that local preparation is still running.
+                self.after(350, lambda value=item_id: self._poll_upload_queue_progress(value))
+                return
             plan = self.release_service.get(item.release_id)
+            if plan.status in {
+                ReleaseStatus.PAUSED,
+                ReleaseStatus.FAILED,
+                ReleaseStatus.DEGRADED,
+                ReleaseStatus.INTERRUPTED,
+                ReleaseStatus.COMPLETED,
+            }:
+                # The worker can be blocked in a provider call or its UI
+                # callback can be delayed.  Do not keep the window's close
+                # lease forever when the persisted release has already left
+                # RUNNING; reconcile it on the next lightweight poll.
+                if plan.status in {ReleaseStatus.PAUSED, ReleaseStatus.COMPLETED}:
+                    self._upload_queue_item_finished(item_id, plan)
+                else:
+                    self._upload_queue_item_failed(
+                        item_id,
+                        RuntimeError(
+                            f"发布记录已进入 {plan.status.value}，"
+                            "上传队列已解除占用，可暂停、重试或关闭。"
+                        ),
+                        item.release_id,
+                    )
+                return
+            self._log_upload_queue_activity(plan)
             sample = plan.options.get("upload_progress")
             if isinstance(sample, dict):
                 self._update_content_transfer_progress(sample)
@@ -627,6 +714,40 @@ class UploadQueueUiMixin:
             pass
         self.after(350, lambda value=item_id: self._poll_upload_queue_progress(value))
 
+    def _log_upload_queue_activity(self, plan) -> None:
+        """Show each durable source/file result as soon as the pipeline records it."""
+        upload_stage = next(
+            (stage for stage in plan.stages if stage.stage_id == "content.upload_snapshot"),
+            None,
+        )
+        events = upload_stage.output_summary.get("activity") if upload_stage else None
+        if not isinstance(events, list):
+            return
+        logged = getattr(self, "_logged_upload_activity_ids", None)
+        if logged is None:
+            logged = set()
+            self._logged_upload_activity_ids = logged
+        descriptions = {
+            "uploaded": "上传成功，已记录远端附件 ID 与大小",
+            "reused": "云端缓存命中：复用可信附件记录，未重复上传",
+            "recovered": "上传响应丢失，已从远端附件记录恢复",
+            "continued": "沿用本批此前已成功的上传端",
+        }
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or "")
+            if not event_id or event_id in logged:
+                continue
+            logged.add(event_id)
+            outcome = str(event.get("outcome") or "uploaded")
+            self._log(
+                f"{event.get('source') or '远端'} 文件完成：{event.get('filename') or '未知文件'} · "
+                f"{descriptions.get(outcome, '已完成')} · "
+                f"{_display_bytes(float(event.get('size') or 0))} · "
+                f"SHA-256 {event.get('sha256') or '未记录'}"
+            )
+
     def _pause_upload_queue(self) -> None:
         item_id = self._queue_current_item_id
         if item_id is None:
@@ -635,14 +756,52 @@ class UploadQueueUiMixin:
             item = self.content_upload_queue.get(item_id)
             self._queue_pause_requested = True
             self._log(f"用户操作：请求安全暂停“{item.display_name}”的上传。")
-            self.release_service.request_pause(item.release_id)
-            self.upload_queue_pause_button.configure(state="disabled", text="正在暂停…")
+            if not item.release_id:
+                self.content_upload_queue.mark_paused(item_id)
+                self._queue_worker_running = False
+                self._queue_current_item_id = None
+                self.upload_queue_pause_button.configure(text="暂停当前项")
+                self._log(
+                    "上传已暂停：本地发布快照尚在准备，未开始读取或写入远端资源；"
+                    "可稍后继续或直接关闭发布器。"
+                )
+                self._render_upload_queue()
+                self._end_background_mutation("upload-queue")
+                return
+            plan = self.release_service.request_pause(item.release_id)
+            if plan.status is ReleaseStatus.RUNNING:
+                self.upload_queue_pause_button.configure(state="disabled", text="正在暂停…")
+                return
+            # Preview/preflight has no active attachment write to drain.  A
+            # stale failed/interrupted plan is equally safe to release.  Do
+            # this synchronously so an operator is never trapped behind an
+            # orphaned queue row while a worker callback is delayed or lost.
+            self.content_upload_queue.mark_paused(item_id)
+            self._queue_worker_running = False
+            self._queue_current_item_id = None
+            self.upload_queue_pause_button.configure(text="暂停当前项")
+            self._log(
+                f"上传已暂停：底层发布记录当前为 {plan.status.value}，"
+                "未等待后台回调；可稍后继续或直接关闭发布器。"
+            )
+            self._render_upload_queue()
+            self._end_background_mutation("upload-queue")
         except Exception as error:
             messagebox.showerror("无法暂停上传", str(error), parent=self)
 
     def _upload_queue_item_finished(self, item_id: str, plan) -> None:
+        stale = self.content_upload_queue.get(item_id)
+        if (
+            item_id != self._queue_current_item_id
+            and stale.status is UploadQueueStatus.PAUSED
+        ):
+            # The operator paused during preview/preflight and the worker
+            # subsequently returned.  Never let that late callback overwrite
+            # the already-persisted resumable pause.
+            return
         self._queue_worker_running = False
         self._queue_current_item_id = None
+        self._log_upload_queue_activity(plan)
         latest = self.content_upload_queue.get(item_id)
         if latest.release_id != plan.batch_id:
             self.content_upload_queue.requeue_latest(item_id)
@@ -655,7 +814,7 @@ class UploadQueueUiMixin:
                 (
                     stage
                     for stage in plan.stages
-                    if stage.stage_id == "game_content.upload_snapshot"
+                    if stage.stage_id == "content.upload_snapshot"
                 ),
                 None,
             )
@@ -685,9 +844,9 @@ class UploadQueueUiMixin:
             )
             if reused_count:
                 self._log(
-                    f"后台任务：已按云端构建缓存复用 {reused_count} 个附件，未重复上传。"
+                    f"后台任务：云端附件缓存命中 {reused_count} 次，已复用可信记录，未重复上传。"
                 )
-            self._log(f"后台任务：已完成“{latest.display_name}”的上传。")
+            self._log(f"游戏上传完成： “{latest.display_name}”的全部文件已成功上传并发布 catalog.json。")
         else:
             self.content_upload_queue.mark_failed(item_id, "发布未完成，请查看发布记录。")
         self.upload_queue_pause_button.configure(text="暂停当前项")
@@ -701,6 +860,12 @@ class UploadQueueUiMixin:
     def _upload_queue_item_failed(
         self, item_id: str, error: Exception, running_release_id: str
     ) -> None:
+        stale = self.content_upload_queue.get(item_id)
+        if (
+            item_id != self._queue_current_item_id
+            and stale.status is UploadQueueStatus.PAUSED
+        ):
+            return
         self._queue_worker_running = False
         self._queue_current_item_id = None
         text = str(error)
@@ -710,7 +875,7 @@ class UploadQueueUiMixin:
             self._log(f"后台任务：旧上传失败；“{latest.display_name}”的最新提交已重新排队。")
         elif self._queue_pause_requested:
             self.content_upload_queue.mark_paused(item_id)
-        elif "发布文件" in text and ("变化" in text or "不完整" in text):
+        elif "发布文件" in text and ("变化" in text or "不完整" in text or "不一致" in text):
             self.content_upload_queue.mark_needs_rebuild(item_id, text)
         else:
             self.content_upload_queue.mark_failed(item_id, text)

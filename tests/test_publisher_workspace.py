@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from signriver_publisher import GameProfile, PublisherCartridge, PublishAsset, PublisherSettings, PublisherWorkspace, SteamApiError, SteamAppInfo, SteamDlc, SteamStoreClient, WorkspaceError, create_builtin_cartridges, discover_settings_path, generate_cream_api_ini, load_steam_appinfo
-from signriver_publisher.gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository, UploadControl, UploadPaused, find_release_id
+from signriver_publisher.gitlink import GitLinkAttachmentClient, GitLinkCli, GitLinkRepository, UPLOAD_STALL_TIMEOUT_SECONDS, UploadControl, UploadPaused, find_release_id
 from signriver_publisher.gitlink import GitLinkError
 from signriver_publisher.remote import RemoteAsset, RemoteResourceManager, parse_release
 
@@ -135,9 +135,12 @@ def test_content_publish_compatibility_preference_is_publisher_wide(tmp_path: Pa
     workspace.save_game(other)
 
     assert workspace.load_preserve_remote_only_files() is False
+    assert workspace.load_legacy_patch_asset_aliases_enabled() is True
     workspace.save_preserve_remote_only_files(True)
+    workspace.save_legacy_patch_asset_aliases_enabled(False)
 
     assert workspace.load_preserve_remote_only_files() is True
+    assert workspace.load_legacy_patch_asset_aliases_enabled() is False
     assert (workspace.root / ".content-publish-options.json").is_file()
     assert not (workspace.game_dir(stellaris.game_id) / ".content-publish-options.json").exists()
     assert other.game_id != stellaris.game_id
@@ -234,13 +237,34 @@ def test_server_cartridge_owns_release_and_patch_contract(tmp_path: Path) -> Non
 
     output_names = {path.name for path in workspace.publish_files(cartridge)}
     assert output_names == {
-        "catalog.json", "unlocker.dll", "original.dll", "other_game_appinfo.json",
+        "catalog.json", "unlocker.dll", "original.dll", "custom_api64.dll",
+        "custom_api64_original.dll", "other_game_appinfo.json",
     }
     restored = workspace.list_games()[0]
     assert restored.patch_asset_names == cartridge.patch_asset_names
     assert restored.release_tag == "other_game"
     assert restored.dlc_relative_dir == "content/addons"
     assert restored.patch_relative_dir == "bin/win64"
+
+
+def test_refresh_legacy_patch_aliases_repairs_existing_output_without_rebuild(
+    tmp_path: Path,
+) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    output = workspace.output_dir / profile.game_id
+    (output / profile.patch_unlocker_name).unlink()
+    (output / profile.patch_runtime_original_name).unlink()
+
+    assets = workspace.refresh_legacy_patch_aliases(profile)
+
+    names = {asset.name for asset in assets}
+    assert profile.patch_unlocker_name in names
+    assert profile.patch_runtime_original_name in names
+    catalog = json.loads((output / "catalog.json").read_text(encoding="utf-8"))
+    assert {item["name"] for item in catalog["assets"]} >= {
+        profile.patch_unlocker_name,
+        profile.patch_runtime_original_name,
+    }
 
 
 def test_server_cartridge_rejects_unsafe_install_directories(tmp_path: Path) -> None:
@@ -379,6 +403,8 @@ def test_builds_each_dlc_and_patch_and_generates_appinfo(tmp_path: Path) -> None
         "stellaris_appinfo.json",
         "unlocker.dll",
         "original.dll",
+        "steam_api64.dll",
+        "steam_api64_o.dll",
     ]
     package = workspace.output_dir / "stellaris" / "dlc001_symbols_of_domination.zip"
     with zipfile.ZipFile(package) as archive:
@@ -576,12 +602,26 @@ def test_build_reuses_unchanged_dlc_zip_and_rebuilds_changed_source(tmp_path: Pa
 
     monkeypatch.setattr(workspace, "_zip_directory", tracked_zip)
 
-    workspace.build(profile)
+    cache_events: list[tuple[str, int, int, str, str]] = []
+    workspace.build(profile, progress=lambda *event: cache_events.append(event))
     assert calls == []
+    assert any(
+        event[0] == "构建缓存命中"
+        and event[3] == "dlc001_example"
+        and "未重新压缩" in event[4]
+        for event in cache_events
+    )
 
     content.write_text("changed and longer", encoding="utf-8")
-    workspace.build(profile)
+    changed_events: list[tuple[str, int, int, str, str]] = []
+    workspace.build(profile, progress=lambda *event: changed_events.append(event))
     assert calls == ["dlc001_example"]
+    assert any(
+        event[0] == "构建缓存未命中"
+        and event[3] == "dlc001_example"
+        and "将重新压缩" in event[4]
+        for event in changed_events
+    )
 
 
 def test_build_compresses_multiple_changed_dlc_in_parallel_with_progress(
@@ -1158,6 +1198,25 @@ def test_attachment_upload_can_pause_between_chunks(tmp_path: Path, monkeypatch:
         )
 
     assert Connection.instance.closed is True
+
+
+def test_attachment_upload_uses_longer_stall_timeout_and_pause_closes_connection() -> None:
+    control = UploadControl()
+
+    class Connection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    connection = Connection()
+    unregister = control.register_abort(connection.close)
+    control.request_pause()
+    unregister()
+
+    assert UPLOAD_STALL_TIMEOUT_SECONDS == 90
+    assert connection.closed is True
 
 
 def test_cli_uses_temporary_token_environment(monkeypatch: pytest.MonkeyPatch) -> None:

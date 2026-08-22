@@ -244,8 +244,8 @@ class ContentUploadQueue:
             UploadQueueStatus.FAILED,
         }:
             raise UploadQueueError("当前上传项不能开始或继续。")
-        # 失败项允许暂时跳过，避免一项临时网络故障堵住整个夜间队列；
-        # 但仍禁止跳过任何尚待处理或需要重新构建的前序项。
+        # 失败或需要重新构建的项可以稍后单独处理，不能让一个过期发布
+        # 快照堵住后续已经准备好的游戏；仍禁止跳过尚待处理或用户暂停的项。
         pending_before = next(
             (
                 value
@@ -255,7 +255,6 @@ class ContentUploadQueue:
                     UploadQueueStatus.QUEUED,
                     UploadQueueStatus.RUNNING,
                     UploadQueueStatus.PAUSED,
-                    UploadQueueStatus.NEEDS_REBUILD,
                 }
             ),
             None,

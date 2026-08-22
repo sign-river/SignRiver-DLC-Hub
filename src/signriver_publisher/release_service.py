@@ -350,6 +350,16 @@ class ReleaseService:
                     == bool(preserve_remote_only_files)
                 )
             ):
+                # A failed/draft batch freezes the exact files that existed
+                # when it was created.  Reusing it after a rebuild would
+                # immediately fail preflight again and incorrectly blame the
+                # new build.  Only reuse a record while every frozen artifact
+                # still matches the current publish directory.
+                if any(
+                    ArtifactCollector.has_fingerprint_changed(artifact)
+                    for artifact in plan.artifacts
+                ):
+                    continue
                 return plan
         return None
 
@@ -365,7 +375,7 @@ class ReleaseService:
                 and str(plan.target.get("release_tag") or "") == release_tag
             ):
                 stage = next(
-                    (item for item in plan.stages if item.stage_id == "game_content.upload_snapshot"),
+                    (item for item in plan.stages if item.stage_id == "content.upload_snapshot"),
                     None,
                 )
                 cache = stage.output_summary.get("content_reuse_cache") if stage else None
@@ -669,6 +679,10 @@ class ReleaseService:
         plan = self.get(batch_id)
         self.orchestrator.request_pause(plan)
         return plan
+
+    def clear_pause_request(self, batch_id: str, *, actor: str = "upload-queue") -> bool:
+        plan = self.get(batch_id)
+        return self.orchestrator.clear_pause_request(plan, actor=actor)
 
     @staticmethod
     def progress_summary(plan: ReleasePlan) -> dict[str, object]:

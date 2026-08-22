@@ -80,6 +80,39 @@ def _stage_progress(plan: ReleasePlan, stage_id: str) -> dict[str, object]:
     return record.output_summary
 
 
+def _record_upload_activity(
+    progress: dict[str, object],
+    *,
+    source: str,
+    artifact: ReleaseArtifact,
+    outcome: str,
+    remote_id: object = None,
+) -> None:
+    """Persist one user-visible attachment result at its safe checkpoint.
+
+    The queue UI consumes these records while a game is still uploading, rather
+    than waiting for the whole snapshot stage to finish.
+    """
+    activities = progress.setdefault("activity", [])
+    if not isinstance(activities, list):
+        activities = []
+        progress["activity"] = activities
+    event_id = f"{source}:{artifact.filename}:{outcome}:{remote_id or ''}"
+    if any(isinstance(item, dict) and item.get("id") == event_id for item in activities):
+        return
+    activities.append(
+        {
+            "id": event_id,
+            "source": source,
+            "filename": artifact.filename,
+            "size": artifact.size,
+            "sha256": artifact.sha256 or "",
+            "outcome": outcome,
+        }
+    )
+    del activities[:-1000]
+
+
 def _trusted_record_matches(
     record: object, remote: object, artifact: ReleaseArtifact
 ) -> bool:
@@ -194,6 +227,12 @@ class UploadSnapshotAttachmentsStage:
                 ):
                     ready[source].append(artifact.filename)
                     reused[source].append(artifact.filename)
+                    _record_upload_activity(
+                        progress, source=source, artifact=artifact, outcome="reused",
+                        remote_id=cached.get("remote_id") if isinstance(cached, dict) else None,
+                    )
+                    if self.checkpoint:
+                        self.checkpoint(plan)
                     continue
                 previous = source_trusted.get(artifact.filename)
                 if _trusted_record_matches(previous, remote, artifact):
@@ -211,6 +250,12 @@ class UploadSnapshotAttachmentsStage:
                                 remote_id=str(previous["remote_id"]),
                             ),
                         )
+                    _record_upload_activity(
+                        progress, source=source, artifact=artifact, outcome="continued",
+                        remote_id=previous.get("remote_id") if isinstance(previous, dict) else None,
+                    )
+                    if self.checkpoint:
+                        self.checkpoint(plan)
                     continue
                 try:
                     result = provider.upload(artifact, Path(artifact.local_path or ""))
@@ -230,6 +275,13 @@ class UploadSnapshotAttachmentsStage:
                 }
                 if reuse_enabled:
                     _cache_content_asset(next_reuse_cache, plan, source, artifact, result)
+                _record_upload_activity(
+                    progress,
+                    source=source,
+                    artifact=artifact,
+                    outcome="recovered" if artifact.filename in recovered[source] else "uploaded",
+                    remote_id=result.remote_id,
+                )
                 progress.update(
                     {
                         "ready": ready,
@@ -293,6 +345,7 @@ class UploadSnapshotAttachmentsStage:
                 "preserved_remote_only_files": preserve_remote_only_files,
                 "content_reuse_cache": next_reuse_cache,
                 "trusted": trusted,
+                "activity": progress.get("activity", []),
             },
             {"all_snapshot_attachments_ready": all(len(value) == len(attachments) for value in ready.values())},
         )

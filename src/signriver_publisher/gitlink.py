@@ -17,6 +17,9 @@ from typing import Callable
 from urllib.parse import unquote, urlparse
 
 
+UPLOAD_STALL_TIMEOUT_SECONDS = 90
+
+
 class GitLinkError(RuntimeError):
     pass
 
@@ -28,9 +31,40 @@ class UploadPaused(GitLinkError):
 class UploadControl:
     def __init__(self) -> None:
         self._pause_requested = threading.Event()
+        self._abort_lock = threading.Lock()
+        self._abort_callbacks: set[Callable[[], None]] = set()
 
     def request_pause(self) -> None:
         self._pause_requested.set()
+        # A socket ``send`` or response read cannot observe the event until it
+        # returns.  Close the active connection as well, so pausing a stalled
+        # upload is immediate instead of depending on its no-progress timeout.
+        with self._abort_lock:
+            callbacks = tuple(self._abort_callbacks)
+        for callback in callbacks:
+            try:
+                callback()
+            except OSError:
+                # The upload thread may have completed and closed the socket
+                # between taking the snapshot and this call.
+                pass
+
+    def register_abort(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register the active transport close action and return its remover."""
+        with self._abort_lock:
+            if self.pause_requested:
+                should_abort = True
+            else:
+                self._abort_callbacks.add(callback)
+                should_abort = False
+        if should_abort:
+            callback()
+
+        def unregister() -> None:
+            with self._abort_lock:
+                self._abort_callbacks.discard(callback)
+
+        return unregister
 
     @property
     def pause_requested(self) -> bool:
@@ -255,6 +289,22 @@ class GitLinkAttachmentClient:
         path = path.resolve()
         if not path.is_file():
             raise GitLinkError(f"待上传文件不存在：{path.name}")
+        # Windows Defender, indexers, and a just-finished builder can briefly
+        # keep a split archive open.  Probe with a bounded retry *before* any
+        # network write, so a local sharing violation never creates an orphan
+        # remote attachment or forces the operator to rebuild a valid package.
+        for attempt in range(3):
+            try:
+                handle = path.open("rb")
+                break
+            except PermissionError as error:
+                if attempt == 2:
+                    raise GitLinkError(
+                        f"无法读取本地发布文件（可能正被占用）：{path}；请关闭占用程序后重试。"
+                    ) from error
+                time.sleep(0.6 * (attempt + 1))
+        else:  # pragma: no cover - satisfies static flow analysis
+            raise GitLinkError(f"无法读取本地发布文件：{path}")
         boundary = "----SignRiver" + secrets.token_hex(16)
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         prefix = (
@@ -265,9 +315,16 @@ class GitLinkAttachmentClient:
         suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
         file_size = path.stat().st_size
         total = len(prefix) + file_size + len(suffix)
-        # Check pause requests frequently and avoid holding a requested pause
-        # behind the previous two-minute stalled-socket timeout.
-        connection = http.client.HTTPSConnection(self.host, self.port, timeout=20)
+        # This is a no-progress timeout, not a whole-file deadline.  Large
+        # GitLink multipart uploads can legitimately need time for the server
+        # to resume receiving or prepare its response.  Pauses actively close
+        # the connection below, so they no longer need a short socket timeout.
+        connection = http.client.HTTPSConnection(
+            self.host, self.port, timeout=UPLOAD_STALL_TIMEOUT_SECONDS
+        )
+        unregister_abort = (
+            control.register_abort(connection.close) if control is not None else None
+        )
         try:
             connection.putrequest("POST", "/api/attachments.json")
             connection.putheader("Authorization", f"Bearer {self.token}")
@@ -280,7 +337,7 @@ class GitLinkAttachmentClient:
             connection.endheaders()
             connection.send(prefix)
             sent = 0
-            with path.open("rb") as handle:
+            with handle:
                 for chunk in iter(lambda: handle.read(256 * 1024), b""):
                     if control is not None and control.pause_requested:
                         raise UploadPaused(f"发布已暂停：{path.name}")
@@ -315,6 +372,9 @@ class GitLinkAttachmentClient:
         except OSError as error:
             raise GitLinkError(f"上传 {path.name} 失败：{error}") from error
         finally:
+            if unregister_abort is not None:
+                unregister_abort()
+            handle.close()
             connection.close()
 
     def list_releases(self, repository: GitLinkRepository) -> dict[str, object]:

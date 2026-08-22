@@ -19,6 +19,67 @@ class PublisherTargetsUiMixin:
     rather than redirecting operators into a legacy maintenance screen.
     """
 
+    def _save_active_settings(self) -> bool:
+        """Persist current settings without touching removed legacy entries.
+
+        The refactored publisher stores GitLink and GitHub targets directly in
+        ``self.settings``.  Some retained compatibility actions still call the
+        historical save hook, whose old implementation tried to read the
+        removed single-target ``owner_entry`` / ``repo_entry`` / ``token_entry``
+        widgets and crashed before the operation could start.
+        """
+        if self.settings_path is None:
+            return True
+        try:
+            self.settings.save(self.settings_path)
+        except PublisherSettingsError as error:
+            self._log(f"无法保存本地发布配置：{error}")
+            messagebox.showerror("保存本地配置失败", str(error), parent=self)
+            return False
+        return True
+
+    def _set_publish_buttons_available(self, available: bool) -> None:
+        """Refresh only controls that exist in the modular publisher shell."""
+        button = getattr(self, "hub_publish_button", None)
+        if button is not None:
+            button.configure(
+                state="normal" if available else "disabled",
+                text="一键双端发布卡带",
+            )
+
+    def _removed_single_source_action(self) -> None:
+        """Prevent a retained legacy method from reviving a removed workflow."""
+        messagebox.showinfo(
+            "入口已移除",
+            "新版发布器只保留发布工作台、上传队列和卡带双端发布；"
+            "旧的单源发布与手动采用远端附件入口已移除。",
+            parent=self,
+        )
+
+    def publish_release(self) -> None:
+        self._removed_single_source_action()
+
+    def publish_module_archive(self, *, mirror: bool = False) -> None:
+        del mirror
+        self._removed_single_source_action()
+
+    def publish_cartridge_hub(self) -> None:
+        self._removed_single_source_action()
+
+    def adopt_remote_assets(self) -> None:
+        self._removed_single_source_action()
+
+    def _publish_scope_controls(self):
+        """The modern publisher only exposes the Hub mirror publish scope."""
+        if self._active_publish_scope != "hub":
+            raise RuntimeError("旧单源发布范围已移除")
+        return (
+            self.hub_publish_button,
+            self.hub_publish_pause_button,
+            self.hub_upload_status,
+            self.hub_upload_progress,
+        )
+
     def _build_publisher_targets_tab(self) -> None:
         for child in self.publisher_targets_tab.winfo_children():
             child.destroy()

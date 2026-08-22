@@ -202,7 +202,6 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
         "clear_local_resources",
         "refresh_steam_data",
         "publish_cartridge_hub_mirror",
-        "publish_cartridge_hub",
         "generate_client_hub",
         "_begin_remote_operation",
         "_run_action",
@@ -219,7 +218,7 @@ def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
     # 检查或取消确认会留下幽灵“正在上传”状态。
     publish_source = inspect.getsource(PublisherApplication.publish_release)
     start_source = inspect.getsource(PublisherApplication._start_publish)
-    assert "_start_publish(" in publish_source
+    assert "_removed_single_source_action" in publish_source
     assert "_begin_background_mutation" in start_source
 
 
@@ -238,10 +237,40 @@ def test_remote_maintenance_uses_saved_target_settings_not_removed_legacy_entrie
     assert "self.settings.github_owner" in source
     assert "self.settings.github_repository" in source
     assert "self.settings.github_token" in source
-    assert "owner_entry" not in source
-    assert "repo_entry" not in source
-    assert "token_entry" not in source
+    assert "self.owner_entry" not in source
+    assert "self.repo_entry" not in source
+    assert "self.token_entry" not in source
     assert "self.settings.token" in gitlink_source
+
+
+def test_cartridge_mirror_save_hook_uses_settings_not_removed_legacy_entries() -> None:
+    source = inspect.getsource(PublisherApplication._save_active_settings)
+
+    assert "self.settings.save(self.settings_path)" in source
+    assert "self.owner_entry" not in source
+    assert "self.repo_entry" not in source
+    assert "self.token_entry" not in source
+
+
+def test_cartridge_mirror_button_state_uses_only_modular_controls() -> None:
+    source = inspect.getsource(PublisherApplication._set_publish_buttons_available)
+
+    assert "hub_publish_button" in source
+    assert "self.publish_button" not in source
+    assert "self.publish_update_button" not in source
+
+
+def test_removed_legacy_publish_entrypoints_cannot_fall_back_to_legacy_widgets() -> None:
+    for name in (
+        "publish_release",
+        "publish_module_archive",
+        "publish_cartridge_hub",
+        "adopt_remote_assets",
+        "_publish_scope_controls",
+    ):
+        source = inspect.getsource(getattr(PublisherApplication, name))
+        assert "self.owner_entry" not in source, name
+        assert "self.publish_button" not in source, name
 
 
 def test_local_resource_cards_offer_folder_rescan() -> None:
@@ -268,6 +297,30 @@ def test_content_build_uses_a_separate_queue_without_locking_other_game_controls
     assert "def _flush_build_progress" in source
 
 
+def test_build_queue_requires_explicit_start_and_can_enqueue_all_games() -> None:
+    enqueue_source = inspect.getsource(PublisherApplication._queue_current_game_build)
+    enqueue_all_source = inspect.getsource(PublisherApplication._enqueue_all_games_for_build)
+    start_source = inspect.getsource(PublisherApplication._start_all_content_builds)
+    next_source = inspect.getsource(PublisherApplication._start_next_content_build)
+    tab_source = inspect.getsource(PublisherApplication._build_build_queue_tab)
+
+    assert "self._start_next_content_build()" not in enqueue_source
+    assert "self.workspace.list_games()" in enqueue_all_source
+    assert "self.content_build_queue.enqueue(profile)" in enqueue_all_source
+    assert "self._build_queue_run_requested = True" in start_source
+    assert "self._start_next_content_build()" in start_source
+    assert "if not self._build_queue_run_requested:" in next_source
+    assert 'text="全部加入构建队列"' in tab_source
+    assert 'text="开始全部构建"' in tab_source
+
+
+def test_rebuild_replaces_an_existing_active_upload_queue_record() -> None:
+    source = inspect.getsource(PublisherApplication._build_done)
+
+    assert "self.content_upload_queue.active_for_game(profile.game_id)" in source
+    assert "self._enqueue_built_game_item" in source
+
+
 def test_build_queue_can_batch_enqueue_completed_items_in_order() -> None:
     source = inspect.getsource(PublisherApplication._enqueue_all_built_game_uploads)
     upload_source = inspect.getsource(PublisherApplication._start_upload_queue_item)
@@ -278,6 +331,15 @@ def test_build_queue_can_batch_enqueue_completed_items_in_order() -> None:
     assert "threading.Thread" not in source
     assert "preview_game_content_mirror" not in source
     assert "preview_game_content_mirror" in upload_source
+
+
+def test_single_built_game_enqueue_refreshes_and_opens_the_upload_queue() -> None:
+    source = inspect.getsource(PublisherApplication._enqueue_built_game_upload)
+
+    assert "self._render_upload_queue()" in source
+    assert "self._render_build_queue()" in source
+    assert 'self.content_tabs.set("上传队列")' in source
+    assert "messagebox.showerror" in source
 
 
 def test_build_queue_header_does_not_mix_geometry_managers() -> None:
@@ -305,7 +367,7 @@ def test_game_configuration_form_uses_an_internal_scroll_container() -> None:
 def test_content_release_page_has_a_bounded_operation_log_for_user_and_background_events() -> None:
     source = inspect.getsource(PublisherApplication._build_content_release_tab)
     log_source = inspect.getsource(PublisherApplication._log)
-    upload_source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+    upload_source = inspect.getsource(PublisherApplication._upload_queue_item_started)
 
     assert '"操作日志"' in source
     assert "CTkTextbox" in source
@@ -319,6 +381,18 @@ def test_content_release_page_has_a_bounded_operation_log_for_user_and_backgroun
     assert "覆盖“{self.profile.display_name}”原有" in queue_source
     assert "当前构建结束后将舍弃旧结果并重新构建" in queue_source
     assert "后台任务：开始上传" in upload_source
+    assert "OperationLog" in source
+    assert "_content_operation_history.load()" in source
+    assert "history.append(line)" in log_source
+
+
+def test_content_release_page_uses_a_scrollable_router_page_for_small_windows() -> None:
+    router_source = inspect.getsource(publisher_ui._PageRouter.add)
+    workspace_source = inspect.getsource(PublisherApplication._build_content_workspace)
+
+    assert "scrollable: bool = False" in router_source
+    assert "ctk.CTkScrollableFrame" in router_source
+    assert 'self.content_tabs.add("DLC / 补丁发布", scrollable=True)' in workspace_source
 
 
 def test_running_build_item_does_not_create_an_empty_action_frame() -> None:
@@ -353,11 +427,49 @@ def test_game_content_queue_does_not_require_gitlink_cli() -> None:
     assert "GitLinkCli" not in source
 
 
+def test_stale_upload_snapshot_tells_operator_to_requeue_the_completed_build() -> None:
+    source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+
+    assert "排队时的旧发布记录不一致" in source
+    assert "无需重复构建" in source
+
+
+def test_superseded_upload_preflight_never_confirms_the_old_build() -> None:
+    source = inspect.getsource(PublisherApplication._confirm_upload_queue_remote_preview)
+
+    assert "latest.release_id != plan.batch_id" in source
+    assert "self.content_upload_queue.requeue_latest(item_id)" in source
+    assert "将重新读取最新构建的云端差异" in source
+
+
+def test_upload_queue_releases_its_reservation_when_fifo_start_is_rejected() -> None:
+    source = inspect.getsource(PublisherApplication._upload_queue_item_start_failed)
+
+    assert 'self._end_background_mutation("upload-queue")' in source
+    assert "self._queue_current_item_id = None" in source
+
+
+def test_upload_queue_claims_fifo_item_in_worker_before_remote_preflight() -> None:
+    source = inspect.getsource(PublisherApplication._start_upload_queue_item)
+
+    assert "threading.Thread" in source
+    assert "self.content_upload_queue.mark_running(item_id)" in source
+    assert "self._post_ui(" in source
+    assert "self._upload_queue_item_started" in source
+
+
+def test_stale_upload_item_does_not_offer_a_bypass_for_the_failed_snapshot() -> None:
+    item_source = inspect.getsource(PublisherApplication._render_upload_queue_item)
+
+    assert 'text="使用当前构建"' not in item_source
+    assert not hasattr(PublisherApplication, "_refresh_upload_queue_item_from_build")
+
+
 def test_remote_resource_refresh_renders_a_metadata_only_change_preview() -> None:
     source = inspect.getsource(PublisherApplication._fill_remote_diff)
     remote_source = inspect.getsource(PublisherApplication._fill_remote_assets)
 
-    assert "DLC 缓存一致，将跳过上传" in source
+    assert "云端缓存命中：DLC 一致，将跳过上传" in source
     assert "每次更新，将替换云端同名文件" in source
     assert "将新增到云端" in source
     assert "asset.name.casefold()" in source
@@ -365,15 +477,26 @@ def test_remote_resource_refresh_renders_a_metadata_only_change_preview() -> Non
     assert "No remote attachment is downloaded" in source
     assert "云端保留（批量镜像发布时将删除）" in remote_source
     assert 'render_group("需要发布"' in source
-    assert 'render_group("可复用 DLC"' in source
+    assert 'render_group("云端缓存命中（可复用 DLC）"' in source
     assert '_select_remote_detail_page("changes")' in source
 
 
 def test_content_upload_log_reports_cache_reuse() -> None:
     source = inspect.getsource(PublisherApplication._upload_queue_item_finished)
 
-    assert "云端构建缓存复用" in source
+    assert "云端附件缓存命中" in source
     assert "未重复上传" in source
+
+
+def test_content_upload_log_records_each_file_before_the_game_finishes() -> None:
+    source = inspect.getsource(PublisherApplication._log_upload_queue_activity)
+    finished_source = inspect.getsource(PublisherApplication._upload_queue_item_finished)
+
+    assert "上传成功，已记录远端附件 ID 与大小" in source
+    assert "云端缓存命中：复用可信附件记录，未重复上传" in source
+    assert 'stage.stage_id == "content.upload_snapshot"' in source
+    assert "self._log_upload_queue_activity(plan)" in finished_source
+    assert "全部文件已成功上传并发布 catalog.json" in finished_source
 
 
 def test_build_queue_exposes_publisher_wide_compatibility_mode_instead_of_remote_toggle() -> None:
@@ -387,6 +510,18 @@ def test_build_queue_exposes_publisher_wide_compatibility_mode_instead_of_remote
     assert "已开启（保留云端仅有文件）" in inspect.getsource(
         PublisherApplication._render_build_queue_compatibility_status
     )
+    assert 'text="旧版补丁名兼容"' in build_source
+    assert "save_legacy_patch_asset_aliases_enabled(enabled)" in inspect.getsource(
+        PublisherApplication._set_legacy_patch_alias_mode
+    )
+
+
+def test_upload_queue_pause_recovers_a_stale_non_running_release_immediately() -> None:
+    source = inspect.getsource(PublisherApplication._pause_upload_queue)
+
+    assert "plan.status is ReleaseStatus.RUNNING" in source
+    assert "self.content_upload_queue.mark_paused(item_id)" in source
+    assert "self._end_background_mutation(\"upload-queue\")" in source
 
 
 def test_bulk_upload_enqueue_is_local_and_defers_remote_preflight_to_execution() -> None:
@@ -659,11 +794,12 @@ def test_advanced_maintenance_delete_has_batch_scoped_second_confirmation() -> N
     assert 'authorize_maintenance(' in confirmation
     assert '缺少关联批次' in confirmation
     assert 'simpledialog.askstring(' in confirmation
-    for method in (
-        PublisherApplication.delete_remote_resource,
-        PublisherApplication.adopt_remote_assets,
-    ):
+    for method in (PublisherApplication.delete_remote_resource,):
         assert '_confirm_maintenance_authorization(' in inspect.getsource(method)
+
+    assert "_removed_single_source_action" in inspect.getsource(
+        PublisherApplication.adopt_remote_assets
+    )
 
 
 def test_release_center_confirmation_summary_exposes_side_effects(tmp_path) -> None:

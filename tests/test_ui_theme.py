@@ -498,7 +498,7 @@ def test_bulk_management_speed_test_and_complete_task_cleanup_are_available() ->
     assert 'command=lambda value=path: self.upload_remote_file(value)' not in content_management_source
     release_center_source = (PUBLISHER_ROOT / "release_center.py").read_text(encoding="utf-8")
     assert "self._open_game_content_release_pipeline()" in release_actions_source
-    assert "self.content_release_tab = self.content_tabs.add(\"DLC / 补丁发布\")" in (PUBLISHER_ROOT / "ui.py").read_text(encoding="utf-8")
+    assert "self.content_release_tab = self.content_tabs.add(\"DLC / 补丁发布\", scrollable=True)" in (PUBLISHER_ROOT / "ui.py").read_text(encoding="utf-8")
     assert "def _build_content_release_tab" in content_management_source
     assert "self.game_menu = ctk.CTkOptionMenu" in content_management_source
     assert "DLC 与补丁资源" not in release_center_source
@@ -990,6 +990,20 @@ def test_catalog_assigns_entries_before_scanning_slug_based_installs() -> None:
     assign = method.index("self.catalog_entries = entries")
     scan = method.index("self._refresh_installed_dlc_paths()")
     assert assign < scan
+
+
+def test_failed_download_source_switch_rolls_back_consistently() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _finish_download_source_error(", 1)[1].split(
+        "def _on_download_source_ready", 1
+    )[0]
+
+    assert "self.settings_repository.save(previous)" in method
+    assert "self.user_settings = previous" in method
+    assert "self.context.updates.set_download_source(previous.download_source)" in method
+    assert "self.cartridge_catalog.set_download_source(previous.download_source)" in method
+    assert "self.announcement_service.set_download_source(previous.download_source)" in method
+    assert "已自动恢复为" in method
 
 
 def _download_source_ready_fixture():

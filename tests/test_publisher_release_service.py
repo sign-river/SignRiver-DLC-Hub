@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from signriver_publisher.release_interfaces import RemoteVerification
-from signriver_publisher.release_models import ReleaseStatus
+from signriver_publisher.release_models import ReleaseStageRecord, ReleaseStatus
 from signriver_publisher.release_service import ReleaseService, ReleaseServiceError
 
 
@@ -342,6 +342,64 @@ def test_game_content_batch_reuses_same_unexecuted_output(tmp_path: Path) -> Non
         )
         is None
     )
+
+
+def test_game_content_batch_does_not_reuse_stale_failed_snapshot(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    output_dir = tmp_path / "output" / "game"
+    output_dir.mkdir(parents=True)
+    attachment = output_dir / "content.zip"
+    catalog = output_dir / "catalog.json"
+    attachment.write_bytes(b"old-content")
+    catalog.write_text("{}", encoding="utf-8")
+    created = service.create_game_content_batch(
+        game_id="game",
+        release_tag="game-v1",
+        attachments=[attachment],
+        catalog=catalog,
+        output_dir=output_dir,
+        remote_targets=targets(),
+    )
+    attachment.write_bytes(b"new-content")
+    failed = service.preflight(created.batch_id)
+
+    assert failed.status is ReleaseStatus.PREFLIGHT_FAILED
+    assert (
+        service.find_reusable_game_content_batch(
+            game_id="game", release_tag="game-v1", output_dir=output_dir
+        )
+        is None
+    )
+
+
+def test_latest_game_content_reuse_cache_reads_completed_content_stage(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    attachment = tmp_path / "content.zip"
+    catalog = tmp_path / "catalog.json"
+    attachment.write_bytes(b"content")
+    catalog.write_text("{}", encoding="utf-8")
+    plan = service.create_game_content_batch(
+        game_id="game",
+        release_tag="game-v1",
+        attachments=[attachment],
+        catalog=catalog,
+        remote_targets=targets(),
+    )
+    expected = {"gitlink": {"assets": {"content.zip": {"remote_id": "42"}}}}
+    plan.status = ReleaseStatus.COMPLETED
+    plan.stages = [
+        ReleaseStageRecord(
+            stage_id="content.upload_snapshot",
+            display_name="上传完整附件快照",
+            order=20,
+            output_summary={"content_reuse_cache": expected},
+        )
+    ]
+    service.store.save(plan)
+
+    assert service.latest_game_content_reuse_cache(
+        game_id="game", release_tag="game-v1"
+    ) == expected
 
 
 def test_capture_and_export_remote_baseline_is_read_only(tmp_path: Path) -> None:

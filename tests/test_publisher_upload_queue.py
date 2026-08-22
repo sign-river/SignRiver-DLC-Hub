@@ -128,6 +128,16 @@ def test_queue_cannot_start_a_later_item_before_pending_predecessor(tmp_path: Pa
     assert queue.mark_running(second.item_id).status is UploadQueueStatus.RUNNING
 
 
+def test_queue_allows_later_game_when_previous_item_needs_rebuild(tmp_path: Path) -> None:
+    queue = ContentUploadQueue(tmp_path)
+    stale = queue.enqueue(_plan("game-a", batch_id="old"), display_name="过期游戏")
+    ready = queue.enqueue(_plan("game-b", batch_id="ready"), display_name="已就绪游戏")
+
+    queue.mark_needs_rebuild(stale.item_id, "旧发布记录与当前构建文件不一致")
+
+    assert queue.mark_running(ready.item_id).status is UploadQueueStatus.RUNNING
+
+
 def test_queue_recovers_interrupted_running_item_as_resumable_pause(tmp_path: Path) -> None:
     queue = ContentUploadQueue(tmp_path)
     item = queue.enqueue(_plan("game-a"), display_name="游戏 A")

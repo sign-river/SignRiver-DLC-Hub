@@ -125,7 +125,10 @@ def build_full_update_archive(
 
 def application_hidden_imports() -> list[str]:
     package_root = APP_VERSION_ROOT / "signriver_app"
-    modules = {"webbrowser", "signriver_app"}
+    # The application modules are copied into the runtime directory and loaded
+    # dynamically by the launcher. Keep SQLite explicit so PyInstaller also
+    # bundles the stdlib wrapper and its platform extension.
+    modules = {"webbrowser", "sqlite3", "_sqlite3", "signriver_app"}
     for path in package_root.rglob("*.py"):
         relative = path.relative_to(package_root)
         if relative.name == "__init__.py":

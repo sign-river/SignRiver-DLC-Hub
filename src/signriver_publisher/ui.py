@@ -117,12 +117,22 @@ class _PageRouter:
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._current: str | None = None
 
-    def add(self, name: str):
+    def add(self, name: str, *, scrollable: bool = False):
         import customtkinter as ctk
 
         if name in self._pages:
             raise ValueError(f"页面已存在：{name}")
-        page = ctk.CTkFrame(self._host, fg_color="transparent")
+        page = (
+            ctk.CTkScrollableFrame(
+                self._host,
+                fg_color="transparent",
+                corner_radius=0,
+                scrollbar_button_color="#90A4AE",
+                scrollbar_button_hover_color="#607D8B",
+            )
+            if scrollable
+            else ctk.CTkFrame(self._host, fg_color="transparent")
+        )
         page.grid(row=0, column=0, sticky="nsew")
         page.grid_remove()
         self._pages[name] = page
@@ -363,7 +373,7 @@ class PublisherApplication(
     def _build_content_workspace(self) -> None:
         self.content_tabs = _PageRouter(self.content_tab)
         self.sources_tab = self.content_tabs.add("本地资源")
-        self.content_release_tab = self.content_tabs.add("DLC / 补丁发布")
+        self.content_release_tab = self.content_tabs.add("DLC / 补丁发布", scrollable=True)
         self.build_queue_tab = self.content_tabs.add("构建队列")
         self.upload_queue_tab = self.content_tabs.add("上传队列")
         self.remote_tab = self.content_tabs.add("远端维护")

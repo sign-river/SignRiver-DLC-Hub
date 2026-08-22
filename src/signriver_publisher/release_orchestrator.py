@@ -115,16 +115,45 @@ class ReleaseOrchestrator:
         self.store.save(plan)
 
     def request_pause(self, plan: ReleasePlan, *, actor: str = "user") -> None:
-        if plan.status is not ReleaseStatus.RUNNING:
-            raise ReleaseOrchestrationError("only a running release can be paused")
         with self._pause_lock:
             self._pause_requests.add(plan.batch_id)
+        # The queue marks an item running before its remote preview and
+        # preflight complete.  A network failure can also move the persisted
+        # plan to FAILED while the UI has not received its worker callback.
+        # Both are legitimate escape hatches, not reasons to reject Pause.
+        if plan.status is ReleaseStatus.COMPLETED:
+            raise ReleaseOrchestrationError("completed release cannot be paused")
+        if plan.status is ReleaseStatus.RUNNING:
+            self._event(plan, "pause_requested", trigger=actor)
+            self.store.save(plan)
+            return
+        plan.recovery["pause_requested"] = True
+        plan.recovery["pause_requested_at"] = utc_now()
+        plan.recovery["pause_requested_while"] = plan.status.value
         self._event(plan, "pause_requested", trigger=actor)
         self.store.save(plan)
 
     def pause_requested(self, plan: ReleasePlan) -> bool:
         with self._pause_lock:
             return plan.batch_id in self._pause_requests
+
+    def clear_pause_request(self, plan: ReleasePlan, *, actor: str = "user") -> bool:
+        """Clear a previously persisted pause before an explicit retry/resume."""
+        with self._pause_lock:
+            was_requested = plan.batch_id in self._pause_requests
+            self._pause_requests.discard(plan.batch_id)
+        recovery_keys = (
+            "pause_requested",
+            "pause_requested_at",
+            "pause_requested_while",
+        )
+        had_persisted_request = any(key in plan.recovery for key in recovery_keys)
+        for key in recovery_keys:
+            plan.recovery.pop(key, None)
+        if was_requested or had_persisted_request:
+            self._event(plan, "release_pause_cleared", trigger=actor)
+            self.store.save(plan)
+        return was_requested or had_persisted_request
 
     def checkpoint(self, plan: ReleasePlan) -> None:
         """Raise only between idempotent remote operations."""

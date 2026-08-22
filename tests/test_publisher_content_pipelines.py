@@ -91,6 +91,17 @@ def test_game_catalog_is_uploaded_only_after_all_attachments_are_verified(tmp_pa
     assert plan.status is ReleaseStatus.COMPLETED
     for provider in providers.values():
         assert provider.calls[-1] == "index:catalog.json"
+    activity = next(
+        stage.output_summary["activity"]
+        for stage in plan.stages
+        if stage.stage_id == "content.upload_snapshot"
+    )
+    assert {(entry["source"], entry["filename"], entry["outcome"]) for entry in activity} == {
+        ("gitlink", "a.zip", "uploaded"),
+        ("gitlink", "b.zip", "uploaded"),
+        ("github", "a.zip", "uploaded"),
+        ("github", "b.zip", "uploaded"),
+    }
 
 
 def test_matching_snapshot_attachment_is_replaced_without_pre_download(tmp_path: Path) -> None:

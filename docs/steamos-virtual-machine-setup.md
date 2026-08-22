@@ -278,7 +278,7 @@ ssh -p 2222 deck@127.0.0.1
 
 ### 6.3 早期过渡方案：独立 Xorg + `vboxvideo`
 
-在更换内核前，曾通过独立 Xorg 服务和 `xrandr` 获得 1440×900。历史服务如下：
+在更换内核前，曾通过独立 Xorg 服务和 `xrandr` 获得可用分辨率。当前固定使用 `1920×1080`：它能避免 VirtualBox 将 `1440×900` 放大后产生的模糊，同时不会回到异常的超大画布。历史服务如下：
 
 ```ini
 [Unit]
@@ -305,7 +305,7 @@ Requires=signriver-xorg.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'for i in {1..20}; do DISPLAY=:0 /usr/bin/xrandr --output VGA-1 --mode 1440x900 && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/bash -c 'for i in {1..20}; do DISPLAY=:0 /usr/bin/xrandr --output Virtual-1 --mode 1920x1080 && exit 0; sleep 1; done; exit 1'
 RemainAfterExit=yes
 
 [Install]
@@ -329,11 +329,13 @@ sudo systemctl enable --now \
   signriver-client
 ```
 
-这是过渡方案，不是最终结论。换用 LTS 内核后输出名可能变为 `Virtual-1`，不能继续假定一定是 `VGA-1`。每次都应先运行：
+这是过渡方案，不是最终结论。当前 LTS 内核的输出名已实测为 `Virtual-1`；旧服务若仍写成 `VGA-1` 会静默设置失败，使 Xorg 保留 VirtualBox 给出的超大分辨率（曾出现 `7680×4320`）并导致窗口缩放或滚动范围异常。每次内核或显卡配置变化后都应先运行：
 
 ```bash
 DISPLAY=:0 XAUTHORITY=/home/deck/.Xauthority xrandr --current
 ```
+
+VirtualBox 的“缩放模式”也会持久化在虚拟机的 `GUI/Scale` 配置中；它会对整个来宾画面做插值，造成文字发糊。该测试机必须保持关闭缩放模式（`GUI/Scale=false`），并让来宾固定以 `1920×1080` 原始像素显示。若再次出现模糊而非滚动条，应先检查此项，而不是继续降低来宾分辨率。
 
 ### 6.4 最终方案：保留原内核，新增 Arch LTS 测试内核
 

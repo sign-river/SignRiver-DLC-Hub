@@ -4,9 +4,11 @@ import json
 import os
 import zipfile
 from pathlib import Path
+from threading import Thread
 
 import pytest
 
+import signriver_publisher.release_store as release_store_module
 from signriver_publisher.artifact_collector import (
     ArtifactCollector,
     fingerprint_artifact,
@@ -101,6 +103,62 @@ def test_store_creates_atomic_documents_and_append_only_redacted_events(
     assert [event.event_type for event in events] == ["release_created", "upload"]
     assert events[-1].context == {"safe": "value", "token": "[REDACTED]"}
     assert not list((tmp_path / "releases" / plan.batch_id).glob("*.tmp"))
+
+
+def test_store_retries_a_transient_windows_atomic_replace_denial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ReleaseStore(tmp_path)
+    plan = ReleasePlan.create(ReleaseKind.GAME_CONTENT, {"game_id": "game"})
+    original_replace = release_store_module.os.replace
+    attempts = 0
+
+    def transient_replace(source, destination):
+        nonlocal attempts
+        if Path(destination).name == "stages.json" and attempts < 2:
+            attempts += 1
+            raise PermissionError(5, "Access is denied", str(destination))
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(release_store_module.os, "replace", transient_replace)
+
+    store.create(plan)
+
+    assert attempts == 2
+    assert store.load(plan.batch_id).batch_id == plan.batch_id
+    assert not tuple((tmp_path / "releases" / plan.batch_id).glob("*.tmp"))
+
+
+def test_store_serializes_progress_saves_and_ui_loads(tmp_path: Path) -> None:
+    store = ReleaseStore(tmp_path)
+    plan = store.create(
+        ReleasePlan.create(ReleaseKind.GAME_CONTENT, {"game_id": "game"})
+    )
+    errors: list[Exception] = []
+
+    def save_progress() -> None:
+        try:
+            for value in range(30):
+                plan.options["upload_progress"] = {"completed": value}
+                store.save(plan)
+        except Exception as error:  # pragma: no cover - assertion reports it
+            errors.append(error)
+
+    def poll_ui() -> None:
+        try:
+            for _ in range(60):
+                store.load(plan.batch_id)
+        except Exception as error:  # pragma: no cover - assertion reports it
+            errors.append(error)
+
+    threads = [Thread(target=save_progress), Thread(target=poll_ui)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert store.load(plan.batch_id).batch_id == plan.batch_id
 
 
 def test_store_marks_running_batches_interrupted_after_restart(tmp_path: Path) -> None:
@@ -625,6 +683,37 @@ def test_pause_request_is_applied_at_next_safe_checkpoint(tmp_path: Path) -> Non
     assert result.status is ReleaseStatus.PAUSED
     assert result.stages[0].status.value == "succeeded"
     assert result.stages[1].status.value == "pending"
+
+
+def test_pause_request_is_accepted_while_queue_preview_is_still_draft(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    plan = ReleasePlan.create(
+        ReleaseKind.GAME_CONTENT,
+        {"game_id": "game", "release_tag": "game"},
+    )
+    service.store.create(plan)
+
+    paused = service.request_pause(plan.batch_id)
+
+    assert paused.status is ReleaseStatus.DRAFT
+    assert paused.recovery["pause_requested"] is True
+    assert paused.recovery["pause_requested_while"] == "draft"
+
+
+def test_explicit_resume_clears_stale_pause_request_before_retry(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "workspace")
+    plan = ReleasePlan.create(
+        ReleaseKind.GAME_CONTENT,
+        {"game_id": "game", "release_tag": "game"},
+    )
+    service.store.create(plan)
+    service.request_pause(plan.batch_id)
+
+    assert service.clear_pause_request(plan.batch_id) is True
+    restored = service.get(plan.batch_id)
+    assert service.orchestrator.pause_requested(restored) is False
+    assert "pause_requested" not in restored.recovery
+    assert service.clear_pause_request(plan.batch_id) is False
 
 
 def test_manual_acceptance_is_reference_only_and_is_audited(tmp_path: Path) -> None:

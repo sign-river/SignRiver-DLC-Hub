@@ -1525,7 +1525,176 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 内容附件上传阶段现在在每个源/文件完成后，把远端附件 ID 与大小保存到该阶段的持久化进度。一个源之后失败时，重试同一发布计划会先读取双端 Release 元数据，已记录 ID 仍存在的源直接跳过，只补未完成的源；不会重传已成功的一端。
 - 上传调用发生超时、EOF 或响应丢失后，程序会立即从 Release 元数据中查找同名附件：若有附件 ID，且可获得的远端大小与本地一致，即视为服务端已接收并继续。队列详情日志会明确显示“上传响应丢失，已从远端附件记录恢复”或“沿用本批此前已成功的上传端”。
 - GitHub 上传响应丢失时先查 Release 内同名同大小附件，不再先删除潜在已成功的上传。GitLink 绑定已上传附件到 Release 的更新请求使用同一附件 ID/完整列表有限重试；最终结果未知时不删除新附件，保留给下一次元数据恢复确认。
-- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_content_pipelines.py tests\test_publisher_github.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py -q`（176 项通过）、Ruff、`py_compile` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未执行真实远端操作、未构建 EXE、未 commit 或 push。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_content_pipelines.py tests\test_publisher_github.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py -q`（176 项通过）；随后全量 ` .\.venv\Scripts\python.exe -m pytest -q`、` .\.venv\Scripts\python.exe -m ruff check .` 与 ` .\.venv\Scripts\python.exe -m compileall -q src app\versions\0.1.0 tools tests` 均通过。未启动 GUI、未执行真实远端操作、未构建 EXE。
+
+### 切换窗口检查点（2026-08-21）
+
+- 已完成并本地提交当前连续改动：`84defad feat: 强化发布队列与双源恢复`。提交包含客户端卡带/补丁改动、发布器构建与上传队列、取消附件回读、双源结果未知恢复、测试与交接文档。
+- 当前分支 `main`，HEAD `84defadfe360643221fc373fa560f3245f91eff2`；相对 `origin/main` 为 `0 9`（本地领先 9 个提交）。交接文档此次更新尚未提交；除此之外工作区无未提交改动。
+- 未构建发布器 EXE、未执行真实远端上传、未上传模块归档/更新包，也未 push。后续若准备发布，先按 AGENTS 维护版本与 `publisher-workspace/update-notes.json`、构建并上传/核验发布资产，然后由用户决定是否 `git push origin main`。
+
+### 上传队列操作日志持久化与逐文件结果（2026-08-21）
+
+- 发布器的 DLC / 补丁发布页操作日志现保存为发布器工作区的 `operation-log.jsonl`，仅保留最近 500 条无凭据的用户可见文本；重启后自动恢复，不再因关闭程序清空。
+- 内容发布流水线会在每个源站、每个附件实际上传成功、复用可信记录或从上传响应丢失中恢复时立即把结果写入阶段安全检查点；上传队列轮询即时展示该结果，游戏完成时明确记录“全部文件已成功上传并发布 catalog.json”。修复了 UI 错把实际 `content.upload_snapshot` / `content.publish_index` 阶段名写为 `game_content.*`、因而漏掉逐项成功明细的缺陷。
+- GitLink 上传在建立网络请求前会对本地发布文件的短暂 Windows 占用做三次读取重试；持续占用会提示关闭占用程序后重试，避免把有效发布包错误标为必须重建。奇迹时代 4 的“本地发布文件变化或不完整”仍是正确的安全门禁，必须重新构建。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_content_pipelines.py tests\test_publisher_release_providers.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_operation_log.py`（92 项通过）、对应 Ruff、` .\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 构建队列单项加入上传队列刷新（2026-08-21）
+
+- 根因：构建队列单项“加入上传队列”调用已持久化入队方法后直接返回，未刷新上传队列或构建队列，也没有成功提示、自动跳转或异常提示。因此日志会重复出现“将…加入”而界面仍停留在旧状态。
+- 单项入队现在成功后立即刷新两份队列、日志记录队列位置和文件数并切换到“上传队列”；写入失败会写入失败日志并显示错误框，避免静默失败。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py tests\test_publisher_operation_log.py`（69 项通过）、对应 Ruff、` .\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 过期发布记录不再阻塞后续上传（2026-08-21）
+
+- 实际工作区的奇迹时代 4 队列项关联 `04:14` 创建的旧发布记录，而本地发布产物于 `10:45` 重建；预检准确检测到旧记录冻结的 SHA-256 / 修改时间与当前文件不一致，并非刚构建产物必然损坏。若已完成构建，应从构建队列再次点击“加入上传队列”以替换旧记录，无需重复构建。
+- 队列现在允许跳过前序 `failed` / `needs_rebuild` 项，继续上传后面仍为 `queued` 的游戏；只有尚待处理、运行中或用户主动暂停的前序项保留 FIFO 阻塞。失败提示改为明确指向“旧发布记录不一致”和重新加入路径。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_content_pipelines.py`（85 项通过）、对应 Ruff、` .\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 重建自动更新已有上传队列项（2026-08-21）
+
+- 运行时持久化时间使用 UTC；用户界面操作日志为本地北京时间。因而构建记录 `10:45 UTC` 与日志 `18:45` 是同一时刻，不能误判为早上旧构建；此前对应的旧发布计划 `04:14 UTC` 才是北京时间 `12:14` 的过期记录。
+- 当游戏已经存在活动上传队列项（包括 `needs_rebuild`）时，该游戏完成新的本地构建会自动把队列项更新为最新构建、清空旧 Release ID。下一次开始上传将创建新发布记录；若上传正在进行，现有安全步骤结束后会自动改传最新构建。没有既有上传项时，构建仍不自动加入上传队列。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py tests\test_publisher_content_pipelines.py`（86 项通过）、对应 Ruff、` .\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 过期上传项“使用当前构建”即时修复（2026-08-21）
+
+- 已存在的 `needs_rebuild` 项不可能由之后新增的“构建完成自动替换”逻辑回溯修复。上传队列卡片现在为该状态提供“使用当前构建”按钮：仅当构建队列存在同游戏的 `completed` 项时，按钮才将该上传项替换为当前构建、清空旧 Release ID 并重新变为 `queued`；没有已完成构建则明确提示先构建。
+- 用户工作区的奇迹时代 4 旧项已通过同一队列 API 修复：状态为 `queued`、关联旧 Release ID 已清空、保留当前构建的 19 个文件和 7.6 MiB；下一次开始上传会创建新发布记录。
+- 验证（2026-08-21）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py tests\test_publisher_content_pipelines.py tests\test_publisher_operation_log.py`（88 项通过）、对应 Ruff、` .\.venv\Scripts\python.exe -m compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 修复内容发布失败记录被反复复用（2026-08-21）
+
+- 用户确认“使用当前构建”是无效旁路。真实根因是 `find_reusable_game_content_batch()` 把 `preflight_failed` 的旧记录继续当成可复用记录，却没有核对其中冻结的附件指纹。上传项清空 Release ID 后，下一次执行仍会重新捡回同一份旧记录，所以再次误报需要重新构建。
+- 奇迹时代4现场旧记录 `51b96a…` 创建于 `04:14 UTC`，其中 AppInfo SHA-256 为 `cab132…`；当前构建的 AppInfo SHA-256 为 `5fd809…`。构建本身有效，失败来自旧快照复用。
+- 内容发布记录现在只有在全部冻结产物仍与当前文件一致时才会复用；任何路径、大小、修改时间或 SHA-256 变化都会跳过旧记录并由当前发布目录创建新记录。上传前若文件在新快照创建后真实变化，预检仍会安全失败。
+- 已从上传队列移除“使用当前构建”按钮、处理方法及 `BuildQueueStatus` 依赖，不再提供绕过失败状态的假修复。
+- 验证：专项 ` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_release_service.py tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py tests\test_publisher_content_pipelines.py tests\test_publisher_operation_log.py` 通过（103 项）；真实工作区只读检查确认奇迹时代4旧记录返回 `reusable_batch=None`；全量 ` .\.venv\Scripts\python.exe -m pytest -q` 通过（736 项），全项目 Ruff、`compileall -q src app\versions\0.1.0 tools tests` 与 `git diff --check` 通过（仅 CRLF 提示）。未启动 GUI、未构建发布器 EXE、未执行真实上传、未 commit 或 push。
+
+### 修复大文件上传时阶段记录固定触发 WinError 5（2026-08-21）
+
+- Victoria 3 在 `dlc004_voice_of_the_people.zip.part001-of-002` 处显示“上传失败”，但完整错误为发布批次目录内 `.stages.json.<pid>.tmp -> stages.json` 的 `[WinError 5] 拒绝访问`；前三个附件已上传并持久化成功，280 MiB 分卷本身也能读取。失败点是本地恢复检查点，不是网络或发布分卷。
+- 根因：上传进度回调高频 `ReleaseStore.save()`，UI 每 350 ms `load()` 同一批次；旧存储层无读写协调，Windows 的短暂读取句柄会阻止目标文件被 `os.replace()`。同时临时文件名只含 PID，同进程并发保存还会争用同一个临时文件。
+- `ReleaseStore` 现在用 `RLock` 串行化整批多文档保存、加载和事件追加；每次原子 JSON 写入使用 UUID 唯一临时文件；`os.replace()` 遇到 `PermissionError` 最多进行 4 次短暂指数退避尝试，持续失败仍正常上抛并清理临时文件。
+- 新增回归覆盖前两次原子替换被拒后恢复成功，以及上传进度保存与 UI 轮询共 90 次交错读写。专项 ` .\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_release_batches.py tests\test_publisher_release_service.py tests\test_publisher_content_pipelines.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py tests\test_publisher_operation_log.py tests\test_publisher_release_providers.py` 通过（137 项）；全量 pytest 通过（738 项），全项目 Ruff、`compileall -q src app\versions\0.1.0 tools tests` 与 `git diff --check` 通过（仅 CRLF 提示）。
+- 当前 Victoria 3 队列项保留 `failed` 状态和原发布记录 `fd9dd5…`，未重置、删除或重建。重启最新源码发布器后直接点击“重试”；流水线会按已保存的远端附件 ID 沿用前三个成功附件，并对第四个附件先做结果未知恢复判断。未启动 GUI、未构建发布器 EXE、未执行新的真实上传、未 commit 或 push。
+
+### 全游戏静态目录补丁别名紧急兼容（2026-08-21）
+
+- 根因：群星 Release 虽保留 `steam_api64.dll` 与 `steam_api64_o.dll`，但发布器生成的 `catalog.json` 只列稳定名 `unlocker.dll` / `original.dll`。采用静态目录的旧客户端因而看不到旧名补丁；不能把“保留云端仅有附件”当作静态目录兼容。
+- 发布器现在以全局生命周期策略处理所有游戏：默认开启时，构建会从稳定名生成该游戏卡带声明的两份旧 DLL 名别名，并纳入构建清单与 `catalog.json`；新客户端仍使用稳定名，旧客户端可继续按旧名发现同一内容。构建队列提供“旧版补丁名兼容”全局开关，未来关闭后对之后重建的所有游戏同时生效。
+- 已执行真实双源紧急修复：发布批次 `531ed31fa5c545008431b54d0296653d` 仅上传两份别名并最后切换 `catalog.json`，兼容模式保留全部既有云端附件。GitLink 与 GitHub 均完成；公网读取确认两端目录均列出 `unlocker.dll`、`original.dll`、`steam_api64.dll`、`steam_api64_o.dll` 和 `stellaris_appinfo.json`。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_workspace.py tests\test_publisher_ui_threading.py -q`（143 项通过）、对应 Ruff、`compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未构建发布器 EXE、未 commit 或 push。
+
+### 上传队列故障态可暂停与自动解除占用（2026-08-21）
+
+- 根因：上传队列在远端预检期间已显示“正在上传”，但关联发布记录仍可能是 `draft`；网络异常后记录还可能先变为 `failed`，而 UI 回调尚未回来。旧暂停 API 只接受 `running`，因此故障场景点击暂停会弹出英文内部错误并永久占用关闭锁。
+- 暂停请求现在覆盖整个未完成生命周期。处于真实附件传输的 `running` 记录仍由安全检查点中断；预检、失败、降级或中断记录会立即持久化暂停请求，队列同步标为“已暂停”并释放后台占用。延迟到达的成功/失败回调不会覆盖该暂停状态。
+- 队列每 350 ms 轮询持久化发布记录；一旦检测到记录已离开 `running`（暂停、失败、降级、中断或完成），立即同步队列终态并解除窗口关闭锁，不再吞掉异常后无限显示“正在上传”。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_release_batches.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py -q`（173 项通过）、对应 Ruff、`compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动发布器、未执行真实上传、未构建 EXE、未 commit 或 push。
+
+### 构建队列显式批量构建（2026-08-21）
+
+- 构建队列顶部新增“全部加入构建队列”和“开始全部构建”。前者按当前所有游戏的本地资源创建或更新构建请求；后者才会按 FIFO 串行执行全部待构建项。
+- DLC / 补丁发布页原有的单游戏“加入构建队列”保留，但现在只入队、不再隐式开始构建。构建完成或失败后仅在同一次“开始全部构建”会话中继续处理下一项；重启后不会自行续跑，需用户再次明确点击开始。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py -q`（76 项通过）、` .\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\content_management_ui.py tests\test_publisher_ui_threading.py`、`compileall -q src\signriver_publisher\content_management_ui.py` 与 `git diff --check` 通过。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 发布页小窗口纵向滚动（2026-08-21）
+
+- DLC / 补丁发布页现在作为可滚动的页面路由容器创建；窗口高度不足时可滚动查看“当前文件传输”及其进度条。操作日志内部原有滚动保持不变。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_ui_threading.py -q`（65 项通过）、` .\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\ui.py tests\test_publisher_ui_threading.py`、`compileall -q src\signriver_publisher\ui.py` 与 `git diff --check` 通过。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 构建与上传缓存命中说明（2026-08-21）
+
+- DLC 构建日志现在先写“检查构建缓存”，随后明确显示“构建缓存命中（未重新压缩）”、旧版本 ZIP 被接管或“构建缓存未命中（将重新压缩）”；AppInfo 与补丁也明确说明其每次刷新/整理、不走该构建缓存。
+- 远端预览和上传日志统一使用“云端缓存命中”说明可信 DLC 附件被复用而未重复上传，并保留上传响应恢复、同批继续上传等不同于缓存的原因。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_workspace.py tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py -q`（159 项通过）、对应 Ruff、`compileall -q` 与 `git diff --check` 通过。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 批量上传队列启动不阻塞界面（2026-08-21）
+
+- 根因：由“全部加入上传队列”产生的项起初没有 `release_id`。开始队列时旧 UI 在 Tk 回调内同步写入运行状态并立即轮询空发布记录；当 Windows 文件检查点短暂被占用时，按钮回调会失去响应。
+- FIFO 运行状态的持久化、首项本地发布快照、远端差异预检仍在同一后台工作线程内；Tk 仅在持久化成功后刷新卡片。快照尚未生成 Release ID 时不再轮询空记录，因此“开始队列”立即返回界面事件循环。
+- 此新增准备阶段也可暂停：暂停会保持原队列项为 `paused`、不读写远端；迟到的快照线程会丢弃结果，不能把暂停项改回运行。
+
+### 修复卡带中心双端发布引用已删除控件（2026-08-22）
+
+- 根因：模块化发布器已将发布目标配置迁移到 `PublisherSettings`，但“一键双端发布卡带”仍调用继承自旧 UI 的 `_save_active_settings()`；该实现读取已不存在的 `owner_entry`、`repo_entry`、`token_entry`，点击后在网络操作开始前触发 Tk `AttributeError`。
+- `PublisherTargetsUiMixin` 现在覆盖该兼容保存钩子，只持久化当前 `self.settings`；卡带双端发布以及仍复用该钩子的现代界面操作不再依赖旧输入框。未触发真实远端发布。
+- 后续实测还触发旧 `_set_publish_buttons_available()`，它同样会访问已删除的 `publish_button`。该兼容方法现只更新模块化界面实际存在的 `hub_publish_button`，覆盖双端发布开始、成功和失败时的按钮恢复路径。
+- 已在模块化 MRO 中显式隔离未接线的旧单源发布、模块归档、单源卡带发布和“采用远端附件”方法；即使后续有误调用，也只显示“入口已移除”，不会再回落访问 `owner_entry`、`publish_button` 等已删除控件。唯一保留的发布范围是当前 UI 实际接线的卡带双端镜像范围；其暂停/恢复仍使用 `hub_publish_*` 控件。
+- 卡带列表摘要也已改为直接读取 `PublisherSettings`，不再在模块化 UI 中探测旧仓库输入框。
+- 验证（2026-08-22）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py tests\test_publisher_upload_queue.py tests\test_publisher_release_batches.py -q`（191 项通过）、`compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 上传队列重试自动解除旧暂停（2026-08-22）
+
+- 根因：故障态点击暂停会按设计保留内存和持久化的暂停请求。旧“重试”没有清除该请求，第一次点击会立即再次进入暂停并在执行收尾时才清理，因此用户必须再点一次。
+- 现在上传队列在同一次“重试/继续”的后台启动中，先清除该发布记录遗留的暂停请求及恢复字段，再进入远端预检和执行；操作日志会明确记录“已解除上次暂停留下的执行锁，直接开始重试”。
+- 验证（2026-08-22）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_release_batches.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py -q`（105 项通过）、对应 Ruff、`compileall -q src\signriver_publisher` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### GitLink 大文件停滞超时与安全暂停（2026-08-22）
+
+- 实际上传队列中仅 Victoria 3 的 `dlc010_ep1.zip.part001-of-002` 失败，界面显示“上传超时”。GitLink 附件客户端原先将任一次 socket 无进展限制为 20 秒；这不是整个文件的总时长，但对大分卷的服务端接收间歇或上传完成后的响应等待过于激进。
+- 附件上传的无进展超时已调整为 90 秒。暂停不再依赖短超时：`UploadControl.request_pause()` 会立即关闭已登记的活动 HTTPS 连接，使阻塞的发送或响应读取尽快以可恢复的 `UploadPaused` 结束。
+- 验证（2026-08-22）：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_workspace.py tests\test_publisher_ui_threading.py tests\test_publisher_upload_queue.py -q`（161 项通过）、` .\.venv\Scripts\python.exe -m ruff check src\signriver_publisher\gitlink.py tests\test_publisher_workspace.py`、`compileall -q src\signriver_publisher\gitlink.py` 与 `git diff --check` 通过（仅既有 CRLF 提示）。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+- 验证：` .\.venv\Scripts\python.exe -m pytest tests\test_publisher_release_batches.py tests\test_publisher_upload_queue.py tests\test_publisher_ui_threading.py -q`（104 项通过）、对应 Ruff、`compileall -q src\signriver_publisher\upload_queue_ui.py` 与 `git diff --check` 通过。未启动 GUI、未构建 EXE、未执行真实上传、未 commit 或 push。
+
+### 0.2.0 SteamOS / macOS 原生构建与关键验收（2026-08-22）
+
+- SteamOS x64：在 `/mnt/games/signriver-src-20260822` 使用 `/home/deck/venv/bin/python` 成功构建 `SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz`（SHA-256：`b29badab9a96c75f5d944851232595b488cf15b74fb1b1525d8a87437d4ff2bb`）和 `SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip`（SHA-256：`2f46d85d67a46d04ebbf62c3819afe2477eb3402910dbc482133b58940065620`）。ELF x86-64、包结构与 ZIP 完整性均验证通过；冻结程序在隔离 XDG 目录中启动存活后正常停止。
+- macOS Intel：系统仅有 Python 3.9，不能导入源码所需的 `enum.StrEnum`。已在 `/tmp/py312` 解压 Python Build Standalone 3.12.14（不修改系统、不需管理员权限），安装构建依赖后构建成功；首次交付格式为 `dist/SignRiver-DLC-Hub.app`（不是 DMG），更新包为 `dist/updates/SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip`（SHA-256：`a7fb2d1cbb8e7270dcbddd62690c055b22500946362f867c5d5aec9ab4d21a5f`）。应用二进制为 macOS 原生可执行文件，更新 ZIP 完整性通过；冻结应用在隔离 `HOME` 下存活 8 秒后被正常停止。
+- 两端均通过跨平台/补丁和更新恢复关键测试。SteamOS：`tests/test_update_config.py tests/test_updater.py tests/test_full_update.py tests/test_patch_engine.py tests/test_patch_platforms.py`（79 通过、1 跳过）；macOS：再加 `tests/test_macos_update_helper.py`，共 100% 通过。此前两端的 `test_cross_platform_runtime.py`、`test_patch_platforms.py`、`test_build_native_release.py` 也通过；macOS 同时通过 Ruff 和 compileall。
+- 未上传任何构建产物、未执行线上发布、未提交或推送。Windows 工作区仅有既有未提交改动与本次 SteamOS 配置文档改动；macOS / SteamOS 构建资源均保留在各虚拟机临时目录。后续如需正式发布，须由用户自行将相应平台包上传至双源并更新清单，之后再按项目流程提交/推送。
+
+### SteamOS 根目录扩容与 KDE 桌面测试模式（2026-08-22）
+
+- 变更前已创建 VirtualBox 快照 `before-btrfs-system-expansion-20260822`。`games` 数据盘保持 128 GiB 动态上限不变；它不会预占全部容量，当前仍约有 75.5 GiB 可用。
+- 新增动态 VDI `SteamOS-root-extension-5g.vdi`（5 GiB），在 Guest 中建立 `/dev/sdc1` 并加入根 Btrfs。冷启动验证后根文件系统总容量约 10 GiB、已用约 4.3 GiB、可用约 5.2 GiB，占用率从 98% 降至 46%；Btrfs 两个设备均可被 initramfs/udev 自动识别。新 VDI 当前宿主实际占用约 2 MiB，后续按写入量动态增长。
+- 已禁用开机独占显示器的 `signriver-client.service`、`signriver-resolution.service`、`signriver-xorg.service`，保留并启用 `sddm.service`。重启后 `deck` 自动进入 KDE Plasma Wayland，`kwin_wayland`、`Xwayland`、`plasmashell` 均正常，分辨率持久化为 `1600x900`、缩放 100%。
+- 桌面新增可执行且通过 `desktop-file-validate` 的 `SignRiver-DLC-Hub.desktop`，从 `/mnt/games/signriver-src-20260822` 使用 `/home/deck/venv/bin/python` 启动源码客户端。按桌面会话环境实测程序持续运行并加载模块 0.2.0；测试时发现 `/home/deck/data/cartridges/cartridge_stellaris.json` 是缺少 macOS 字段的旧本地卡带，程序会忽略该文件，尚未删除或覆盖。
+- KDE 与 SignRiver 同时运行时 8 GiB 内存仍有约 6.4 GiB available、Swap 为 0，连续 `vmstat` 采样 CPU idle 约 99%–100%。Host-Only 地址仍为 `192.168.56.2/24`，NAT 默认路由保持不变。未改项目代码、未构建、未上传、未 commit 或 push。
+
+### macOS 用户应用更新（2026-08-22）
+
+- 使用当前仓库已提交源码在 macOS Intel 虚拟机原生重建客户端；因 `0.2.0/module.json` 属于本地生成元数据且未进入 Git 归档，仅在 macOS 临时构建目录补齐，未修改 Windows 工作区。
+- 已将新构建的 `~/Applications/SignRiver-DLC-Hub.app` 替换旧应用，并保留备份 `SignRiver-DLC-Hub.before-current-build-20260822.app`。应用内 `app/state.json` 的 `active_version` 为 `0.2.0`。
+- 通过 `open` 启动后确认应用进程存活（LaunchServices 状态正常），未执行下载、Steam 操作、上传、发布、commit 或 push。构建产物仍保留在 macOS `~/Downloads/SignRiver-DLC-Hub-current-20260822/dist/`。
+
+### macOS 冻结包 SQLite 依赖修复（2026-08-22）
+
+- macOS 首次替换后的应用弹出 `Unable to import application module: No module named 'sqlite3'`。构建环境 Python 可正常导入 SQLite，根因是 PyInstaller 对动态加载的运行时模块未显式收集标准库 `sqlite3` 与平台扩展 `_sqlite3`。
+- `tools/build_release.py` 的通用隐藏导入列表已加入 `sqlite3`、`_sqlite3`；专项构建测试通过（9 项）。在 macOS 重新原生构建并替换应用，保留 `SignRiver-DLC-Hub.before-sqlite-fix-20260822.app` 备份。
+- 修复后通过 `open` 启动，LaunchServices 与应用进程均保持运行，未执行下载、上传、发布、commit 或 push。
+
+### macOS 应用包缺少 0.2.0 运行时代码修复（2026-08-22）
+
+- 用户启动 macOS 桌面程序时出现 `Unable to import application module: No module named 'concurrent'`（`APP-MODULE-LOAD-FAILED`）。根因不是 Python 标准库缺失，而是此前用 `git archive HEAD` 同步源码时，`app/versions/*` 被 `.gitignore` 忽略，导致应用包中的 `runtime/app/versions/0.2.0` 只有 `module.json`，没有完整的 `signriver_app/` 运行时代码。
+- 已从 Windows 工作区打包完整的本地 `app/versions/0.2.0`，同步到 macOS 临时构建目录，并在 macOS Intel 虚拟机原生重新构建 `SignRiver-DLC-Hub.app`。新包已确认包含 `signriver_app/application/download_queue.py` 等完整模块。
+- 已停止旧应用并替换 `/Users/signriver/Applications/SignRiver-DLC-Hub.app`。启动等待 8 秒后进程持续运行，`active_version` 为 `0.2.0`，未出现新的 SignRiver 崩溃报告；临时备份随后删除，应用目录只保留最新版。
+- 本次未修改 Windows 源码、未上传、未发布、未 commit 或 push；未执行 Steam、下载或更新操作。
+
+### SteamOS / macOS 原生客户端构建项目 Skill（2026-08-22）
+
+- 新增项目技能 `.agents/skills/build-native-client-releases/`，用于从 Windows 当前工作区准备完整源码，并在 SteamOS x64、macOS Intel x64 虚拟机中原生构建和验证首次安装包与全量更新包。
+- `SKILL.md` 统一规定版本元数据、目标版本目录完整性、用户未提交改动保护、禁止单独使用 `git archive HEAD`、不隐式上传/发布/commit/push，以及包结构、架构、SHA-256、8 秒启动存活和模块回退检查。
+- SteamOS 与 macOS 的具体命令和验收分别放在 `references/steamos.md`、`references/macos.md`；macOS 流程额外覆盖 `.app` 内运行时完整性和用户可写 `state.json`/`bad_versions` 回退状态。
+- 验证：Skill Creator 官方 `quick_validate.py` 在 `PYTHONUTF8=1` 下通过；`SKILL.md` 与 `agents/openai.yaml` 的 UTF-8/YAML 解析通过；无 TODO 占位符，`git diff --check` 通过。未实际构建、未连接虚拟机、未上传、未发布、未 commit 或 push。
+
+### 客户端补丁-only Release 仍允许安装补丁（2026-08-22）
+
+- 修复客户端目录刷新逻辑：当云端 Release 只有完整补丁资源、没有任何 DLC ZIP 时，不再把“一键解锁”按钮误置为“暂无可用 DLC”并禁用；按钮会保持可用，点击后可直接下载/应用补丁。
+- 当补丁资源也缺失时仍保持禁用，并显示目录与补丁均不可用的提示；有 DLC 的原有流程不变。
+- 修改范围：`app/versions/0.1.0/app_entry.py`，新增源代码回归断言 `tests/test_ui_theme.py::test_patch_only_release_keeps_unlock_button_available`。
+- 验证：`pytest -q tests/test_ui_theme.py -k "patch_only_release or catalog_assigns_entries"`（2 项通过）；`python -m py_compile app/versions/0.1.0/app_entry.py` 通过。完整 `tests/test_ui_theme.py` 未全通过，存在工作区既有发布器编码相关失败 `test_bulk_management_speed_test_and_complete_task_cleanup_are_available`，与本次客户端改动无关。
+- 未同步忽略的发布版本目录、未构建、未上传、未 commit 或 push。
+
+### 客户端 GitLink 切换 GitHub 失败回滚、乱码与 0.2.0 启动修复（2026-08-22）
+
+- 下载源从 GitLink 切换到 GitHub 且远端主表、本地缓存均加载失败时，现在会恢复原设置，并回滚更新器、卡带主表、公告服务和下拉框；默认卡带兜底异常保留真实失败原因，不再显示 `????????????stellaris`。
+- 后续源码启动失败并非 `config/cartridges` 文件缺失：启动器隔离加载确认，本地忽略目录 `app/versions/0.2.0/signriver_app/domain/cartridges.py` 仍只接受旧字段 `original_backup_dll_name`，而当前卡带已经使用 `runtime_original_library_name`，导致所有本地卡带被旧解析器拒绝，启动器再回退到同样不兼容的 `0.1.7`。
+- 已保留 `0.2.0` 自身较新的运行时实现，仅在其 `domain/cartridges.py` 增加新字段优先、旧字段回退的兼容映射；没有用 `0.1.0/signriver_app` 整目录覆盖活动版本。`app/state.json` 已恢复为活动版本 `0.2.0`，`previous_version` 为 `0.1.7`，并清空 `bad_versions`。
+- 验证：跟踪源码卡带测试 `tests/test_cartridge_catalog.py tests/test_cartridge_default_fallback.py` 共 13 项通过；通过 `ModuleLoader._load_python_module()` 隔离加载 `0.2.0`，Windows、SteamOS、macOS 三个平台均能从本地加载默认 `stellaris`；按启动器真实 `HostContext` 完整创建 `DlcHubApplication` 成功，随后主动销毁隐藏窗口，无残留客户端进程；`compileall -q app/versions/0.2.0` 通过。
+- 未构建更新包、未上传、未执行真实 GitLink/GitHub 写操作、未 commit 或 push。`0.2.0` 是 Git 忽略的本地目标目录；正式交付仍需按发布流程选择性同步并重新构建目标版本，不能把此次本地运行时修补误认为已发布。
 
 ## 2026-08-22：多端卡带资源筛选与云端报错指南
 
@@ -1533,8 +1702,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 发布器现在导出云端确认的资源状态：已成功发布记录只能保守确认 Windows；SteamOS/macOS 必须在游戏卡带的“已发布平台资源 (JSON)”中明确标为可用。该状态与平台变体声明分离，未上传资源不会因声明而显示。
 - 报错指南使用独立 hub 主表与按条目详情；通用指南跨平台显示，脚本工具仅在适用平台显示并按需 HTTPS 下载，用户确认后执行。下载使用临时文件原子替换；不引入额外签名或复杂哈希体系。
 - 验证（2026-08-22）：`pytest -q tests/test_platform_content.py tests/test_publisher_content_pipelines.py tests/test_cartridge_catalog.py tests/test_cartridge_default_fallback.py`（35 通过）；`pytest -q tests/test_publisher_ui_threading.py`（69 通过）；`pytest -q tests/test_ui_theme.py -k "patch_only_release or catalog_assigns_entries or active_cartridge_switch"`（3 通过）；`python -m compileall -q app/versions/0.1.0 src`、相关 `ruff check`、`git diff --check` 通过。未同步忽略的 `app/versions/0.2.0`，未构建、未上传、未推送。
+
+
 ### 下载源切换成功提示延后（2026-08-22）
 
 - 下载源切换后，客户端现在先显示“正在重新加载”，只有 Hub 主表和当前默认卡带完成加载、游戏扫描与 DLC 列表刷新后，才提示“下载和程序更新源已切换为 GitHub，卡带已重新加载”。
 - 远程主表或卡带只能回退本地缓存时，不再显示成功提示，改为明确的缓存回退警告；原有切换失败回滚逻辑未改变。
-- 验证（2026-08-22）：`pytest -q tests\test_ui_theme.py -k "download_source or patch_only_release or active_cartridge_switch"`（5 通过）；`pytest -q tests\test_cartridge_catalog.py tests\test_cartridge_default_fallback.py tests\test_platform_content.py`（21 通过）；相关 Ruff、`compileall` 与本任务文件 `git diff --check` 通过。执行完整 `tests/test_ui_theme.py` 时有 1 项既有发布器 UI 文案断言失败（`src/signriver_publisher/ui.py` 的未提交改动），与本次客户端下载源提示无关。未启动 GUI、未构建、未上传、未推送。
+- 验证（2026-08-22）：`pytest -q tests\test_ui_theme.py -k "download_source or patch_only_release or active_cartridge_switch"`（5 通过）；`pytest -q tests\test_cartridge_catalog.py tests\test_cartridge_default_fallback.py tests\test_platform_content.py`（21 通过）；后续同步发布器滚动发布页对应断言后，完整 `pytest -q`、相关 Ruff、`compileall` 与 `git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。

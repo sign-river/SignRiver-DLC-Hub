@@ -9,6 +9,7 @@ import customtkinter as ctk
 
 from .models import GameProfile
 from .build_queue import BuildQueueError, BuildQueueStatus
+from .operation_log import OperationLog
 from .workspace import WorkspaceError
 
 BLUE = "#1976D2"
@@ -283,7 +284,8 @@ class ContentManagementUiMixin:
         )
         self.content_operation_log.grid(row=2, column=0, padx=20, pady=(0, 18), sticky="nsew")
         self.content_operation_log.configure(state="disabled")
-        self._content_operation_log_lines: list[str] = []
+        self._content_operation_history = OperationLog(self.workspace.root)
+        self._content_operation_log_lines = self._content_operation_history.load()
         transfer_card = self._card(content, 3, "当前文件传输")
         transfer_card.grid_columnconfigure(0, weight=1)
         self.content_transfer_label = ctk.CTkLabel(
@@ -310,15 +312,27 @@ class ContentManagementUiMixin:
         ).grid(row=0, column=1, padx=20, pady=(14, 8), sticky="e")
         ctk.CTkLabel(
             header,
-            text="构建按顺序执行。当前游戏构建时仍可切换并整理其他游戏；构建完成后再手动加入上传队列。",
+            text="先将游戏加入构建队列，再统一开始全部构建；构建按顺序执行，完成后可再手动加入上传队列。",
             text_color=MUTED, anchor="w",
         ).grid(row=1, column=0, padx=20, pady=(0, 12), sticky="ew")
         self.build_queue_summary = ctk.CTkLabel(header, text="构建队列正在读取…", text_color=MUTED, anchor="w")
         self.build_queue_summary.grid(row=2, column=0, padx=20, pady=(0, 14), sticky="w")
         header_actions = ctk.CTkFrame(header, fg_color="transparent")
-        header_actions.grid(row=2, column=1, padx=20, pady=(0, 14), sticky="e")
+        header_actions.grid(row=3, column=0, columnspan=2, padx=20, pady=(0, 14), sticky="ew")
+        self.build_queue_add_all_button = ctk.CTkButton(
+            header_actions, text="全部加入构建队列", width=160,
+            fg_color="transparent", border_width=1, border_color="#90CAF9", text_color=BLUE,
+            command=self._enqueue_all_games_for_build,
+        )
+        self.build_queue_add_all_button.pack(side="left", padx=(0, 8))
+        self.build_queue_start_all_button = ctk.CTkButton(
+            header_actions, text="开始全部构建", width=148, fg_color=BLUE,
+            command=self._start_all_content_builds,
+        )
+        self.build_queue_start_all_button.pack(side="left", padx=(0, 8))
         self.build_queue_enqueue_all_button = ctk.CTkButton(
-            header_actions, text="一键加入上传队列", width=156, fg_color=BLUE,
+            header_actions, text="一键加入上传队列", width=156,
+            fg_color="transparent", border_width=1, border_color="#90CAF9", text_color=BLUE,
             command=self._enqueue_all_built_game_uploads,
         )
         self.build_queue_enqueue_all_button.pack(side="left", padx=(0, 8))
@@ -334,6 +348,18 @@ class ContentManagementUiMixin:
             self.build_queue_compatibility_switch.select()
         self.build_queue_compatibility_switch.pack(side="left", padx=(0, 8))
         self._render_build_queue_compatibility_status()
+        self.build_queue_legacy_patch_alias_switch = ctk.CTkSwitch(
+            header_actions,
+            text="旧版补丁名兼容",
+            text_color=MUTED,
+            fg_color="#90CAF9",
+            progress_color=LIGHT_BLUE,
+            command=self._set_legacy_patch_alias_mode,
+        )
+        if self.workspace.load_legacy_patch_asset_aliases_enabled():
+            self.build_queue_legacy_patch_alias_switch.select()
+        self.build_queue_legacy_patch_alias_switch.pack(side="left", padx=(0, 8))
+        self._render_legacy_patch_alias_status()
         ctk.CTkButton(
             header_actions, text="刷新", width=82, fg_color="transparent", border_width=1,
             border_color="#D8DEE6", text_color="#455A64", command=self._render_build_queue,
@@ -344,6 +370,7 @@ class ContentManagementUiMixin:
         )
         self.build_queue_list.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
         self._build_current_item_id: str | None = None
+        self._build_queue_run_requested = False
         self._pending_build_progress: tuple[str, str, int, int, str, str] | None = None
         self._build_progress_notification_pending = False
         self._render_build_queue()
@@ -367,6 +394,28 @@ class ContentManagementUiMixin:
                 "兼容发布：已开启（保留云端仅有文件）"
                 if enabled
                 else "兼容发布：已关闭（镜像删除云端仅有文件）"
+            ),
+            text_color=BLUE if enabled else MUTED,
+        )
+
+    def _set_legacy_patch_alias_mode(self) -> None:
+        enabled = bool(self.build_queue_legacy_patch_alias_switch.get())
+        self.workspace.save_legacy_patch_asset_aliases_enabled(enabled)
+        self._render_legacy_patch_alias_status()
+        message = (
+            "已开启全局旧版补丁名兼容：之后重建的所有游戏均同时发布稳定名与卡带 DLL 名。"
+            if enabled
+            else "已关闭全局旧版补丁名兼容：之后重建的所有游戏只发布稳定补丁名。"
+        )
+        self._log(f"用户操作：{message}")
+
+    def _render_legacy_patch_alias_status(self) -> None:
+        enabled = bool(self.build_queue_legacy_patch_alias_switch.get())
+        self.build_queue_legacy_patch_alias_switch.configure(
+            text=(
+                "旧版补丁名兼容：已开启（全游戏）"
+                if enabled
+                else "旧版补丁名兼容：已关闭（全游戏）"
             ),
             text_color=BLUE if enabled else MUTED,
         )
@@ -410,11 +459,11 @@ class ContentManagementUiMixin:
         catalog = next((path for path in files if path.name == "catalog.json"), None)
         if catalog is None:
             preparation = (
-                "请先在“本地资源”准备补丁，然后点击“加入构建队列”，"
-                "程序会自动构建发布文件。"
+                "请先在“本地资源”准备补丁，点击“加入构建队列”后，"
+                "再在构建队列点击“开始全部构建”。"
                 if self.profile.dlc_delivery_mode == "built_in"
-                else "请先在“本地资源”准备 DLC / 补丁，然后点击“加入构建队列”，"
-                "程序会自动构建发布文件。"
+                else "请先在“本地资源”准备 DLC / 补丁，点击“加入构建队列”后，"
+                "再在构建队列点击“开始全部构建”。"
             )
             text = (
                 f"当前游戏：{self.profile.display_name}（{self.profile.game_id}）\n"
@@ -1100,17 +1149,56 @@ class ContentManagementUiMixin:
                 "已舍弃旧提交，仅保留最新提交。"
             )
         self._render_build_queue()
-        self._start_next_content_build()
         return True
 
     def build_all(self) -> bool:
         return self._queue_current_game_build()
 
+    def _enqueue_all_games_for_build(self) -> None:
+        """Replace the queue with fresh build requests for every configured game."""
+        profiles = self.workspace.list_games()
+        if not profiles:
+            messagebox.showinfo("暂无游戏", "当前没有可加入构建队列的游戏配置。", parent=self)
+            return
+        failures: list[str] = []
+        for profile in profiles:
+            try:
+                self.content_build_queue.enqueue(profile)
+            except BuildQueueError as error:
+                failures.append(f"• {profile.display_name}：{error}")
+        queued = len(profiles) - len(failures)
+        if queued:
+            self._log(
+                f"用户操作：已将全部 {queued} 个游戏按当前本地文件加入构建队列；"
+                "请点击“开始全部构建”后按队列顺序执行。"
+            )
+        self._render_build_queue()
+        if failures:
+            messagebox.showwarning("部分游戏未加入构建队列", "\n".join(failures), parent=self)
+
+    def _start_all_content_builds(self) -> None:
+        """Run every queued build serially, starting only on explicit user action."""
+        if self._build_operation_active:
+            self._log("用户操作：构建队列已在执行，将继续按当前顺序完成。")
+            return
+        if self.content_build_queue.next_runnable() is None:
+            messagebox.showinfo("暂无待构建项", "请先加入构建队列，或重新加入需要再次构建的游戏。", parent=self)
+            return
+        self._build_queue_run_requested = True
+        self._log("用户操作：开始全部构建，队列将按顺序串行执行。")
+        self._render_build_queue()
+        self._start_next_content_build()
+
     def _start_next_content_build(self) -> None:
+        if not self._build_queue_run_requested:
+            return
         if self._build_operation_active:
             return
         item = self.content_build_queue.next_runnable()
         if item is None:
+            self._build_queue_run_requested = False
+            self._log("构建队列已执行完毕。")
+            self._render_build_queue()
             return
         try:
             profile = next(
@@ -1120,7 +1208,8 @@ class ContentManagementUiMixin:
         except (StopIteration, BuildQueueError) as error:
             self.content_build_queue.mark_failed(item.item_id, str(error))
             self._render_build_queue()
-            self.after(80, self._start_next_content_build)
+            if self._build_queue_run_requested:
+                self.after(80, self._start_next_content_build)
             return
         self._build_operation_active = True
         self._build_current_item_id = item.item_id
@@ -1195,6 +1284,14 @@ class ContentManagementUiMixin:
         self.content_build_queue.mark_completed(
             item_id, resource_count=resources, artifact_count=files, total_bytes=size
         )
+        stale_upload = self.content_upload_queue.active_for_game(profile.game_id)
+        if stale_upload is not None:
+            self._enqueue_built_game_item(
+                self.content_build_queue.get(item_id), profile
+            )
+            self._log(
+                f"本地构建完成：已用最新构建替换上传队列中“{profile.display_name}”的旧发布记录。"
+            )
         self._log(
             "已生成静态目录 catalog.json；发布到 Release 时会作为最后一个附件上传。"
         )
@@ -1207,7 +1304,8 @@ class ContentManagementUiMixin:
             self.content_build_queue.requeue_latest(item_id)
             self._log(f"{profile.display_name} 收到新提交，已舍弃刚完成的旧构建并重新排队。")
         self._render_build_queue()
-        self.after(80, self._start_next_content_build)
+        if self._build_queue_run_requested:
+            self.after(80, self._start_next_content_build)
 
     def _build_failed(self, item_id: str, message: str) -> None:
         self._build_operation_active = False
@@ -1220,7 +1318,8 @@ class ContentManagementUiMixin:
             self.content_build_queue.mark_failed(item_id, message)
         self._log(f"本地构建失败：{message}")
         self._render_build_queue()
-        self.after(80, self._start_next_content_build)
+        if self._build_queue_run_requested:
+            self.after(80, self._start_next_content_build)
 
     def _render_build_queue(self) -> None:
         if not hasattr(self, "build_queue_list"):
@@ -1240,6 +1339,16 @@ class ContentManagementUiMixin:
             self.build_queue_enqueue_all_button.configure(
                 text=f"一键加入上传队列（{completed}）",
                 state="disabled" if completed == 0 else "normal",
+            )
+        if hasattr(self, "build_queue_start_all_button"):
+            self.build_queue_start_all_button.configure(
+                text=("正在全部构建" if self._build_operation_active else f"开始全部构建（{queued}）"),
+                state="disabled" if self._build_operation_active or queued == 0 else "normal",
+            )
+        if hasattr(self, "build_queue_add_all_button"):
+            self.build_queue_add_all_button.configure(
+                text=f"全部加入构建队列（{len(self.workspace.list_games())}）",
+                state="disabled" if self._build_operation_active else "normal",
             )
         if not items:
             ctk.CTkLabel(
@@ -1310,7 +1419,19 @@ class ContentManagementUiMixin:
             messagebox.showerror("无法加入上传队列", "找不到构建项对应的游戏配置。", parent=self)
             return
         self._log(f"用户操作：将“{profile.display_name}”的已构建文件加入上传队列。")
-        self._enqueue_built_game_item(item, profile)
+        try:
+            queued_item = self._enqueue_built_game_item(item, profile)
+        except Exception as error:
+            self._log(f"用户操作：加入“{profile.display_name}”上传队列失败：{error}")
+            messagebox.showerror("无法加入上传队列", str(error), parent=self)
+            return
+        self._render_upload_queue()
+        self._render_build_queue()
+        self._log(
+            f"用户操作：已将“{profile.display_name}”加入上传队列（第 "
+            f"{len(self.content_upload_queue.list_items())} 项，{queued_item.artifact_count} 个文件）。"
+        )
+        self.content_tabs.set("上传队列")
 
     def _enqueue_all_built_game_uploads(self) -> None:
         """Move completed local builds into the upload FIFO without further preparation."""
@@ -1354,9 +1475,9 @@ class ContentManagementUiMixin:
                 "部分构建项未加入上传队列", "\n".join(failures), parent=self
             )
 
-    def _enqueue_built_game_item(self, item, profile: GameProfile) -> None:
+    def _enqueue_built_game_item(self, item, profile: GameProfile):
         """Persist an already-completed build as a queue row without revalidating it."""
-        self.content_upload_queue.enqueue_built_game(
+        return self.content_upload_queue.enqueue_built_game(
             game_id=profile.game_id,
             display_name=profile.display_name,
             release_tag=profile.release_tag,
@@ -1399,6 +1520,9 @@ class ContentManagementUiMixin:
         overflow = len(lines) > 500
         if overflow:
             del lines[:-500]
+        history = getattr(self, "_content_operation_history", None)
+        if history is not None:
+            history.append(line)
         widget = getattr(self, "content_operation_log", None)
         if widget is None:
             return

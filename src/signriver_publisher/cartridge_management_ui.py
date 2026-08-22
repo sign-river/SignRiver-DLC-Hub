@@ -185,11 +185,7 @@ class CartridgeManagementUiMixin:
             ctk.CTkLabel(
                 self.cartridge_list, text="尚未配置游戏卡带", text_color=MUTED
             ).pack(pady=24)
-        target = (
-            f"{self.owner_entry.get().strip()}/{self.repo_entry.get().strip()}"
-            if hasattr(self, "owner_entry")
-            else "尚未配置仓库"
-        )
+        target = f"{self.settings.owner}/{self.settings.repository}"
         self.hub_summary.configure(
             text=(
                 f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张 · "

@@ -9,7 +9,10 @@ import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
+from time import sleep
 from typing import Any, Iterable
+from uuid import uuid4
 
 from .release_models import (
     PreflightCheck,
@@ -43,6 +46,11 @@ class ReleaseStore:
         self.corrupt_root = self.releases_root / "_corrupt"
         self.archive_root = self.releases_root / "_archived"
         self.index_path = self.releases_root / "index.json"
+        # Upload progress persists from a worker while the UI polls the same
+        # batch. On Windows an open JSON handle can briefly block os.replace().
+        # Serialize each multi-document save/load to keep it coherent and out
+        # of that read/write race.
+        self._io_lock = RLock()
 
     def create(self, plan: ReleasePlan) -> ReleasePlan:
         directory = self._batch_directory(plan.batch_id)
@@ -59,47 +67,49 @@ class ReleaseStore:
         return plan
 
     def save(self, plan: ReleasePlan) -> None:
-        directory = self._batch_directory(plan.batch_id)
-        directory.mkdir(parents=True, exist_ok=True)
-        plan.updated_at = utc_now()
-        self._atomic_json(directory / "plan.json", plan.to_dict())
-        self._atomic_json(directory / "artifacts.json", self._document([asdict(item) for item in plan.artifacts]))
-        self._atomic_json(directory / "preflight.json", self._document([asdict(item) for item in plan.preflight]))
-        self._atomic_json(directory / "stages.json", self._document([asdict(item) for item in plan.stages]))
+        with self._io_lock:
+            directory = self._batch_directory(plan.batch_id)
+            directory.mkdir(parents=True, exist_ok=True)
+            plan.updated_at = utc_now()
+            self._atomic_json(directory / "plan.json", plan.to_dict())
+            self._atomic_json(directory / "artifacts.json", self._document([asdict(item) for item in plan.artifacts]))
+            self._atomic_json(directory / "preflight.json", self._document([asdict(item) for item in plan.preflight]))
+            self._atomic_json(directory / "stages.json", self._document([asdict(item) for item in plan.stages]))
 
     def load(self, batch_id: str) -> ReleasePlan:
-        directory = self._batch_directory(batch_id)
-        try:
-            raw, plan_migrated = self._migrate_plan_payload(
-                self._read_json(directory / "plan.json")
-            )
-            artifacts, artifacts_migrated = self._read_document(
-                directory / "artifacts.json"
-            )
-            preflight, preflight_migrated = self._read_document(
-                directory / "preflight.json"
-            )
-            stages, stages_migrated = self._read_document(
-                directory / "stages.json"
-            )
-            plan = ReleasePlan.from_dict(raw)
-            plan.artifacts = [ReleaseArtifact.from_dict(item) for item in artifacts]
-            plan.preflight = [PreflightCheck.from_dict(item) for item in preflight]
-            plan.stages = [ReleaseStageRecord.from_dict(item) for item in stages]
-            if any(
-                (
-                    plan_migrated,
-                    artifacts_migrated,
-                    preflight_migrated,
-                    stages_migrated,
+        with self._io_lock:
+            directory = self._batch_directory(batch_id)
+            try:
+                raw, plan_migrated = self._migrate_plan_payload(
+                    self._read_json(directory / "plan.json")
                 )
-            ):
-                self.save(plan)
-            return plan
-        except CorruptReleaseError:
-            raise
-        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            raise CorruptReleaseError(f"cannot load release batch {batch_id}: {exc}") from exc
+                artifacts, artifacts_migrated = self._read_document(
+                    directory / "artifacts.json"
+                )
+                preflight, preflight_migrated = self._read_document(
+                    directory / "preflight.json"
+                )
+                stages, stages_migrated = self._read_document(
+                    directory / "stages.json"
+                )
+                plan = ReleasePlan.from_dict(raw)
+                plan.artifacts = [ReleaseArtifact.from_dict(item) for item in artifacts]
+                plan.preflight = [PreflightCheck.from_dict(item) for item in preflight]
+                plan.stages = [ReleaseStageRecord.from_dict(item) for item in stages]
+                if any(
+                    (
+                        plan_migrated,
+                        artifacts_migrated,
+                        preflight_migrated,
+                        stages_migrated,
+                    )
+                ):
+                    self.save(plan)
+                return plan
+            except CorruptReleaseError:
+                raise
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                raise CorruptReleaseError(f"cannot load release batch {batch_id}: {exc}") from exc
 
     def load_all(self, *, isolate_corrupt: bool = True) -> list[ReleasePlan]:
         plans: list[ReleasePlan] = []
@@ -118,17 +128,18 @@ class ReleaseStore:
         return plans
 
     def append_event(self, event: ReleaseEvent) -> None:
-        directory = self._batch_directory(event.batch_id)
-        if not directory.exists():
-            raise ReleaseStoreError(f"release batch does not exist: {event.batch_id}")
-        payload = asdict(event)
-        payload["context"] = self._redact(payload["context"])
-        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
-        path = directory / "events.jsonl"
-        with path.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(serialized)
-            stream.flush()
-            os.fsync(stream.fileno())
+        with self._io_lock:
+            directory = self._batch_directory(event.batch_id)
+            if not directory.exists():
+                raise ReleaseStoreError(f"release batch does not exist: {event.batch_id}")
+            payload = asdict(event)
+            payload["context"] = self._redact(payload["context"])
+            serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+            path = directory / "events.jsonl"
+            with path.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(serialized)
+                stream.flush()
+                os.fsync(stream.fileno())
 
     def read_events(self, batch_id: str) -> list[ReleaseEvent]:
         path = self._batch_directory(batch_id) / "events.jsonl"
@@ -281,14 +292,21 @@ class ReleaseStore:
     @staticmethod
     def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
         data = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         try:
             with temporary.open("w", encoding="utf-8", newline="\n") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, path)
+            for attempt in range(4):
+                try:
+                    os.replace(temporary, path)
+                    break
+                except PermissionError:
+                    if attempt == 3:
+                        raise
+                    sleep(0.05 * (2**attempt))
         finally:
             temporary.unlink(missing_ok=True)
 

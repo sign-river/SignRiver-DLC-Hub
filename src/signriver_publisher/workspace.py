@@ -50,6 +50,12 @@ _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _DLC_DIR = re.compile(r"^(dlc\d{3,})_([A-Za-z0-9][A-Za-z0-9_-]*)$", re.I)
 _CATALOG_ASSET_NAME = "catalog.json"
 _CATALOG_SCHEMA_VERSION = 1
+# Stable release-side names let current clients use one protocol.  Older
+# clients instead look up the per-game DLL names declared by their cartridge.
+# This publisher-wide compatibility mode emits both names into every game's
+# static catalog, and must therefore be enabled or retired for all games as
+# one lifecycle policy.
+_LEGACY_PATCH_ALIAS_OPTION = "legacy_patch_asset_aliases_enabled"
 
 
 class WorkspaceError(RuntimeError):
@@ -809,7 +815,7 @@ class PublisherWorkspace:
                 progress(stage, index, total_dlcs, name, detail)
 
         for index, source in enumerate(dlcs, start=1):
-            report("正在检查", index, source.name)
+            report("检查构建缓存", index, source.name, "正在比对源资源与本地发布包")
             dlc_id, display_name = self._parse_dlc_folder(source.name)
             if not any(path.is_file() for path in source.rglob("*")):
                 report("保留空目录", index, source.name, "将生成可安装目录包")
@@ -840,14 +846,14 @@ class PublisherWorkspace:
                 plan["parts"] = cached_parts
                 plan["full_size"] = int(cached["size_bytes"])
                 report(
-                    "复用已有分卷", index, source.name,
-                    f"{len(cached_parts)} 卷 · 无需保留完整 ZIP",
+                    "构建缓存命中", index, source.name,
+                    f"复用已有分卷 {len(cached_parts)} 卷 · 未重新压缩",
                 )
             elif reusable:
                 plan["digest"] = str(cached["sha256"])
                 report(
-                    "复用已有压缩包", index, source.name,
-                    f"{output.stat().st_size / 1024 / 1024:.1f} MiB",
+                    "构建缓存命中", index, source.name,
+                    f"复用已有压缩包 · 未重新压缩 · {output.stat().st_size / 1024 / 1024:.1f} MiB",
                 )
             elif cached is None and self._existing_zip_matches_source(
                 source, output, archive_root=archive_root
@@ -856,10 +862,14 @@ class PublisherWorkspace:
                 # incremental state without recompressing every DLC once.
                 plan["digest"] = self._file_sha256(output)
                 report(
-                    "接管已有压缩包", index, source.name,
-                    f"{output.stat().st_size / 1024 / 1024:.1f} MiB",
+                    "已有压缩包校验通过", index, source.name,
+                    f"已纳入构建缓存 · 未重新压缩 · {output.stat().st_size / 1024 / 1024:.1f} MiB",
                 )
             else:
+                report(
+                    "构建缓存未命中", index, source.name,
+                    "源资源或本地发布包发生变化，将重新压缩",
+                )
                 compression_jobs.append(plan)
             plans.append(plan)
 
@@ -984,7 +994,10 @@ class PublisherWorkspace:
                 raise WorkspaceError(f"补丁目录缺少 {asset_name}")
 
         if progress is not None:
-            progress("正在刷新", 0, total_dlcs, profile.appinfo_name, "Steam AppInfo")
+            progress(
+                "正在刷新", 0, total_dlcs, profile.appinfo_name,
+                "Steam AppInfo（每次从 Steam 刷新，不使用构建缓存）",
+            )
         appinfo = self.refresh_appinfo(profile)
         appinfo_output = target / profile.appinfo_name
         records.append(self._record("appinfo", appinfo.app_id, appinfo.name, appinfo_output, appinfo_output))
@@ -998,7 +1011,10 @@ class PublisherWorkspace:
             (patch_by_name.get("original.dll") or patch_by_name[profile.patch_runtime_original_name.casefold()], "original.dll"),
         ):
             if progress is not None:
-                progress("正在整理补丁", 0, total_dlcs, source.name, "")
+                progress(
+                    "正在整理补丁", 0, total_dlcs, source.name,
+                    "补丁为可变文件，每次重新整理，不使用构建缓存",
+                )
             if source.is_symlink():
                 raise WorkspaceError(f"不允许符号链接：{source.name}")
             if source.is_dir():
@@ -1012,6 +1028,12 @@ class PublisherWorkspace:
                 continue
             records.append(self._record("patch", source.stem, source.stem.replace("_", " "), source, output))
             expected.add(asset_name)
+
+        for source, alias in self._materialize_legacy_patch_aliases(profile, target):
+            records.append(self._record(
+                "patch", alias.stem, alias.stem.replace("_", " "), source, alias,
+            ))
+            expected.add(alias.name)
 
         for stale in target.iterdir():
             if stale.is_file() and stale.name not in expected:
@@ -1118,6 +1140,40 @@ class PublisherWorkspace:
             path, path.name, stat.st_size, self._file_sha256(path)
         )
         return (*assets, manifest)
+
+    def refresh_legacy_patch_aliases(self, profile: GameProfile) -> tuple[PublishAsset, ...]:
+        """Apply the global alias policy to an existing completed output.
+
+        This is the small, safe repair path for already-published games: it
+        copies only the two patch aliases and regenerates catalog.json, without
+        rebuilding DLC archives or refreshing Steam AppInfo.
+        """
+        self._validate_profile(profile)
+        target = self.output_dir / profile.game_id
+        self._materialize_legacy_patch_aliases(profile, target)
+        return self.publish_assets(profile)
+
+    def _materialize_legacy_patch_aliases(
+        self, profile: GameProfile, target: Path
+    ) -> tuple[tuple[Path, Path], ...]:
+        """Copy stable patch assets to their legacy per-game release names."""
+        if not self.load_legacy_patch_asset_aliases_enabled():
+            return ()
+        aliases: list[tuple[Path, Path]] = []
+        for stable_name, legacy_name in zip(
+            profile.patch_asset_names,
+            (profile.patch_unlocker_name, profile.patch_runtime_original_name),
+            strict=True,
+        ):
+            if stable_name.casefold() == legacy_name.casefold():
+                continue
+            source = target / stable_name
+            if not source.is_file():
+                raise WorkspaceError(f"发布包缺少 {stable_name}，无法生成旧版补丁别名")
+            alias = target / legacy_name
+            shutil.copy2(source, alias)
+            aliases.append((source, alias))
+        return tuple(aliases)
 
     def export_client_hub(self, *, default_game_id: str | None = None) -> tuple[Path, ...]:
         """Materialise client cartridge documents and the hub index for upload."""
@@ -1395,24 +1451,43 @@ class PublisherWorkspace:
 
     def load_preserve_remote_only_files(self) -> bool:
         """Return the publisher-wide compatibility publishing preference."""
+        return bool(
+            self._load_content_publish_options().get("preserve_remote_only_files")
+        )
+
+    def load_legacy_patch_asset_aliases_enabled(self) -> bool:
+        """Return the global legacy patch-name compatibility policy.
+
+        Missing values deliberately mean enabled: existing publisher workspaces
+        must not silently drop old clients on their next game rebuild.
+        """
+        return bool(self._load_content_publish_options().get(
+            _LEGACY_PATCH_ALIAS_OPTION, True
+        ))
+
+    def save_legacy_patch_asset_aliases_enabled(self, enabled: bool) -> None:
+        """Set the global patch alias lifecycle policy for every game."""
+        options = self._load_content_publish_options()
+        options[_LEGACY_PATCH_ALIAS_OPTION] = bool(enabled)
+        self._atomic_json(self._content_publish_options_path(), options)
+
+    def _load_content_publish_options(self) -> dict[str, object]:
+        """Load the credential-free publisher-wide content policy."""
         try:
             value = json.loads(
                 self._content_publish_options_path().read_text(encoding="utf-8")
             )
         except (OSError, UnicodeError, json.JSONDecodeError):
-            return False
-        return bool(
-            isinstance(value, dict)
-            and value.get("version") == 1
-            and value.get("preserve_remote_only_files")
-        )
+            return {"version": 1}
+        if not isinstance(value, dict) or value.get("version") != 1:
+            return {"version": 1}
+        return dict(value)
 
     def save_preserve_remote_only_files(self, enabled: bool) -> None:
         """Persist the default retained-file policy for future content batches."""
-        self._atomic_json(
-            self._content_publish_options_path(),
-            {"version": 1, "preserve_remote_only_files": bool(enabled)},
-        )
+        options = self._load_content_publish_options()
+        options["preserve_remote_only_files"] = bool(enabled)
+        self._atomic_json(self._content_publish_options_path(), options)
 
     def _migrate_content_publish_options(
         self, profiles: tuple[GameProfile, ...]

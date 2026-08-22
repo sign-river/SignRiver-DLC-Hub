@@ -1,0 +1,4 @@
+interface:
+  display_name: "构建原生客户端发布包"
+  short_description: "在 SteamOS 与 macOS 虚拟机中原生构建并验证客户端发布包"
+  default_prompt: "Use $build-native-client-releases to build and verify the SteamOS and macOS client release packages."
