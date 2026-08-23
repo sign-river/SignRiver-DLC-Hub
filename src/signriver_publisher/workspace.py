@@ -29,6 +29,7 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
+from .client_guides import GuideResourceSummary, export_hub_guides, inspect_hub_guides
 from .freshness import (
     DlcFreshnessReport,
     build_resource_freshness,
@@ -217,6 +218,14 @@ class PublisherWorkspace:
     def announcement_path(self) -> Path:
         """Active announcement copied into the next generated hub Release."""
         return self.root / "announcement.json"
+
+    @property
+    def guides_source_dir(self) -> Path:
+        """Local publisher content source for optional troubleshooting guides."""
+        return self.root / "guides"
+
+    def guide_resource_summary(self) -> GuideResourceSummary:
+        return inspect_hub_guides(self.guides_source_dir)
 
     @property
     def announcement_draft_path(self) -> Path:
@@ -1189,14 +1198,17 @@ class PublisherWorkspace:
             profile.game_id: self.published_platform_resources(profile)
             for profile in profiles
         }
-        return export_hub_cartridges(
+        hub_dir = self.output_dir / "hub"
+        cartridge_assets = export_hub_cartridges(
             profiles,
-            self.output_dir / "hub",
+            hub_dir,
             default_game_id=default_game_id or profiles[0].game_id,
             announcement_path=announcement if announcement.is_file() else None,
             freshness_by_game=freshness,
             resource_availability_by_game=availability,
         )
+        guide_assets = export_hub_guides(self.guides_source_dir, hub_dir)
+        return (*cartridge_assets, *guide_assets)
 
     def published_platform_resources(
         self, profile: GameProfile

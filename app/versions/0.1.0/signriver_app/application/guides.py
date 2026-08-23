@@ -72,6 +72,7 @@ class GuideTool:
     title: str
     description: str
     download_url: str
+    asset_name: str
     filename: str
     platforms: tuple[str, ...]
     run_mode: str = "open"
@@ -81,12 +82,18 @@ class GuideTool:
         run_mode = str(value.get("run_mode") or "open").strip().lower()
         if run_mode not in {"open", "powershell", "cmd", "shell"}:
             raise ValueError("unsupported guide tool run_mode")
+        raw_asset_name = str(value.get("asset_name") or "").strip()
+        asset_name = Path(raw_asset_name).name
+        if raw_asset_name and asset_name != raw_asset_name:
+            raise ValueError("guide tool asset_name must be a flat filename")
+        filename = Path(str(value.get("filename") or "")).name
         return cls(
             tool_id=_id(value.get("tool_id"), "tool_id"),
             title=str(value.get("title") or "").strip(),
             description=str(value.get("description") or "").strip(),
             download_url=str(value.get("download_url") or "").strip(),
-            filename=Path(str(value.get("filename") or "")).name,
+            asset_name=asset_name,
+            filename=filename or asset_name,
             platforms=_platforms(value.get("platforms")),
             run_mode=run_mode,
         )
@@ -195,12 +202,20 @@ class GuideCatalogService:
     def download_tool(self, tool: GuideTool) -> Path:
         if not tool.applies_to(self.platform):
             raise GuideCatalogError("该工具不适用于当前平台")
-        parsed = urlparse(tool.download_url)
-        if parsed.scheme != "https" or not parsed.netloc or not tool.filename:
-            raise GuideCatalogError("工具下载地址必须为 HTTPS，且必须提供文件名")
+        if not tool.filename:
+            raise GuideCatalogError("工具必须提供文件名")
+        if tool.asset_name:
+            url = fixed_release_asset_url(
+                self.download_source, "hub", tool.asset_name
+            )
+        else:
+            parsed = urlparse(tool.download_url)
+            if parsed.scheme != "https" or not parsed.netloc:
+                raise GuideCatalogError("工具下载地址必须为 HTTPS，或指定 hub 附件名")
+            url = tool.download_url
         target = self.cache_dir / "tools" / tool.tool_id / tool.filename
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = self._open(tool.download_url, self.timeout)
+        payload = self._open(url, self.timeout)
         if not payload:
             raise GuideCatalogError("工具下载为空")
         temporary = target.with_name(f".{target.name}.part")

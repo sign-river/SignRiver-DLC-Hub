@@ -1,5 +1,19 @@
 # 当前任务交接
 
+> 最后更新：2026-08-23（Asia/Shanghai）
+> 分支：`main`
+> Git：任务结束时已创建本地提交 `feat: publish troubleshooting guide resources with hub`；未推送。
+> 工作区：本任务文件已随本地提交保存；未重置或覆盖其他文件，未读取或修改发布凭据，未执行真实上传或远端写入。
+
+## 2026-08-23：报错指南内容补充与 Hub 指南资源发布
+
+- 客户端出厂 `config/guides/` 已补齐 7 篇低风险指南：网络/下载/TLS/DNS、游戏目录、磁盘空间、补丁状态、补丁资源缺失、安全软件疑似干扰（仅 Windows）及程序更新/模块基础异常。远程 hub 的同一 `guide_id` 现在覆盖出厂正文，不再生成 `remote_<guide_id>` 重复卡片；离线或远程失败时继续读取出厂内容。
+- 问题记录与一键排错统一跳转到稳定指南 ID；检查仍为只读、只报告和跳转，绝不自动修复系统、游戏文件、网络或安全软件设置。附件下载改为用户确认后保存到本地指南缓存、打开所在目录并提示自行查看，已删除自动执行 PowerShell、CMD、Shell 或未知可执行文件的行为。
+- 发布器增加固定本地运营目录 `publisher-workspace/guides/`：可选的 `guides_index.json`、文章详情 JSON 与 `assets/` 会在现有 hub 生成/发布流程中自动纳入。仅进行 JSON 对象、索引详情、附件存在和平铺文件名/重名检查；不新增独立 Release、在线编辑器、签名、哈希清单或上传队列。导出清理由 `.guides-manifest.json` 限定，只删除此前指南导出器登记的资源，不会误删卡带或公告。
+- 发布器卡带中心显示“报错指南”状态、在生成日志中记录已纳入数量，并提供“打开指南目录”按钮；目录不存在时仍可正常生成和发布 hub。首批 7 篇不附带脚本或修复工具。
+- 验证（2026-08-23）：` .\.venv\Scripts\python.exe -m pytest -q tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py` 退出码 0；此前专项组合 `tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_ui_threading.py` 为 91 项通过。` .\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/application/guides.py src/signriver_publisher/client_guides.py src/signriver_publisher/workspace.py src/signriver_publisher/cartridge_management_ui.py tests/test_platform_content.py tests/test_publisher_guides.py`、` .\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 src tests` 和 `git diff --check` 通过。未启动 GUI 做人工布局验收，未构建发布包或 EXE，未上传或推送；任务结束时已创建本地 Git 提交。
+- 风险/后续：未来附带 `asset_name` 的云端附件要求客户端为本次或更高模块版本；首批文章的 `tools` 为空。新增内容必须继续遵守 `docs/error-guide-content-catalog.md` 的安全边界，禁止将 Mod、存档、游戏启动器特化、学习版、加速器、SteamCMD、关闭防护、自动改系统设置、未知脚本或散装 DLL 作为全局指南或自动操作上线。
+
 > 最后更新：2026-08-22（Asia/Shanghai）
 > 分支：`main`
 > HEAD：`913d115`（`feat: 完善多端卡带与报错指南分化`）

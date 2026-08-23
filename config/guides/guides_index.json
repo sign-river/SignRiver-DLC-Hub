@@ -3,10 +3,66 @@
   "guides": [
     {
       "guide_id": "network-basics",
-      "title": "网络、下载与目录刷新失败",
-      "summary": "检查下载源、网络连接和重试方式。",
+      "title": "网络、下载与 TLS/DNS",
+      "summary": "检查下载源、网络连接、TLS/DNS 与重试方式。",
       "asset_name": "guide_network_basics.json",
-      "platforms": ["all"]
+      "platforms": [
+        "all"
+      ]
+    },
+    {
+      "guide_id": "game-directory-missing",
+      "title": "游戏目录不存在或未选择",
+      "summary": "重新扫描 Steam 游戏目录，或手动选择当前游戏安装位置。",
+      "asset_name": "guide_game_directory_missing.json",
+      "platforms": [
+        "all"
+      ]
+    },
+    {
+      "guide_id": "disk-space",
+      "title": "游戏所在磁盘空间不足",
+      "summary": "确认游戏所在磁盘有足够空间完成下载、解压和补丁操作。",
+      "asset_name": "guide_disk_space.json",
+      "platforms": [
+        "all"
+      ]
+    },
+    {
+      "guide_id": "patch-state",
+      "title": "补丁状态异常",
+      "summary": "使用补丁审计确认状态，并重新扫描或刷新游戏目录。",
+      "asset_name": "guide_patch_state.json",
+      "platforms": [
+        "all"
+      ]
+    },
+    {
+      "guide_id": "patch-assets-missing",
+      "title": "补丁资源缺失或未完整读取",
+      "summary": "确认当前下载源、游戏目录与已发布资源后再次刷新。",
+      "asset_name": "guide_patch_assets_missing.json",
+      "platforms": [
+        "all"
+      ]
+    },
+    {
+      "guide_id": "security-interference",
+      "title": "安全软件疑似干扰",
+      "summary": "仅人工核对安全软件记录和已发布资源，不自动更改防护设置。",
+      "asset_name": "guide_security_interference.json",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "guide_id": "update-module-basics",
+      "title": "程序更新或模块加载异常",
+      "summary": "重试更新、检查下载源，并查看问题记录中的具体阶段。",
+      "asset_name": "guide_update_module_basics.json",
+      "platforms": [
+        "all"
+      ]
     }
   ]
 }

@@ -113,7 +113,10 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
     )
     entries = service.refresh_index(allow_network=False)
 
-    assert [entry.guide_id for entry in entries] == ["network-basics"]
+    assert [entry.guide_id for entry in entries] == [
+        "network-basics", "game-directory-missing", "disk-space", "patch-state",
+        "patch-assets-missing", "update-module-basics",
+    ]
     document = service.load_guide(entries[0], allow_network=False)
     assert document.blocks
     windows_tool = GuideTool.from_dict({
@@ -209,6 +212,14 @@ def test_guide_tool_download_is_platform_safe_and_atomic(tmp_path: Path) -> None
     target = service.download_tool(tool)
     assert target.read_bytes() == payload
     assert not target.with_name(f".{target.name}.part").exists()
+
+    asset_tool = GuideTool.from_dict({
+        "tool_id": "official-note", "title": "官方附件", "description": "",
+        "asset_name": "guide_network_note.txt", "platforms": ["all"],
+    })
+    asset_target = service.download_tool(asset_tool)
+    assert asset_target.name == "guide_network_note.txt"
+    assert asset_target.read_bytes() == payload
 
     linux_service = GuideCatalogService(tmp_path / "linux", platform="steamos")
     assert not tool.applies_to("steamos")

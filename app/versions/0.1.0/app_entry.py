@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import subprocess
 import threading
 import time
 import webbrowser
@@ -2402,36 +2401,8 @@ class DlcHubApplication:
             header, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
         ).pack(side="right")
-        self.solution_articles = {
-            "download": ("下载或测速失败", "下载失败、测速偶发报错", (("heading", "建议操作"), ("text", "请先稍候重试；仍失败时切换下载源，并检查网络连接。"), ("button", "运行一键排错", "简单错误检测"))),
-            "ssl": ("SSL / TLS 连接错误", "SSL、EOF 或证书相关报错", (("heading", "建议操作"), ("text", "检查代理、系统时间和网络连接；关闭后重新打开程序再试。"), ("button", "运行一键排错", "简单错误检测"))),
-            "patch": ("DLC 或补丁异常", "DLC 未生效、补丁文件缺失或游戏无法启动", (("heading", "建议操作"), ("text", "先重新扫描游戏；再运行一键排错，并按问题记录中的建议操作。"), ("button", "查看问题记录", "问题记录"))),
-            "patch_assets_missing": (
-                "补丁资源缺失",
-                "当前游戏的补丁资源未能从云端完整读取，暂时无法一键解锁。",
-                (
-                    ("heading", "请先刷新目录"),
-                    (
-                        "text",
-                        "返回 DLC 列表后点击“刷新目录”。这会重新读取当前游戏的云端资源，不会删除本地 DLC，也不会修改游戏文件。",
-                    ),
-                    ("button", "前往 DLC 列表", "DLC 库"),
-                    ("heading", "刷新后仍然缺失"),
-                    (
-                        "text",
-                        "这通常表示云端补丁资源尚未上传完整或暂时不可用，用户侧无法通过验证文件、重装游戏或重复解锁解决。请附上游戏名称和提示截图，通过 QQ 群或视频评论区联系制作者处理。",
-                    ),
-                    ("action", "加入 QQ 群", self._open_qq_group_hint),
-                    (
-                        "action",
-                        "前往 B 站评论区",
-                        lambda: self._open_external_link(BILIBILI_TUTORIAL_URL),
-                    ),
-                ),
-            ),
-            "security": ("安全软件拦截", "文件下载或写入后消失", (("heading", "建议操作"), ("text", "在安全软件记录中核对文件来源和哈希；确认误报后仅恢复该文件，不要关闭整机防护。"), ("button", "查看问题记录", "问题记录"))),
-            "update": ("程序更新与模块异常", "更新回滚、模块加载失败或程序意外退出", (("heading", "建议操作"), ("text", "重新检查更新；若问题仍然存在，请运行一键排错并导出诊断信息。"), ("button", "运行一键排错", "简单错误检测"))),
-        }
+        # 指南正文由出厂目录提供，远程 hub 使用相同 guide_id 覆盖更新。
+        self.solution_articles: dict[str, tuple[object, ...]] = {}
         self._load_remote_solution_articles(allow_network=False)
         solution_search_bar = ctk.CTkFrame(
             self.guide_tutorial_card, fg_color="transparent"
@@ -2485,7 +2456,7 @@ class DlcHubApplication:
                 continue
             blocks: list[tuple[object, ...]] = list(document.blocks)
             blocks.extend(("tool", tool) for tool in document.tools)
-            articles[f"remote_{entry.guide_id}"] = (
+            articles[entry.guide_id] = (
                 entry.title, entry.summary, tuple(blocks),
             )
         return articles
@@ -2494,25 +2465,30 @@ class DlcHubApplication:
         self.solution_articles.update(articles)
         self._render_solution_articles()
 
-    def _download_and_run_guide_tool(self, tool: GuideTool) -> None:
+    def _download_guide_tool(self, tool: GuideTool) -> None:
         prompt = (
-            f"将下载工具：{tool.title}\n\n{tool.description or '工具用途由该指南提供。'}"
-            "\n\n下载完成后会按工具声明的方式启动。是否继续？"
+            f"将下载附件：{tool.title}\n\n{tool.description or '附件用途由该指南提供。'}"
+            "\n\n下载完成后只会打开所在文件夹，不会自动运行。是否继续？"
         )
-        if not messagebox.askyesno("下载修复工具", prompt, parent=self.window):
+        if not messagebox.askyesno("下载指南附件", prompt, parent=self.window):
             return
+
         def worker() -> None:
             try:
                 path = self.guide_catalog.download_tool(tool)
-                self._run_downloaded_guide_tool(path, tool)
+                self._post_ui(
+                    lambda selected_path=path, selected_tool=tool: self._open_downloaded_guide_tool(
+                        selected_path, selected_tool
+                    )
+                )
             except Exception as error:
-                self.context.logger.exception("Guide tool failed: %s", tool.tool_id)
+                self.context.logger.exception("Guide attachment download failed: %s", tool.tool_id)
                 report = ProblemReport.create(
                     code=ProblemCode.APP_UNEXPECTED,
                     category=ProblemCategory.APPLICATION,
                     severity=ProblemSeverity.ERROR,
                     stage="guide-tool",
-                    summary=f"修复工具执行失败：{tool.title}",
+                    summary=f"指南附件下载失败：{tool.title}",
                     suggestion="请稍后重试；如仍失败，请导出诊断信息并反馈。",
                     technical_details=str(error),
                     app_version=self.context.app_version,
@@ -2521,31 +2497,13 @@ class DlcHubApplication:
                 )
                 self._record_problem(report)
                 message = str(error)
-                self._post_ui(lambda value=message: self._notify(f"修复工具失败：{value}", error=True))
+                self._post_ui(lambda value=message: self._notify(f"指南附件下载失败：{value}", error=True))
+
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_downloaded_guide_tool(self, path: Path, tool: GuideTool) -> None:
-        if not tool.applies_to(self.host_platform):
-            raise RuntimeError("该工具不适用于当前平台")
-        if tool.run_mode == "powershell":
-            command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(path)]
-        elif tool.run_mode == "cmd":
-            command = ["cmd", "/c", str(path)]
-        elif tool.run_mode == "shell":
-            command = ["/bin/sh", str(path)]
-        else:
-            if self.host_platform == "windows":
-                os.startfile(path)  # type: ignore[attr-defined]
-            else:
-                command = ["open" if self.host_platform == "macos" else "xdg-open", str(path)]
-                subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self._post_ui(lambda: self._notify(f"已下载并打开工具：{tool.title}"))
-            return
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
-        if completed.returncode != 0:
-            raise RuntimeError((completed.stderr or completed.stdout or f"退出码 {completed.returncode}").strip())
-        self.context.logger.info("Guide tool completed: %s", tool.tool_id)
-        self._post_ui(lambda: self._notify(f"修复工具已完成：{tool.title}"))
+    def _open_downloaded_guide_tool(self, path: Path, tool: GuideTool) -> None:
+        open_directory(path.parent)
+        self._notify(f"已下载指南附件：{tool.title}；请自行查看或运行。")
 
     @staticmethod
     def _normalize_solution_search_text(text: str) -> str:
@@ -2630,9 +2588,9 @@ class DlcHubApplication:
                 tool = values[0]
                 ctk.CTkButton(
                     self.solution_detail_body,
-                    text=f"下载并运行：{tool.title}",
+                    text=f"下载附件：{tool.title}",
                     width=190,
-                    command=lambda selected_tool=tool: self._download_and_run_guide_tool(selected_tool),
+                    command=lambda selected_tool=tool: self._download_guide_tool(selected_tool),
                 ).pack(anchor="w", pady=(0, 16))
             elif kind == "action":
                 ctk.CTkButton(
@@ -2723,30 +2681,30 @@ class DlcHubApplication:
         self.window.after(30, self._advance_quick_check)
 
     def _quick_check_network(self) -> None:
-        self._add_quick_check_result(f"网络目录状态：{'可连接' if self.catalog_online else '当前未连接或尚未验证'}", None if self.catalog_online else "download")
+        self._add_quick_check_result(f"网络目录状态：{'可连接' if self.catalog_online else '当前未连接或尚未验证'}", None if self.catalog_online else "network-basics")
 
     def _quick_check_game_directory(self) -> None:
         installation = self.current_installation
         if installation is None:
-            self._add_quick_check_result("游戏目录：未选择，请先重新扫描或手动选择目录。", "patch")
+            self._add_quick_check_result("游戏目录：未选择，请先重新扫描或手动选择目录。", "game-directory-missing")
             return
         root = installation.root
-        self._add_quick_check_result(f"游戏目录：{'存在' if root.is_dir() else '不存在'} · {root}", None if root.is_dir() else "patch")
+        self._add_quick_check_result(f"游戏目录：{'存在' if root.is_dir() else '不存在'} · {root}", None if root.is_dir() else "game-directory-missing")
         if root.is_dir():
             free = shutil.disk_usage(root).free
-            self._add_quick_check_result(f"所在磁盘可用空间：{_format_size(free)}")
+            self._add_quick_check_result(f"所在磁盘可用空间：{_format_size(free)}", "disk-space")
 
     def _quick_check_patch_state(self) -> None:
         installation = self.current_installation
         if installation is None or not installation.root.is_dir():
-            self._add_quick_check_result("补丁状态：未检查（尚未找到有效游戏目录）。", "patch")
+            self._add_quick_check_result("补丁状态：未检查（尚未找到有效游戏目录）。", "patch-state")
             return
         try:
             audit = self.patch_engine.audit_recorded(installation.root)
             health = audit.health.value
-            self._add_quick_check_result(f"补丁状态：{health}", None if health == "healthy" else "patch")
+            self._add_quick_check_result(f"补丁状态：{health}", None if health == "healthy" else "patch-state")
         except Exception:
-            self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch")
+            self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch-state")
 
     def _quick_check_recent_problems(self) -> None:
         try:
@@ -2756,7 +2714,7 @@ class DlcHubApplication:
             else:
                 self._add_quick_check_result("近期异常：未记录到异常")
         except Exception:
-            self._add_quick_check_result("近期异常：无法读取问题记录。", "update")
+            self._add_quick_check_result("近期异常：无法读取问题记录。", "update-module-basics")
 
     def _advance_quick_check(self) -> None:
         if not self.quick_check_running or self.quick_check_paused:
@@ -2772,7 +2730,7 @@ class DlcHubApplication:
             step()
         except Exception as error:
             self.context.logger.exception("Quick check step failed")
-            self._add_quick_check_result(f"检查项执行失败：{error}", "update")
+            self._add_quick_check_result(f"检查项执行失败：{error}", "update-module-basics")
         self._render_quick_check_output()
         self.window.after(220, self._advance_quick_check)
 
@@ -4320,18 +4278,18 @@ class DlcHubApplication:
         self.problem_list_panel.pack(fill="both", expand=True)
 
     def _solution_id_for_problem_code(self, code: ProblemCode) -> str:
-        if code is ProblemCode.NET_TLS:
-            return "ssl"
-        elif code in {
-            ProblemCode.NET_TIMEOUT, ProblemCode.NET_DNS, ProblemCode.NET_HTTP,
-            ProblemCode.NET_CONNECTION,
+        if code in {
+            ProblemCode.NET_TLS, ProblemCode.NET_TIMEOUT, ProblemCode.NET_DNS,
+            ProblemCode.NET_HTTP, ProblemCode.NET_CONNECTION,
         }:
-            return "download"
-        elif code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
-            return "security"
-        elif code.value.startswith(("PATCH-", "PKG-", "FS-")):
-            return "patch"
-        return "update"
+            return "network-basics"
+        if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
+            return "security-interference"
+        if code.value.startswith(("PATCH-ASSET", "PKG-ASSET")):
+            return "patch-assets-missing"
+        if code.value.startswith(("PATCH-", "PKG-", "FS-")):
+            return "patch-state"
+        return "update-module-basics"
 
     def _open_problem_solution(self, report: ProblemReport) -> None:
         self._open_solution_article(self._solution_id_for_problem_code(report.code))

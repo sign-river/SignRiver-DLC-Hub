@@ -56,7 +56,7 @@ class CartridgeManagementUiMixin:
 
         actions = ctk.CTkFrame(toolbar, fg_color="transparent")
         actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in range(5):
+        for column in range(6):
             actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
         self.hub_refresh_button = ctk.CTkButton(
             actions,
@@ -87,13 +87,19 @@ class CartridgeManagementUiMixin:
             fg_color=LIGHT_BLUE,
             command=self.open_hub_output_folder,
         ).grid(row=0, column=3, padx=4, sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="打开指南目录",
+            fg_color=LIGHT_BLUE,
+            command=self.open_guides_source_folder,
+        ).grid(row=0, column=4, padx=4, sticky="ew")
         self.hub_publish_button = ctk.CTkButton(
             actions,
             text="一键双端发布卡带",
             fg_color=BLUE,
             command=self.publish_cartridge_hub_mirror,
         )
-        self.hub_publish_button.grid(row=0, column=4, padx=4, sticky="ew")
+        self.hub_publish_button.grid(row=0, column=5, padx=4, sticky="ew")
 
         transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
         transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
@@ -186,10 +192,11 @@ class CartridgeManagementUiMixin:
                 self.cartridge_list, text="尚未配置游戏卡带", text_color=MUTED
             ).pack(pady=24)
         target = f"{self.settings.owner}/{self.settings.repository}"
+        guide_status = self.workspace.guide_resource_summary().status_text
         self.hub_summary.configure(
             text=(
                 f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张 · "
-                f"公告 {self.workspace.announcement_status()} · "
+                f"公告 {self.workspace.announcement_status()} · 报错指南 {guide_status} · "
                 f"发布目标 {target} / hub"
             )
         )
@@ -254,13 +261,14 @@ class CartridgeManagementUiMixin:
         self.hub_publish_button.configure(state="normal")
         self.refresh_cartridge_management()
         hub_dir = self.workspace.output_dir / "hub"
+        guide_status = self.workspace.guide_resource_summary().status_text
         self._log(
-            f"客户端卡带中心已生成到 {hub_dir}："
+            f"客户端卡带中心已生成到 {hub_dir}（报错指南 {guide_status}）："
             + "、".join(asset.name for asset in assets)
         )
         messagebox.showinfo(
             "生成完成",
-            f"已生成 {len(assets)} 个 hub 文件。\n\n"
+            f"已生成 {len(assets)} 个 hub 文件。\n报错指南：{guide_status}。\n\n"
             "可直接点击“发布 hub Release”，无需手动上传。",
         )
 
@@ -556,5 +564,10 @@ class CartridgeManagementUiMixin:
 
     def open_hub_output_folder(self) -> None:
         path = self.workspace.output_dir / "hub"
+        path.mkdir(parents=True, exist_ok=True)
+        self._open(path)
+
+    def open_guides_source_folder(self) -> None:
+        path = self.workspace.guides_source_dir
         path.mkdir(parents=True, exist_ok=True)
         self._open(path)
