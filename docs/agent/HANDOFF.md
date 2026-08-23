@@ -2,8 +2,14 @@
 
 > 最后更新：2026-08-23（Asia/Shanghai）
 > 分支：`main`
-> Git：已创建本地提交 `a2b6279 fix: keep cartridges compatible with rollback modules` 与 `030e139 docs: add known issues tracker`；均未推送。`app/state.json` 是运行时恢复状态，不随上述提交变更。
+> Git：已创建本地提交 `a2b6279 fix: keep cartridges compatible with rollback modules` 与 `b4178cd docs: add known issues tracker`；均未推送。`app/state.json` 是运行时恢复状态，不随上述提交变更。
 > 工作区：启动器曾因 0.2.0 与 0.1.7 初始化失败自动回退至 0.1.6。现已恢复活动模块为 `0.2.0`、清空 `bad_versions`，并已从源码启动验证（PID 87104）；该状态恢复后与 Git 基线一致。
+
+## 2026-08-23：登记报错指南缓存警告
+
+- 已登记 `KI-002`：源码启动 `launcher.py` 时，报错指南远端/缓存索引 schema 不支持，以及可选详情 `guide_id` 校验失败会重复输出 `Ignoring invalid ...` 警告。当前日志显示模块 `0.2.0` 仍正常开始启动；该项作为日志噪音与可选指南内容兼容问题待排期处理。
+- 本轮仅记录，不修改 `data/guides/` 缓存、不修改客户端代码、不同步活动模块、不构建或上传。
+- 验证（2026-08-23）：检查当前活动模块 `0.2.0` 的 `signriver_app/application/guides.py`，确认索引和详情校验失败会记录警告后忽略可选来源；`git diff --check` 通过。未运行 pytest（仅文档改动）。
 
 ## 2026-08-23：建立开发问题清单
 
