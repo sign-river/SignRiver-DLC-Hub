@@ -2,6 +2,20 @@
 
 > 最后更新：2026-08-23（Asia/Shanghai）
 > 分支：`main`
+> Git：本轮已修复卡带文档与已发布模块的字段兼容性；完成验证后应仅提交卡带配置、回归测试与交接文档，`app/state.json` 是运行时恢复状态，不应随本轮提交。
+> 工作区：启动器曾因 0.2.0 与 0.1.7 初始化失败自动回退至 0.1.6。现已恢复活动模块为 `0.2.0`、清空 `bad_versions`，并已从源码启动验证（PID 87104）；该状态恢复后与 Git 基线一致。
+
+## 2026-08-23：卡带字段向后兼容与启动恢复
+
+- 根因：卡带 JSON 已使用新字段 `patch.runtime_original_library_name`，但已发布的模块 `0.1.6` 与 `0.1.7` 仍强制要求旧字段 `patch.original_backup_dll_name`。启动器回退到旧模块时，缓存和内置卡带均被拒绝，最终报“没有可用的游戏卡带”。
+- 已在全部 10 个内置 `config/cartridges/cartridge_*.json` 中保留旧字段，并令其值与新字段相同；同步重算 `config/cartridges/cartridges_index.json` 的 SHA-256 与字节数。新模块继续读取新字段，旧模块可读取兼容字段，避免配置演进破坏回退模块。
+- `tests/test_cartridge_catalog.py` 增加回归断言，强制两种字段在每个内置卡带中保持一致，防止今后导出时再次遗漏旧字段。
+- 实际活动版本为 `0.2.0`。对齐方式：直接恢复启动器保护性回退前的 Git 基线状态（`active_version=0.2.0`、`previous_version=0.1.7`、空 `bad_versions`），而非修改版本模块目录；同时验证 0.1.6 卡带服务仍可回退到内置卡带，及 0.2.0 可从源码启动。当前客户端已启动，用户无需额外重启；若已关闭，可正常重新运行 `launcher.py`。
+- 验证（2026-08-23）：` .\.venv\Scripts\python.exe -m pytest -q tests/test_cartridge_catalog.py tests/test_cartridge_default_fallback.py tests/test_platform_content.py`（23 通过）；` .\.venv\Scripts\python.exe -m ruff check tests/test_cartridge_catalog.py` 通过；` .\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 src tests` 通过；以 0.1.6 模块直接离线加载卡带通过；`launcher.py` 以恢复后的活动模块 0.2.0 启动后 4 秒进程仍在运行（PID 87104）；`git diff --check` 通过。未构建、未上传、未推送。
+# 当前任务交接
+
+> 最后更新：2026-08-23（Asia/Shanghai）
+> 分支：`main`
 > Git：任务结束时已创建本地提交 `feat: publish troubleshooting guide resources with hub`；未推送。
 > 工作区：本任务文件已随本地提交保存；未重置或覆盖其他文件，未读取或修改发布凭据，未执行真实上传或远端写入。
 

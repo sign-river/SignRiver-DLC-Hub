@@ -46,6 +46,11 @@ def test_bootstrap_index_and_documents_round_trip() -> None:
         assert hashlib.sha256(payload).hexdigest() == entry.sha256
         document = CartridgeDocument.from_dict(json.loads(payload.decode("utf-8")))
         assert document.game_id == entry.game_id
+        # Keep the legacy backup-name spelling for modules already published
+        # before the runtime_original_library_name rename.  Otherwise a newer
+        # bundled cartridge can make the launcher's rollback target unbootable.
+        patch = json.loads(payload.decode("utf-8"))["patch"]
+        assert patch["original_backup_dll_name"] == patch["runtime_original_library_name"]
 
 
 def test_builtin_cartridges_are_built_from_bootstrap_documents() -> None:

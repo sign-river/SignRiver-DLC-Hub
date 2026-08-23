@@ -38,6 +38,7 @@
     "language": "schinese",
     "unlock_all": true,
     "extra_protection": false,
-    "force_offline": false
+    "force_offline": false,
+    "original_backup_dll_name": "steam_api64_o.dll"
   }
 }

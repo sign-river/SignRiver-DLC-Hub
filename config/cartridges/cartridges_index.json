@@ -11,8 +11,8 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "b37e610eb3dae29e6ed341e91726050c72bdbe34dfa6d71e9069a16fdf097fb8",
-      "size_bytes": 1789,
+      "sha256": "5d7a4e7ed9b9e9034f5fad802edea5d083013926f741d2bc87804a729124f276",
+      "size_bytes": 1844,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -32,8 +32,8 @@
       "game_id": "civilization_6",
       "display_name": "文明6 (Civilization VI)",
       "asset_name": "cartridge_civilization_6.json",
-      "sha256": "2bfcf28a28f9203ceffc6a19de075006f7a33de5ef4a078d5fcb7f8bc2174e4f",
-      "size_bytes": 1915,
+      "sha256": "c21d9017d76740f47b0d4ac3d81a6ec9246ed5ec7b9594dc4994aebb178b71dd",
+      "size_bytes": 1969,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -53,8 +53,8 @@
       "game_id": "hearts_of_iron_4",
       "display_name": "钢铁雄心4 (Hearts of Iron IV)",
       "asset_name": "cartridge_hearts_of_iron_4.json",
-      "sha256": "6971cd95ab6dddf63186228b18f7f7ae0d9aa3b5ea29e755607e736813ea3113",
-      "size_bytes": 1801,
+      "sha256": "79c8966f92e8b6b3d4acca4a475021c53ca7542bffa5e8b9be0bb962d45920ef",
+      "size_bytes": 1855,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -74,8 +74,8 @@
       "game_id": "cities_skylines",
       "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "91d1ce6975ac590d92d27d2063f688de74ca65212044356dbd95213cb8b0071e",
-      "size_bytes": 1879,
+      "sha256": "700841a37031724440a253d342ee191eacc82ccb5a9d2271c6d104996810c876",
+      "size_bytes": 1933,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -95,8 +95,8 @@
       "game_id": "rimworld",
       "display_name": "边缘世界 (RimWorld)",
       "asset_name": "cartridge_rimworld.json",
-      "sha256": "660ed073e7dc4e6bc128c0bdf075c071ed2f197cb51deae32dab2615a1ade1cc",
-      "size_bytes": 1912,
+      "sha256": "75be07864a1c0bc4d84814d2a3be9314c2a6227961598dce80163384d8858ab7",
+      "size_bytes": 1966,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -116,8 +116,8 @@
       "game_id": "crusader_kings_3",
       "display_name": "十字军之王3 (Crusader Kings III)",
       "asset_name": "cartridge_crusader_kings_3.json",
-      "sha256": "178b4123a10b3a96659ca7e85b24728a24974d8e047d20aee85f2c7b0ede2e69",
-      "size_bytes": 1089,
+      "sha256": "11ef44e75bdf715c3b310b14fafd9e9fd4454e939ee47cb1704ec3837c5635af",
+      "size_bytes": 1143,
       "platform_resources": {
         "windows": {
           "patch": true,
@@ -129,8 +129,8 @@
       "game_id": "victoria_3",
       "display_name": "维多利亚3 (Victoria 3)",
       "asset_name": "cartridge_victoria_3.json",
-      "sha256": "49a1f7e82150902b277891831e50f22466a1ef32710eef393c0896262c02c5f2",
-      "size_bytes": 1065,
+      "sha256": "af2c94ed9c86dee6b60e607868939abc3480947a8ba4628d27e606acfb38a7a9",
+      "size_bytes": 1119,
       "platform_resources": {
         "windows": {
           "patch": true,
@@ -142,8 +142,8 @@
       "game_id": "workers_resources_soviet_republic",
       "display_name": "工人与资源：苏维埃共和国 (Workers & Resources: Soviet Republic)",
       "asset_name": "cartridge_workers_resources_soviet_republic.json",
-      "sha256": "3956b8ca6a6fb56630246de6219c5ca453d6f135b0511529341215bd5c94acd5",
-      "size_bytes": 1169,
+      "sha256": "cc112dd9ee17b9afe82da23d9af7624e521d43a11b151911a3a7e23686742a14",
+      "size_bytes": 1223,
       "platform_resources": {
         "windows": {
           "patch": true,
@@ -155,8 +155,8 @@
       "game_id": "civilization_7",
       "display_name": "文明7 (Sid Meier's Civilization VII)",
       "asset_name": "cartridge_civilization_7.json",
-      "sha256": "c64ed7b8f2788734f611692e27d228a4e4ff83468fd3d4e0ff3b038b4166ad6c",
-      "size_bytes": 1158,
+      "sha256": "67119dd11de54b5b0a4275d83dc274e9b9b0978099f64e94bdc351c0d6db6b1a",
+      "size_bytes": 1215,
       "platform_resources": {
         "windows": {
           "patch": true,
@@ -168,8 +168,8 @@
       "game_id": "age_of_wonders_4",
       "display_name": "奇迹时代4 (Age of Wonders 4)",
       "asset_name": "cartridge_age_of_wonders_4.json",
-      "sha256": "d816ce85cc837ef64b8c997b6ca379369f98004d5bab07e6d956309e8b0a3d15",
-      "size_bytes": 1245,
+      "sha256": "10ebc3174ef42d3e81aa32e3fd2687fa00a2a15283bc2074fb1c8f49df874268",
+      "size_bytes": 1309,
       "platform_resources": {
         "windows": {
           "patch": true,
