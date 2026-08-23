@@ -13,6 +13,7 @@
 - 发布器卡带中心显示“报错指南”状态、在生成日志中记录已纳入数量，并提供“打开指南目录”按钮；目录不存在时仍可正常生成和发布 hub。首批 7 篇不附带脚本或修复工具。
 - 验证（2026-08-23）：` .\.venv\Scripts\python.exe -m pytest -q tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py` 退出码 0；此前专项组合 `tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_ui_threading.py` 为 91 项通过。` .\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/application/guides.py src/signriver_publisher/client_guides.py src/signriver_publisher/workspace.py src/signriver_publisher/cartridge_management_ui.py tests/test_platform_content.py tests/test_publisher_guides.py`、` .\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 src tests` 和 `git diff --check` 通过。未启动 GUI 做人工布局验收，未构建发布包或 EXE，未上传或推送；任务结束时已创建本地 Git 提交。
 - 风险/后续：未来附带 `asset_name` 的云端附件要求客户端为本次或更高模块版本；首批文章的 `tools` 为空。新增内容必须继续遵守 `docs/error-guide-content-catalog.md` 的安全边界，禁止将 Mod、存档、游戏启动器特化、学习版、加速器、SteamCMD、关闭防护、自动改系统设置、未知脚本或散装 DLL 作为全局指南或自动操作上线。
+- 2026-08-23 运行时核对：截图中的 `程序 v0.2.0` 由 `app/state.json` 的 `active_version: "0.2.0"` 加载；该本地、Git 忽略的目标模块未随上一轮基线改动同步，因此仍显示旧的 6 张硬编码卡片。已仅将本轮指南功能前移到本地 `app/versions/0.2.0/`（保留其余 0.2.0 改动），包括指南服务、出厂/远程覆盖、稳定跳转和只下载不执行附件。已用 0.2.0 模块离线读取 7 篇出厂文章通过，并以 `compileall` 通过语法检查；必须完全退出并重新打开客户端后才会加载这些本地改动。该同步目录受 Git 忽略，未新增发布包、远端资源或 Git 跟踪文件。
 
 > 最后更新：2026-08-22（Asia/Shanghai）
 > 分支：`main`
