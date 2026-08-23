@@ -5,6 +5,12 @@
 > Git：已创建本地提交 `a2b6279 fix: keep cartridges compatible with rollback modules` 与 `b4178cd docs: add known issues tracker`；均未推送。`app/state.json` 是运行时恢复状态，不随上述提交变更。
 > 工作区：启动器曾因 0.2.0 与 0.1.7 初始化失败自动回退至 0.1.6。现已恢复活动模块为 `0.2.0`、清空 `bad_versions`，并已从源码启动验证（PID 87104）；该状态恢复后与 Git 基线一致。
 
+## 2026-08-23：登记 SteamOS 虚拟机 I/O 缓存暂停
+
+- 已登记 `KI-005`：SteamOS x86_64 测试虚拟机运行时被 VirtualBox 暂停，提示介质 `ahci-0-1` I/O cache 更新失败（`BLKCACHE_IOERR` / `VERR_INVALID_PARAMETER`）。该问题阻断 SteamOS 原生构建与验收环境。
+- 当前仅记录 VirtualBox 提示的宿主磁盘空间/健康与虚拟介质写入方向，尚未确认根因；本轮未恢复、重启或修改虚拟机，也未修改客户端、缓存、活动模块、构建或上传。
+- 验证（2026-08-23）：根据用户提供的 VirtualBox 错误信息登记影响、待确认原因和恢复验收项；`git diff --check` 通过。未运行 pytest（仅文档改动）。
+
 ## 2026-08-23：新增“记录问题”项目 Skill
 
 - 新增 `.agents/skills/record-known-issue/SKILL.md`：用户以“记录：”或“记录:”开头描述暂缓处理的缺陷、体验问题或功能需求时，默认登记到 `docs/known-issues.md`，并更新交接、检查文档差异、创建本地提交；不得默认实施功能或推送。
