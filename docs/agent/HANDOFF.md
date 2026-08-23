@@ -5,6 +5,12 @@
 > Git：已创建本地提交 `a2b6279 fix: keep cartridges compatible with rollback modules` 与 `b4178cd docs: add known issues tracker`；均未推送。`app/state.json` 是运行时恢复状态，不随上述提交变更。
 > 工作区：启动器曾因 0.2.0 与 0.1.7 初始化失败自动回退至 0.1.6。现已恢复活动模块为 `0.2.0`、清空 `bad_versions`，并已从源码启动验证（PID 87104）；该状态恢复后与 Git 基线一致。
 
+## 2026-08-23：新增“记录问题”项目 Skill
+
+- 新增 `.agents/skills/record-known-issue/SKILL.md`：用户以“记录：”或“记录:”开头描述暂缓处理的缺陷、体验问题或功能需求时，默认登记到 `docs/known-issues.md`，并更新交接、检查文档差异、创建本地提交；不得默认实施功能或推送。
+- Skill 规定新增条目连续使用 `KI-XXX`，先检查重复条目；客户端问题动态读取 `app/state.json.active_version`；不确定根因明确标为待确认。它与自动运行时问题记录中心分工明确。
+- 验证（2026-08-23）：`PYTHONUTF8=1; python C:\Users\32173\.codex-switcher\skills\.system\skill-creator\scripts\quick_validate.py .agents\skills\record-known-issue` 通过；`git diff --check` 通过。未运行 pytest（仅 Skill/文档改动）。
+
 ## 2026-08-23：登记“常用工具”中心需求
 
 - 已登记 `KI-004`：在报错指南增加“常用工具”入口，集中暴露今后解决方案可引用的实用工具。工具应有独立详情页和下载、受控卸载、程序内确认运行等操作；可捕获时展示标准输出、标准错误、退出码和状态，图形程序则明确提示由其窗口显示结果。
