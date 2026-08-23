@@ -5,6 +5,14 @@
 > Git：任务结束时已创建本地提交 `feat: publish troubleshooting guide resources with hub`；未推送。
 > 工作区：本任务文件已随本地提交保存；未重置或覆盖其他文件，未读取或修改发布凭据，未执行真实上传或远端写入。
 
+## 2026-08-23：活动模块对齐规则与指南缓存容错修复
+
+- 已将“客户端基线与活动模块对齐”升级为根目录 `AGENTS.md` 的永久规则，并同步写入 `docs/agent/DECISIONS.md`：任何 AI 在改客户端或宣称当前 GUI 生效前，必须动态读取 `app/state.json` 的 `active_version`、确认对应模块目录；然后明确选择仅基线实现、只定向同步本任务变更到活动模块，或走正式发布构建/切换。规则严禁写死 `0.1.0`、`0.2.0` 或其他版本号，严禁整目录覆盖活动模块，严禁擅自改动状态文件；交接必须记录对齐方式、实际验证对象和是否需重启。
+- 已修复报错指南的可选缓存容错：缓存中的文章详情若为下载源的 404 JSON、无效 JSON、非对象、`guide_id` 不一致、`blocks`/`tools` 结构错误或工具字段无效，客户端会记录警告并继续回退到出厂 `config/guides/` 同名文章，而不是让可选指南资源阻断整个客户端启动。
+- 修复已进入 Git 跟踪的 `app/versions/0.1.0/` 基线，并按上述“定向同步”策略前移到 Git 忽略的本地 `app/versions/0.2.0/`，没有整目录复制或覆盖 0.2.0 的其他独立改动。针对 404 缓存与 ID 不匹配缓存新增了基线回归测试；另以 `ModuleLoader` 隔离加载本地 0.2.0，模拟相同 404 缓存后确认仍可离线加载 7 篇出厂指南。
+- 当前 `app/state.json` 是启动器保护性回退后留下的用户状态：实际活动版本为 `0.1.7`，`0.2.0` 位于 `bad_versions`。本轮未擅自修改或暂存该文件，也尚未重新启用 0.2.0；如需恢复，应在用户明确授权后移除坏版本标记并作一次真实启动验证。
+- 验证（2026-08-23）：`.\.venv\Scripts\python.exe -m pytest -q tests/test_platform_content.py tests/test_publisher_guides.py tests/test_publisher_ui_threading.py`（82 通过）；`.\.venv\Scripts\python.exe -m compileall -q app\versions\0.1.0 app\versions\0.2.0 src tests` 通过；使用 `ModuleLoader` 的 0.2.0 隔离导入、404 缓存回退出厂指南验证通过；`git diff --check` 通过。未启动完整 GUI、未构建、未上传、未推送。
+
 ## 2026-08-23：报错指南内容补充与 Hub 指南资源发布
 
 - 客户端出厂 `config/guides/` 已补齐 7 篇低风险指南：网络/下载/TLS/DNS、游戏目录、磁盘空间、补丁状态、补丁资源缺失、安全软件疑似干扰（仅 Windows）及程序更新/模块基础异常。远程 hub 的同一 `guide_id` 现在覆盖出厂正文，不再生成 `remote_<guide_id>` 重复卡片；离线或远程失败时继续读取出厂内容。
@@ -14,6 +22,7 @@
 - 验证（2026-08-23）：` .\.venv\Scripts\python.exe -m pytest -q tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py tests/test_ui_theme.py` 退出码 0；此前专项组合 `tests/test_platform_content.py tests/test_publisher_guides.py tests/test_cartridge_catalog.py tests/test_publisher_ui_threading.py` 为 91 项通过。` .\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/application/guides.py src/signriver_publisher/client_guides.py src/signriver_publisher/workspace.py src/signriver_publisher/cartridge_management_ui.py tests/test_platform_content.py tests/test_publisher_guides.py`、` .\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 src tests` 和 `git diff --check` 通过。未启动 GUI 做人工布局验收，未构建发布包或 EXE，未上传或推送；任务结束时已创建本地 Git 提交。
 - 风险/后续：未来附带 `asset_name` 的云端附件要求客户端为本次或更高模块版本；首批文章的 `tools` 为空。新增内容必须继续遵守 `docs/error-guide-content-catalog.md` 的安全边界，禁止将 Mod、存档、游戏启动器特化、学习版、加速器、SteamCMD、关闭防护、自动改系统设置、未知脚本或散装 DLL 作为全局指南或自动操作上线。
 - 2026-08-23 运行时核对：截图中的 `程序 v0.2.0` 由 `app/state.json` 的 `active_version: "0.2.0"` 加载；该本地、Git 忽略的目标模块未随上一轮基线改动同步，因此仍显示旧的 6 张硬编码卡片。已仅将本轮指南功能前移到本地 `app/versions/0.2.0/`（保留其余 0.2.0 改动），包括指南服务、出厂/远程覆盖、稳定跳转和只下载不执行附件。已用 0.2.0 模块离线读取 7 篇出厂文章通过，并以 `compileall` 通过语法检查；必须完全退出并重新打开客户端后才会加载这些本地改动。该同步目录受 Git 忽略，未新增发布包、远端资源或 Git 跟踪文件。
+- 已将“客户端基线与活动模块对齐”写入根目录 `AGENTS.md` 和长期决策：所有后续 AI 必须动态读取 `app/state.json` 的 `active_version`，在当前 GUI 验收前明确并验证“仅基线 / 定向同步 / 正式发布切换”三种处理方式之一；禁止写死版本号、整目录覆盖活动模块，或只验证基线便宣称当前客户端生效。
 
 > 最后更新：2026-08-22（Asia/Shanghai）
 > 分支：`main`

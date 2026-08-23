@@ -178,25 +178,41 @@ class GuideCatalogService:
                 path.write_bytes(self._fetch(entry.asset_name))
             except Exception as error:
                 LOGGER.info("Optional remote guide %s unavailable: %s", entry.guide_id, error)
-        for candidate in (path, None if self.bootstrap_dir is None else self.bootstrap_dir / entry.asset_name):
+        bootstrap_path = None if self.bootstrap_dir is None else self.bootstrap_dir / entry.asset_name
+        for candidate in (path, bootstrap_path):
             if candidate is None or not candidate.is_file():
                 continue
-            payload = json.loads(candidate.read_text(encoding="utf-8"))
-            if _id(payload.get("guide_id"), "guide_id") != entry.guide_id:
-                raise GuideCatalogError("guide detail id does not match index")
-            raw_blocks = payload.get("blocks", [])
-            blocks: list[tuple[str, str]] = []
-            if not isinstance(raw_blocks, list):
-                raise GuideCatalogError("guide blocks must be a list")
-            for block in raw_blocks:
-                if not isinstance(block, dict):
-                    continue
-                kind, text = str(block.get("kind") or "text"), str(block.get("text") or "").strip()
-                if kind in {"heading", "text"} and text:
-                    blocks.append((kind, text))
-            raw_tools = payload.get("tools", [])
-            tools = tuple(tool for tool in (GuideTool.from_dict(item) for item in raw_tools if isinstance(item, dict)) if tool.applies_to(self.platform))
-            return GuideDocument(entry=entry, blocks=tuple(blocks), tools=tools)
+            try:
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise GuideCatalogError("guide detail must be an object")
+                if _id(payload.get("guide_id"), "guide_id") != entry.guide_id:
+                    raise GuideCatalogError("guide detail id does not match index")
+                raw_blocks = payload.get("blocks", [])
+                if not isinstance(raw_blocks, list):
+                    raise GuideCatalogError("guide blocks must be a list")
+                blocks: list[tuple[str, str]] = []
+                for block in raw_blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    kind = str(block.get("kind") or "text")
+                    text = str(block.get("text") or "").strip()
+                    if kind in {"heading", "text"} and text:
+                        blocks.append((kind, text))
+                raw_tools = payload.get("tools", [])
+                if not isinstance(raw_tools, list):
+                    raise GuideCatalogError("guide tools must be a list")
+                tools = tuple(
+                    tool
+                    for tool in (GuideTool.from_dict(item) for item in raw_tools if isinstance(item, dict))
+                    if tool.applies_to(self.platform)
+                )
+                return GuideDocument(entry=entry, blocks=tuple(blocks), tools=tools)
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError) as error:
+                LOGGER.warning(
+                    "Ignoring invalid optional guide detail %s at %s: %s",
+                    entry.guide_id, candidate, error,
+                )
         raise GuideCatalogError(f"未找到指南详情：{entry.title}")
 
     def download_tool(self, tool: GuideTool) -> Path:

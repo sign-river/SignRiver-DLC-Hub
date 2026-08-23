@@ -233,3 +233,39 @@ def test_guide_tool_download_is_platform_safe_and_atomic(tmp_path: Path) -> None
     })
     with pytest.raises(GuideCatalogError, match="HTTPS"):
         service.download_tool(insecure)
+
+
+def test_invalid_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> None:
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entries = service.refresh_index(allow_network=False)
+    entry = next(item for item in entries if item.guide_id == "network-basics")
+    cached_detail = tmp_path / "cache" / entry.asset_name
+    cached_detail.parent.mkdir(parents=True, exist_ok=True)
+    cached_detail.write_text(
+        json.dumps({"status": 404, "message": "not found"}), encoding="utf-8",
+    )
+
+    document = service.load_guide(entry, allow_network=False)
+
+    assert document.entry.guide_id == "network-basics"
+    assert document.blocks
+
+
+def test_mismatched_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> None:
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entries = service.refresh_index(allow_network=False)
+    entry = next(item for item in entries if item.guide_id == "network-basics")
+    cached_detail = tmp_path / "cache" / entry.asset_name
+    cached_detail.parent.mkdir(parents=True, exist_ok=True)
+    cached_detail.write_text(
+        json.dumps({"guide_id": "disk-space", "blocks": [], "tools": []}), encoding="utf-8",
+    )
+
+    document = service.load_guide(entry, allow_network=False)
+
+    assert document.entry.guide_id == "network-basics"
+    assert document.blocks
