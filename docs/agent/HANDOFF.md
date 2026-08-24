@@ -1928,3 +1928,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 已仅同步本次所需的 4 个运行时文件到被 Git 忽略的 `0.2.0` 目录：`app_entry.py`、`patching/__init__.py`、`patching/original_library.py`、`patching/repair_journal.py`；未整目录覆盖目标版本。基线 `0.1.0` 已受 Git 跟踪且包含对应 patching 文件。
 - 已通过 `StateStore.activate("0.2.0")` 恢复状态：`active_version` 为 `0.2.0`、`previous_version` 为 `0.1.7`、`bad_versions` 已清空。随后以 `launcher.py` 真实启动，进程持续运行，日志记录 `Starting application module 0.2.0`，并由健康确认自动清除了 `pending_version`；未再发生回退。
 - 验证（2026-08-24）：`python -m compileall -q app/versions/0.2.0` 通过；真实启动器运行后状态文件确认如上。未构建发布包、未上传、未 push。用户若此前已关闭窗口，需要重新启动客户端以加载恢复后的 `0.2.0`。
+
+## 2026-08-24：窗口切换前的版本对齐结论
+
+- 当前分支为 `main`，HEAD 为 `f147ce0`，工作区在交接前无未提交改动。
+- 用户澄清：不是要用 `0.1.7` 覆盖 `0.2.0`，而是确认之前误写到 `0.1.7` 的功能是否已在 `0.2.0` 完成。核对结果：GUI 回调异常记录、问题记录、常用工具、清除所有缓存、补丁资源缺失跳转等已在 `app/versions/0.2.0/app_entry.py` 中存在；`0.1.7` 的独立差异不能直接视为遗漏，禁止整目录迁移。
+- 当前实际活动版本仍为 `0.2.0`，`previous_version` 为 `0.1.7`，`pending_version` 为空，`bad_versions` 为空。`0.2.0` 已通过真实 `launcher.py` 启动和 `compileall` 验证。
+- 重要限制：`app/versions/0.2.0/` 属于运行时忽略目录，当前本地定向同步不会自动进入 Git 提交；正式发布前仍需按发布流程从 Git 跟踪基线构建目标模块。未构建、未上传、未推送。
+- 下一窗口建议：若用户指出具体“0.1.7 有而 0.2.0 没有”的功能，逐功能比对并以 `0.2.0` 为主体补齐；不要用 `0.1.7` 或 `0.1.0` 整目录覆盖 `0.2.0`。
