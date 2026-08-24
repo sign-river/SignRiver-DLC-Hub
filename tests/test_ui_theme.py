@@ -322,6 +322,20 @@ def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None
     assert 'getattr(self, "repair_button", None)' in source
 
 
+def test_catalog_promotes_repair_and_labels_advanced_actions() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    repair_top = source.index(
+        'catalog_secondary_actions, text="一键修复"'
+    )
+    advanced_menu = source.index(
+        'catalog_management_tools,\n            text="逐项管理 DLC"'
+    )
+    assert repair_top < advanced_menu
+    assert 'text="高级操作  ▾"' in source
+    assert 'text="收起高级操作  ▴"' in source
+
+
 def test_log_commands_use_an_aligned_two_by_two_grid() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 

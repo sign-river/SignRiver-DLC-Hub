@@ -1990,6 +1990,13 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；`app/state.json` 仍为活动版本 `0.2.0`。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（74 项通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
 
+## 2026-08-25：DLC 操作栏提升一键修复并改名高级操作
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；将“一键修复”从展开的低频操作区移到常用工具栏原“逐项管理 DLC”位置，将“逐项管理 DLC”放入“高级操作”展开区；“更多操作/收起操作”统一改为“高级操作/收起高级操作”。
+- 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`。
+- 新增 UI 源码回归断言，验证按钮顺序和文案。
+- 验证：`python -m pytest -q tests/test_ui_theme.py`（57 项通过）；`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启客户端后查看。
+
 ## 2026-08-24：修正解决方案列表入口与详情布局
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；解决方案列表恢复直接上一级“返回指南”，进入详情时隐藏搜索栏和列表态返回入口；工具详情标题改为左对齐，消除移除内侧返回按钮后留下的空白；解决方案详情中的连续 `button`/`tool`/`action` 操作改为横向按钮组，统一使用高对比主色和更大的点击区域。

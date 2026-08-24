@@ -1067,13 +1067,11 @@ class DlcHubApplication:
             width=96,
         )
         self.selection_toggle_button.grid(row=0, column=0)
-        self.advanced_view_button = ctk.CTkButton(
-            catalog_secondary_actions,
-            text="逐项管理 DLC",
-            command=self._toggle_catalog_view,
-            width=120,
+        self.repair_button = ctk.CTkButton(
+            catalog_secondary_actions, text="一键修复",
+            command=self._one_click_repair, width=112,
         )
-        self.advanced_view_button.grid(row=0, column=1, padx=(8, 0))
+        self.repair_button.grid(row=0, column=1, padx=(8, 0))
         self.catalog_refresh_button = ctk.CTkButton(
             catalog_secondary_actions,
             text="刷新目录",
@@ -1088,7 +1086,7 @@ class DlcHubApplication:
         self.cancel_all_downloads_button.grid(row=0, column=3, padx=(8, 0))
         self.cancel_all_downloads_button.grid_remove()
         self.catalog_more_actions_button = ctk.CTkButton(
-            catalog_secondary_actions, text="更多操作  ▾",
+            catalog_secondary_actions, text="高级操作  ▾",
             command=self._toggle_catalog_more_actions, width=112,
         )
         self.catalog_more_actions_button.grid(row=0, column=4, padx=(8, 0))
@@ -1123,11 +1121,13 @@ class DlcHubApplication:
         self.restore_original_button.grid(
             row=0, column=1, sticky="ew", padx=4
         )
-        self.repair_button = ctk.CTkButton(
-            catalog_management_tools, text="一键修复",
-            command=self._one_click_repair, width=112,
+        self.advanced_view_button = ctk.CTkButton(
+            catalog_management_tools,
+            text="逐项管理 DLC",
+            command=self._toggle_catalog_view,
+            width=120,
         )
-        self.repair_button.grid(
+        self.advanced_view_button.grid(
             row=0, column=2, sticky="ew", padx=(4, 0)
         )
         primary_action_panel = ctk.CTkFrame(
@@ -6528,10 +6528,10 @@ class DlcHubApplication:
     def _toggle_catalog_more_actions(self) -> None:
         """Reveal low-frequency catalog maintenance actions on demand."""
         if self.catalog_more_actions.winfo_ismapped():
-            self.catalog_more_actions_button.configure(text="更多操作  ▾")
+            self.catalog_more_actions_button.configure(text="高级操作  ▾")
             self.catalog_more_actions.grid_remove()
             return
-        self.catalog_more_actions_button.configure(text="收起操作  ▴")
+        self.catalog_more_actions_button.configure(text="收起高级操作  ▴")
         self.catalog_more_actions.grid(
             row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10)
         )
