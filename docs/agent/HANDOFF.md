@@ -1,3 +1,10 @@
+### 2026-08-24：新增 CustomTkinter 客户端界面体验审查 Skill
+
+- 用户同意将外部设计 Skill 的有效原则提炼为项目内、适配 Python + CustomTkinter 的版本；新增 `.agents/skills/customtkinter-ui-review/`，覆盖逐层返回、异步检查原位更新、结果行详情入口、窄窗口布局、长内容滚动、工具栏分区和非阻塞反馈，并明确不引入 React/CSS/无意义动画，也不得绕过危险操作确认或安全边界。
+- Skill 附带 `references/ui-review-checklist.md`，提供导航、异步一键排错、可读性和状态反馈的审查对照表；入口说明限定为客户端界面体验需求，不用于发布器、Web 技术栈或纯业务逻辑。
+- 本轮未修改客户端源码、缓存或模块目录；核对时发现工作区已有未提交的 `app/state.json` 变更：活动版本从 `0.2.0` 改为 `0.1.7`，且 `0.2.0` 被列入 `bad_versions`。该状态不是本轮修改，已保留且不会纳入本次提交；后续客户端任务必须以届时 `app/state.json` 的真实活动版本为准。
+- 验证（2026-08-24）：`C:\Users\32173\anaconda3\python.exe C:\Users\32173\.codex-switcher\skills\.system\skill-creator\scripts\quick_validate.py .agents\skills\customtkinter-ui-review` 通过；`git diff --check` 通过。未运行 pytest（仅 Skill/文档改动）。
+
 ### 2026-08-24：一键排错工具结果改为单项更新并直达工具详情
 
 - 用户要求凡是接入“一键排错”的工具，执行中和执行完成后都只保留同一个结果项目；详情通过结果项目右侧按钮进入相应的“常用工具”详情页，避免把“正在检查”和最终结果拆为两条。

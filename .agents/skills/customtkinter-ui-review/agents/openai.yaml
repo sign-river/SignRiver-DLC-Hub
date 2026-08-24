@@ -1,0 +1,3 @@
+interface:
+  display_name: "客户端界面体验审查"
+  short_description: "审查和改进 SignRiver 的 CustomTkinter 页面、导航与反馈"
