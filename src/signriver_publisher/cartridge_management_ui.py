@@ -91,7 +91,7 @@ class CartridgeManagementUiMixin:
         cartridge_group.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
         cartridge_group.grid_columnconfigure((0, 1), weight=1, uniform="cartridge_actions")
         ctk.CTkLabel(
-            cartridge_group, text="卡带管理", text_color=BLUE,
+            cartridge_group, text="卡带与公告", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
         ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
 
@@ -102,7 +102,7 @@ class CartridgeManagementUiMixin:
         guide_group.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         guide_group.grid_columnconfigure((0, 1), weight=1, uniform="guide_actions")
         ctk.CTkLabel(
-            guide_group, text="指南与公告", text_color=BLUE,
+            guide_group, text="指南发布", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
         ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
 
@@ -128,10 +128,12 @@ class CartridgeManagementUiMixin:
             cartridge_group, "打开 hub 目录", self.open_hub_output_folder, 2, 1
         )
         self.announcement_manage_button = secondary_button(
-            guide_group, "管理公告", self.open_announcement_manager, 1, 0
+            cartridge_group, "管理公告", self.open_announcement_manager, 3, 0,
+            columnspan=2,
         )
         self.guides_publish_button = secondary_button(
-            guide_group, "双端发布指南", self.publish_guides_mirror, 1, 1
+            guide_group, "双端发布指南", self.publish_guides_mirror, 1, 0,
+            columnspan=2,
         )
         secondary_button(
             guide_group, "打开指南目录", self.open_guides_source_folder, 2, 0,
