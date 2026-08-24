@@ -367,3 +367,82 @@ def test_problem_store_failure_does_not_reverse_successful_patch_apply(
     app.context.logger.exception.assert_called_with(
         "Unable to resolve patch problems after successful apply"
     )
+
+
+def test_quick_check_replaces_a_tool_result_without_adding_a_second_row(app_module) -> None:
+    app = _app(app_module)
+    app.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]
+    app.quick_check_results = []
+
+    result_index = app._add_quick_check_result("安全软件：正在检查……")
+    app._replace_quick_check_result(
+        result_index,
+        "安全软件：已检测到 Windows Defender。",
+        tool_detail_action=lambda: None,
+    )
+
+    assert len(app.quick_check_results) == 1
+    assert app.quick_check_results[0][0] == "安全软件：已检测到 Windows Defender。"
+    assert callable(app.quick_check_results[0][2])
+    assert app.quick_check_lines[-1] == "1. 安全软件：已检测到 Windows Defender。"
+
+
+def test_security_quick_check_updates_one_row_and_opens_cached_tool_detail(
+    app_module, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = _app(app_module)
+    product = SimpleNamespace(name="Windows Defender")
+    app.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]
+    app.quick_check_results = []
+    app.quick_check_running = True
+    app.quick_check_paused = False
+    app._render_quick_check_output = Mock()
+    app._advance_quick_check = Mock()
+    app._post_ui = lambda callback: callback()
+    app.window = SimpleNamespace(after=lambda _delay, callback: callback())
+    app._show_page = Mock()
+    app._render_security_products = Mock()
+
+    class ImmediateThread:
+        def __init__(self, *, target, daemon):
+            self.target = target
+
+        def start(self) -> None:
+            self.target()
+
+    monkeypatch.setattr(app_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(app_module, "discover_security_products", lambda: (product,))
+
+    app._quick_check_security_products()
+
+    assert len(app.quick_check_results) == 1
+    text, solution_id, detail_action = app.quick_check_results[0]
+    assert "Windows Defender" in text
+    assert solution_id is None
+    assert callable(detail_action)
+    detail_action()
+    app._show_page.assert_called_once_with("常用工具")
+    app._render_security_products.assert_called_once_with((product,))
+
+
+def test_open_mode_quick_check_tool_keeps_one_row_with_detail_action(app_module) -> None:
+    app = _app(app_module)
+    app.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]
+    app.quick_check_results = []
+    tool = SimpleNamespace(
+        run_mode="open",
+        title="诊断工具",
+        quick_check_problem_guide="update-module-basics",
+    )
+    app._show_page = Mock()
+    app._show_guide_tool_detail = Mock()
+
+    app._quick_check_declared_tool(tool)
+
+    assert len(app.quick_check_results) == 1
+    _, solution_id, detail_action = app.quick_check_results[0]
+    assert solution_id == "update-module-basics"
+    assert callable(detail_action)
+    detail_action()
+    app._show_page.assert_called_once_with("常用工具")
+    app._show_guide_tool_detail.assert_called_once_with(tool)

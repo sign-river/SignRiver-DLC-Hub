@@ -1,3 +1,10 @@
+### 2026-08-24：一键排错工具结果改为单项更新并直达工具详情
+
+- 用户要求凡是接入“一键排错”的工具，执行中和执行完成后都只保留同一个结果项目；详情通过结果项目右侧按钮进入相应的“常用工具”详情页，避免把“正在检查”和最终结果拆为两条。
+- 现已将安全软件检测和开发者声明的只读诊断工具改为：开始时创建一个结果项目，异步完成后原位更新文字、错误解决方案入口和复制内容；不再追加第二条。安全软件结果的“查看工具详情 →”直接复用本次检测出的产品列表打开“安全软件检测”详情；声明工具同样可从“查看工具详情 →”进入其详情页。失败时同一项目仍可同时显示“查看解决方案 →”。
+- 改动先完成于 Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，再按当前活动版本 `app/state.json` 中的 `0.2.0` 同步同一功能块；未修改 `app/state.json`。用户需重启客户端；未构建、未上传、未推送。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_client_problem_center.py tests\test_ui_theme.py tests\test_platform_content.py`（81 项通过）；` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_client_problem_center.py tests\test_ui_theme.py`、基线/活动入口 `compileall`、基线/活动入口逐字节对齐检查及 `git diff --check` 通过。未启动 GUI。
+
 ### 2026-08-24：运行日志页分离返回导航与操作区
 
 - 用户反馈运行日志页右上角同时挤入“返回指南”、刷新、打开日志目录、导出诊断包和复制日志，层级混杂且视觉拥挤；要求“返回指南”单独一行，其余按钮按合适方式调整。

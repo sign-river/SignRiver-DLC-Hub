@@ -3190,7 +3190,7 @@ class DlcHubApplication:
         self.quick_check_stop_button.grid(row=0, column=3, padx=(0, 8))
         self.quick_check_copy_button.grid(row=0, column=4)
         self.quick_check_lines: list[str] = []
-        self.quick_check_results: list[tuple[str, str | None]] = []
+        self.quick_check_results: list[tuple[str, str | None, object | None]] = []
         self.quick_check_steps: list = []
         self.quick_check_running = False
         self.quick_check_paused = False
@@ -3273,22 +3273,33 @@ class DlcHubApplication:
     def _quick_check_security_products(self) -> None:
         """List Windows Security Center products without blocking the UI thread."""
         self.quick_check_waiting = True
-        self._add_quick_check_result("安全软件：正在从 Windows 安全中心读取已登记产品……")
+        result_index = self._add_quick_check_result(
+            "安全软件：正在从 Windows 安全中心读取已登记产品……"
+        )
         self._render_quick_check_output()
 
         def worker() -> None:
-            products = discover_security_products()
-            names = "、".join(product.name for product in products)
-            message = (
-                f"安全软件：已检测到 {names}。可在“常用工具 → 安全软件检测”中打开已确认的产品。"
-                if names else
-                "安全软件：未从 Windows 安全中心读取到已登记产品；这不代表系统未启用防护。"
-            )
+            try:
+                products = discover_security_products()
+                names = "、".join(product.name for product in products)
+                message = (
+                    f"安全软件：已检测到 {names}。可在“常用工具 → 安全软件检测”中打开已确认的产品。"
+                    if names else
+                    "安全软件：未从 Windows 安全中心读取到已登记产品；这不代表系统未启用防护。"
+                )
+            except Exception as error:
+                self.context.logger.exception("Security product quick check failed")
+                products = ()
+                message = f"安全软件：检测失败（{type(error).__name__}：{error}）。"
 
             def finish() -> None:
                 if not self.quick_check_running:
                     return
-                self._add_quick_check_result(message)
+                self._replace_quick_check_result(
+                    result_index,
+                    message,
+                    tool_detail_action=lambda value=products: self._open_security_products_from_quick_check(value),
+                )
                 self.quick_check_waiting = False
                 self._render_quick_check_output()
                 if not self.quick_check_paused:
@@ -3310,14 +3321,19 @@ class DlcHubApplication:
 
     def _quick_check_declared_tool(self, tool: GuideTool) -> None:
         """Run one developer-marked, non-interactive diagnostic tool off the UI thread."""
+        def tool_detail_action(selected_tool: GuideTool = tool) -> None:
+            self._open_guide_tool_detail_from_quick_check(selected_tool)
         if tool.run_mode == "open":
             self._add_quick_check_result(
                 f"{tool.title}：跳过（不是可捕获输出的诊断工具）。",
                 tool.quick_check_problem_guide or "update-module-basics",
+                tool_detail_action=tool_detail_action,
             )
             return
         self.quick_check_waiting = True
-        self._add_quick_check_result(f"{tool.title}：正在下载并执行只读诊断工具……")
+        result_index = self._add_quick_check_result(
+            f"{tool.title}：正在下载并执行只读诊断工具……"
+        )
         self._render_quick_check_output()
 
         def worker() -> None:
@@ -3349,7 +3365,12 @@ class DlcHubApplication:
                 # A terminated run must not receive late worker results.
                 if not self.quick_check_running:
                     return
-                self._add_quick_check_result(message, solution_id)
+                self._replace_quick_check_result(
+                    result_index,
+                    message,
+                    solution_id,
+                    tool_detail_action=tool_detail_action,
+                )
                 self.quick_check_waiting = False
                 self._render_quick_check_output()
                 if not self.quick_check_paused:
@@ -3402,16 +3423,45 @@ class DlcHubApplication:
         if not self.quick_check_results:
             ctk.CTkLabel(self.quick_check_output, text="正在准备检查……", text_color=UI["muted"], anchor="w").pack(fill="x", padx=12, pady=12)
             return
-        for index, (text, solution_id) in enumerate(self.quick_check_results, start=1):
+        for index, (text, solution_id, tool_detail_action) in enumerate(self.quick_check_results, start=1):
             row = ctk.CTkFrame(self.quick_check_output, fg_color=UI["card"], border_color=UI["border"], border_width=1, corner_radius=8)
             row.pack(fill="x", padx=6, pady=(6, 0))
             ctk.CTkLabel(row, text=f"{index}. {text}", text_color=UI["danger"] if solution_id else UI["text_secondary"], anchor="w", justify="left", wraplength=760).pack(side="left", fill="x", expand=True, padx=12, pady=10)
             if solution_id:
-                ctk.CTkButton(row, text="查看解决方案 →", width=128, height=28, command=lambda article_id=solution_id: self._open_solution_article(article_id)).pack(side="right", padx=10)
+                ctk.CTkButton(row, text="查看解决方案 →", width=128, height=28, command=lambda article_id=solution_id: self._open_solution_article(article_id)).pack(side="right", padx=(0, 10))
+            if tool_detail_action is not None:
+                ctk.CTkButton(row, text="查看工具详情 →", width=128, height=28, command=tool_detail_action).pack(side="right", padx=10)
 
-    def _add_quick_check_result(self, text: str, solution_id: str | None = None) -> None:
-        self.quick_check_results.append((text, solution_id))
+    def _add_quick_check_result(
+        self,
+        text: str,
+        solution_id: str | None = None,
+        *,
+        tool_detail_action: object | None = None,
+    ) -> int:
+        self.quick_check_results.append((text, solution_id, tool_detail_action))
         self.quick_check_lines.append(f"{len(self.quick_check_results)}. {text}")
+        return len(self.quick_check_results) - 1
+
+    def _replace_quick_check_result(
+        self,
+        index: int,
+        text: str,
+        solution_id: str | None = None,
+        *,
+        tool_detail_action: object | None = None,
+    ) -> None:
+        self.quick_check_results[index] = (text, solution_id, tool_detail_action)
+        line_index = len(self.quick_check_lines) - len(self.quick_check_results) + index
+        self.quick_check_lines[line_index] = f"{index + 1}. {text}"
+
+    def _open_security_products_from_quick_check(self, products) -> None:
+        self._show_page("常用工具")
+        self._render_security_products(products)
+
+    def _open_guide_tool_detail_from_quick_check(self, tool: GuideTool) -> None:
+        self._show_page("常用工具")
+        self._show_guide_tool_detail(tool)
 
     def _open_solution_article(self, article_id: str) -> None:
         self.solution_detail_origin = "quick_check"

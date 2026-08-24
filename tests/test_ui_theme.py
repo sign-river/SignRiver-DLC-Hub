@@ -210,6 +210,10 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'def _run_guide_tool_capture' in source
     assert 'capture_output=True' in source
     assert 'def _quick_check_security_products' in source
+    assert 'def _replace_quick_check_result' in source
+    assert 'text="查看工具详情 →"' in source
+    assert 'def _open_security_products_from_quick_check' in source
+    assert 'def _open_guide_tool_detail_from_quick_check' in source
     assert 'text="打开文件"' in source
     assert 'def _open_file(self, path: Path)' in source
     assert 'is_windows_security_product(product)' in source
