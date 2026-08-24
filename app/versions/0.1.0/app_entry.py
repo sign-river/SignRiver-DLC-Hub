@@ -5393,9 +5393,11 @@ class DlcHubApplication:
             def update_title_wraplength(event, label=title) -> None:
                 scaling = label._get_widget_scaling()
                 available_width = int(event.width / scaling) - 24
-                label.configure(wraplength=max(1, available_width))
+                wraplength = max(1, available_width)
+                if label.cget("wraplength") != wraplength:
+                    label.configure(wraplength=wraplength)
 
-            title.bind("<Configure>", update_title_wraplength)
+            row.bind("<Configure>", update_title_wraplength)
             timestamp = ctk.CTkLabel(
                 row, text=report.last_occurred_at.replace("T", " ")[:16],
                 text_color=UI["muted"], anchor="w", font=ctk.CTkFont(size=11),

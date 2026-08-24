@@ -81,8 +81,10 @@ def test_problem_record_titles_use_the_available_card_width() -> None:
 
     assert "def update_title_wraplength(event, label=title) -> None:" in source
     assert "available_width = int(event.width / scaling) - 24" in source
-    assert "label.configure(wraplength=max(1, available_width))" in source
-    assert 'title.bind("<Configure>", update_title_wraplength)' in source
+    assert "wraplength = max(1, available_width)" in source
+    assert 'if label.cget("wraplength") != wraplength:' in source
+    assert "label.configure(wraplength=wraplength)" in source
+    assert 'row.bind("<Configure>", update_title_wraplength)' in source
 
 
 def test_patch_download_allows_bundle_with_missing_sha256(app_module) -> None:
