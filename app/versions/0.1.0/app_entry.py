@@ -2440,27 +2440,32 @@ class DlcHubApplication:
             header, text="解决方案", text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
+        self.solution_guide_back_button = ctk.CTkButton(
+            header, text="返回指南", width=92,
+            command=lambda: self._show_page("报错指南"),
+        )
+        self.solution_guide_back_button.pack(side="right")
         self.solution_detail_origin = "list"
         # 指南正文由出厂目录提供；远程 hub 只能追加新 guide_id，不能覆盖内置指南。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
         self.solution_articles.update(
             self._load_remote_solution_articles(allow_network=False)
         )
-        solution_search_bar = ctk.CTkFrame(
+        self.solution_search_bar = ctk.CTkFrame(
             self.guide_tutorial_card, fg_color="transparent"
         )
-        solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
-        solution_search_bar.grid_columnconfigure(0, weight=1)
+        self.solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
+        self.solution_search_bar.grid_columnconfigure(0, weight=1)
         self.solution_search_query = StringVar(value="")
         self.solution_search = ctk.CTkEntry(
-            solution_search_bar,
+            self.solution_search_bar,
             textvariable=self.solution_search_query,
             placeholder_text="搜索解决方案标题、现象或处理方法",
             height=34,
         )
         self.solution_search.grid(row=0, column=0, sticky="ew")
         self.solution_search_mode = _combo_box(
-            solution_search_bar,
+        self.solution_search_bar,
             values=["模糊匹配", "精确匹配"],
             command=lambda _value: self._render_solution_articles(),
             width=104,
@@ -2636,9 +2641,9 @@ class DlcHubApplication:
             text="",
             text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
-            anchor="e",
+            anchor="w",
         )
-        self.tool_center_detail_title.pack(side="right")
+        self.tool_center_detail_title.pack(side="left", fill="x", expand=True)
         self.tool_center_detail_body = ctk.CTkScrollableFrame(
             self.tool_center_detail_page, fg_color=UI["panel"], corner_radius=10
         )
@@ -3181,7 +3186,10 @@ class DlcHubApplication:
                     actions, tool, origin="solution", article_id=article_id
                 )
         ctk.CTkLabel(self.solution_detail_body, text=summary, text_color=UI["text_secondary"], anchor="w").pack(fill="x", pady=(0, 18))
+        action_row = None
         for kind, *values in blocks:
+            if kind not in {"button", "tool", "action"}:
+                action_row = None
             if kind == "heading":
                 ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
             elif kind == "text":
@@ -3194,29 +3202,42 @@ class DlcHubApplication:
                     self.solution_detail_images.append(image)
                     ctk.CTkLabel(self.solution_detail_body, text="", image=image).pack(anchor="w", pady=(0, 16))
             elif kind == "button":
-                ctk.CTkButton(self.solution_detail_body, text=values[0], width=132, command=lambda target=values[1]: self._show_page(target)).pack(anchor="w", pady=(0, 16))
+                if action_row is None:
+                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
+                    action_row.pack(fill="x", pady=(0, 14))
+                ctk.CTkButton(
+                    action_row, text=values[0], width=156, height=36,
+                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
+                    text_color="white", corner_radius=8,
+                    command=lambda target=values[1]: self._show_page(target),
+                ).pack(side="left", padx=(0, 8))
             elif kind == "tool":
                 tool = values[0]
                 if isinstance(tool, GuideTool) and tool.is_helper_tool():
                     continue
+                if action_row is None:
+                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
+                    action_row.pack(fill="x", pady=(0, 14))
                 ctk.CTkButton(
-                    self.solution_detail_body,
+                    action_row,
                     text=f"下载附件：{tool.title}",
-                    width=190,
+                    width=190, height=36,
+                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
+                    text_color="white", corner_radius=8,
                     command=lambda selected_tool=tool: self._download_guide_tool(selected_tool),
-                ).pack(anchor="w", pady=(0, 16))
+                ).pack(side="left", padx=(0, 8))
             elif kind == "action":
+                if action_row is None:
+                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
+                    action_row.pack(fill="x", pady=(0, 14))
                 ctk.CTkButton(
-                    self.solution_detail_body,
+                    action_row,
                     text=values[0],
-                    width=148,
+                    width=156, height=36,
                     command=values[1],
-                    fg_color="transparent",
-                    hover_color=UI["primary_surface"],
-                    text_color=UI["primary"],
-                    border_width=1,
-                    border_color=UI["primary_border"],
-                ).pack(anchor="w", pady=(0, 10))
+                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
+                    text_color="white", corner_radius=8,
+                ).pack(side="left", padx=(0, 8))
         if self.solution_detail_origin == "quick_check":
             self.solution_detail_back_button.configure(text="← 回到一键排错")
         elif self.solution_detail_origin == "security_products":
@@ -3224,12 +3245,16 @@ class DlcHubApplication:
         else:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_page.update_idletasks()
+        self.solution_guide_back_button.pack_forget()
+        self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
 
     def _show_solution_list(self) -> None:
         self.solution_detail_origin = "list"
         self.solution_detail_page.pack_forget()
+        self.solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
+        self.solution_guide_back_button.pack(side="right")
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _build_quick_check_page(self) -> None:
