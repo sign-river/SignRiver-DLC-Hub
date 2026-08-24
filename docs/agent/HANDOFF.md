@@ -1956,3 +1956,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 当前实际活动版本仍为 `0.2.0`，`previous_version` 为 `0.1.7`，`pending_version` 为空，`bad_versions` 为空。`0.2.0` 已通过真实 `launcher.py` 启动和 `compileall` 验证。
 - 重要限制：`app/versions/0.2.0/` 属于运行时忽略目录，当前本地定向同步不会自动进入 Git 提交；正式发布前仍需按发布流程从 Git 跟踪基线构建目标模块。未构建、未上传、未推送。
 - 下一窗口建议：若用户指出具体“0.1.7 有而 0.2.0 没有”的功能，逐功能比对并以 `0.2.0` 为主体补齐；不要用 `0.1.7` 或 `0.1.0` 整目录覆盖 `0.2.0`。
+
+## 2026-08-24：删除帮助与诊断页红圈说明文字
+
+- 修改范围：从 Git 跟踪基线 `app/versions/0.1.0/app_entry.py` 的“帮助与诊断”页删除红圈中的说明文案；按活动版本规则将同一代码块定向同步到本地活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
+- 验证：`python -m pytest -q tests/test_ui_theme.py`（56 项通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。
+- 当前活动版本：`0.2.0`；已验证基线与活动模块源码。若客户端已在运行，需要重启客户端后查看界面变化。未构建、未上传、未推送。

@@ -1494,11 +1494,6 @@ class DlcHubApplication:
             guide_header, text="帮助与诊断", text_color=UI["primary"],
             font=ctk.CTkFont(size=22, weight="bold"),
         ).pack(anchor="w")
-        ctk.CTkLabel(
-            self.error_guide_card,
-            text="遇到问题时，可以先运行一键排错，或查看对应的处理方案、异常记录和运行日志。",
-            text_color=UI["text_secondary"], anchor="w",
-        ).pack(fill="x", padx=36, pady=(0, 12))
         guide_tips = ctk.CTkFrame(
             self.error_guide_card, fg_color=UI["primary_surface"],
             border_color=UI["primary_border"], border_width=1, corner_radius=10,
