@@ -80,7 +80,8 @@ def test_problem_record_titles_use_the_available_card_width() -> None:
     source = (VERSION_ROOT / "app_entry.py").read_text(encoding="utf-8")
 
     assert "def update_title_wraplength(event, label=title) -> None:" in source
-    assert "label.configure(wraplength=max(1, event.width))" in source
+    assert "available_width = int(event.width / scaling) - 24" in source
+    assert "label.configure(wraplength=max(1, available_width))" in source
     assert 'title.bind("<Configure>", update_title_wraplength)' in source
 
 
