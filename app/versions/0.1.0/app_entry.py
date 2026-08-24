@@ -1651,10 +1651,11 @@ class DlcHubApplication:
             problem_header, text="刷新", width=72,
             command=self._refresh_problem_center,
         ).pack(side="right", padx=(0, 8))
-        ctk.CTkButton(
+        self.problem_back_button = ctk.CTkButton(
             problem_header, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
-        ).pack(side="right", padx=(0, 8))
+        )
+        self.problem_back_button.pack(side="right", padx=(0, 8))
         problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
         problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.problem_list_panel = ctk.CTkFrame(problem_body, fg_color="transparent")
@@ -1667,13 +1668,6 @@ class DlcHubApplication:
         self.problem_detail_page = ctk.CTkFrame(
             problem_body, fg_color=UI["card"], corner_radius=0, border_width=0,
         )
-        problem_detail_header = ctk.CTkFrame(self.problem_detail_page, fg_color="transparent")
-        problem_detail_header.pack(fill="x", padx=16, pady=(8, 0))
-        ctk.CTkButton(
-            problem_detail_header, text="← 返回记录", width=104,
-            fg_color="transparent", hover_color=UI["primary_surface"],
-            text_color=UI["primary"], command=self._show_problem_list,
-        ).pack(side="left")
         self.problem_detail_content = ctk.CTkScrollableFrame(
             self.problem_detail_page, fg_color=UI["card"], corner_radius=0,
             border_width=0, scrollbar_button_color=UI["input_border"],
@@ -2617,12 +2611,13 @@ class DlcHubApplication:
             text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
-        ctk.CTkButton(
+        self.tool_center_back_button = ctk.CTkButton(
             header,
             text="返回指南",
             width=92,
             command=lambda: self._show_page("报错指南"),
-        ).pack(side="right")
+        )
+        self.tool_center_back_button.pack(side="right")
         self.tool_center_list = ctk.CTkScrollableFrame(
             self.tool_center_card, fg_color=UI["panel"], corner_radius=10
         )
@@ -2636,15 +2631,6 @@ class DlcHubApplication:
             self.tool_center_detail_page, fg_color="transparent"
         )
         detail_header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkButton(
-            detail_header,
-            text="← 返回常用工具",
-            width=128,
-            fg_color="transparent",
-            hover_color=UI["primary_surface"],
-            text_color=UI["primary"],
-            command=self._show_tool_center_list,
-        ).pack(side="left")
         self.tool_center_detail_title = ctk.CTkLabel(
             detail_header,
             text="",
@@ -2673,10 +2659,16 @@ class DlcHubApplication:
         return tools
 
     def _show_tool_center_list(self) -> None:
+        self.tool_center_back_button.configure(
+            text="返回指南", command=lambda: self._show_page("报错指南")
+        )
         self.tool_center_detail_page.pack_forget()
         self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _show_tool_center_detail(self, title: str) -> None:
+        self.tool_center_back_button.configure(
+            text="← 返回常用工具", command=self._show_tool_center_list
+        )
         self.tool_center_detail_title.configure(text=title)
         for child in self.tool_center_detail_body.winfo_children():
             child.destroy()
@@ -5311,6 +5303,9 @@ class DlcHubApplication:
         """Return from a record detail page to the parent record list."""
         if not hasattr(self, "problem_list_panel"):
             return
+        self.problem_back_button.configure(
+            text="返回指南", command=lambda: self._show_page("报错指南")
+        )
         self.problem_detail_page.pack_forget()
         self.problem_list_panel.pack(fill="both", expand=True)
 
@@ -5405,6 +5400,9 @@ class DlcHubApplication:
         # Build and lay out the hidden detail view before removing the list.
         # Rebuilding the list first made the intermediate empty state visible.
         self._set_problem_detail(report)
+        self.problem_back_button.configure(
+            text="← 返回记录", command=self._show_problem_list
+        )
         self.problem_detail_page.update_idletasks()
         self.problem_list_panel.pack_forget()
         self.problem_detail_page.pack(fill="both", expand=True)
