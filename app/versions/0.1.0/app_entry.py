@@ -1487,8 +1487,29 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=13),
         ).pack(fill="x", padx=16, pady=(0, 11))
         ctk.CTkLabel(self.error_guide_card, text="其他工具", text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=36, pady=(0, 12))
-        guide_actions = ctk.CTkFrame(self.error_guide_card, fg_color="transparent")
-        guide_actions.pack(fill="x", padx=36, pady=(0, 26))
+        # Reserve the diagnostic action at the bottom first.  The guide links can
+        # then scroll in the remaining area on compact or high-DPI windows instead
+        # of compressing the footer until its labels and button disappear.
+        guide_footer = ctk.CTkFrame(
+            self.error_guide_card,
+            fg_color=UI["primary_surface"],
+            corner_radius=10,
+            height=72,
+        )
+        guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 24))
+        guide_footer.pack_propagate(False)
+        ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left", padx=(16, 0), pady=16)
+        ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(14, 8), pady=16)
+        ctk.CTkButton(guide_footer, text="导出诊断 →", width=104, height=32, command=self._export_diagnostics).pack(side="right", padx=14, pady=14)
+
+        guide_actions = ctk.CTkScrollableFrame(
+            self.error_guide_card,
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_button_color=UI["input_border"],
+            scrollbar_button_hover_color=UI["muted"],
+        )
+        guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))
         for title, detail, target in (
             ("解决方案", "按现象查看对应的处理办法", "常见问题教程"),
             ("问题记录", "查看已记录的异常与处理建议", "问题记录"),
@@ -1513,13 +1534,6 @@ class DlcHubApplication:
                 widget.bind("<Button-1>", lambda _event, target=target: self._show_page(target))
                 widget.bind("<Enter>", lambda _event, card=tool: card.configure(fg_color=UI["primary_surface"]))
                 widget.bind("<Leave>", lambda _event, card=tool: card.configure(fg_color=UI["card"]))
-        guide_footer = ctk.CTkFrame(self.error_guide_card, fg_color=UI["primary_surface"], corner_radius=10, height=72)
-        guide_footer.pack(fill="x", padx=36, pady=(0, 24))
-        guide_footer.pack_propagate(False)
-        ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left", padx=(16, 0), pady=16)
-        ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(14, 8), pady=16)
-        ctk.CTkButton(guide_footer, text="导出诊断 →", width=104, height=32, command=self._export_diagnostics).pack(side="right", padx=14, pady=14)
-
         self.guide_tutorial_card = _card(self.page_host)
         self._build_error_tutorial_page()
         self.quick_check_card = _card(self.page_host)

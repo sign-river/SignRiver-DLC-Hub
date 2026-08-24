@@ -1,3 +1,9 @@
+### 2026-08-24：修复帮助与诊断页底部诊断组件被压扁
+
+- 截图中的浅蓝条就是“仍然无法解决？/ 导出诊断”组件被父页面高度挤压后的残留。原实现把四个“其他工具”卡片和底部组件都按固定高度直接放进不可滚动的页面；在高 DPI 或较矮窗口中，最后一个组件成为被挤压对象，标签和按钮因裁切而看似消失。
+- 现已将“其他工具”区域改为占用剩余空间的可滚动列表，并优先把底部诊断组件固定在页面底部。窗口空间不足时只滚动工具卡片，诊断说明和“导出诊断 →”按钮始终完整可见。改动先完成于基线 `app/versions/0.1.0/app_entry.py`，再定向同步到活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。用户需重启客户端。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（78 项通过）、` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py`、基线/活动入口 `compileall`、`git diff --check` 通过；启动 `launcher.py` 持续 7 秒未提前退出（PID 92232，随后仅停止本次验证进程）。
+
 ### 2026-08-24：修复解决方案列表“返回指南”无响应
 
 - 根因：解决方案列表和详情页共用右上角按钮；列表状态下按钮虽然显示“返回指南”，却错误绑定到详情返回方法。该方法在列表状态只会再次显示当前列表，因而用户点击后没有视觉变化。
