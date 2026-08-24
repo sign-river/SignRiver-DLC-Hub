@@ -98,6 +98,33 @@ def test_patch_download_rejects_bundle_with_missing_sha256(app_module) -> None:
     app._on_patch_workflow_failed.assert_called_once()
 
 
+def test_patch_download_specs_accept_legacy_original_backup_role(app_module) -> None:
+    app = _app(app_module)
+    unlocker = _asset("unlocker.dll", b"unlocker")
+    backup = _asset("original.dll", b"original")
+    metadata = _asset("appinfo.json", b"{}")
+    app.patch_bundle = SimpleNamespace(
+        unlocker_dll=unlocker,
+        original_backup_dll=backup,
+        appinfo_json=metadata,
+    )
+    app.patch_task_roles = {
+        "patch:unlocker": "unlocker_dll",
+        "patch:backup": "original_backup_dll",
+        "patch:metadata": "appinfo_json",
+    }
+    app.cartridge = SimpleNamespace(
+        adapter=SimpleNamespace(descriptor=SimpleNamespace(game_id="game"))
+    )
+
+    specs = app._patch_download_specs()
+
+    assert [spec.filename for spec in specs] == [
+        "unlocker.dll", "original.dll", "appinfo.json",
+    ]
+    assert app._patch_asset_for("patch:backup") is backup
+
+
 def test_ready_patch_with_missing_cache_is_forgotten_and_requeued(
     app_module, tmp_path: Path
 ) -> None:

@@ -1,3 +1,9 @@
+### 2026-08-24：修复补丁工具旧角色兼容性
+
+- 用户点击“补丁工具”时实际触发 `KeyError: 'original_backup_dll'`。根因是活动模块 `0.2.0` 的卡带仍产生旧角色名 `original_backup_dll`，而近期补丁工具 UI 已按新角色名 `original_dll` 查找资源，造成界面回调异常；与下载是否成功无关。
+- 现已在 Git 基线和活动模块入口定向兼容旧角色：下载规格、资源查找、READY 缓存路径和后续补丁应用统一归一为 `original_dll`，但保留旧任务 ID 和旧卡带目录的可用性，未整目录覆盖活动模块。
+- 验证（2026-08-24）：`python -m ruff check app\versions\0.1.0\app_entry.py tests\test_client_problem_center.py`、`python -m pytest -q tests\test_client_problem_center.py tests\test_ui_theme.py tests\test_platform_content.py`（78 项）、基线/活动入口 `compileall`、`git diff --check` 通过；启动 `launcher.py` 持续 6 秒未提前退出（PID 94912，随后仅停止本次验证进程）。
+
 ### 2026-08-24：已知问题目标已完成（当前活动模块 0.2.0）
 
 - 已在 Git 跟踪基线 `app/versions/0.1.0/` 完成并定向同步本任务相关代码到活动模块 `app/versions/0.2.0/`：磁盘余量判断、指南缓存校验、一键排错返回导航、清除所有缓存、帮助布局、常用工具详情页、声明式只读诊断工具、安全软件检测和补丁工具。`app/state.json` 仍指向 `0.2.0`，未修改版本切换策略。

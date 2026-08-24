@@ -7187,6 +7187,11 @@ class DlcHubApplication:
 
     # ---- Patch workflow (一键解锁工具 / 一键修复 / 一键移除补丁) ------------
 
+    @staticmethod
+    def _canonical_patch_role(role: str) -> str:
+        """Accept the pre-0.2.0 backup role while using the current patch API."""
+        return "original_dll" if role == "original_backup_dll" else role
+
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
         """Materialize the complete release-side patch payload when available."""
         bundle = self.patch_bundle
@@ -7200,7 +7205,9 @@ class DlcHubApplication:
             "appinfo_json": bundle.appinfo_json,
         }
         return tuple(
-            self._download_spec_for_patch(task_id, assets_by_role[role])
+            self._download_spec_for_patch(
+                task_id, assets_by_role[self._canonical_patch_role(role)]
+            )
             for task_id, role in self.patch_task_roles.items()
         )
 
@@ -7227,9 +7234,13 @@ class DlcHubApplication:
             return None
         return {
             "unlocker_dll": self.patch_bundle.unlocker_dll,
-            "original_dll": getattr(self.patch_bundle, "original_dll", None),
+            "original_dll": getattr(
+                self.patch_bundle,
+                "original_dll",
+                getattr(self.patch_bundle, "original_backup_dll", None),
+            ),
             "appinfo_json": self.patch_bundle.appinfo_json,
-        }[role]
+        }[self._canonical_patch_role(role)]
 
     def _patch_snapshots_by_task(self) -> dict[str, object]:
         if self.download_queue is None:
@@ -7255,7 +7266,7 @@ class DlcHubApplication:
                 return None
             if snapshot.result_path is None or not snapshot.result_path.is_file():
                 return None
-            paths[role] = snapshot.result_path
+            paths[self._canonical_patch_role(role)] = snapshot.result_path
         # Extra sanity: make sure the ready cache still belongs to the latest
         # bundle we resolved.  The cache is content-addressed, so a stale
         # snapshot with a different filename means the bundle rotated.
@@ -7504,9 +7515,17 @@ class DlcHubApplication:
         bundle = self.patch_bundle
         assets_by_role = {
             "unlocker_dll": bundle.unlocker_dll,
+            "original_dll": getattr(
+                bundle,
+                "original_dll",
+                getattr(bundle, "original_backup_dll", None),
+            ),
             "appinfo_json": bundle.appinfo_json,
         }
-        task_by_role = {role: task_id for task_id, role in self.patch_task_roles.items()}
+        task_by_role = {
+            self._canonical_patch_role(role): task_id
+            for task_id, role in self.patch_task_roles.items()
+        }
 
         def fail_with_problem(
             *, code: ProblemCode, stage: str, message: str, asset=None,
