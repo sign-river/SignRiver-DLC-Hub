@@ -2133,3 +2133,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；卡带首页保留上方摘要与 4×2 操作栏，下方新增自适应“发布流程”三步说明卡，利用窗口剩余高度并明确刷新、生成、双端发布的操作顺序。
 - 发布器源码验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`；`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`git diff --check` 通过。
 - 本次不涉及客户端活动模块；未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：降低可选指南 404 启动噪声
+
+- 根因：内置指南在 `load_guide()` 中仍先尝试请求云端正文；当前 guides Release 不包含内置 asset，导致启动后台线程打印 404 traceback。活动模块为 `0.2.0`，已将修复定向同步到 `app/versions/0.2.0/signriver_app/application/guides.py`。
+- 修复：内置指南完全跳过云端正文请求；拓展指南资源缺失由 `GuideCatalogService` 记录单行 warning，其他未预期异常仍保留 traceback。新增回归测试验证内置正文不会触网。
+- 验证：`python -m pytest -q tests/test_platform_content.py tests/test_download_queue.py tests/test_helper_tools.py`（56 项通过）；Ruff、两个活动/基线模块 `py_compile`、`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启。

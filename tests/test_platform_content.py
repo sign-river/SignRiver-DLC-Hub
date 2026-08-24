@@ -406,3 +406,30 @@ def test_legacy_hub_guide_attachment_is_migrated_to_guides_release(tmp_path: Pat
         }],
     }))
     assert document.tools[0].release_tag == "guides"
+
+
+def test_builtin_guide_never_fetches_remote_detail(tmp_path: Path) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    (bootstrap / "guides_index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "guides": [{
+            "guide_id": "base", "title": "内置", "summary": "",
+            "asset_name": "guide_base.json", "platforms": ["all"],
+        }],
+    }), encoding="utf-8")
+    (bootstrap / "guide_base.json").write_text(json.dumps({
+        "guide_id": "base", "blocks": [{"kind": "text", "text": "内置正文"}],
+        "tools": [],
+    }), encoding="utf-8")
+
+    def opener(_url: str, _timeout: float) -> bytes:
+        raise AssertionError("内置指南不应访问云端正文")
+
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=bootstrap, opener=opener,
+    )
+    entry = service.refresh_index(allow_network=False)[0]
+    document = service.load_guide(entry, allow_network=True)
+
+    assert document.blocks == (("text", "内置正文"),)

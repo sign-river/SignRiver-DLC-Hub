@@ -342,11 +342,12 @@ class GuideCatalogService:
         self, entry: GuideIndexEntry, *, allow_network: bool = True
     ) -> GuideDocument:
         path = self.cache_dir / entry.asset_name
-        if allow_network:
+        # 内置指南正文随客户端发布，云端只负责拓展指南；不要为内置项
+        # 发起一次必然被拒绝的远程请求。旧版本这里会在启动时把内置
+        # asset_name 请求到 guides Release，资源不存在时刷出 404 traceback。
+        if allow_network and not entry.builtin:
             try:
                 raw_payload = self._fetch(entry.asset_name)
-                if entry.builtin:
-                    raise GuideCatalogError("内置指南不使用云端正文")
                 document = self._parse_guide_payload(entry, raw_payload, builtin=False)
             except Exception as error:
                 LOGGER.debug(
@@ -434,6 +435,16 @@ class GuideCatalogService:
         LOGGER.info("Guide resource download started: asset=%s source=%s url=%s", asset_name, self.download_source, url)
         try:
             payload = self._open(url, self.timeout)
+        except GuideCatalogError as error:
+            # 指南是可选在线内容。404 通常表示云端已经下线旧拓展，
+            # 不应把可恢复的内容缺失打印成整段 traceback。
+            LOGGER.warning(
+                "Guide resource unavailable: asset=%s url=%s detail=%s",
+                asset_name,
+                url,
+                error,
+            )
+            raise
         except Exception:
             LOGGER.exception("Guide resource download failed: asset=%s url=%s", asset_name, url)
             raise

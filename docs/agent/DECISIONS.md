@@ -657,3 +657,8 @@ Windows 构建环境安装了可选的 NumPy/MKL，`PyInstaller --collect-all PI
 - 所有未捕获的 Tkinter 回调、后台 UI 队列回调和下载 UI 更新异常统一使用 `APP-GUI-CALLBACK-FAILED` 记录；报告必须保留当前页面、操作上下文、模块版本、平台和 traceback，但记录入口自身不得再次抛出。补丁工具上下文中的缺失键应给出“补丁工具数据不完整”的用户摘要，并跳转到补丁资源指南；其他 GUI 异常跳转应用基础指南。
 - 瞬态网络失败不按“每次异常一个问题”处理。对于用户操作导致功能不可用的 DLC 目录刷新，按资源键连续计数：前两次只日志/页面提示，第三次才以既有 `NET-*` 稳定码写入，并依赖 `ProblemStore` 指纹合并；一次成功刷新会清除计数并解决同资源键的开放记录。拥有本地/出厂缓存且成功回退的远程索引失败仅保留日志，不生成问题。
 - 网络分类需要把常见 OpenSSL EOF 文本（`UNEXPECTED_EOF_WHILE_READING`、`EOF occurred in violation of protocol`）归为 `NET-TLS`，并固定映射至现有 `network-basics` 指南，避免用户拿到无法跳转的稳定问题码。
+
+## 2026-08-25：内置指南不得触发云端正文请求
+
+- 内置指南正文随客户端模块发布，云端 `guides` Release 只承载拓展指南；`GuideCatalogService.load_guide()` 必须在 `entry.builtin` 时跳过网络请求，避免因云端不存在同名 asset 产生启动 404。
+- 拓展指南的资源下线属于可恢复内容缺失，记录简洁 warning 并继续使用缓存/内置兜底；未知异常保留 traceback 以便诊断。不得让可选指南刷新阻断客户端启动。
