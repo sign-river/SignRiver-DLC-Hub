@@ -160,6 +160,14 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'command=self._return_from_solution_detail' in source
     assert 'text="← 回到一键排错"' in source
     assert 'text="← 返回解决方案"' in source
+    assert 'text="可以关闭 Windows Defender"' in source
+    assert 'text="查看教程"' in source
+    assert 'return "下载工具"' in source
+    assert 'return "暂停下载"' in source
+    assert 'return "删除下载"' in source
+    assert 'else "启动工具"' in source
+    assert 'text="← 返回安全软件检测"' in source
+    assert 'origin="security_products"' in source
     log_layout = source.split('self.log_card = _card(self.page_host)', 1)[1].split(
         'self.log_preview = ctk.CTkTextbox(', 1
     )[0]

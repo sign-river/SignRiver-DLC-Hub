@@ -117,6 +117,10 @@ def _collect(source_dir: Path) -> tuple[GuideResourceSummary, tuple[Path, ...]]:
             raw_attachment = tool.get("asset_name")
             if raw_attachment in {None, ""}:
                 continue
+            release_tag = str(tool.get("release_tag") or "hub").strip().lower()
+            if release_tag != "hub":
+                # tools/other Release assets are published separately.
+                continue
             attachment_name = _flat_name(raw_attachment, "工具 asset_name")
             if attachment_name.casefold() in output_names:
                 raise GuideExportError(f"指南资源文件名重复：{attachment_name}")

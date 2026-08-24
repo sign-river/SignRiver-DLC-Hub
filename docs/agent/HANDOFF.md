@@ -1,3 +1,14 @@
+## 2026-08-24：关闭 Windows Defender 教程与 helper 工具流程
+
+- 当前目标：在「常用工具 → 安全软件检测」增加可关闭 Windows Defender 的提示横条，跳转到解决方案「关闭 Windows Defender 教程」；教程标题下提供 helper 工具的下载/取消/删除/启动按钮。程序本身不自动关闭防护。
+- 活动版本：`app/state.json` 的 `active_version` 为 `0.2.0`。本轮先改 Git 跟踪基线 `app/versions/0.1.0/`，再定向同步到被忽略的 `app/versions/0.2.0/`，未修改 `app/state.json`，未整目录覆盖。
+- 对齐方式：定向同步 `app_entry.py`、`signriver_app/application/helper_tools.py`、`guides.py`、`application/__init__.py`。出厂指南在仓库根 `config/guides/`，两版本共用。
+- 已完成：新增 `HelperToolsService`（`data/helper-tools/{tool_id}/`）；`GuideTool` 增加 `release_tag`/`package_kind`/`launch_action`/`executable_name`/`run_as_admin`；出厂指南 `close-windows-defender` + `dcontrol`；发布器跳过 `release_tag != hub` 的附件；后续 AI 模板 `docs/agent/helper-tool-solution-template.md`。
+- 下载源：GitLink `.../releases/download/tools/dControl.zip`，GitHub 对应同名附件。下载中按钮为「暂停下载」（立即取消，无断点续传）；成功后为「删除下载」（确认后删目录）。`run_as_admin=true` 时 Windows 用 `runas` 启动。
+- 验证（2026-08-24）：`pytest -q tests/test_helper_tools.py tests/test_platform_content.py tests/test_publisher_guides.py tests/test_ui_theme.py tests/test_client_problem_center.py` 通过；相关 Ruff 通过；`compileall` 覆盖 `0.1.0` 与 `0.2.0` 通过。未启动 GUI、未构建发布包、未上传、未推送。
+- 用户必须重启当前客户端后才能在 `0.2.0` 界面看到横条和教程。本地同步不等于已发布。
+- 下一步：用户填写教程正文；需要正式发布时再按发布流程构建新版本。不要把 helper zip 打进 hub。
+
 ### 2026-08-24：问题中心补齐 GUI 回调异常与低噪声网络失败闭环
 
 - 目标：不再让未捕获的 Tkinter GUI 回调只打印控制台 traceback；同时避免网络短暂抖动把“问题记录”刷满。

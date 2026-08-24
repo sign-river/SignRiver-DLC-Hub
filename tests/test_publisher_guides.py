@@ -79,3 +79,48 @@ def test_workspace_hub_assets_include_configured_guides(tmp_path: Path) -> None:
     assert {asset.name for asset in assets}.issuperset({
         "guides_index.json", "guide_network.json", "guide_network_note.txt",
     })
+
+
+def test_export_hub_guides_skips_tools_release_attachments(tmp_path: Path) -> None:
+    source = tmp_path / "guides"
+    output = tmp_path / "hub"
+    source.mkdir()
+    (source / "guides_index.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "guides": [{
+                "guide_id": "close-windows-defender",
+                "title": "关闭 Windows Defender 教程",
+                "summary": "说明",
+                "asset_name": "guide_close_windows_defender.json",
+                "platforms": ["windows"],
+            }],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (source / "guide_close_windows_defender.json").write_text(
+        json.dumps({
+            "guide_id": "close-windows-defender",
+            "blocks": [{"kind": "text", "text": "占位"}],
+            "tools": [{
+                "tool_id": "dcontrol",
+                "title": "dControl",
+                "asset_name": "dControl.zip",
+                "release_tag": "tools",
+                "package_kind": "zip",
+                "launch_action": "exe",
+                "executable_name": "dControl.exe",
+                "run_as_admin": True,
+                "platforms": ["windows"],
+            }],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    written = export_hub_guides(source, output)
+
+    assert {path.name for path in written} == {
+        "guides_index.json", "guide_close_windows_defender.json",
+    }
+    assert inspect_hub_guides(source).status_text == "已发现 1 篇文章、0 个附件"
+    assert not (output / "dControl.zip").exists()

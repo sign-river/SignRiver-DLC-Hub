@@ -81,6 +81,11 @@ class GuideTool:
     quick_check_success: str = ""
     quick_check_problem_guide: str = ""
     quick_check_timeout_seconds: int = 30
+    release_tag: str = "hub"
+    package_kind: str = "file"
+    launch_action: str = "legacy"
+    executable_name: str = ""
+    run_as_admin: bool = False
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "GuideTool":
@@ -114,6 +119,24 @@ class GuideTool:
         if raw_asset_name and asset_name != raw_asset_name:
             raise ValueError("guide tool asset_name must be a flat filename")
         filename = Path(str(value.get("filename") or "")).name
+        release_tag = str(value.get("release_tag") or "hub").strip().lower()
+        if not _SAFE_ID.fullmatch(release_tag):
+            raise ValueError("guide tool release_tag must be a lowercase id")
+        package_kind = str(value.get("package_kind") or "file").strip().lower()
+        if package_kind not in {"file", "zip"}:
+            raise ValueError("unsupported guide tool package_kind")
+        launch_action = str(value.get("launch_action") or "legacy").strip().lower()
+        if launch_action not in {"legacy", "exe", "open_folder"}:
+            raise ValueError("unsupported guide tool launch_action")
+        raw_executable = str(value.get("executable_name") or "").strip()
+        executable_name = Path(raw_executable).name
+        if raw_executable and executable_name != raw_executable:
+            raise ValueError("guide tool executable_name must be a flat filename")
+        if launch_action == "exe" and not executable_name:
+            raise ValueError("exe helper tools must declare executable_name")
+        raw_admin = value.get("run_as_admin", False)
+        if not isinstance(raw_admin, bool):
+            raise ValueError("guide tool run_as_admin must be a boolean")
         return cls(
             tool_id=_id(value.get("tool_id"), "tool_id"),
             title=str(value.get("title") or "").strip(),
@@ -128,7 +151,15 @@ class GuideTool:
             quick_check_success=str(value.get("quick_check_success") or "").strip(),
             quick_check_problem_guide=problem_guide,
             quick_check_timeout_seconds=timeout_seconds,
+            release_tag=release_tag,
+            package_kind=package_kind,
+            launch_action=launch_action,
+            executable_name=executable_name,
+            run_as_admin=raw_admin,
         )
+
+    def is_helper_tool(self) -> bool:
+        return self.launch_action in {"exe", "open_folder"}
 
     def applies_to(self, platform: str) -> bool:
         normalized = platform.split("-", 1)[0]
@@ -314,7 +345,7 @@ class GuideCatalogService:
             raise GuideCatalogError("工具必须提供文件名")
         if tool.asset_name:
             url = fixed_release_asset_url(
-                self.download_source, "hub", tool.asset_name
+                self.download_source, tool.release_tag, tool.asset_name
             )
         else:
             parsed = urlparse(tool.download_url)

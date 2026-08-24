@@ -1,0 +1,37 @@
+{
+  "guide_id": "close-windows-defender",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "正文占位（后续替换）"
+    },
+    {
+      "kind": "text",
+      "text": "这里填写关闭 Windows Defender 的具体步骤。当前仅为后续内容模板：先说明适用系统与风险，再按顺序写出操作，并提醒完成后按需恢复防护。"
+    },
+    {
+      "kind": "heading",
+      "text": "注意事项"
+    },
+    {
+      "kind": "text",
+      "text": "本程序不会自动关闭 Windows Defender。请仅在理解风险后，按教程自行操作，或使用标题下方按钮下载/启动辅助工具。"
+    }
+  ],
+  "tools": [
+    {
+      "tool_id": "dcontrol",
+      "title": "dControl",
+      "description": "用于按教程临时关闭 Windows Defender 的辅助工具。",
+      "asset_name": "dControl.zip",
+      "release_tag": "tools",
+      "package_kind": "zip",
+      "launch_action": "exe",
+      "executable_name": "dControl.exe",
+      "run_as_admin": true,
+      "platforms": [
+        "windows"
+      ]
+    }
+  ]
+}

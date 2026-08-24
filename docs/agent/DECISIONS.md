@@ -2,6 +2,15 @@
 
 本文件只记录会影响后续任务的方案选择、原因和已放弃路线。临时进度写入 `HANDOFF.md`，操作细节写入对应专题文档。
 
+## 2026-08-24：解决方案辅助工具走独立 tools Release，不走 hub 附件
+
+- 教程需要的可执行辅助工具（如 dControl）存放在双源 `signriver-dlc-assets` 的 `tools` Release，本机解压到 `data/helper-tools/{tool_id}/`。
+- `GuideTool.release_tag=tools` 的附件不得进入 hub 打包；发布器导出指南时跳过这些 asset。旧的指南附件流程（`guides/cache/tools` +「下载附件」）只留给 `launch_action=legacy`。
+- 界面约定：解决方案详情标题下先放 helper 按钮。下载三态为「下载工具 / 暂停下载 / 删除下载」；暂停即取消本次下载，不做断点续传。启动动作为 `exe` 或 `open_folder`；需管理员时仅 Windows 触发 UAC。
+- 程序不得自动关闭 Windows Defender 或改安全设置；横条只提示并跳转教程。
+- 后续同类教程复用 `docs/agent/helper-tool-solution-template.md` 与 `HelperToolsService`，不要平行再写一套下载器。
+- 当前客户端可见性取决于 `app/state.json` 的 `active_version`；只改 `0.1.0` 基线不能声称 GUI 已生效。
+
 ## 2026-08-21：发布记录持久化必须串行化并容忍 Windows 短暂占用
 
 - 上传进度回调会高频保存 `ReleasePlan`，同时界面会轮询读取同一批次。`ReleaseStore` 必须在同一实例内用可重入锁覆盖完整的多文档保存与加载，避免 Windows 读取句柄阻止 `os.replace()`，也避免读到同一批次不同代次的 JSON 组合。

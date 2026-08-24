@@ -309,3 +309,27 @@ def test_mismatched_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) 
 
     assert document.entry.guide_id == "network-basics"
     assert document.blocks
+
+
+def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -> None:
+    service = GuideCatalogService(
+        Path("unused-cache"), bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entries = service.refresh_index(allow_network=False)
+    ids = [entry.guide_id for entry in entries]
+    assert "close-windows-defender" in ids
+    assert "security-interference" in ids
+    entry = next(item for item in entries if item.guide_id == "close-windows-defender")
+    document = service.load_guide(entry, allow_network=False)
+    assert document.entry.title == "关闭 Windows Defender 教程"
+    assert document.tools
+    tool = document.tools[0]
+    assert tool.tool_id == "dcontrol"
+    assert tool.release_tag == "tools"
+    assert tool.package_kind == "zip"
+    assert tool.launch_action == "exe"
+    assert tool.executable_name == "dControl.exe"
+    assert tool.run_as_admin
+    assert tool.is_helper_tool()
+    assert tool.applies_to("windows")
+    assert not tool.applies_to("steamos")

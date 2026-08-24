@@ -56,6 +56,15 @@
       ]
     },
     {
+      "guide_id": "close-windows-defender",
+      "title": "关闭 Windows Defender 教程",
+      "summary": "按步骤临时关闭 Windows Defender；本程序不会自动关闭防护。",
+      "asset_name": "guide_close_windows_defender.json",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "guide_id": "update-module-basics",
       "title": "程序更新或模块加载异常",
       "summary": "重试更新、检查下载源，并查看问题记录中的具体阶段。",

@@ -39,6 +39,8 @@ from .signriver_app.application import (
     GuideCatalogError,
     GuideCatalogService,
     GuideTool,
+    HelperToolCancelled,
+    HelperToolsService,
     OriginalStateRestoreService,
     RestoreOriginalError,
 )
@@ -360,6 +362,12 @@ class DlcHubApplication:
             download_source="gitlink",
             platform=self.host_platform,
         )
+        self.helper_tools = HelperToolsService(
+            self.context.paths.data / "helper-tools",
+            download_source="gitlink",
+        )
+        self._helper_download_cancels: dict[str, threading.Event] = {}
+        self._current_solution_article_id: str | None = None
         self.current_announcement: Announcement | None = None
         self.announcement_dialog = None
         # The searchable game picker is created only while the selector is open,
@@ -533,6 +541,12 @@ class DlcHubApplication:
                 self.announcement_service.set_download_source(
                     self.user_settings.download_source
                 )
+                self.guide_catalog.set_download_source(
+                    self.user_settings.download_source
+                )
+                self.helper_tools.set_download_source(
+                    self.user_settings.download_source
+                )
                 loaded = self.cartridge_catalog.load_default_cartridge(
                     allow_network=False
                 )
@@ -542,6 +556,14 @@ class DlcHubApplication:
                 != self.announcement_service.download_source
             ):
                 self.announcement_service.set_download_source(
+                    self.user_settings.download_source
+                )
+            if self.user_settings.download_source != self.guide_catalog.download_source:
+                self.guide_catalog.set_download_source(
+                    self.user_settings.download_source
+                )
+            if self.user_settings.download_source != self.helper_tools.download_source:
+                self.helper_tools.set_download_source(
                     self.user_settings.download_source
                 )
             self.context.updates.set_download_source(
@@ -2432,7 +2454,9 @@ class DlcHubApplication:
         self.solution_detail_origin = "list"
         # 指南正文由出厂目录提供，远程 hub 使用相同 guide_id 覆盖更新。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
-        self._load_remote_solution_articles(allow_network=False)
+        self.solution_articles.update(
+            self._load_remote_solution_articles(allow_network=False)
+        )
         solution_search_bar = ctk.CTkFrame(
             self.guide_tutorial_card, fg_color="transparent"
         )
@@ -2766,6 +2790,11 @@ class DlcHubApplication:
             justify="left",
             wraplength=720,
         ).pack(fill="x", padx=16, pady=(16, 12))
+        if tool.is_helper_tool():
+            actions = ctk.CTkFrame(body, fg_color="transparent")
+            actions.pack(fill="x", padx=16, pady=(0, 14))
+            self._pack_helper_tool_actions(actions, tool, origin="tool_center")
+            return
         target = self._guide_tool_cache_path(tool)
         status = (
             "已下载，可在本程序中运行。"
@@ -2986,7 +3015,6 @@ class DlcHubApplication:
                 text_color=UI["text_secondary"],
                 anchor="w",
             ).pack(fill="x", padx=16, pady=14)
-            return
         for product in products:
             row = ctk.CTkFrame(
                 body,
@@ -3014,6 +3042,42 @@ class DlcHubApplication:
                 state="normal" if can_open else "disabled",
                 command=lambda item=product: self._open_security_product(item),
             ).pack(side="right", padx=12, pady=8)
+        self._pack_close_windows_defender_banner(body)
+
+    def _pack_close_windows_defender_banner(self, body) -> None:
+        banner = ctk.CTkFrame(
+            body,
+            fg_color=UI["primary_surface"],
+            border_width=1,
+            border_color=UI["primary_border"],
+            corner_radius=8,
+        )
+        banner.pack(fill="x", padx=16, pady=(12, 16))
+        text_col = ctk.CTkFrame(banner, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True, padx=14, pady=10)
+        ctk.CTkLabel(
+            text_col,
+            text="可以关闭 Windows Defender",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(fill="x")
+        ctk.CTkLabel(
+            text_col,
+            text="本程序不会自动关闭防护。如需临时关闭，请查看教程后再自行操作。",
+            text_color=UI["text_secondary"],
+            anchor="w",
+            justify="left",
+            wraplength=560,
+        ).pack(fill="x", pady=(2, 0))
+        ctk.CTkButton(
+            banner,
+            text="查看教程",
+            width=104,
+            command=lambda: self._open_solution_article(
+                "close-windows-defender", origin="security_products"
+            ),
+        ).pack(side="right", padx=12, pady=10)
 
     def _open_security_product(self, product) -> None:
         if is_windows_security_product(product):
@@ -3112,10 +3176,23 @@ class DlcHubApplication:
         if article is None:
             return
         title, summary, blocks = article
+        self._current_solution_article_id = article_id
         for child in self.solution_detail_body.winfo_children():
             child.destroy()
         self.solution_detail_images = []
         ctk.CTkLabel(self.solution_detail_body, text=title, text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold"), anchor="w").pack(fill="x", pady=(8, 6))
+        helper_tools = [
+            values[0]
+            for kind, *values in blocks
+            if kind == "tool" and isinstance(values[0], GuideTool) and values[0].is_helper_tool()
+        ]
+        if helper_tools:
+            actions = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
+            actions.pack(fill="x", pady=(0, 14))
+            for tool in helper_tools:
+                self._pack_helper_tool_actions(
+                    actions, tool, origin="solution", article_id=article_id
+                )
         ctk.CTkLabel(self.solution_detail_body, text=summary, text_color=UI["text_secondary"], anchor="w").pack(fill="x", pady=(0, 18))
         for kind, *values in blocks:
             if kind == "heading":
@@ -3133,6 +3210,8 @@ class DlcHubApplication:
                 ctk.CTkButton(self.solution_detail_body, text=values[0], width=132, command=lambda target=values[1]: self._show_page(target)).pack(anchor="w", pady=(0, 16))
             elif kind == "tool":
                 tool = values[0]
+                if isinstance(tool, GuideTool) and tool.is_helper_tool():
+                    continue
                 ctk.CTkButton(
                     self.solution_detail_body,
                     text=f"下载附件：{tool.title}",
@@ -3153,6 +3232,8 @@ class DlcHubApplication:
                 ).pack(anchor="w", pady=(0, 10))
         if self.solution_detail_origin == "quick_check":
             self.solution_detail_back_button.configure(text="← 回到一键排错")
+        elif self.solution_detail_origin == "security_products":
+            self.solution_detail_back_button.configure(text="← 返回安全软件检测")
         else:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_page.update_idletasks()
@@ -3470,15 +3551,179 @@ class DlcHubApplication:
         self._show_page("常用工具")
         self._show_guide_tool_detail(tool)
 
-    def _open_solution_article(self, article_id: str) -> None:
-        self.solution_detail_origin = "quick_check"
+
+    def _helper_download_label(self, tool: GuideTool) -> str:
+        if tool.tool_id in self._helper_download_cancels:
+            return "暂停下载"
+        if self.helper_tools.is_installed(tool):
+            return "删除下载"
+        return "下载工具"
+
+    def _pack_helper_tool_actions(
+        self,
+        parent,
+        tool: GuideTool,
+        *,
+        origin: str,
+        article_id: str | None = None,
+    ) -> None:
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 8))
+        downloading = tool.tool_id in self._helper_download_cancels
+        installed = self.helper_tools.is_installed(tool)
+        download_button = ctk.CTkButton(
+            row,
+            text=self._helper_download_label(tool),
+            width=112,
+            command=lambda selected=tool: self._on_helper_tool_download_clicked(
+                selected, origin=origin, article_id=article_id
+            ),
+        )
+        download_button.pack(side="left")
+        launch_text = "打开工具文件夹" if tool.launch_action == "open_folder" else "启动工具"
+        launch_button = ctk.CTkButton(
+            row,
+            text=launch_text,
+            width=128,
+            state="normal" if installed and not downloading else "disabled",
+            command=lambda selected=tool: self._launch_helper_tool(selected),
+        )
+        launch_button.pack(side="left", padx=(8, 0))
+
+    def _refresh_helper_tool_view(
+        self, tool: GuideTool, *, origin: str, article_id: str | None
+    ) -> None:
+        if origin == "solution" and article_id and self._current_solution_article_id == article_id:
+            self._show_solution_detail(article_id)
+            return
+        if origin == "tool_center":
+            self._show_guide_tool_detail(tool)
+
+    def _on_helper_tool_download_clicked(
+        self,
+        tool: GuideTool,
+        *,
+        origin: str,
+        article_id: str | None = None,
+    ) -> None:
+        cancel = self._helper_download_cancels.get(tool.tool_id)
+        if cancel is not None:
+            cancel.set()
+            return
+        if self.helper_tools.is_installed(tool):
+            if not messagebox.askyesno(
+                "删除下载",
+                f"确定删除已下载的 {tool.title} 吗？删除后需要重新下载才能启动。",
+                parent=self.window,
+            ):
+                return
+            try:
+                self.helper_tools.delete(tool.tool_id)
+            except OSError as error:
+                self._notify(f"删除工具失败：{error}", error=True)
+                return
+            self._notify(f"已删除 {tool.title}")
+            self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
+            return
+        cancel = threading.Event()
+        self._helper_download_cancels[tool.tool_id] = cancel
+        self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
+
+        def worker() -> None:
+            try:
+                self.helper_tools.download(tool, cancel)
+            except HelperToolCancelled:
+                self._post_ui(lambda: self._notify(f"已取消 {tool.title} 下载"))
+            except Exception as error:
+                self.context.logger.exception("Helper tool download failed: %s", tool.tool_id)
+                message = str(error)
+                self._post_ui(
+                    lambda value=message: self._notify(
+                        f"工具下载失败：{value}", error=True
+                    )
+                )
+            else:
+                self._post_ui(lambda: self._notify(f"{tool.title} 已下载"))
+            finally:
+                self._post_ui(
+                    lambda: self._finish_helper_tool_download(
+                        tool, origin=origin, article_id=article_id
+                    )
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_helper_tool_download(
+        self,
+        tool: GuideTool,
+        *,
+        origin: str,
+        article_id: str | None,
+    ) -> None:
+        self._helper_download_cancels.pop(tool.tool_id, None)
+        self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
+
+    def _launch_helper_tool(self, tool: GuideTool) -> None:
+        if not self.helper_tools.is_installed(tool):
+            self._notify("请先下载工具。", error=True)
+            return
+        folder = self.helper_tools.tool_dir(tool.tool_id)
+        if tool.launch_action == "open_folder":
+            self._open_path(folder)
+            return
+        executable = self.helper_tools.find_executable(tool)
+        if executable is None:
+            self._notify("未找到可执行文件，已打开工具文件夹。", error=True)
+            self._open_path(folder)
+            return
+        try:
+            self._start_helper_executable(executable, run_as_admin=tool.run_as_admin)
+        except Exception as error:
+            self.context.logger.exception("Helper tool launch failed: %s", tool.tool_id)
+            self._notify(f"启动工具失败：{error}", error=True)
+
+    def _start_helper_executable(self, path: Path, *, run_as_admin: bool) -> None:
+        if os.name == "nt" and run_as_admin:
+            import ctypes
+
+            status = int(
+                ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", str(path), None, str(path.parent), 1
+                )
+            )
+            if status <= 32:
+                raise OSError(f"无法以管理员身份启动（状态 {status}）")
+            return
+        if os.name == "nt":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+            return
+        if self.host_platform.startswith("macos"):
+            subprocess.Popen(["open", str(path)])
+            return
+        subprocess.Popen([str(path)])
+
+    def _open_solution_article(self, article_id: str, *, origin: str = "quick_check") -> None:
+        if article_id not in self.solution_articles:
+            self.solution_articles.update(
+                self._load_remote_solution_articles(allow_network=False)
+            )
+        if article_id not in self.solution_articles:
+            self._notify("未找到对应教程，请稍后重试或检查下载源。", error=True)
+            return
+        self.solution_detail_origin = origin
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
     def _return_from_solution_detail(self) -> None:
-        if self.solution_detail_origin == "quick_check":
-            self.solution_detail_origin = "list"
+        origin = self.solution_detail_origin
+        self.solution_detail_origin = "list"
+        self._current_solution_article_id = None
+        if origin == "quick_check":
             self._show_page("简单错误检测")
+            return
+        if origin == "security_products":
+            self._show_page("常用工具")
+            self._show_security_products()
             return
         self._show_solution_list()
 
@@ -4201,6 +4446,8 @@ class DlcHubApplication:
         self.context.updates.set_download_source(selected)
         self.cartridge_catalog.set_download_source(selected)
         self.announcement_service.set_download_source(selected)
+        self.guide_catalog.set_download_source(selected)
+        self.helper_tools.set_download_source(selected)
         self.cartridges.clear()
         self.catalog_preview.configure(
             text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
@@ -4278,6 +4525,8 @@ class DlcHubApplication:
         self.context.updates.set_download_source(previous.download_source)
         self.cartridge_catalog.set_download_source(previous.download_source)
         self.announcement_service.set_download_source(previous.download_source)
+        self.guide_catalog.set_download_source(previous.download_source)
+        self.helper_tools.set_download_source(previous.download_source)
         self.download_source_menu.set(
             provider_display_name(previous.download_source)
         )
