@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -320,6 +320,15 @@ class GuideCatalogService:
                 if isinstance(item, dict)
             )
             if tool.applies_to(self.platform)
+        )
+        # Migrate guide attachments produced before the dedicated guides
+        # Release existed.  This keeps old cached details from requesting the
+        # removed hub/<asset> URL.
+        tools = tuple(
+            replace(tool, release_tag=GUIDES_RELEASE_TAG)
+            if tool.release_tag == "hub" and not tool.is_helper_tool()
+            else tool
+            for tool in tools
         )
         if builtin:
             self._builtin_tool_ids.update(tool.tool_id for tool in tools)

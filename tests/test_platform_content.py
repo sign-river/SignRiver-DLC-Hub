@@ -388,3 +388,21 @@ def test_guides_catalog_uses_dedicated_release_tag(tmp_path: Path) -> None:
     service.refresh_index(allow_network=True)
 
     assert seen and "/releases/download/guides/guides_index.json" in seen[0]
+
+
+def test_legacy_hub_guide_attachment_is_migrated_to_guides_release(tmp_path: Path) -> None:
+    service = GuideCatalogService(tmp_path / "cache", platform="windows", opener=object())
+    entry = service._parse_index_payload(json.dumps({
+        "schema_version": 1,
+        "guides": [{
+            "guide_id": "legacy-guide", "title": "旧指南", "summary": "",
+            "asset_name": "guide_legacy.json", "platforms": ["all"],
+        }],
+    }))[0]
+    document = service._parse_guide_payload(entry, json.dumps({
+        "guide_id": "legacy-guide", "blocks": [], "tools": [{
+            "tool_id": "legacy-note", "title": "旧附件", "asset_name": "legacy.txt",
+            "release_tag": "hub", "platforms": ["all"],
+        }],
+    }))
+    assert document.tools[0].release_tag == "guides"
