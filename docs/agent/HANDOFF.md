@@ -1,3 +1,11 @@
+## 2026-08-25：卡带与公告、指南发布改为纵向两层
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；撤销左右双列操作区，改为上下两个业务层：上层“卡带与公告”，下层“指南发布”。
+- “一键双端发布卡带”、发布说明、等待状态、进度条和暂停按钮全部收回“卡带与公告”层，明确其只负责 hub 卡带/公告发布；指南层仅保留“ 双端发布指南”和“打开指南目录”。
+- 未增删现有业务控件或改变发布逻辑，仅调整容器层级与 Grid 排版。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、Ruff、`git diff --check` 通过。未启动发布器 GUI，未构建、未上传、未推送。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：卡带公告与指南发布分层
 
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；将操作区从“卡带管理 / 指南与公告”调整为“卡带与公告 / 指南发布”两层。公告管理按钮归入卡带层，因为公告随 hub 卡带主表发布；指南层仅保留指南双端发布和指南目录入口。
