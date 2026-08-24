@@ -151,6 +151,10 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert '("解决方案", "按现象查看对应的处理办法", "常见问题教程")' in source
     assert '("运行日志", "查看详细运行信息", "运行日志")' in source
     assert 'text="返回指南"' in source
+    assert 'def _return_to_guide_from_solution_list' in source
+    assert 'self._show_page("报错指南")' in _app_method_source("_return_to_guide_from_solution_list")
+    assert 'text="返回解决方案", command=self._show_solution_list' in source
+    assert 'text="回到一键排错", command=self._return_from_solution_detail' in source
 
 
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:

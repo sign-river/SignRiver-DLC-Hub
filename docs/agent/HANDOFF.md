@@ -1,3 +1,9 @@
+### 2026-08-24：修复解决方案列表“返回指南”无响应
+
+- 根因：解决方案列表和详情页共用右上角按钮；列表状态下按钮虽然显示“返回指南”，却错误绑定到详情返回方法。该方法在列表状态只会再次显示当前列表，因而用户点击后没有视觉变化。
+- 已在 Git 跟踪基线 `app/versions/0.1.0/app_entry.py` 修复，并定向同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖活动模块。列表状态的“返回指南”现在回到“报错指南”；普通详情状态显示“返回解决方案”并回到列表；从一键排错进入详情仍显示“回到一键排错”，并保留原有回跳行为。用户需重启客户端后加载本地同步的活动模块。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（78 项通过）、` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py`、基线/活动入口 `compileall` 和 `git diff --check` 通过；启动 `launcher.py` 持续 7 秒未提前退出（PID 75144，随后仅停止本次验证进程）。
+
 ### 2026-08-24：常用工具详情统一为页面内子界面
 
 - 用户要求“常用工具 → 查看详情”采用与解决方案详情相同的页面内子界面，而非在工具列表中展开或弹出独立系统窗口。常用工具现在拥有列表页和详情子页；详情页顶部提供“← 返回常用工具”。

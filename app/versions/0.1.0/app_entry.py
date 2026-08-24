@@ -2410,7 +2410,7 @@ class DlcHubApplication:
         ).pack(side="left")
         self.solution_back_button = ctk.CTkButton(
             header, text="返回指南", width=112,
-            command=self._return_from_solution_detail,
+            command=self._return_to_guide_from_solution_list,
         )
         self.solution_back_button.pack(side="right")
         self.solution_detail_origin = "list"
@@ -3115,7 +3115,7 @@ class DlcHubApplication:
             )
         else:
             self.solution_back_button.configure(
-                text="返回指南", command=self._return_from_solution_detail
+                text="返回解决方案", command=self._show_solution_list
             )
         self.solution_detail_page.update_idletasks()
         self.solution_list.pack_forget()
@@ -3124,7 +3124,7 @@ class DlcHubApplication:
     def _show_solution_list(self) -> None:
         self.solution_detail_origin = "list"
         self.solution_back_button.configure(
-            text="返回指南", command=self._return_from_solution_detail
+            text="返回指南", command=self._return_to_guide_from_solution_list
         )
         self.solution_detail_page.pack_forget()
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
@@ -3390,11 +3390,14 @@ class DlcHubApplication:
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
+    def _return_to_guide_from_solution_list(self) -> None:
+        self._show_page("报错指南")
+
     def _return_from_solution_detail(self) -> None:
         if self.solution_detail_origin == "quick_check":
             self.solution_detail_origin = "list"
             self.solution_back_button.configure(
-                text="返回指南", command=self._return_from_solution_detail
+                text="返回指南", command=self._return_to_guide_from_solution_list
             )
             self._show_page("简单错误检测")
             return
