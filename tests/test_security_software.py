@@ -39,3 +39,11 @@ def test_discover_security_products_returns_empty_on_bad_output() -> None:
         return SimpleNamespace(returncode=0, stdout="not-json")
 
     assert security.discover_security_products(runner=runner) == ()
+
+
+def test_windows_security_product_detection_only_allows_fixed_system_names() -> None:
+    assert security.is_windows_security_product("Windows Defender")
+    assert security.is_windows_security_product("Microsoft Defender Antivirus")
+    assert security.is_windows_security_product("Windows Security")
+    assert not security.is_windows_security_product("Huorong")
+    assert not security.is_windows_security_product("Defender Helper")

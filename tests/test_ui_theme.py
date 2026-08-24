@@ -196,6 +196,8 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'def _quick_check_security_products' in source
     assert 'text="打开文件"' in source
     assert 'def _open_file(self, path: Path)' in source
+    assert 'is_windows_security_product(product)' in source
+    assert 'webbrowser.open(WINDOWS_SECURITY_URI)' in source
 
 
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:

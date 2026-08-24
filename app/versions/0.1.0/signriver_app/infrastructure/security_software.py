@@ -13,6 +13,15 @@ class SecurityProduct:
     executable: Path | None = None
 
 
+def is_windows_security_product(product: SecurityProduct | str) -> bool:
+    """Whether a product may safely use the fixed Windows Security URI fallback."""
+    name = product.name if isinstance(product, SecurityProduct) else str(product)
+    normalized = " ".join(name.casefold().split())
+    return any(token in normalized for token in (
+        "windows defender", "microsoft defender", "windows security",
+    ))
+
+
 _POWER_SHELL = (
     "Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct "
     "| Select-Object displayName,pathToSignedProductExe "
@@ -51,4 +60,4 @@ def discover_security_products(*, runner=subprocess.run) -> tuple[SecurityProduc
     return tuple(products)
 
 
-__all__ = ["SecurityProduct", "discover_security_products"]
+__all__ = ["SecurityProduct", "discover_security_products", "is_windows_security_product"]

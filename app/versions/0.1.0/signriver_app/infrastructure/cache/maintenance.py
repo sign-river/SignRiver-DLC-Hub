@@ -167,14 +167,41 @@ class CacheMaintenance:
         )
 
     def execute(self, plan: CacheCleanupPlan) -> None:
+        prune_roots: list[Path] = []
         for path in plan.paths:
             resolved = Path(path).resolve(strict=False)
             if not self._is_within(resolved, self.cache_root) or resolved == self.cache_root:
                 raise ValueError("cleanup path escaped cache root")
+            prune_roots.append(resolved.parent)
             if resolved.is_dir():
                 shutil.rmtree(resolved)
             else:
                 resolved.unlink(missing_ok=True)
+        for root in prune_roots:
+            self._prune_empty_owned_ancestors(root)
+
+    def _prune_empty_owned_ancestors(self, path: Path) -> None:
+        """Remove now-empty child folders, never cache namespaces or other data."""
+        current = Path(path)
+        while current != self.cache_root and self._is_within(current, self.cache_root):
+            try:
+                relative = current.relative_to(self.cache_root)
+            except ValueError:
+                return
+            # Only clean descendants of namespaces owned by this class.  Keep
+            # downloads/packages/quarantine themselves so normal runtime code
+            # can recreate files without needing to rebuild its root layout.
+            if len(relative.parts) <= 1 or relative.parts[0] not in {
+                "downloads", "packages", "quarantine",
+            }:
+                return
+            try:
+                if current.is_symlink():
+                    return
+                current.rmdir()
+            except OSError:
+                return
+            current = current.parent
 
     @staticmethod
     def _files_in(root: Path) -> list[Path]:
