@@ -2134,6 +2134,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 发布器源码验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`；`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`git diff --check` 通过。
 - 本次不涉及客户端活动模块；未启动 GUI、未构建、未上传、未推送。
 
+## 2026-08-25：按反馈释放卡带操作按钮
+
+- 修正上一版布局方向：移除首页新增的“发布流程”卡片，将卡带摘要、4×2 操作按钮和发布进度改为上下全宽排列，按钮不再被限制在右侧窄栏。
+- 验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、相关发布器/UI 测试与 `git diff --check` 已执行；未启动 GUI、未构建、未上传、未推送。
+
 ## 2026-08-25：降低可选指南 404 启动噪声
 
 - 根因：内置指南在 `load_guide()` 中仍先尝试请求云端正文；当前 guides Release 不包含内置 asset，导致启动后台线程打印 404 traceback。活动模块为 `0.2.0`，已将修复定向同步到 `app/versions/0.2.0/signriver_app/application/guides.py`。
