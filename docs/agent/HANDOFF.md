@@ -1,3 +1,10 @@
+## 2026-08-25：发布包与归档链路文案统一
+
+- 修改范围：`src/signriver_publisher/release_center.py`；将首页卡片、入口按钮、准备页、比较页、预检/执行状态、返回按钮及相关错误提示中的“本地发布文件”统一改为“发布包与归档模块提交”语义，保持发布逻辑和页面路由不变。
+- 更新 `tests/test_publisher_ui_threading.py` 中对应的源码回归断言。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m py_compile src/signriver_publisher/release_center.py`、相关 Ruff、`git diff --check` 通过。未启动发布器 GUI，未构建、未上传、未推送。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：卡带统一管理页按三段式重构布局
 
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；保留现有所有按钮、文本和进度控件，重排为“概览信息—业务操作分组—发布与进度”三段式结构。

@@ -539,7 +539,7 @@ def test_comparison_page_keeps_only_its_specific_back_button() -> None:
     source = inspect.getsource(ReleaseCenter._build_comparison_page)
 
     assert "back_page=None" in source
-    assert 'text="← 返回本地发布文件"' in source
+    assert 'text="← 返回发布包与归档模块提交"' in source
 
 
 def test_publisher_worker_functions_do_not_touch_obvious_tk_apis_directly() -> None:
@@ -728,12 +728,12 @@ def test_release_center_batch_sidebar_is_fixed_and_primary_actions_are_larger() 
     assert "仅查看已保存的发布信息" in source
     assert 'text="归档 / 移除当前草稿"' not in source
     assert "self.board_content = ctk.CTkScrollableFrame" in source
-    assert 'text="本地发布文件"' in home_source
+    assert 'text="发布包与归档模块提交"' in home_source
     assert 'text="历史发布记录"' in home_source
     assert 'text="DLC 与补丁资源"' not in home_source
     assert "资源上传请使用" not in home_source
     assert 'text="当前发布状态"' not in home_source
-    assert 'text="管理本地发布文件  →"' in home_source
+    assert 'text="管理发布包与归档模块提交  →"' in home_source
     assert 'text="查看历史记录  →"' in home_source
 
 
@@ -976,7 +976,7 @@ def test_release_center_uses_replaceable_pages_for_specialist_operations() -> No
     assert 'self._build_preflight_page()' in source
     assert 'self._build_execution_page()' in source
     assert 'self.show_page("batches")' in source
-    assert 'text="管理本地发布文件  →"' in source
+    assert 'text="管理发布包与归档模块提交  →"' in source
     assert 'text="验证并查看差异"' in source
     assert 'text="发布文件  →"' in source
     assert 'def publish_program_files(self) -> None' in source

@@ -143,13 +143,13 @@ class ReleaseCenter(ctk.CTkFrame):
         primary.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             primary,
-            text="本地发布文件",
+            text="发布包与归档模块提交",
             font=("Microsoft YaHei UI", 19, "bold"),
             text_color="#1769C2",
         ).grid(row=0, column=0, padx=20, pady=(20, 3), sticky="w")
         ctk.CTkLabel(
             primary,
-            text="查看本地三端更新包与模块归档，并与双端云端内容比较。上传只新增或替换同名文件，不会删除旧文件。",
+            text="查看发布包与归档模块提交，并与双端云端内容比较。上传只新增或替换同名文件，不会删除旧文件。",
             text_color="#40566E",
             wraplength=600,
             anchor="w",
@@ -157,7 +157,7 @@ class ReleaseCenter(ctk.CTkFrame):
         ).grid(row=1, column=0, padx=20, pady=(0, 16), sticky="w")
         ctk.CTkButton(
             primary,
-            text="管理本地发布文件  →",
+            text="管理发布包与归档模块提交  →",
             command=self.start_new_program_release,
             width=170,
             height=42,
@@ -205,8 +205,8 @@ class ReleaseCenter(ctk.CTkFrame):
         page = self._new_page("preparation")
         self._page_heading(
             page,
-            "本地发布文件",
-            "从本地目录读取三端更新包与模块归档并比较双端云端内容；同步只新增或替换同名文件，绝不删除远端旧文件。",
+            "发布包与归档模块提交",
+            "从提交目录读取三端更新包与模块归档并比较双端云端内容；同步只新增或替换同名文件，绝不删除远端旧文件。",
         )
         content = ctk.CTkFrame(page)
         content.grid(row=1, column=0, sticky="nsew")
@@ -263,7 +263,7 @@ class ReleaseCenter(ctk.CTkFrame):
         )
         toolbar = ctk.CTkFrame(page, fg_color="transparent")
         toolbar.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
-        ctk.CTkButton(toolbar, text="← 返回本地发布文件", command=lambda: self.show_page("preparation")).pack(side="left")
+        ctk.CTkButton(toolbar, text="← 返回发布包与归档模块提交", command=lambda: self.show_page("preparation")).pack(side="left")
         self.comparison_summary = ctk.CTkLabel(toolbar, text="尚未验证云端文件。", text_color="#666666", anchor="w")
         self.comparison_summary.pack(side="left", padx=14)
         columns = ctk.CTkFrame(page, fg_color="transparent")
@@ -540,7 +540,7 @@ class ReleaseCenter(ctk.CTkFrame):
         try:
             plan, _reused = self._ensure_program_batch()
         except Exception as exc:
-            messagebox.showerror("无法准备发布文件", str(exc), parent=self)
+            messagebox.showerror("无法准备发布包与归档模块提交", str(exc), parent=self)
             return
         self.select(plan.batch_id, show_history=False)
         self.refresh_history()
@@ -553,7 +553,7 @@ class ReleaseCenter(ctk.CTkFrame):
             self.select(plan.batch_id, show_history=False)
             self.refresh_history()
             self.show_page("execution")
-            self.execution_status_label.configure(text="正在预检本地发布文件与发布条件…")
+            self.execution_status_label.configure(text="正在预检发布包与归档模块提交与发布条件…")
             plan = self.service.preflight(plan.batch_id)
             self._render(plan)
             if plan.status is ReleaseStatus.PREFLIGHT_FAILED:
@@ -575,7 +575,7 @@ class ReleaseCenter(ctk.CTkFrame):
         except Exception as exc:
             self.execution_status_label.configure(text=f"预检或发布准备失败，未开始上传。\n\n{exc}")
             self.execute_button.configure(state="disabled", text="预检失败")
-            messagebox.showerror("无法发布文件", str(exc), parent=self)
+            messagebox.showerror("无法提交发布包与归档模块", str(exc), parent=self)
 
     def start_program_publish(self) -> None:
         """Freeze a passed preflight and start the actual background upload."""
@@ -606,19 +606,19 @@ class ReleaseCenter(ctk.CTkFrame):
             plan, _reused = self._ensure_program_batch()
             self.select(plan.batch_id, show_history=False)
             self.show_page("comparison")
-            self.comparison_summary.configure(text="正在读取本地发布文件，并依次核验 GitLink、GitHub 云端内容…")
+            self.comparison_summary.configure(text="正在读取发布包与归档模块提交，并依次核验 GitLink、GitHub 云端内容…")
             for frame in (self.comparison_local_list, self.comparison_remote_list):
                 for child in frame.winfo_children():
                     child.destroy()
                 ctk.CTkLabel(frame, text="比对进行中，请稍候…", text_color="#666666").pack(pady=24)
             if self.refresh_collection is None:
-                raise RuntimeError("当前发布器未配置本地发布文件扫描器")
+                raise RuntimeError("当前发布器未配置发布包与归档模块提交扫描器")
             self.refresh_collection(plan.batch_id)
             if self.capture_baseline is None:
                 raise RuntimeError("当前发布器未配置远端文件比较器")
             self.capture_baseline(plan.batch_id)
         except Exception as exc:
-            messagebox.showerror("本地文件比较失败", str(exc), parent=self)
+            messagebox.showerror("发布包与归档模块提交比较失败", str(exc), parent=self)
 
     def open_game_content_pipeline(self) -> None:
         """Route content publishing through its game-scoped package page."""
@@ -1170,7 +1170,7 @@ class ReleaseCenter(ctk.CTkFrame):
         local_lines = [f"新增：{name}" for name in sorted(local_changes["新增"], key=str.casefold)]
         local_lines += [f"同名替换：{name}" for name in sorted(local_changes["同名替换"], key=str.casefold)]
         if not local_lines:
-            local_lines = ["所有本地文件均已与双端一致。"]
+            local_lines = ["所有发布包与归档模块提交文件均已与双端一致。"]
         for text in local_lines:
             ctk.CTkLabel(self.comparison_local_list, text=text, anchor="w").pack(fill="x", padx=8, pady=4)
         for text in remote_lines or ["双端均未返回可比较的差异文件。"]:
