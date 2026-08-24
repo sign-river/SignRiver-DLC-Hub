@@ -48,6 +48,8 @@ class CartridgeManagementUiMixin:
         ).grid(row=0, column=0, padx=8, pady=(4, 0), sticky="w")
 
         toolbar = self._card(self.cartridge_home_page, 0, "卡带统一管理")
+        toolbar.grid_columnconfigure(0, weight=2)
+        toolbar.grid_columnconfigure(1, weight=3)
         toolbar.grid_rowconfigure(3, weight=0)
         self.hub_summary = ctk.CTkLabel(
             toolbar,
@@ -56,7 +58,9 @@ class CartridgeManagementUiMixin:
             anchor="w",
             justify="left",
         )
-        self.hub_summary.grid(row=1, column=0, padx=22, pady=(0, 4), sticky="ew")
+        self.hub_summary.grid(
+            row=1, column=0, padx=(22, 14), pady=(0, 4), sticky="ew"
+        )
         self.hub_hint = ctk.CTkLabel(
             toolbar,
             text=(
@@ -66,70 +70,76 @@ class CartridgeManagementUiMixin:
             text_color=MUTED,
             anchor="w",
         )
-        self.hub_hint.grid(row=2, column=0, padx=22, pady=(0, 10), sticky="ew")
+        self.hub_hint.grid(
+            row=2, column=0, padx=(22, 14), pady=(0, 10), sticky="new"
+        )
 
         actions = ctk.CTkFrame(toolbar, fg_color="transparent")
-        actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in range(8):
+        actions.grid(
+            row=1, column=1, rowspan=2, padx=(8, 18), pady=(0, 10), sticky="nsew"
+        )
+        for column in range(4):
             actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
+        for row in range(2):
+            actions.grid_rowconfigure(row, weight=1, uniform="hub_action_rows")
         self.hub_refresh_button = ctk.CTkButton(
             actions,
             text="刷新卡带",
             fg_color=LIGHT_BLUE,
             command=self.refresh_cartridge_management,
         )
-        self.hub_refresh_button.grid(row=0, column=0, padx=4, sticky="ew")
+        self.hub_refresh_button.grid(row=0, column=0, padx=4, pady=3, sticky="nsew")
         self.announcement_manage_button = ctk.CTkButton(
             actions,
             text="管理公告",
             fg_color=LIGHT_BLUE,
             command=self.open_announcement_manager,
         )
-        self.announcement_manage_button.grid(
-            row=0, column=1, padx=4, sticky="ew"
-        )
+        self.announcement_manage_button.grid(row=0, column=1, padx=4, pady=3, sticky="nsew")
         self.hub_generate_button = ctk.CTkButton(
             actions,
             text="重新生成全部",
             fg_color=LIGHT_BLUE,
             command=self.generate_client_hub,
         )
-        self.hub_generate_button.grid(row=0, column=2, padx=4, sticky="ew")
+        self.hub_generate_button.grid(row=0, column=2, padx=4, pady=3, sticky="nsew")
         ctk.CTkButton(
             actions,
             text="打开 hub 目录",
             fg_color=LIGHT_BLUE,
             command=self.open_hub_output_folder,
-        ).grid(row=0, column=3, padx=4, sticky="ew")
+        ).grid(row=0, column=3, padx=4, pady=3, sticky="nsew")
         ctk.CTkButton(
             actions,
             text="打开指南目录",
             fg_color=LIGHT_BLUE,
             command=self.open_guides_source_folder,
-        ).grid(row=0, column=4, padx=4, sticky="ew")
+        ).grid(row=1, column=0, padx=4, pady=3, sticky="nsew")
         self.hub_publish_button = ctk.CTkButton(
             actions,
             text="一键双端发布卡带",
             fg_color=BLUE,
             command=self.publish_cartridge_hub_mirror,
         )
-        self.hub_publish_button.grid(row=0, column=5, padx=4, sticky="ew")
+        self.hub_publish_button.grid(row=1, column=1, padx=4, pady=3, sticky="nsew")
         self.guides_publish_button = ctk.CTkButton(
             actions,
             text="双端发布指南",
             fg_color=BLUE,
             command=self.publish_guides_mirror,
         )
-        self.guides_publish_button.grid(row=0, column=6, padx=4, sticky="ew")
+        self.guides_publish_button.grid(row=1, column=2, padx=4, pady=3, sticky="nsew")
         ctk.CTkButton(
             actions,
             text="全部游戏卡带",
             fg_color=LIGHT_BLUE,
             command=self._show_cartridge_detail,
-        ).grid(row=0, column=7, padx=4, sticky="ew")
+        ).grid(row=1, column=3, padx=4, pady=3, sticky="nsew")
 
         transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
-        transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
+        transfer.grid(
+            row=4, column=0, columnspan=2, padx=22, pady=(0, 14), sticky="ew"
+        )
         transfer.grid_columnconfigure(1, weight=1)
         self.hub_upload_status = ctk.CTkLabel(
             transfer,
