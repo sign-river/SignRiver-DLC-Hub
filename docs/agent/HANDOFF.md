@@ -1962,3 +1962,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 修改范围：从 Git 跟踪基线 `app/versions/0.1.0/app_entry.py` 的“帮助与诊断”页删除红圈中的说明文案；按活动版本规则将同一代码块定向同步到本地活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
 - 验证：`python -m pytest -q tests/test_ui_theme.py`（56 项通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。
 - 当前活动版本：`0.2.0`；已验证基线与活动模块源码。若客户端已在运行，需要重启客户端后查看界面变化。未构建、未上传、未推送。
+
+## 2026-08-24：内置指南/工具不可被云端覆盖
+
+- 修改范围：`app/versions/0.1.0/signriver_app/application/guides.py` 增加内置条目标记和合并规则；云端指南只追加新 `guide_id`，同名内置指南始终从 `config/guides/` 读取；扩展指南中的同名内置 `tool_id` 会被过滤。`app_entry.py` 注释同步说明该边界。
+- 已定向同步运行时实现到当前活动模块 `app/versions/0.2.0/`，未整目录覆盖；活动版本仍为 `0.2.0`。
+- 新增回归测试：`tests/test_platform_content.py::test_remote_guides_cannot_replace_builtin_guides_or_tools`。
+- 验证：`python -m pytest -q tests/test_platform_content.py tests/test_helper_tools.py tests/test_ui_theme.py -k "guide or tool or platform"`（19 项通过）；相关 Ruff、基线/活动模块 `compileall` 和 `git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后加载活动模块。

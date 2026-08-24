@@ -2447,7 +2447,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
         self.solution_detail_origin = "list"
-        # 指南正文由出厂目录提供，远程 hub 使用相同 guide_id 覆盖更新。
+        # 指南正文由出厂目录提供；远程 hub 只能追加新 guide_id，不能覆盖内置指南。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
         self.solution_articles.update(
             self._load_remote_solution_articles(allow_network=False)

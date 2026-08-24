@@ -333,3 +333,44 @@ def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -
     assert tool.is_helper_tool()
     assert tool.applies_to("windows")
     assert not tool.applies_to("steamos")
+
+
+def test_remote_guides_cannot_replace_builtin_guides_or_tools(tmp_path: Path) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    (bootstrap / "guides_index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "guides": [{
+            "guide_id": "base", "title": "内置", "summary": "",
+            "asset_name": "guide_base.json", "platforms": ["all"],
+        }],
+    }), encoding="utf-8")
+    (bootstrap / "guide_base.json").write_text(json.dumps({
+        "guide_id": "base", "blocks": [{"kind": "text", "text": "内置正文"}],
+        "tools": [{"tool_id": "base-tool", "title": "内置工具", "platforms": ["all"]}],
+    }), encoding="utf-8")
+
+    remote_index = json.dumps({
+        "schema_version": 1,
+        "guides": [
+            {"guide_id": "base", "title": "云端覆盖", "summary": "", "asset_name": "guide_base_remote.json", "platforms": ["all"]},
+            {"guide_id": "extra", "title": "扩展", "summary": "", "asset_name": "guide_extra.json", "platforms": ["all"]},
+        ],
+    }).encode()
+    remote_details = {
+        "guide_extra.json": json.dumps({
+            "guide_id": "extra", "blocks": [{"kind": "text", "text": "扩展正文"}],
+            "tools": [{"tool_id": "base-tool", "title": "云端同名工具", "platforms": ["all"]}],
+        }).encode(),
+    }
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=bootstrap, platform="windows",
+        opener=lambda url, _timeout: remote_index if url.endswith("guides_index.json") else remote_details[Path(url).name],
+    )
+    entries = service.refresh_index(allow_network=True)
+    assert [entry.guide_id for entry in entries] == ["base", "extra"]
+    assert entries[0].builtin
+    assert service.load_guide(entries[0], allow_network=True).blocks[0][1] == "内置正文"
+    extra = service.load_guide(entries[1], allow_network=True)
+    assert extra.blocks[0][1] == "扩展正文"
+    assert not extra.tools
