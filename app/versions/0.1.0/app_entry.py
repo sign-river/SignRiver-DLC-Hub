@@ -246,7 +246,7 @@ def _settings_row(parent, title: str, description: str, *, last: bool = False):
     return row, action, description_label
 
 
-def _combo_box(parent, *, values, width, command=None):
+def _combo_box(parent, *, values, width, command=None, height=None):
     options = {
         "values": values,
         "width": width,
@@ -262,6 +262,8 @@ def _combo_box(parent, *, values, width, command=None):
         "dropdown_text_color": UI["text"],
         "corner_radius": 8,
     }
+    if height is not None:
+        options["height"] = height
     if command is not None:
         options["command"] = command
     return ctk.CTkComboBox(parent, **options)
@@ -2465,10 +2467,11 @@ class DlcHubApplication:
         )
         self.solution_search.grid(row=0, column=0, sticky="ew")
         self.solution_search_mode = _combo_box(
-        self.solution_search_bar,
+            self.solution_search_bar,
             values=["模糊匹配", "精确匹配"],
             command=lambda _value: self._render_solution_articles(),
             width=104,
+            height=34,
         )
         self.solution_search_mode.set("模糊匹配")
         self.solution_search_mode.grid(row=0, column=1, padx=(8, 0))
