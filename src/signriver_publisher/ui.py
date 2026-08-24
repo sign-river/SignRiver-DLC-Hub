@@ -393,11 +393,11 @@ class PublisherApplication(
         self.content_tabs.set("DLC / 补丁发布")
 
     def _build_game_support_workspace(self) -> None:
-        self.game_support_tabs = self._nested_tabs(self.game_support_tab)
+        # 当前工作区只有一个对外页面，直接使用无侧栏的页面路由。
+        self.game_support_tabs = _PageRouter(self.game_support_tab)
         self.cartridges_tab = self.game_support_tabs.add("卡带与公告")
         # 游戏配置仍保留为内部页面，供“编辑卡带”跳转；不再占用侧栏入口。
         self.games_tab = self.game_support_tabs.add("游戏配置")
-        self.game_support_tabs.hide("游戏配置")
         self._build_games_tab()
         self._build_cartridge_management_tab()
 

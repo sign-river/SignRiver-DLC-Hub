@@ -36,37 +36,6 @@ class CartridgeManagementUiMixin:
         self.cartridge_home_page = ctk.CTkFrame(self.cartridges_tab, fg_color="transparent")
         self.cartridge_home_page.grid(row=0, column=0, sticky="nsew")
         self.cartridge_home_page.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            self.cartridge_home_page, text="卡带与公告",
-            font=("Microsoft YaHei UI", 26, "bold"), text_color=BLUE,
-        ).grid(row=0, column=0, padx=28, pady=(28, 4), sticky="w")
-        ctk.CTkLabel(
-            self.cartridge_home_page,
-            text="统一生成客户端卡带中心、维护启动公告，并从卡带列表进入详细配置。",
-            text_color=MUTED,
-        ).grid(row=1, column=0, padx=28, pady=(0, 18), sticky="w")
-        home_card = self._card(self.cartridge_home_page, 2, "发布中心")
-        home_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            home_card, text="卡带与公告是发布器的主工作台",
-            font=("Microsoft YaHei UI", 18, "bold"), text_color=TEXT,
-        ).grid(row=1, column=0, padx=22, pady=(6, 4), sticky="w")
-        self.home_hub_summary = ctk.CTkLabel(
-            home_card, text="正在读取卡带…", text_color=MUTED, anchor="w", justify="left"
-        )
-        self.home_hub_summary.grid(row=2, column=0, padx=22, pady=(0, 16), sticky="ew")
-        home_actions = ctk.CTkFrame(home_card, fg_color="transparent")
-        home_actions.grid(row=3, column=0, padx=18, pady=(0, 18), sticky="ew")
-        home_actions.grid_columnconfigure((0, 1), weight=1, uniform="home_actions")
-        ctk.CTkButton(
-            home_actions, text="查看全部游戏卡带", height=44, fg_color=BLUE,
-            command=self._show_cartridge_detail,
-        ).grid(row=0, column=0, padx=(4, 8), sticky="ew")
-        ctk.CTkButton(
-            home_actions, text="管理启动公告", height=44, fg_color=LIGHT_BLUE,
-            command=self.open_announcement_manager,
-        ).grid(row=0, column=1, padx=(8, 4), sticky="ew")
-
         self.cartridge_detail_page = ctk.CTkFrame(self.cartridges_tab, fg_color="transparent")
         self.cartridge_detail_page.grid(row=0, column=0, sticky="nsew")
         self.cartridge_detail_page.grid_remove()
@@ -78,7 +47,7 @@ class CartridgeManagementUiMixin:
             command=self._show_cartridge_home,
         ).grid(row=0, column=0, padx=8, pady=(4, 0), sticky="w")
 
-        toolbar = self._card(self.cartridge_detail_page, 1, "卡带统一管理")
+        toolbar = self._card(self.cartridge_home_page, 0, "卡带统一管理")
         toolbar.grid_rowconfigure(3, weight=0)
         self.hub_summary = ctk.CTkLabel(
             toolbar,
@@ -179,7 +148,18 @@ class CartridgeManagementUiMixin:
         )
         self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
 
-        list_card = self._card(self.cartridge_detail_page, 2, "全部游戏卡带")
+        entry_card = self._card(self.cartridge_home_page, 1, "全部游戏卡带")
+        entry_card.grid_columnconfigure(0, weight=1)
+        self.home_hub_summary = ctk.CTkLabel(
+            entry_card, text="正在读取卡带…", text_color=MUTED, anchor="w", justify="left"
+        )
+        self.home_hub_summary.grid(row=1, column=0, padx=22, pady=(0, 12), sticky="ew")
+        ctk.CTkButton(
+            entry_card, text="查看全部游戏卡带详细列表", height=42, fg_color=BLUE,
+            command=self._show_cartridge_detail,
+        ).grid(row=2, column=0, padx=22, pady=(0, 16), sticky="ew")
+
+        list_card = self._card(self.cartridge_detail_page, 1, "全部游戏卡带")
         list_card.grid_rowconfigure(1, weight=1)
         self.cartridge_list = ctk.CTkScrollableFrame(
             list_card,
