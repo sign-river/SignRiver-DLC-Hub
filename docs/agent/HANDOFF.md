@@ -2195,3 +2195,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 根因：内置指南在 `load_guide()` 中仍先尝试请求云端正文；当前 guides Release 不包含内置 asset，导致启动后台线程打印 404 traceback。活动模块为 `0.2.0`，已将修复定向同步到 `app/versions/0.2.0/signriver_app/application/guides.py`。
 - 修复：内置指南完全跳过云端正文请求；拓展指南资源缺失由 `GuideCatalogService` 记录单行 warning，其他未预期异常仍保留 traceback。新增回归测试验证内置正文不会触网。
 - 验证：`python -m pytest -q tests/test_platform_content.py tests/test_download_queue.py tests/test_helper_tools.py`（56 项通过）；Ruff、两个活动/基线模块 `py_compile`、`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启。
+
+## 2026-08-25：工具目录与指南目录解耦
+
+- 工具不再依赖指南正文才能出现在“常用工具”：客户端新增读取 `tools` Release 的 `tools_index.json`，独立工具和指南引用统一合并去重，下载/更新/启动仍共用 `HelperToolsService`。
+- 指南中的工具条目保留为关联入口；工具目录条目即使没有任何指南引用，也会在工具页显示并可直接下载。活动版本 `0.2.0` 已定向同步相关代码。
+- 新工具要同时发布工具文件和 `tools_index.json` 条目；仅上传文件不会出现在程序中。验证：平台内容、工具服务、UI 专项测试通过；未构建、未上传、未推送。

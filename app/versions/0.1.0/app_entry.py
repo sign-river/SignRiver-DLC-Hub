@@ -2491,6 +2491,11 @@ class DlcHubApplication:
         """Load optional cloud guides; callers merge the result on the UI thread."""
         articles: dict[str, tuple[object, ...]] = {}
         try:
+            # 工具目录独立于指南目录；指南只是提供关联入口。
+            self.guide_catalog.refresh_tools(allow_network=allow_network)
+        except Exception:
+            self.context.logger.exception("Unable to refresh helper tools catalogue")
+        try:
             entries = self.guide_catalog.refresh_index(allow_network=allow_network)
         except Exception:
             self.context.logger.exception("Unable to refresh troubleshooting guides")
@@ -2643,7 +2648,7 @@ class DlcHubApplication:
         )
 
     def _guide_tools_for_current_platform(self) -> list[GuideTool]:
-        tools: list[GuideTool] = []
+        tools: list[GuideTool] = list(self.guide_catalog.tools)
         for article in self.solution_articles.values():
             for block in article[2]:
                 if (

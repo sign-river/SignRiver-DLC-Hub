@@ -433,3 +433,26 @@ def test_builtin_guide_never_fetches_remote_detail(tmp_path: Path) -> None:
     document = service.load_guide(entry, allow_network=True)
 
     assert document.blocks == (("text", "内置正文"),)
+
+
+def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:
+    payload = json.dumps({
+        "schema_version": 1,
+        "tools": [{
+            "tool_id": "standalone-tool", "title": "独立工具", "description": "",
+            "asset_name": "standalone.zip", "filename": "standalone.zip",
+            "platforms": ["all"], "package_kind": "zip",
+            "launch_action": "open_folder", "release_tag": "tools",
+        }],
+    }).encode()
+    seen: list[str] = []
+
+    def opener(url: str, _timeout: float) -> bytes:
+        seen.append(url)
+        return payload
+
+    service = GuideCatalogService(tmp_path / "cache", opener=opener)
+    tools = service.refresh_tools(allow_network=True)
+
+    assert [tool.tool_id for tool in tools] == ["standalone-tool"]
+    assert "/releases/download/tools/tools_index.json" in seen[0]

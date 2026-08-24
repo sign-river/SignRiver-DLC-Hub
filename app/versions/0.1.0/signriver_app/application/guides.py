@@ -21,6 +21,8 @@ from ..infrastructure.net_errors import describe_network_error
 LOGGER = logging.getLogger(__name__)
 GUIDES_INDEX_ASSET_NAME = "guides_index.json"
 GUIDES_RELEASE_TAG = "guides"
+TOOLS_INDEX_ASSET_NAME = "tools_index.json"
+TOOLS_RELEASE_TAG = "tools"
 _GUIDE_SCHEMA = 1
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -203,6 +205,17 @@ class GuideCatalogService:
         self._open = opener or self._download_bytes
         self.entries: tuple[GuideIndexEntry, ...] = ()
         self._builtin_tool_ids: set[str] = set()
+        self._indexed_tools: dict[str, GuideTool] = {}
+        self._guide_tools: dict[str, GuideTool] = {}
+
+    @property
+    def tools(self) -> tuple[GuideTool, ...]:
+        """All known tools, including tools without a guide association."""
+        merged = dict(self._indexed_tools)
+        for tool_id, tool in self._guide_tools.items():
+            if tool_id not in merged and tool_id not in self._builtin_tool_ids:
+                merged[tool_id] = tool
+        return tuple(merged.values())
 
     def set_download_source(self, source: str) -> None:
         self.download_source = normalize_download_source(source)
@@ -238,6 +251,61 @@ class GuideCatalogService:
             return self._parse_index_payload(path.read_text(encoding="utf-8"), builtin=True)
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
             return ()
+
+    def _parse_tools_payload(self, raw_payload: bytes | str, *, builtin: bool = False) -> tuple[GuideTool, ...]:
+        payload = json.loads(raw_payload)
+        if not isinstance(payload, dict) or int(payload.get("schema_version", 0)) != _GUIDE_SCHEMA:
+            raise ValueError("unsupported tools index schema")
+        raw_tools = payload.get("tools")
+        if not isinstance(raw_tools, list):
+            raise ValueError("tools must be a list")
+        tools: list[GuideTool] = []
+        for item in raw_tools:
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized.setdefault("release_tag", TOOLS_RELEASE_TAG)
+            tool = GuideTool.from_dict(normalized, builtin=builtin)
+            if tool.applies_to(self.platform):
+                tools.append(tool)
+        return tuple(tools)
+
+    def _load_bootstrap_tools(self) -> tuple[GuideTool, ...]:
+        if self.bootstrap_dir is None:
+            return ()
+        path = self.bootstrap_dir / TOOLS_INDEX_ASSET_NAME
+        if not path.is_file():
+            return ()
+        try:
+            return self._parse_tools_payload(path.read_text(encoding="utf-8"), builtin=True)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError):
+            return ()
+
+    def refresh_tools(self, *, allow_network: bool = True) -> tuple[GuideTool, ...]:
+        """Refresh the independent tools catalogue; failure never hides guides."""
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = self.cache_dir / TOOLS_INDEX_ASSET_NAME
+        builtin_tools = self._load_bootstrap_tools()
+        builtin_ids = {tool.tool_id for tool in builtin_tools}
+        remote_tools: tuple[GuideTool, ...] = ()
+        if allow_network:
+            try:
+                raw_payload = self._fetch(TOOLS_INDEX_ASSET_NAME, release_tag=TOOLS_RELEASE_TAG)
+                remote_tools = self._parse_tools_payload(raw_payload)
+            except Exception as error:
+                LOGGER.debug("Ignoring invalid remote tools index: %s", error)
+            else:
+                cache_path.write_bytes(raw_payload)
+        if not remote_tools and cache_path.is_file():
+            try:
+                remote_tools = self._parse_tools_payload(cache_path.read_bytes())
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError):
+                cache_path.unlink(missing_ok=True)
+        self._indexed_tools = {tool.tool_id: tool for tool in builtin_tools}
+        self._indexed_tools.update(
+            (tool.tool_id, tool) for tool in remote_tools if tool.tool_id not in builtin_ids
+        )
+        return self.tools
 
     def refresh_index(self, *, allow_network: bool = True) -> tuple[GuideIndexEntry, ...]:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -336,6 +404,8 @@ class GuideCatalogService:
             self._builtin_tool_ids.update(tool.tool_id for tool in tools)
         else:
             tools = tuple(tool for tool in tools if tool.tool_id not in self._builtin_tool_ids)
+        for tool in tools:
+            self._guide_tools.setdefault(tool.tool_id, tool)
         return GuideDocument(entry=entry, blocks=tuple(blocks), tools=tools)
 
     def load_guide(
@@ -430,23 +500,24 @@ class GuideCatalogService:
         )
         return target
 
-    def _fetch(self, asset_name: str) -> bytes:
-        url = fixed_release_asset_url(self.download_source, GUIDES_RELEASE_TAG, asset_name)
-        LOGGER.info("Guide resource download started: asset=%s source=%s url=%s", asset_name, self.download_source, url)
+    def _fetch(self, asset_name: str, *, release_tag: str = GUIDES_RELEASE_TAG) -> bytes:
+        url = fixed_release_asset_url(self.download_source, release_tag, asset_name)
+        LOGGER.info("Guide resource download started: release=%s asset=%s source=%s url=%s", release_tag, asset_name, self.download_source, url)
         try:
             payload = self._open(url, self.timeout)
         except GuideCatalogError as error:
             # 指南是可选在线内容。404 通常表示云端已经下线旧拓展，
             # 不应把可恢复的内容缺失打印成整段 traceback。
             LOGGER.warning(
-                "Guide resource unavailable: asset=%s url=%s detail=%s",
+                "Guide resource unavailable: release=%s asset=%s url=%s detail=%s",
+                release_tag,
                 asset_name,
                 url,
                 error,
             )
             raise
         except Exception:
-            LOGGER.exception("Guide resource download failed: asset=%s url=%s", asset_name, url)
+            LOGGER.exception("Guide resource download failed: release=%s asset=%s url=%s", release_tag, asset_name, url)
             raise
         LOGGER.info("Guide resource download finished: asset=%s bytes=%s", asset_name, len(payload))
         return payload
@@ -461,4 +532,4 @@ class GuideCatalogService:
             raise GuideCatalogError(describe_network_error(error, url=url, action="下载报错指南资源")) from error
 
 
-__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool"]
+__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool"]
