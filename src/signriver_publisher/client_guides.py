@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 GUIDES_INDEX_ASSET_NAME = "guides_index.json"
+GUIDES_RELEASE_TAG = "guides"
 _MANIFEST_NAME = ".guides-manifest.json"
 
 
@@ -171,10 +172,24 @@ def export_hub_guides(source_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     return tuple(written)
 
 
+def export_guides(source_dir: Path, output_dir: Path) -> tuple[Path, ...]:
+    """Materialise guide assets for the dedicated guides Release."""
+    return export_hub_guides(source_dir, output_dir)
+
+
+def clear_exported_guides(output_dir: Path) -> None:
+    """Remove guide files previously materialised in a shared hub directory."""
+    previous = _load_manifest(output_dir)
+    _clear_previous(output_dir, previous)
+
+
 __all__ = [
     "GUIDES_INDEX_ASSET_NAME",
+    "GUIDES_RELEASE_TAG",
     "GuideExportError",
     "GuideResourceSummary",
     "export_hub_guides",
+    "export_guides",
+    "clear_exported_guides",
     "inspect_hub_guides",
 ]

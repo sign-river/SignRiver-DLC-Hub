@@ -20,6 +20,7 @@ from ..infrastructure.net_errors import describe_network_error
 
 LOGGER = logging.getLogger(__name__)
 GUIDES_INDEX_ASSET_NAME = "guides_index.json"
+GUIDES_RELEASE_TAG = "guides"
 _GUIDE_SCHEMA = 1
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -406,7 +407,7 @@ class GuideCatalogService:
         return target
 
     def _fetch(self, asset_name: str) -> bytes:
-        return self._open(fixed_release_asset_url(self.download_source, "hub", asset_name), self.timeout)
+        return self._open(fixed_release_asset_url(self.download_source, GUIDES_RELEASE_TAG, asset_name), self.timeout)
 
     @staticmethod
     def _download_bytes(url: str, timeout: float) -> bytes:
@@ -418,4 +419,4 @@ class GuideCatalogService:
             raise GuideCatalogError(describe_network_error(error, url=url, action="下载报错指南资源")) from error
 
 
-__all__ = ["GUIDES_INDEX_ASSET_NAME", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool"]
+__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool"]

@@ -1984,11 +1984,24 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 线上验收：GitLink 与 GitHub 均成功加载 4 篇样例指南；GitHub tools 工具成功下载并解压；hub 普通附件成功下载；SteamOS 过滤掉仅 Windows 样例。活动版本为 `0.2.0`，验证走当前活动模块的 `GuideCatalogService` / `HelperToolsService`。
 - 样例源文件和 `publisher-workspace/publish_sample_extensions.py` 保留用于重复演练；未构建客户端、未修改 `app/state.json`、未执行 `git push`。后续若不再需要样例，可通过发布器的 Release 管理流程删除对应样例附件，并同步清理 `publisher-workspace/guides/` 样例文件。
 
+## 2026-08-25：拆分 hub / guides / tools 三类 Release
+
+- 用户确认卡带目录不应混放报错指南。已将发布器改为：`hub` 仅导出卡带和公告；`guides` 独立导出指南索引、详情及普通附件；`tools` 继续承载可下载工具。卡带页新增“`双端发布指南`”按钮；客户端 `GuideCatalogService` 已改从 `guides` Release 在线读取。
+- 已定向同步 `guides.py` 与说明注释到活动模块 `app/versions/0.2.0/`，未整目录覆盖。用户若当前客户端正在运行，需要重启后加载新 Release 标签。
+- 已实际迁移双源资产：发布 6 个样例指南资源到 `guides` Release；从 GitLink 和 GitHub 的 `hub` Release 删除原先混入的 6 个指南/样例附件。线上验收确认 GitLink、GitHub 均能从 `guides` 读取样例指南，GitLink `hub` 不再有 guide/sample 资源；本地 `output/hub/` 不再生成指南文件。
+- 待提交前验证：发布器/平台指南相关 pytest、Ruff、compileall、`git diff --check`。未构建客户端发布包、未上传客户端更新、未 push。
+
 ## 2026-08-24：报错指南详情页按层级收敛返回按钮
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；问题记录详情态将标题栏“返回指南”动态替换为“← 返回记录”，移除详情内容内重复的返回记录按钮；常用工具详情态同样将标题栏按钮动态替换为“← 返回常用工具”，移除详情页内侧返回按钮。回到列表后恢复“返回指南”。
 - 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；`app/state.json` 仍为活动版本 `0.2.0`。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（74 项通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
+
+## 2026-08-25：问题记录标题多行左对齐
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；问题记录卡片标题设置 `justify="left"`，并在控件尺寸变化时按实际可用宽度更新 `wraplength`，避免长报错在右侧仍有空位时按固定 320 像素提前换行。
+- 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`；活动版本仍为 `0.2.0`，仅基线实现与定向同步，未构建发布包。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（75 项通过）；两个活动/基线 `app_entry.py` 均通过 `py_compile`，`git diff --check` 通过。客户端若已运行需重启后查看；未上传、未推送。
 
 ## 2026-08-25：DLC 操作栏提升一键修复并改名高级操作
 
@@ -2015,3 +2028,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`。
 - 本次工作区原有未提交改动（指南模型、发布器界面和相关测试）未纳入本次提交，已保留原状。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
+
+## 2026-08-25：一键排错移除近期异常检查
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；移除一键排错中的“近期异常”检查步骤及其读取最近问题记录的实现，避免多个异常弹出时误把最后一条记录当作根因。
+- 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`，仅基线实现与定向同步。
+- 新增 UI 源码回归断言，确保一键排错不再包含近期异常步骤或文案。
+- 验证：`python -m pytest -q tests/test_client_problem_center.py tests/test_ui_theme.py`（75 项通过）；两个活动/基线 `app_entry.py` 均通过 `py_compile`，`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启。

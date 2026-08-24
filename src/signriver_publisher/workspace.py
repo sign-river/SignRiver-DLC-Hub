@@ -29,7 +29,7 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
-from .client_guides import GuideResourceSummary, export_hub_guides, inspect_hub_guides
+from .client_guides import GuideResourceSummary, clear_exported_guides, export_guides, inspect_hub_guides
 from .freshness import (
     DlcFreshnessReport,
     build_resource_freshness,
@@ -1207,8 +1207,8 @@ class PublisherWorkspace:
             freshness_by_game=freshness,
             resource_availability_by_game=availability,
         )
-        guide_assets = export_hub_guides(self.guides_source_dir, hub_dir)
-        return (*cartridge_assets, *guide_assets)
+        clear_exported_guides(hub_dir)
+        return cartridge_assets
 
     def published_platform_resources(
         self, profile: GameProfile
@@ -1277,6 +1277,32 @@ class PublisherWorkspace:
     ) -> tuple[PublishAsset, ...]:
         """Regenerate and snapshot the complete client cartridge hub."""
         written = self.export_client_hub(default_game_id=default_game_id)
+        assets: list[PublishAsset] = []
+        for path in sorted(written, key=lambda item: item.name.casefold()):
+            stat = path.stat()
+            assets.append(
+                PublishAsset(
+                    path=path,
+                    name=path.name,
+                    size_bytes=stat.st_size,
+                    sha256=self._verified_file_sha256(path),
+                )
+            )
+        return tuple(assets)
+
+    @staticmethod
+    def guides_release_profile() -> GameProfile:
+        """Return the synthetic profile used for the dedicated guides Release."""
+        return GameProfile(
+            game_id="guides",
+            display_name="报错指南扩展",
+            release_tag="guides",
+            appinfo_name="guides_index.json",
+        )
+
+    def guides_publish_assets(self) -> tuple[PublishAsset, ...]:
+        """Regenerate and snapshot only the dedicated guide Release assets."""
+        written = export_guides(self.guides_source_dir, self.output_dir / "guides")
         assets: list[PublishAsset] = []
         for path in sorted(written, key=lambda item: item.name.casefold()):
             stat = path.stat()

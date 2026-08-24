@@ -56,7 +56,7 @@ class CartridgeManagementUiMixin:
 
         actions = ctk.CTkFrame(toolbar, fg_color="transparent")
         actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in range(6):
+        for column in range(7):
             actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
         self.hub_refresh_button = ctk.CTkButton(
             actions,
@@ -100,6 +100,13 @@ class CartridgeManagementUiMixin:
             command=self.publish_cartridge_hub_mirror,
         )
         self.hub_publish_button.grid(row=0, column=5, padx=4, sticky="ew")
+        self.guides_publish_button = ctk.CTkButton(
+            actions,
+            text="双端发布指南",
+            fg_color=BLUE,
+            command=self.publish_guides_mirror,
+        )
+        self.guides_publish_button.grid(row=0, column=6, padx=4, sticky="ew")
 
         transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
         transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
@@ -458,6 +465,106 @@ class CartridgeManagementUiMixin:
             messagebox.showinfo("卡带中心发布已暂停", message)
         else:
             messagebox.showerror("卡带中心双端发布失败", message)
+
+    def publish_guides_mirror(self) -> None:
+        """Publish only the optional guide assets to the dedicated guides Release."""
+        if not self.workspace.guide_resource_summary().configured:
+            messagebox.showinfo("没有可发布的指南", "请先在指南目录配置 guides_index.json。")
+            return
+        if not self._save_active_settings():
+            return
+        targets = (
+            ("GitLink", self.settings.owner, self.settings.repository, self.settings.token),
+            ("GitHub", self.settings.github_owner, self.settings.github_repository, self.settings.github_token),
+        )
+        if not all(owner and repository and token for _, owner, repository, token in targets):
+            messagebox.showerror("无法双端发布指南", "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。")
+            return
+        if not messagebox.askyesno(
+            "确认双端发布指南",
+            f"将指南索引、详情和 hub 普通附件同步到：\n\n"
+            f"GitLink · {targets[0][1]}/{targets[0][2]} · guides\n"
+            f"GitHub · {targets[1][1]}/{targets[1][2]} · guides\n\n是否继续？",
+        ):
+            return
+        if not self._begin_background_mutation("publish", "正在双端发布报错指南"):
+            return
+        self._active_publish_scope = "guides"
+        self._set_publish_buttons_available(False)
+        self.hub_generate_button.configure(state="disabled")
+        self.hub_publish_button.configure(state="disabled")
+        self.guides_publish_button.configure(state="disabled", text="正在发布指南…")
+        self.hub_upload_status.configure(text="正在生成指南 Release…")
+        self.hub_upload_progress.set(0)
+        self._upload_control = UploadControl()
+
+        def worker() -> None:
+            stage = "GitLink"
+            try:
+                assets = self.workspace.guides_publish_assets()
+                if not assets:
+                    raise RuntimeError("指南目录未生成任何可发布文件")
+                total = len(assets) * 2
+                profile = self.workspace.guides_release_profile()
+                repo = GitLinkRepository(targets[0][1], targets[0][2])
+                manager = RemoteResourceManager(GitLinkAttachmentClient(targets[0][3]), repo)
+                previous = self.workspace.load_publish_state(profile, repo.owner, repo.name)
+                result = manager.sync_release(
+                    profile, assets, previous,
+                    upload_control=self._upload_control,
+                    progress=lambda index, count, name, action: self._post_ui(
+                        lambda value=name, step=action: self._log(f"[GitLink guides] {step} {value}")
+                    ),
+                    upload_progress=lambda index, count, name, sent, size: self._queue_upload_progress(index, total, name, sent, size),
+                    checkpoint=lambda state: self.workspace.save_publish_state(profile, state),
+                )
+                self.workspace.save_publish_state(profile, result.state)
+                stage = "GitHub"
+                github = GitHubReleaseClient(
+                    GitHubRepository(targets[1][1], targets[1][2]), targets[1][3]
+                )
+                release = github.ensure_release(profile.release_tag, name="SignRiver Guides")
+                for index, asset in enumerate(assets, start=1):
+                    overall = len(assets) + index
+                    github.upload_asset(
+                        release, asset.path, replace_existing=True,
+                        progress=lambda sent, size, i=overall, value=asset.name: self._queue_upload_progress(i, total, value, sent, size),
+                        should_pause=lambda: bool(self._upload_control and self._upload_control.pause_requested),
+                    )
+                self._post_ui(lambda count=len(assets): self._guides_mirror_publish_done(count))
+            except (UploadPaused, GitHubUploadPaused) as error:
+                self._post_ui(lambda value=f"{stage}：{error}": self._guides_mirror_publish_failed(value, paused=True))
+            except Exception as error:
+                self._post_ui(lambda value=f"{stage}：{error}": self._guides_mirror_publish_failed(value))
+
+        threading.Thread(target=worker, daemon=True, name="guides-mirror-publish").start()
+
+    def _guides_mirror_publish_done(self, count: int) -> None:
+        self._end_background_mutation("publish")
+        self._upload_control = None
+        self._set_publish_buttons_available(True)
+        self.hub_generate_button.configure(state="normal")
+        self.hub_publish_button.configure(state="normal")
+        self.guides_publish_button.configure(state="normal", text="双端发布指南")
+        self.hub_upload_progress.set(1)
+        self.hub_upload_status.configure(text="指南双端发布完成")
+        self._log(f"报错指南双端发布完成：每端 {count} 个附件。")
+        messagebox.showinfo("指南发布完成", "guides Release 已同步到 GitLink 和 GitHub。")
+
+    def _guides_mirror_publish_failed(self, message: str, *, paused: bool = False) -> None:
+        self._end_background_mutation("publish")
+        self._upload_control = None
+        self._set_publish_buttons_available(True)
+        self.hub_generate_button.configure(state="normal")
+        self.hub_publish_button.configure(state="normal")
+        self.guides_publish_button.configure(state="normal", text="双端发布指南")
+        self.hub_publish_pause_button.configure(state="disabled", text="暂停发布")
+        self.hub_upload_status.configure(text="指南发布已暂停" if paused else "指南发布失败")
+        self._log(f"报错指南双端发布未完成：{message}")
+        if paused:
+            messagebox.showinfo("指南发布已暂停", message)
+        else:
+            messagebox.showerror("指南双端发布失败", message)
 
     def publish_cartridge_hub(self) -> None:
         profiles = self.workspace.list_games()

@@ -1,5 +1,11 @@
 # SignRiver DLC Hub 决策记录
 
+## 2026-08-25：指南从 hub Release 拆分到独立 guides Release
+
+- `hub` Release 只承载卡带主表、卡带详情和公告；报错指南索引、指南详情及普通指南附件改由独立 `guides` Release 承载；可下载工具继续使用独立 `tools` Release。此决策取代 2026-08-23 的“指南复用 hub Release”方案。
+- 发布器分别导出 `publisher-workspace/output/hub/` 与 `publisher-workspace/output/guides/`，卡带页提供独立“`双端发布指南`”操作。历史 `.guides-manifest.json` 可在下一次 hub 生成时只清理其登记的旧指南文件，不影响卡带和公告。
+- 客户端 `GuideCatalogService` 固定从 `guides` Release 读取云端扩展；出厂 `config/guides/` 仍为内置兜底，tools 条目的 `release_tag: "tools"` 不变。后续不得再把指南或指南普通附件发布到 `hub`。
+
 ## 2026-08-24：内置指南与云端扩展的不可覆盖边界
 
 - 客户端内置指南和工具由版本模块随程序发布，云端 hub 只能追加新的 `guide_id` / `tool_id`，不得覆盖同名内置内容。

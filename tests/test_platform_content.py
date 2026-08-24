@@ -374,3 +374,17 @@ def test_remote_guides_cannot_replace_builtin_guides_or_tools(tmp_path: Path) ->
     extra = service.load_guide(entries[1], allow_network=True)
     assert extra.blocks[0][1] == "扩展正文"
     assert not extra.tools
+
+
+def test_guides_catalog_uses_dedicated_release_tag(tmp_path: Path) -> None:
+    seen: list[str] = []
+    payload = json.dumps({"schema_version": 1, "guides": []}).encode()
+
+    def opener(url: str, _timeout: float) -> bytes:
+        seen.append(url)
+        return payload
+
+    service = GuideCatalogService(tmp_path / "cache", platform="windows", opener=opener)
+    service.refresh_index(allow_network=True)
+
+    assert seen and "/releases/download/guides/guides_index.json" in seen[0]

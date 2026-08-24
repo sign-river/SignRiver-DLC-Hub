@@ -69,14 +69,18 @@ def test_export_hub_guides_rejects_missing_attachment_and_collisions(tmp_path: P
         export_hub_guides(source, output)
 
 
-def test_workspace_hub_assets_include_configured_guides(tmp_path: Path) -> None:
+def test_workspace_guides_assets_are_separate_from_hub(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()
     _write_guide_source(workspace.guides_source_dir)
 
-    assets = workspace.hub_publish_assets(default_game_id="stellaris")
+    hub_assets = workspace.hub_publish_assets(default_game_id="stellaris")
+    guide_assets = workspace.guides_publish_assets()
 
-    assert {asset.name for asset in assets}.issuperset({
+    assert not {asset.name for asset in hub_assets}.intersection({
+        "guides_index.json", "guide_network.json", "guide_network_note.txt",
+    })
+    assert {asset.name for asset in guide_assets}.issuperset({
         "guides_index.json", "guide_network.json", "guide_network_note.txt",
     })
 
