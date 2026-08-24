@@ -76,7 +76,7 @@ def _report(*, actions: tuple[ProblemAction, ...]) -> ProblemReport:
     )
 
 
-def test_patch_download_rejects_bundle_with_missing_sha256(app_module) -> None:
+def test_patch_download_allows_bundle_with_missing_sha256(app_module) -> None:
     app = _app(app_module)
     valid = _asset("valid.dll", b"valid")
     missing = _asset("missing.dll", b"missing", digest=None)
@@ -86,16 +86,31 @@ def test_patch_download_rejects_bundle_with_missing_sha256(app_module) -> None:
         original_backup_dll=valid,
         appinfo_json=_asset("appinfo.json", b"{}"),
     )
+    app.patch_task_roles = {
+        "patch:unlocker": "unlocker_dll",
+        "patch:backup": "original_backup_dll",
+        "patch:metadata": "appinfo_json",
+    }
+    app.cartridge = SimpleNamespace(
+        adapter=SimpleNamespace(descriptor=SimpleNamespace(game_id="game"))
+    )
     app.download_queue = Mock()
+    app._patch_snapshots_by_task = Mock(return_value={})
+    future = Mock()
+    app.download_queue.enqueue.return_value = future
+    app.catalog_preview = Mock()
+    app.window = Mock()
     app._record_patch_problem = Mock()
     app._on_patch_workflow_failed = Mock()
+    app._set_batch_download_state = Mock()
 
     app._start_patch_downloads()
 
-    app.download_queue.enqueue.assert_not_called()
-    app._record_patch_problem.assert_called_once()
-    assert app._record_patch_problem.call_args.kwargs["code"] is ProblemCode.PATCH_MISSING_HASH
-    app._on_patch_workflow_failed.assert_called_once()
+    assert app.download_queue.enqueue.call_count == 3
+    first_spec = app.download_queue.enqueue.call_args_list[0].args[0]
+    assert first_spec.expected_sha256 is None
+    app._record_patch_problem.assert_not_called()
+    app._on_patch_workflow_failed.assert_not_called()
 
 
 def test_patch_download_specs_accept_legacy_original_backup_role(app_module) -> None:
@@ -130,7 +145,6 @@ def test_ready_patch_with_missing_cache_is_forgotten_and_requeued(
 ) -> None:
     app = _app(app_module)
     app.patch_bundle = object()
-    app._patch_assets_missing_hash = Mock(return_value=())
     spec = app_module.DownloadSpec(
         task_id="patch:unlocker",
         url="https://example.invalid/unlocker.dll",
@@ -178,6 +192,10 @@ def test_patch_asset_verification_rechecks_size_and_sha256(
         app_module.DlcHubApplication._verify_patch_asset(path, wrong_hash)
     assert hash_error.value.code is ProblemCode.PKG_HASH_MISMATCH
     assert hash_error.value.actual_sha256 == sha256(b"actual").hexdigest()
+
+    no_hash = _asset("asset.bin", b"actual")
+    no_hash.sha256 = None
+    assert app_module.DlcHubApplication._verify_patch_asset(path, no_hash) is None
 
 
 def test_integrity_failure_never_calls_patch_engine_apply(

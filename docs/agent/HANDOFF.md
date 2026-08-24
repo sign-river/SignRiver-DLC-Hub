@@ -1,3 +1,10 @@
+### 2026-08-24：补丁 SHA-256 改为可选校验，移除缺失即阻断
+
+- 用户反馈当前补丁目录元数据未提供 SHA-256 时，客户端把“一键解锁工具执行失败：补丁资源缺少有效 SHA-256，已拒绝下载和应用。”作为硬错误，要求按“一切从简”取消这一过度阻断。该硬门槛最初由提交 `930b435`（2026-08-17）引入。
+- 现已在 Git 跟踪基线 `app/versions/0.1.0/app_entry.py` 移除“缺少或格式非法 SHA-256 即拒绝下载/重新下载”的分支；保留最小完整性能力：云端给出格式合法 SHA-256 时仍校验且不匹配即失败，未给出或格式非法时不计算哈希、不阻断下载、应用或重新下载；`size_bytes` 若存在仍校验。安全软件排查文案同步改为仅核对文件来源。
+- 已按功能范围定向同步相同逻辑到真实活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖、未修改 `app/state.json`。用户需重启客户端；未构建模块/安装包，未上传、未推送。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_client_problem_center.py tests\test_download_manager.py tests\test_ui_theme.py tests\test_platform_content.py`（100 项通过）；` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_client_problem_center.py tests\test_ui_theme.py`、基线/活动入口 `compileall` 与 `git diff --check` 通过。未启动 GUI。
+
 ### 2026-08-24：解决方案详情改为逐层返回导航
 
 - 用户指出“解决方案详情”同时显示标题栏的“返回指南”和正文的“← 返回解决方案”，前者会跨层跳过解决方案列表，造成导航重复且不符合逐层返回习惯。

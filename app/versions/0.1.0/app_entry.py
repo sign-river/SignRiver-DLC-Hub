@@ -2901,10 +2901,6 @@ class DlcHubApplication:
         if self.download_queue is None or self.patch_bundle is None:
             self._notify("当前游戏没有可重新下载的补丁资源。", error=True)
             return
-        missing = self._patch_assets_missing_hash()
-        if missing:
-            self._notify("补丁资源缺少有效 SHA-256，已拒绝重新下载。", error=True)
-            return
         specs = self._patch_download_specs()
         task_ids = tuple(spec.task_id for spec in specs)
         snapshots = self._patch_snapshots_by_task()
@@ -6639,7 +6635,7 @@ class DlcHubApplication:
             else (snapshot.error or f"下载任务失败：{snapshot.spec.filename}")
         )
         suggestion = (
-            "请在系统安全软件界面核对文件来源和 SHA-256；确认误报后仅处理该次检测，"
+            "请在系统安全软件界面核对文件来源；确认误报后仅处理该次检测，"
             "再返回程序重试。不要关闭整机防护，也不要添加整目录排除项。"
             if security_interference
             else "请按问题详情检查网络、磁盘和缓存后安全重试。"
@@ -7480,7 +7476,9 @@ class DlcHubApplication:
             filename=asset.name,
             game_id=self.cartridge.adapter.descriptor.game_id,
             expected_size=asset.size_bytes,
-            expected_sha256=asset.sha256,
+            expected_sha256=(
+                asset.sha256 if self._valid_sha256(asset.sha256) else None
+            ),
             supports_range=False,
             purpose=(
                 DownloadPurpose.PATCH_METADATA
@@ -7581,23 +7579,6 @@ class DlcHubApplication:
             return False
         return True
 
-    def _patch_assets_missing_hash(self) -> tuple[object, ...]:
-        if self.patch_bundle is None:
-            return ()
-        assets = (
-            self.patch_bundle.unlocker_dll,
-            getattr(
-                self.patch_bundle,
-                "original_dll",
-                getattr(self.patch_bundle, "original_backup_dll", None),
-            ),
-            self.patch_bundle.appinfo_json,
-        )
-        return tuple(
-            asset for asset in assets
-            if asset is None or not self._valid_sha256(asset.sha256)
-        )
-
     def _record_patch_problem(
         self,
         *,
@@ -7651,22 +7632,29 @@ class DlcHubApplication:
         ))
 
     @staticmethod
-    def _verify_patch_asset(path: Path, asset) -> str:
-        expected_hash = str(asset.sha256).lower()
-        digest = hashlib.sha256()
+    def _verify_patch_asset(path: Path, asset) -> str | None:
+        """Check the declared size and, only when supplied, the declared SHA-256."""
+        expected_hash = getattr(asset, "sha256", None)
+        expected_hash = (
+            expected_hash.lower()
+            if DlcHubApplication._valid_sha256(expected_hash)
+            else None
+        )
+        digest = hashlib.sha256() if expected_hash else None
         size = 0
         with path.open("rb") as stream:
             while chunk := stream.read(1024 * 1024):
                 size += len(chunk)
-                digest.update(chunk)
-        actual_hash = digest.hexdigest()
+                if digest is not None:
+                    digest.update(chunk)
+        actual_hash = digest.hexdigest() if digest is not None else None
         if asset.size_bytes is not None and size != asset.size_bytes:
             raise _PatchAssetVerificationError(
                 ProblemCode.PKG_SIZE_MISMATCH,
                 f"size mismatch: expected {asset.size_bytes}, actual {size}",
                 actual_sha256=actual_hash,
             )
-        if actual_hash != expected_hash:
+        if expected_hash is not None and actual_hash != expected_hash:
             raise _PatchAssetVerificationError(
                 ProblemCode.PKG_HASH_MISMATCH,
                 f"sha256 mismatch: expected {expected_hash}, actual {actual_hash}",
@@ -7676,22 +7664,6 @@ class DlcHubApplication:
 
     def _start_patch_downloads(self) -> None:
         if self.download_queue is None or self.patch_bundle is None:
-            return
-        missing_hash = self._patch_assets_missing_hash()
-        if missing_hash:
-            names = "、".join(asset.name for asset in missing_hash)
-            self._record_patch_problem(
-                code=ProblemCode.PATCH_MISSING_HASH,
-                stage="prepare",
-                summary="补丁目录缺少可信 SHA-256，已拒绝开始",
-                suggestion="请刷新静态目录或切换下载源后重试。",
-                technical_details=f"缺少或非法 SHA-256：{names}",
-                asset=missing_hash[0],
-            )
-            self._on_patch_workflow_failed(
-                "补丁资源缺少有效 SHA-256，已拒绝下载和应用。"
-                "请刷新目录或切换下载源后重试。"
-            )
             return
         self.patch_workflow_state = "downloading"
         self._set_batch_download_state("patch_downloading")
@@ -7802,7 +7774,7 @@ class DlcHubApplication:
                     else message
                 ),
                 suggestion=(
-                    "请在系统安全软件界面核对文件来源和 SHA-256；确认误报后仅处理该次检测，"
+                    "请在系统安全软件界面核对文件来源；确认误报后仅处理该次检测，"
                     "再返回程序重试。不要关闭整机防护，也不要添加整目录排除项。"
                     if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED
                     else "请刷新静态目录或切换下载源后重新下载。"
@@ -7863,7 +7835,7 @@ class DlcHubApplication:
                                 stage="verify",
                                 summary="补丁文件疑似被安全软件拦截",
                                 suggestion=(
-                                    "请在系统安全软件界面核对文件来源和 SHA-256；"
+                                    "请在系统安全软件界面核对文件来源；"
                                     "不要关闭整机防护，也不要添加整目录排除项。"
                                 ),
                                 technical_details=details,
@@ -7980,7 +7952,7 @@ class DlcHubApplication:
                     else "补丁应用后审计未通过"
                 ),
                 suggestion=(
-                    "请核对安全软件保护历史记录和文件 SHA-256 后重新下载；"
+                    "请核对安全软件保护历史记录和文件来源后重新下载；"
                     "不要关闭整机防护，也不要添加整目录排除项。"
                     if security_suspected
                     else "请导出诊断信息并重新执行补丁流程。"

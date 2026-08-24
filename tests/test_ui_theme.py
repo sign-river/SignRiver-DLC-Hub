@@ -989,7 +989,8 @@ def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
     )[0]
 
     assert "expected_size=asset.size_bytes" in method
-    assert "expected_sha256=asset.sha256" in method
+    assert "expected_sha256=(" in method
+    assert "asset.sha256 if self._valid_sha256(asset.sha256) else None" in method
 
 
 def test_patch_workflow_detects_security_software_quarantine() -> None:
