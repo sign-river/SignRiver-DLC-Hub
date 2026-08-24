@@ -5381,8 +5381,14 @@ class DlcHubApplication:
             title = ctk.CTkLabel(
                 row, text=report.summary, text_color=UI["text"], anchor="w",
                 font=ctk.CTkFont(size=14, weight="bold"), wraplength=320,
+                justify="left",
             )
             title.pack(fill="x", padx=12)
+
+            def update_title_wraplength(event, label=title) -> None:
+                label.configure(wraplength=max(1, event.width))
+
+            title.bind("<Configure>", update_title_wraplength)
             timestamp = ctk.CTkLabel(
                 row, text=report.last_occurred_at.replace("T", " ")[:16],
                 text_color=UI["muted"], anchor="w", font=ctk.CTkFont(size=11),

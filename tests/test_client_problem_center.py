@@ -76,6 +76,14 @@ def _report(*, actions: tuple[ProblemAction, ...]) -> ProblemReport:
     )
 
 
+def test_problem_record_titles_use_the_available_card_width() -> None:
+    source = (VERSION_ROOT / "app_entry.py").read_text(encoding="utf-8")
+
+    assert "def update_title_wraplength(event, label=title) -> None:" in source
+    assert "label.configure(wraplength=max(1, event.width))" in source
+    assert 'title.bind("<Configure>", update_title_wraplength)' in source
+
+
 def test_patch_download_allows_bundle_with_missing_sha256(app_module) -> None:
     app = _app(app_module)
     valid = _asset("valid.dll", b"valid")
