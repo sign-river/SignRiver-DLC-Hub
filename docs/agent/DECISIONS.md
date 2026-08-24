@@ -6,6 +6,14 @@
 - 内置指南详情始终从 `config/guides/` 读取；客户端更新版本可以通过新的模块内容替换它们。云端扩展下载失败不影响内置内容显示。
 - `GuideCatalogService` 负责合并时优先保留内置条目，并过滤扩展指南中与内置工具同名的工具；后续新增基础工具仍应进入内置清单并随版本发布。
 
+## 2026-08-24：报错指南拓展工具固定使用 tools Release
+
+- 双源工具发布位置已经确定：GitLink [`signriver-dlc-assets/tree/tools`](https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools)；GitHub 对应下载根地址为 [`releases/download/tools`](https://github.com/sign-river/signriver-dlc-assets/releases/download/tools)。后续新增工具上传到这两个源的 `tools` Release，保持附件文件名一致。
+- 指南运营内容仍放在发布器本地 `publisher-workspace/guides/`；指南详情的 `tools` 条目用 `release_tag: "tools"`、`asset_name` 指向工具附件，`package_kind` 声明 `file`/`zip`，`launch_action` 声明 `exe`/`open_folder`，并填写适用平台。发布器生成 hub 时会跳过 `tools` Release 附件，只发布索引和详情 JSON。
+- 标准顺序：先将工具附件上传到双源 `tools` Release，再在指南详情 JSON 中引用它，随后用发布器“重新生成全部”并“一键双端发布卡带”发布 hub 指南。客户端按当前下载源拼接 `tools` Release 地址，用户确认后才下载、解压和启动。
+- 禁止将 `tools` Release 附件放进 `publisher-workspace/guides/assets/`，禁止复用内置 `tool_id` 或 `guide_id`，禁止把可执行工具塞进 hub 发布；云端同名内置工具会被客户端过滤，内置工具只能通过客户端版本更新替换。
+- 当前客户端不要求因新增拓展工具而升级；只有修改内置工具、内置指南或客户端工具逻辑时才需要构建并发布新客户端版本。
+
 本文件只记录会影响后续任务的方案选择、原因和已放弃路线。临时进度写入 `HANDOFF.md`，操作细节写入对应专题文档。
 
 ## 2026-08-24：解决方案辅助工具走独立 tools Release，不走 hub 附件

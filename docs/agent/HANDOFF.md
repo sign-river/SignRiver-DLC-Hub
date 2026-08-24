@@ -1970,6 +1970,13 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 新增回归测试：`tests/test_platform_content.py::test_remote_guides_cannot_replace_builtin_guides_or_tools`。
 - 验证：`python -m pytest -q tests/test_platform_content.py tests/test_helper_tools.py tests/test_ui_theme.py -k "guide or tool or platform"`（19 项通过）；相关 Ruff、基线/活动模块 `compileall` 和 `git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后加载活动模块。
 
+## 2026-08-24：拓展工具发布记录
+
+- 已确认后续拓展工具使用已有双源 `tools` Release：GitLink `https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools`，GitHub 下载根地址 `https://github.com/sign-river/signriver-dlc-assets/releases/download/tools`。
+- 发布者操作顺序：先将同名附件上传到两个源的 `tools` Release；再在 `publisher-workspace/guides/guide_*.json` 的 `tools` 条目填写唯一 `tool_id`、`asset_name`、`release_tag: "tools"`、`package_kind`、`launch_action` 和 `platforms`；最后用发布器重新生成 hub 并双端发布指南索引/详情。`tools` 附件不得放入 `guides/assets/`。
+- 客户端按当前下载源拼接 `tools` Release URL，用户确认后下载、解压和启动；新增拓展工具不需要客户端更新。云端不得复用内置 `tool_id`，同名项会被过滤；内置工具变更必须随客户端版本更新。
+- 链接核对：GitLink 页面和 GitHub 下载根地址已尝试访问；当前网络工具对 GitLink 页面返回安全限制、GitHub 根地址返回 404（根地址本身不是具体附件 URL），不代表项目配置失效。未上传或修改任何 Release。
+
 ## 2026-08-24：报错指南详情页按层级收敛返回按钮
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；问题记录详情态将标题栏“返回指南”动态替换为“← 返回记录”，移除详情内容内重复的返回记录按钮；常用工具详情态同样将标题栏按钮动态替换为“← 返回常用工具”，移除详情页内侧返回按钮。回到列表后恢复“返回指南”。

@@ -37,6 +37,13 @@ GitHub 示例：
 
 `https://github.com/sign-river/signriver-dlc-assets/releases/download/tools/<AssetName>.zip`
 
+当前已存在并持续复用的双源 `tools` Release：
+
+- GitLink：`https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools`
+- GitHub：`https://github.com/sign-river/signriver-dlc-assets/releases/download/tools`
+
+发布新工具时，先把同名附件上传到两个源的 `tools` Release，再在指南详情 JSON 中引用；不要为单个工具另建 Release，也不要把工具附件复制到 `publisher-workspace/guides/assets/`。
+
 由 `fixed_release_asset_url(download_source, "tools", asset_name)` 生成，禁止把源写死在按钮回调里。
 
 ## 出厂指南 JSON
