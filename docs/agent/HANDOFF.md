@@ -1977,6 +1977,13 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 客户端按当前下载源拼接 `tools` Release URL，用户确认后下载、解压和启动；新增拓展工具不需要客户端更新。云端不得复用内置 `tool_id`，同名项会被过滤；内置工具变更必须随客户端版本更新。
 - 链接核对：GitLink 页面和 GitHub 下载根地址已尝试访问；当前网络工具对 GitLink 页面返回安全限制、GitHub 根地址返回 404（根地址本身不是具体附件 URL），不代表项目配置失效。未上传或修改任何 Release。
 
+## 2026-08-25：拓展指南与 tools Release 样例真实发布验收
+
+- 在本地 `publisher-workspace/guides/` 保留了 4 篇样例指南：无工具指南、hub 普通附件指南、tools Release 工具指南、仅 Windows 且复用同一 `tool_id` 的第二入口；样例工具为 `sample-tool-20260824.zip`，hub 附件为 `sample-hub-note-20260824.txt`。
+- 已实际上传到双源：样例工具进入 `tools` Release；4 篇指南、索引和 hub 普通附件进入 `hub` Release。上传使用发布器配置中的双端令牌，未在文档记录令牌或原始响应。
+- 线上验收：GitLink 与 GitHub 均成功加载 4 篇样例指南；GitHub tools 工具成功下载并解压；hub 普通附件成功下载；SteamOS 过滤掉仅 Windows 样例。活动版本为 `0.2.0`，验证走当前活动模块的 `GuideCatalogService` / `HelperToolsService`。
+- 样例源文件和 `publisher-workspace/publish_sample_extensions.py` 保留用于重复演练；未构建客户端、未修改 `app/state.json`、未执行 `git push`。后续若不再需要样例，可通过发布器的 Release 管理流程删除对应样例附件，并同步清理 `publisher-workspace/guides/` 样例文件。
+
 ## 2026-08-24：报错指南详情页按层级收敛返回按钮
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；问题记录详情态将标题栏“返回指南”动态替换为“← 返回记录”，移除详情内容内重复的返回记录按钮；常用工具详情态同样将标题栏按钮动态替换为“← 返回常用工具”，移除详情页内侧返回按钮。回到列表后恢复“返回指南”。
