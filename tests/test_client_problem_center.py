@@ -446,3 +446,79 @@ def test_open_mode_quick_check_tool_keeps_one_row_with_detail_action(app_module)
     detail_action()
     app._show_page.assert_called_once_with("常用工具")
     app._show_guide_tool_detail.assert_called_once_with(tool)
+
+
+def test_gui_callback_exception_records_patch_context_and_solution(app_module) -> None:
+    app = _app(app_module)
+    app.current_page = "常用工具"
+    app.gui_operation_context = "补丁工具：重新下载"
+    app.tool_center_detail_title = Mock()
+    app.tool_center_detail_title.cget.return_value = "补丁工具"
+    app._record_problem = Mock(side_effect=lambda report: report)
+
+    try:
+        raise KeyError("original_backup_dll")
+    except KeyError as error:
+        app._report_gui_callback_exception(type(error), error, error.__traceback__)
+
+    report = app._record_problem.call_args.args[0]
+    assert report.code is ProblemCode.APP_GUI_CALLBACK_FAILED
+    assert report.summary == "补丁工具数据不完整，无法完成当前界面操作"
+    assert report.task_id == "patch-tool"
+    assert "触发页面：常用工具" in report.technical_details
+    assert "操作上下文：补丁工具：重新下载" in report.technical_details
+    assert "KeyError" in report.technical_details
+    app._open_solution_article = Mock()
+    app._open_problem_solution(report)
+    app._open_solution_article.assert_called_once_with("patch-assets-missing")
+
+
+def test_gui_callback_hook_is_installed(app_module) -> None:
+    app = _app(app_module)
+    app.window = SimpleNamespace()
+
+    app._install_gui_exception_handler()
+
+    assert app.window.report_callback_exception == app._report_gui_callback_exception
+
+
+def test_catalog_network_failures_are_suppressed_until_repeated(app_module) -> None:
+    app = _app(app_module)
+    app.transient_network_failures = {}
+    app._record_problem = Mock(side_effect=lambda report: report)
+
+    import ssl
+
+    for _ in range(2):
+        app._record_catalog_refresh_failure(
+            ssl.SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF"),
+            cartridge_id="stellaris", source="gitlink",
+        )
+    app._record_problem.assert_not_called()
+
+    app._record_catalog_refresh_failure(
+        ssl.SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF"),
+        cartridge_id="stellaris", source="gitlink",
+    )
+
+    report = app._record_problem.call_args.args[0]
+    assert report.code is ProblemCode.NET_TLS
+    assert report.task_id == "catalog-refresh:stellaris:gitlink:NET-TLS"
+    assert "连续失败次数：3" in report.technical_details
+    assert app._solution_id_for_problem_code(report.code) == "network-basics"
+
+
+def test_catalog_success_clears_transient_failure_and_resolves_record(app_module) -> None:
+    app = _app(app_module)
+    key = "catalog-refresh:stellaris:gitlink:NET-TLS"
+    app.transient_network_failures = {key: 3}
+    app.problem_store = Mock()
+
+    app._clear_catalog_network_failures(
+        cartridge_id="stellaris", source="gitlink"
+    )
+
+    assert app.transient_network_failures == {}
+    app.problem_store.resolve_matching.assert_called_once_with(
+        code=ProblemCode.NET_TLS, task_id=key
+    )

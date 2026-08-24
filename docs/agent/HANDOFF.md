@@ -1,3 +1,11 @@
+### 2026-08-24：问题中心补齐 GUI 回调异常与低噪声网络失败闭环
+
+- 目标：不再让未捕获的 Tkinter GUI 回调只打印控制台 traceback；同时避免网络短暂抖动把“问题记录”刷满。
+- 基线 `app/versions/0.1.0/app_entry.py` 现在在创建主窗口后安装 `report_callback_exception` 钩子，并为后台 UI 队列、下载事件更新补充同一异常入口。记录包含稳定码 `APP-GUI-CALLBACK-FAILED`、当前程序/启动器版本、平台、触发页面、操作上下文及 traceback。补丁工具上下文下的 `KeyError` 显示为“补丁工具数据不完整”，其“查看解决方案”定向到 `patch-assets-missing`；其他 GUI 回调失败定向到 `update-module-basics`。
+- DLC 目录刷新网络失败采用内存连续计数，按“卡带 + 下载源 + 网络问题码”合并；前两次只保留运行日志和当前页面提示，第 3 次起写入可合并的问题记录。成功刷新会清除内存计数并自动解决对应的开放问题。`NET-TLS`、DNS、超时、HTTP、连接中断均已映射到出厂的 `network-basics` 指南；分类器同时识别 `UNEXPECTED_EOF_WHILE_READING` / `EOF occurred in violation of protocol` 为 TLS。
+- 为使当前实际活动模块也至少能够持久化上述记录，已定向同步同一最小功能块到被 `.gitignore` 忽略的 `app/versions/0.1.7/app_entry.py`，并通过 `compileall` 验证；0.1.7 没有“问题记录”页面，所以记录会落在数据目录，完整的查看/跳转界面仍属于基线后续发布版本。未修改用户已有的 `app/state.json`：活动版本仍为 `0.1.7`，`0.2.0` 仍处于 `bad_versions`。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_client_problem_center.py tests\test_ui_theme.py tests\test_problems.py tests\test_dlc_catalog.py`（103 项通过）；` .\.venv\Scripts\python.exe -m ruff check src\signriver_common\problems.py app\versions\0.1.0\app_entry.py app\versions\0.1.7\app_entry.py tests\test_client_problem_center.py`、基线/活动入口 `compileall`、`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。提交时只能精确暂存本任务文件，不得包含 `app/state.json`。
+
 ### 2026-08-24：新增 CustomTkinter 客户端界面体验审查 Skill
 
 - 用户同意将外部设计 Skill 的有效原则提炼为项目内、适配 Python + CustomTkinter 的版本；新增 `.agents/skills/customtkinter-ui-review/`，覆盖逐层返回、异步检查原位更新、结果行详情入口、窄窗口布局、长内容滚动、工具栏分区和非阻塞反馈，并明确不引入 React/CSS/无意义动画，也不得绕过危险操作确认或安全边界。

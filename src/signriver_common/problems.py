@@ -81,6 +81,7 @@ class ProblemCode(StrEnum):
     UPDATE_APPLY_FAILED = "UPDATE-APPLY-FAILED"
     UPDATE_ROLLED_BACK = "UPDATE-ROLLED-BACK"
     APP_MODULE_LOAD_FAILED = "APP-MODULE-LOAD-FAILED"
+    APP_GUI_CALLBACK_FAILED = "APP-GUI-CALLBACK-FAILED"
     APP_UNEXPECTED = "APP-UNEXPECTED"
 
 
@@ -393,7 +394,10 @@ def classify_exception(error: BaseException, *, stage: str, purpose: str = "",
         return _network(ProblemCode.NET_TIMEOUT, "连接超时", "请检查网络连接后重试。")
     if isinstance(error, socket.gaierror) or "getaddrinfo failed" in detail or "name or service not known" in detail:
         return _network(ProblemCode.NET_DNS, "无法解析下载域名", "请检查 DNS 或切换网络后重试。")
-    if isinstance(error, (ssl.SSLError, ssl.CertificateError)) or "certificate verify failed" in detail or "tls" in detail:
+    if isinstance(error, (ssl.SSLError, ssl.CertificateError)) or any(word in detail for word in (
+        "certificate verify failed", "tls", "ssl:",
+        "unexpected_eof_while_reading", "eof occurred in violation of protocol",
+    )):
         return _network(ProblemCode.NET_TLS, "安全连接校验失败", "请检查系统时间、证书和网络代理后重试。")
     if isinstance(error, HTTPError) or re.search(r"\bhttp(?: error)?\s*[45]\d\d\b", detail):
         return _network(ProblemCode.NET_HTTP, "下载服务器返回错误", "请稍后重试；持续失败时导出诊断信息。")

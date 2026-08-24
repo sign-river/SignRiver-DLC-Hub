@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import threading
 import time
+import traceback
 import webbrowser
 from dataclasses import replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from signriver_common.problems import (
     ProblemSeverity,
     ProblemStatus,
     ProblemStore,
+    classify_exception,
 )
 
 from .signriver_app.adapters import AdapterRegistry
@@ -306,12 +308,15 @@ def _format_speed(value: float) -> str:
 
 
 class DlcHubApplication:
+    NETWORK_PROBLEM_RECORD_THRESHOLD = 3
+
     def __init__(self, context) -> None:
         self.context = context
         self._configure_windows_app_identity()
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
         self.window = ctk.CTk()
+        self._install_gui_exception_handler()
         # Build the whole UI while the window is hidden so users
         # never see a blank shell filling in gradually.
         self.window.withdraw()
@@ -410,6 +415,8 @@ class DlcHubApplication:
         )
         self.problem_store = ProblemStore(self.context.paths.data / "problems")
         self.recorded_download_failures: set[tuple[object, ...]] = set()
+        self.transient_network_failures: dict[str, int] = {}
+        self.gui_operation_context = "Tkinter 界面回调"
         self.selected_problem_event_id: str | None = None
         self.problem_rows: list[object] = []
         self.last_log_content = ""
@@ -4565,6 +4572,142 @@ class DlcHubApplication:
             ),
         )
 
+    def _install_gui_exception_handler(self) -> None:
+        """Persist uncaught Tk callbacks instead of only printing a traceback."""
+        self.window.report_callback_exception = self._report_gui_callback_exception
+
+    def _report_gui_callback_exception(
+        self, exception_type, exception_value, traceback_object
+    ) -> None:
+        """Record a Tk callback failure without allowing diagnostics to fail the GUI."""
+        try:
+            page = str(getattr(self, "current_page", "启动中") or "启动中")
+            operation = str(getattr(self, "gui_operation_context", "Tkinter 界面回调"))
+            tool_title = ""
+            title_widget = getattr(self, "tool_center_detail_title", None)
+            if title_widget is not None:
+                try:
+                    tool_title = str(title_widget.cget("text") or "")
+                except Exception:
+                    tool_title = ""
+            is_patch_tool = "补丁" in tool_title or "补丁" in operation
+            summary = (
+                "补丁工具数据不完整，无法完成当前界面操作"
+                if is_patch_tool and isinstance(exception_value, KeyError)
+                else "界面操作失败"
+            )
+            suggestion = (
+                "补丁资源数据可能不完整。请刷新 DLC 目录后重试；持续失败时查看补丁资源指南。"
+                if is_patch_tool
+                else "请重试；持续失败时导出诊断信息并查看应用基础指南。"
+            )
+            technical_details = "\n".join((
+                f"触发页面：{page}",
+                f"操作上下文：{operation}",
+                "回调来源：Tkinter report_callback_exception",
+                f"异常类型：{getattr(exception_type, '__name__', str(exception_type))}",
+                "", "Traceback:",
+                "".join(traceback.format_exception(
+                    exception_type, exception_value, traceback_object
+                )).rstrip(),
+            ))
+            self._record_problem(ProblemReport.create(
+                code=ProblemCode.APP_GUI_CALLBACK_FAILED,
+                category=ProblemCategory.APPLICATION,
+                severity=ProblemSeverity.ERROR,
+                stage="gui_callback",
+                summary=summary,
+                suggestion=suggestion,
+                technical_details=technical_details,
+                app_version=self.context.app_version,
+                launcher_version=self.context.launcher_version,
+                platform=self.context.paths.platform,
+                task_id=("patch-tool" if is_patch_tool else f"page:{page}"),
+                allowed_actions=(
+                    ProblemAction.COPY_DETAILS,
+                    ProblemAction.OPEN_LOG_DIRECTORY,
+                    ProblemAction.EXPORT_DIAGNOSTICS,
+                    ProblemAction.MARK_RESOLVED,
+                    ProblemAction.DELETE,
+                ),
+            ))
+        except Exception:
+            self.context.logger.exception("Unable to record Tkinter callback failure")
+        self.context.logger.error(
+            "Unhandled Tkinter callback exception", exc_info=(
+                exception_type, exception_value, traceback_object
+            )
+        )
+
+    def _catalog_network_failure_key(
+        self, code: ProblemCode, cartridge_id: str, source: str
+    ) -> str:
+        return f"catalog-refresh:{cartridge_id}:{source}:{code.value}"
+
+    def _record_catalog_refresh_failure(
+        self, error: BaseException, *, cartridge_id: str, source: str
+    ) -> None:
+        """Escalate only repeated, user-blocking catalog network failures."""
+        classification = classify_exception(
+            error, stage="catalog_refresh", purpose="DLC catalog refresh"
+        )
+        if classification.category is not ProblemCategory.NETWORK:
+            return
+        key = self._catalog_network_failure_key(
+            classification.code, cartridge_id, source
+        )
+        attempts = self.transient_network_failures.get(key, 0) + 1
+        self.transient_network_failures[key] = attempts
+        if attempts < self.NETWORK_PROBLEM_RECORD_THRESHOLD:
+            self.context.logger.info(
+                "Suppressing transient catalog network failure %s/%s: %s",
+                attempts, self.NETWORK_PROBLEM_RECORD_THRESHOLD, key,
+            )
+            return
+        technical_details = "\n".join((
+            "操作：刷新 DLC 目录",
+            f"游戏卡带：{cartridge_id}",
+            f"下载源：{source}",
+            f"连续失败次数：{attempts}",
+            "", "Traceback:",
+            "".join(traceback.format_exception(
+                type(error), error, error.__traceback__
+            )).rstrip(),
+        ))
+        self._record_problem(ProblemReport.create(
+            code=classification.code,
+            category=classification.category,
+            severity=classification.severity,
+            stage="catalog_refresh",
+            summary=f"DLC 目录连续刷新失败：{classification.summary}",
+            suggestion=(
+                "已连续多次无法刷新 DLC 目录。请检查网络、下载源、TLS/证书或 DNS，"
+                "随后重试。"
+            ),
+            technical_details=technical_details,
+            app_version=self.context.app_version,
+            launcher_version=self.context.launcher_version,
+            platform=self.context.paths.platform,
+            task_id=key,
+            allowed_actions=(
+                ProblemAction.COPY_DETAILS,
+                ProblemAction.OPEN_LOG_DIRECTORY,
+                ProblemAction.EXPORT_DIAGNOSTICS,
+                ProblemAction.MARK_RESOLVED,
+                ProblemAction.DELETE,
+            ),
+        ))
+
+    def _clear_catalog_network_failures(
+        self, *, cartridge_id: str, source: str
+    ) -> None:
+        prefix = f"catalog-refresh:{cartridge_id}:{source}:"
+        keys = [key for key in self.transient_network_failures if key.startswith(prefix)]
+        for key in keys:
+            code = ProblemCode(key.rsplit(":", 1)[-1])
+            self.problem_store.resolve_matching(code=code, task_id=key)
+            del self.transient_network_failures[key]
+
     def _post_ui(self, callback) -> None:
         """Queue a UI callback without touching Tk from a worker thread."""
         if self.ui_event_pump_running:
@@ -4579,20 +4722,29 @@ class DlcHubApplication:
             except Empty:
                 break
             try:
+                previous_context = getattr(self, "gui_operation_context", "Tkinter 界面回调")
+                self.gui_operation_context = "后台结果更新"
                 callback()
-            except Exception:
-                self.context.logger.exception("Unable to apply queued UI event")
+            except Exception as error:
+                self._report_gui_callback_exception(
+                    type(error), error, error.__traceback__
+                )
+            finally:
+                self.gui_operation_context = previous_context
         with self.pending_download_lock:
             snapshots = tuple(self.pending_download_snapshots.values())
             self.pending_download_snapshots.clear()
         for snapshot in snapshots:
             try:
+                previous_context = getattr(self, "gui_operation_context", "Tkinter 界面回调")
+                self.gui_operation_context = f"下载任务界面更新：{snapshot.spec.task_id}"
                 self._apply_download_event(snapshot)
-            except Exception:
-                self.context.logger.exception(
-                    "Unable to apply download UI event: task=%s",
-                    snapshot.spec.task_id,
+            except Exception as error:
+                self._report_gui_callback_exception(
+                    type(error), error, error.__traceback__
                 )
+            finally:
+                self.gui_operation_context = previous_context
         if self.ui_event_pump_running:
             self.window.after(50, self._drain_ui_events)
 
@@ -4924,6 +5076,8 @@ class DlcHubApplication:
             ProblemCode.NET_HTTP, ProblemCode.NET_CONNECTION,
         }:
             return "network-basics"
+        if code is ProblemCode.APP_GUI_CALLBACK_FAILED:
+            return "update-module-basics"
         if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
             return "security-interference"
         if code.value.startswith(("PATCH-ASSET", "PKG-ASSET")):
@@ -4933,7 +5087,13 @@ class DlcHubApplication:
         return "update-module-basics"
 
     def _open_problem_solution(self, report: ProblemReport) -> None:
-        self._open_solution_article(self._solution_id_for_problem_code(report.code))
+        solution_id = (
+            "patch-assets-missing"
+            if report.code is ProblemCode.APP_GUI_CALLBACK_FAILED
+            and report.task_id == "patch-tool"
+            else self._solution_id_for_problem_code(report.code)
+        )
+        self._open_solution_article(solution_id)
 
     def _set_problem_detail(self, report: ProblemReport | None) -> None:
         for child in self.problem_detail_content.winfo_children():
@@ -5266,9 +5426,10 @@ class DlcHubApplication:
                 self.context.logger.exception("DLC catalog refresh failed")
                 message = str(error)
                 self._post_ui(
-                    lambda message=message: self._show_catalog_error(
-                        message, generation=generation, cartridge_id=cartridge_id
-                        , source=source, request_generation=request_generation
+                    lambda message=message, error=error: self._show_catalog_error(
+                        message, error=error, generation=generation,
+                        cartridge_id=cartridge_id, source=source,
+                        request_generation=request_generation,
                     )
                 )
 
@@ -5288,6 +5449,10 @@ class DlcHubApplication:
         if request_generation is not None and request_generation != self.catalog_request_generation:
             return
         self.catalog_online = True
+        self._clear_catalog_network_failures(
+            cartridge_id=cartridge_id or self.cartridge.cartridge_id,
+            source=source or self.user_settings.download_source,
+        )
         entries = snapshot.entries
         self.catalog_entries = entries
         # Slug-based cartridges such as Civilization VI need the freshly
@@ -5494,13 +5659,24 @@ class DlcHubApplication:
         self._schedule_ready_installs()
 
     def _show_catalog_error(
-        self, message: str, *, generation: int | None = None,
-        cartridge_id: str | None = None,
+        self, message: str, *, error: BaseException | None = None,
+        generation: int | None = None, cartridge_id: str | None = None,
+        source: str | None = None, request_generation: int | None = None,
     ) -> None:
         if generation is not None and generation != self.game_selection_generation:
             return
         if cartridge_id is not None and cartridge_id != self.cartridge.cartridge_id:
             return
+        if source is not None and source != self.user_settings.download_source:
+            return
+        if request_generation is not None and request_generation != self.catalog_request_generation:
+            return
+        if error is not None:
+            self._record_catalog_refresh_failure(
+                error,
+                cartridge_id=cartridge_id or self.cartridge.cartridge_id,
+                source=source or self.user_settings.download_source,
+            )
         self.catalog_online = False
         self.catalog_refresh_button.configure(state="normal")
         self.catalog_status.configure(text="DLC 目录读取失败")
