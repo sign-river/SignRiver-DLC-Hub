@@ -2440,11 +2440,11 @@ class DlcHubApplication:
             header, text="解决方案", text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
-        self.solution_guide_back_button = ctk.CTkButton(
+        self.solution_detail_back_button = ctk.CTkButton(
             header, text="返回指南", width=92,
-            command=lambda: self._show_page("报错指南"),
+            command=self._return_from_solution_detail,
         )
-        self.solution_guide_back_button.pack(side="right")
+        self.solution_detail_back_button.pack(side="right")
         self.solution_detail_origin = "list"
         # 指南正文由出厂目录提供；远程 hub 只能追加新 guide_id，不能覆盖内置指南。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
@@ -2481,18 +2481,6 @@ class DlcHubApplication:
         )
         self._render_solution_articles()
         self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
-        detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
-        detail_header.pack(fill="x", padx=24, pady=(12, 4))
-        self.solution_detail_back_button = ctk.CTkButton(
-            detail_header,
-            text="← 返回解决方案",
-            width=136,
-            fg_color="transparent",
-            hover_color=UI["primary_surface"],
-            text_color=UI["primary"],
-            command=self._return_from_solution_detail,
-        )
-        self.solution_detail_back_button.pack(side="left")
         self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
@@ -3245,7 +3233,6 @@ class DlcHubApplication:
         else:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_page.update_idletasks()
-        self.solution_guide_back_button.pack_forget()
         self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
@@ -3254,7 +3241,10 @@ class DlcHubApplication:
         self.solution_detail_origin = "list"
         self.solution_detail_page.pack_forget()
         self.solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
-        self.solution_guide_back_button.pack(side="right")
+        self.solution_detail_back_button.configure(
+            text="返回指南", command=lambda: self._show_page("报错指南")
+        )
+        self.solution_detail_back_button.pack(side="right")
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _build_quick_check_page(self) -> None:
