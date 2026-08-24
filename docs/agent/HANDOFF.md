@@ -2008,3 +2008,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 修改范围：`app/versions/0.1.0/app_entry.py`；将解决方案详情的返回按钮从正文上方独立行移至“解决方案”标题栏右侧，列表态显示“返回指南”，详情态显示直接返回来源（如“返回解决方案”“回到一键排错”或“返回安全软件检测”），详情正文不再占用返回按钮行。
 - 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（74 项通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
+
+## 2026-08-25：关联工具与报错指南双向跳转
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；解决方案中的辅助工具新增“查看工具详情”，工具详情根据关联指南提供“查看关联解决方案”，并保存来源工具/指南状态，使返回按钮回到直接来源而不是固定回到工具列表或指南列表。
+- 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`。
+- 本次工作区原有未提交改动（指南模型、发布器界面和相关测试）未纳入本次提交，已保留原状。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；`python -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
