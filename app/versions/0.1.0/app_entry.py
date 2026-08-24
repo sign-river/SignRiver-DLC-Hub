@@ -3283,6 +3283,8 @@ class DlcHubApplication:
             self.solution_detail_back_button.configure(text="← 回到一键排错")
         elif self.solution_detail_origin == "security_products":
             self.solution_detail_back_button.configure(text="← 返回安全软件检测")
+        elif self.solution_detail_origin == "tool_center":
+            self.solution_detail_back_button.configure(text="← 返回工具详情")
         else:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_page.update_idletasks()
