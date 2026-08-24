@@ -49,6 +49,7 @@ from .signriver_app.domain import (
     PatchBundle,
     PatchHealth,
     UserSettings,
+    resolve_game_directory,
 )
 from .signriver_app.infrastructure.cache import CacheMaintenance
 from .signriver_app.infrastructure.catalog import (
@@ -2833,12 +2834,30 @@ class DlcHubApplication:
             anchor="w",
         ).pack(fill="x", padx=16, pady=(0, 12))
         if game_root is not None:
+            patch_directory = resolve_game_directory(
+                game_root,
+                self.patch_profile.install_relative_dir,
+                field_name="patch install directory",
+            )
+            cache_directory = (
+                self.download_manager.cache_root
+                / "packages"
+                / self.cartridge.adapter.descriptor.game_id
+            )
+            location_actions = ctk.CTkFrame(body, fg_color="transparent")
+            location_actions.pack(anchor="w", padx=16, pady=(0, 10))
             ctk.CTkButton(
-                body,
-                text="打开游戏目录",
-                width=120,
-                command=lambda root=game_root: self._open_path(root),
-            ).pack(anchor="w", padx=16, pady=(0, 10))
+                location_actions,
+                text="打开补丁安装目录",
+                width=150,
+                command=lambda path=patch_directory: self._open_path(path),
+            ).pack(side="left")
+            ctk.CTkButton(
+                location_actions,
+                text="打开补丁下载缓存",
+                width=150,
+                command=lambda path=cache_directory: self._open_path(path),
+            ).pack(side="left", padx=(10, 0))
         ready = self._patch_ready_paths() or {}
         if ready:
             ctk.CTkLabel(

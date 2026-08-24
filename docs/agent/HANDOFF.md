@@ -1,3 +1,10 @@
+### 2026-08-24：补丁工具改为直达安装目录和下载缓存
+
+- 用户要求补丁工具中原“打开游戏目录”不再打开游戏根目录，而是打开实际安装补丁的目录；同时要求确认并提供补丁缓存入口。
+- 补丁文件会缓存，不会每次都重新下载：下载完成后由下载管理器按内容哈希存入 `cache/packages/<game_id>/<内容哈希>/`；补丁、DLC 同属该游戏的下载缓存根目录，但“从云端重新下载补丁”只会删除本补丁对应的受控缓存。现已将按钮改为“打开补丁安装目录”，由当前卡带的受控 `install_relative_dir` 解析，另新增“打开补丁下载缓存”，打开当前游戏的 `cache/packages/<game_id>/`。
+- 改动先完成于 Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，并只定向同步同一界面代码到实际活动模块 `app/versions/0.2.0/app_entry.py`；未整目录覆盖、未修改 `app/state.json`。用户需重启客户端；未构建、未上传、未推送。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_download_manager.py tests\test_platform_content.py`（100 项通过）；` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py`、基线/活动入口 `compileall`、基线/活动关键按钮同步断言及 `git diff --check` 通过。未启动 GUI。
+
 ### 2026-08-24：补丁 SHA-256 改为可选校验，移除缺失即阻断
 
 - 用户反馈当前补丁目录元数据未提供 SHA-256 时，客户端把“一键解锁工具执行失败：补丁资源缺少有效 SHA-256，已拒绝下载和应用。”作为硬错误，要求按“一切从简”取消这一过度阻断。该硬门槛最初由提交 `930b435`（2026-08-17）引入。

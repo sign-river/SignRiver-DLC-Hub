@@ -212,6 +212,14 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'self.tool_center_detail_page = ctk.CTkFrame(' in source
     assert 'text="← 返回常用工具"' in source
     assert 'def _show_tool_center_detail(self, title: str)' in source
+    patch_tool = source.split('def _show_patch_tool', 1)[1].split(
+        'def _redownload_patch_assets', 1
+    )[0]
+    assert 'text="打开补丁安装目录"' in patch_tool
+    assert 'text="打开补丁下载缓存"' in patch_tool
+    assert 'text="打开游戏目录"' not in patch_tool
+    assert 'resolve_game_directory(' in patch_tool
+    assert 'self.download_manager.cache_root' in patch_tool
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _show_patch_tool', 1)[1].split('def _redownload_patch_assets', 1)[0]
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _render_security_products', 1)[1].split('def _open_security_product', 1)[0]
 
