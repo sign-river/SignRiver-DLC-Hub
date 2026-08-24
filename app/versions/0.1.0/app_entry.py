@@ -2516,6 +2516,8 @@ class DlcHubApplication:
     def _merge_remote_solution_articles(self, articles: dict[str, tuple[object, ...]]) -> None:
         self.solution_articles.update(articles)
         self._render_solution_articles()
+        if self.current_page == "常用工具":
+            self._refresh_tool_center()
 
     def _download_guide_tool(self, tool: GuideTool) -> None:
         prompt = (
