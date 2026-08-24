@@ -1,13 +1,14 @@
 ## 2026-08-24：关闭 Windows Defender 教程与 helper 工具流程
 
-- 当前目标：在「常用工具 → 安全软件检测」增加可关闭 Windows Defender 的提示横条，跳转到解决方案「关闭 Windows Defender 教程」；教程标题下提供 helper 工具的下载/取消/删除/启动按钮。程序本身不自动关闭防护。
-- 活动版本：`app/state.json` 的 `active_version` 为 `0.2.0`。本轮先改 Git 跟踪基线 `app/versions/0.1.0/`，再定向同步到被忽略的 `app/versions/0.2.0/`，未修改 `app/state.json`，未整目录覆盖。
-- 对齐方式：定向同步 `app_entry.py`、`signriver_app/application/helper_tools.py`、`guides.py`、`application/__init__.py`。出厂指南在仓库根 `config/guides/`，两版本共用。
-- 已完成：新增 `HelperToolsService`（`data/helper-tools/{tool_id}/`）；`GuideTool` 增加 `release_tag`/`package_kind`/`launch_action`/`executable_name`/`run_as_admin`；出厂指南 `close-windows-defender` + `dcontrol`；发布器跳过 `release_tag != hub` 的附件；后续 AI 模板 `docs/agent/helper-tool-solution-template.md`。
-- 下载源：GitLink `.../releases/download/tools/dControl.zip`，GitHub 对应同名附件。下载中按钮为「暂停下载」（立即取消，无断点续传）；成功后为「删除下载」（确认后删目录）。`run_as_admin=true` 时 Windows 用 `runas` 启动。
-- 验证（2026-08-24）：`pytest -q tests/test_helper_tools.py tests/test_platform_content.py tests/test_publisher_guides.py tests/test_ui_theme.py tests/test_client_problem_center.py` 通过；相关 Ruff 通过；`compileall` 覆盖 `0.1.0` 与 `0.2.0` 通过。未启动 GUI、未构建发布包、未上传、未推送。
-- 用户必须重启当前客户端后才能在 `0.2.0` 界面看到横条和教程。本地同步不等于已发布。
-- 下一步：用户填写教程正文；需要正式发布时再按发布流程构建新版本。不要把 helper zip 打进 hub。
+- 状态：本任务已完成并本地提交，工作区干净，可切换窗口。未 push。
+- Git：分支 `main`，HEAD `3d96ed47f092348a45868d09ca1a1a67d6803621`（`feat: 增加关闭 Windows Defender 教程与 helper 工具流程`），领先 `origin/main` 48 提交。
+- 活动版本：`app/state.json` 的 `active_version` 为 `0.2.0`，`previous_version` 为 `0.1.7`，`bad_versions` 为空。未改 `app/state.json`。
+- 对齐方式：先改 Git 跟踪基线 `app/versions/0.1.0/`，再定向同步到被忽略的 `app/versions/0.2.0/`（`app_entry.py`、`helper_tools.py`、`guides.py`、`application/__init__.py`）。禁止整目录覆盖。出厂指南在 `config/guides/`，两版本共用。
+- 已完成：安全软件检测横条跳转 `close-windows-defender`；标题下 helper 双按钮；`HelperToolsService` 解压到 `data/helper-tools/{tool_id}/`；`dcontrol` 从 `tools` Release 按当前下载源取 zip；暂停即取消；删除需确认；Windows 管理员启动走 `runas`。程序不自动关闭防护。
+- 模板：后续同类方案看 `docs/agent/helper-tool-solution-template.md`。长期约束已写入 `DECISIONS.md`。
+- 验证（2026-08-24）：`pytest -q tests/test_helper_tools.py tests/test_platform_content.py tests/test_publisher_guides.py tests/test_ui_theme.py tests/test_client_problem_center.py` 通过；相关 Ruff 通过；`compileall` 覆盖 `0.1.0` 与 `0.2.0` 通过。未启动 GUI、未构建、未上传、未推送。
+- 风险：用户需重启客户端才能看到 `0.2.0` 界面；`app/versions/0.2.0/` 被 Git 忽略，本地同步不等于已发布。不要把 helper zip 打进 hub。
+- 下一步：用户填写教程正文；正式发布时按发布流程构建新版本。下一窗口不要再只改 `0.1.0` 却声称当前客户端已生效。
 
 ### 2026-08-24：问题中心补齐 GUI 回调异常与低噪声网络失败闭环
 
