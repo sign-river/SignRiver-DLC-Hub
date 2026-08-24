@@ -1920,3 +1920,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 一键排错参考表固定为网络目录、游戏目录、磁盘空间、适用补丁审计、近期问题记录及两个未实现研究项；所有检查保持只读并以固定指南跳转，不执行修复。
 - 验证（2026-08-22）：使用 `python-docx` 读取源 DOCX，断言 8 个一级主题、75 个二级主题均在目录中出现，并断言筛选原则、来源盘点、一键排错、未来内容模型和验收章节存在；`git diff --check` 通过。未运行 pytest（仅文档改动），未启动 GUI、未构建、未上传、未推送。
 - 后续实现时应先按目录的 P0/P1/P2 队列，为云端指南 schema、稳定问题码、卡带过滤和 UI 跳转单独制定实现计划与测试，不得把本参考目录当作已上线功能。
+
+## 2026-08-24：修复 0.2.0 缺失补丁基础设施并恢复为活动模块
+
+- 用户确认 `0.1.7` 只是 `0.2.0` 初始化失败后的自动回退版本，当前客户端修复和验证目标必须是 `0.2.0`，不得再把 `0.1.7` 当作功能交付目标。
+- 本地活动模块 `app/versions/0.2.0/` 的启动根因已确认：`app_entry.py` 导入 `RepairJournal`，但其 `signriver_app/infrastructure/patching/` 缺少 `repair_journal.py`、`original_library.py`，且包初始化文件未导出 `RepairJournal`，导致启动器加载失败并将 `0.2.0` 标记为坏版本。
+- 已仅同步本次所需的 4 个运行时文件到被 Git 忽略的 `0.2.0` 目录：`app_entry.py`、`patching/__init__.py`、`patching/original_library.py`、`patching/repair_journal.py`；未整目录覆盖目标版本。基线 `0.1.0` 已受 Git 跟踪且包含对应 patching 文件。
+- 已通过 `StateStore.activate("0.2.0")` 恢复状态：`active_version` 为 `0.2.0`、`previous_version` 为 `0.1.7`、`bad_versions` 已清空。随后以 `launcher.py` 真实启动，进程持续运行，日志记录 `Starting application module 0.2.0`，并由健康确认自动清除了 `pending_version`；未再发生回退。
+- 验证（2026-08-24）：`python -m compileall -q app/versions/0.2.0` 通过；真实启动器运行后状态文件确认如上。未构建发布包、未上传、未 push。用户若此前已关闭窗口，需要重新启动客户端以加载恢复后的 `0.2.0`。
