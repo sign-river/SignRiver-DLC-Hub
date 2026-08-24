@@ -90,6 +90,7 @@ class GuideTool:
     executable_name: str = ""
     run_as_admin: bool = False
     builtin: bool = False
+    revision: str = ""
 
     @classmethod
     def from_dict(cls, value: dict[str, object], *, builtin: bool = False) -> "GuideTool":
@@ -161,6 +162,7 @@ class GuideTool:
             executable_name=executable_name,
             run_as_admin=raw_admin,
             builtin=builtin,
+            revision=str(value.get("revision") or "").strip(),
         )
 
     def is_helper_tool(self) -> bool:

@@ -8,6 +8,7 @@ import shutil
 import stat
 import threading
 import zipfile
+import json
 from pathlib import Path, PurePosixPath
 from typing import Callable
 from urllib.request import Request, urlopen
@@ -62,6 +63,22 @@ class HelperToolsService:
     def tool_dir(self, tool_id: str) -> Path:
         return self.root / str(tool_id).strip()
 
+    def _metadata_path(self, tool: GuideTool) -> Path:
+        return self.tool_dir(tool.tool_id) / ".tool-meta.json"
+
+    @staticmethod
+    def _signature(tool: GuideTool) -> dict[str, str]:
+        return {
+            "tool_id": tool.tool_id,
+            "revision": tool.revision,
+            "asset_name": tool.asset_name,
+            "filename": tool.filename,
+            "release_tag": tool.release_tag,
+            "package_kind": tool.package_kind,
+            "launch_action": tool.launch_action,
+            "executable_name": tool.executable_name,
+        }
+
     def resolve_url(self, tool: GuideTool) -> str:
         if tool.asset_name:
             return fixed_release_asset_url(
@@ -75,6 +92,12 @@ class HelperToolsService:
     def is_installed(self, tool: GuideTool) -> bool:
         root = self.tool_dir(tool.tool_id)
         if not root.is_dir():
+            return False
+        try:
+            metadata = json.loads(self._metadata_path(tool).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+        if metadata != self._signature(tool):
             return False
         if tool.launch_action == "exe":
             return self.find_executable(tool) is not None
@@ -99,12 +122,15 @@ class HelperToolsService:
     def download(self, tool: GuideTool, cancel_event: threading.Event | None = None) -> Path:
         cancel = cancel_event or threading.Event()
         dest = self.tool_dir(tool.tool_id)
-        if dest.exists():
-            shutil.rmtree(dest)
-        dest.mkdir(parents=True, exist_ok=True)
+        staging = self.root / f".{tool.tool_id}.download"
+        backup = self.root / f".{tool.tool_id}.previous"
+        if staging.exists():
+            shutil.rmtree(staging)
+        if backup.exists():
+            shutil.rmtree(backup)
+        staging.mkdir(parents=True, exist_ok=True)
         filename = tool.asset_name or tool.filename or f"{tool.tool_id}.bin"
-        part = dest / f".{filename}.part"
-        archive = dest / filename
+        part = staging / f".{filename}.part"
         try:
             payload = self._fetch(self.resolve_url(tool), cancel)
             if cancel.is_set():
@@ -112,19 +138,36 @@ class HelperToolsService:
             if not payload:
                 raise HelperToolError("工具下载为空")
             part.write_bytes(payload)
-            os.replace(part, archive)
+            os.replace(part, staging / filename)
             if tool.package_kind == "zip":
-                self._extract_zip(archive, dest)
-                archive.unlink(missing_ok=True)
+                self._extract_zip(staging / filename, staging)
+                (staging / filename).unlink(missing_ok=True)
+            (staging / ".tool-meta.json").write_text(
+                json.dumps(self._signature(tool), ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            if dest.exists():
+                os.replace(dest, backup)
+            os.replace(staging, dest)
+            if backup.exists():
+                shutil.rmtree(backup)
             return dest
         except HelperToolCancelled:
-            self.delete(tool.tool_id)
+            if staging.exists():
+                shutil.rmtree(staging)
             raise
         except Exception:
-            self.delete(tool.tool_id)
+            if staging.exists():
+                shutil.rmtree(staging)
+            if not dest.exists() and backup.exists():
+                os.replace(backup, dest)
             raise
         finally:
             part.unlink(missing_ok=True)
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            if backup.exists() and dest.exists():
+                shutil.rmtree(backup, ignore_errors=True)
 
     def delete(self, tool_id: str) -> None:
         dest = self.tool_dir(tool_id)

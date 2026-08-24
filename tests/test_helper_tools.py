@@ -88,6 +88,27 @@ def test_helper_tool_cancel_deletes_partial_download(tmp_path: Path) -> None:
     assert not service.is_installed(tool)
 
 
+def test_helper_tool_revision_marks_old_download_stale_and_replaces_safely(tmp_path: Path) -> None:
+    payloads = [b"old", b"new"]
+    service = HelperToolsService(
+        tmp_path / "helper-tools", opener=lambda *_args: payloads.pop(0)
+    )
+    old = _tool(
+        revision="2026-08-24", asset_name="", filename="repair.ps1", download_url="https://example.invalid/repair.ps1",
+        package_kind="file", launch_action="legacy", executable_name="",
+    )
+    new = _tool(
+        revision="2026-08-25", asset_name="", filename="repair.ps1", download_url="https://example.invalid/repair.ps1",
+        package_kind="file", launch_action="legacy", executable_name="",
+    )
+    service.download(old)
+    assert service.is_installed(old)
+    assert not service.is_installed(new)
+    service.download(new)
+    assert service.is_installed(new)
+    assert (service.tool_dir(new.tool_id) / "repair.ps1").read_bytes() == b"new"
+
+
 def test_helper_tool_rejects_zip_slip(tmp_path: Path) -> None:
     payload = _zip_bytes({"../evil.exe": b"bad"})
     service = HelperToolsService(
