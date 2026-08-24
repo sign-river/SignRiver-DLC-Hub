@@ -80,16 +80,16 @@ class CartridgeManagementUiMixin:
         self.hub_status_summary.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 12), sticky="ew")
 
         operations = ctk.CTkFrame(toolbar, fg_color="transparent")
-        operations.grid(row=2, column=0, padx=18, pady=(0, 12), sticky="nsew")
+        operations.grid(row=2, column=0, padx=18, pady=(0, 10), sticky="ew")
         operations.grid_columnconfigure(0, weight=1)
-        operations.grid_rowconfigure((0, 1), weight=1, uniform="operation_groups")
+        operations.grid_rowconfigure((0, 1), weight=0)
 
         cartridge_group = ctk.CTkFrame(
             operations, fg_color="#F7FAFE", border_width=1,
             border_color="#D8E6F4", corner_radius=10,
         )
-        cartridge_group.grid(row=0, column=0, pady=(0, 6), sticky="nsew")
-        cartridge_group.grid_columnconfigure((0, 1), weight=1, uniform="cartridge_actions")
+        cartridge_group.grid(row=0, column=0, pady=(0, 5), sticky="ew")
+        cartridge_group.grid_columnconfigure((0, 1), weight=0, uniform="cartridge_actions")
         ctk.CTkLabel(
             cartridge_group, text="卡带与公告", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
@@ -99,8 +99,8 @@ class CartridgeManagementUiMixin:
             operations, fg_color="#F7FAFE", border_width=1,
             border_color="#D8E6F4", corner_radius=10,
         )
-        guide_group.grid(row=1, column=0, pady=(6, 0), sticky="nsew")
-        guide_group.grid_columnconfigure((0, 1), weight=1, uniform="guide_actions")
+        guide_group.grid(row=1, column=0, pady=(5, 0), sticky="ew")
+        guide_group.grid_columnconfigure((0, 1), weight=0, uniform="guide_actions")
         ctk.CTkLabel(
             guide_group, text="指南发布", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
@@ -109,10 +109,10 @@ class CartridgeManagementUiMixin:
         def secondary_button(parent, text, command, row, column, columnspan=1):
             button = ctk.CTkButton(
                 parent, text=text, fg_color=LIGHT_BLUE,
-                command=command,
+                width=190, command=command,
             )
             button.grid(row=row, column=column, columnspan=columnspan,
-                        padx=6, pady=4, sticky="ew")
+                        padx=6, pady=3, sticky="w")
             return button
 
         self.hub_refresh_button = secondary_button(
@@ -129,7 +129,6 @@ class CartridgeManagementUiMixin:
         )
         self.announcement_manage_button = secondary_button(
             cartridge_group, "管理公告", self.open_announcement_manager, 3, 0,
-            columnspan=2,
         )
         ctk.CTkLabel(
             cartridge_group,
@@ -141,20 +140,21 @@ class CartridgeManagementUiMixin:
         ).grid(row=4, column=0, columnspan=2, padx=14, pady=(12, 8), sticky="ew")
         self.hub_publish_button = ctk.CTkButton(
             cartridge_group, text="一键双端发布卡带", fg_color=BLUE,
-            height=38, command=self.publish_cartridge_hub_mirror,
+            width=230, height=38, command=self.publish_cartridge_hub_mirror,
         )
-        self.hub_publish_button.grid(row=5, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+        self.hub_publish_button.grid(row=5, column=0, padx=14, pady=(0, 8), sticky="w")
         self.guides_publish_button = secondary_button(
             guide_group, "双端发布指南", self.publish_guides_mirror, 1, 0,
-            columnspan=2,
         )
         secondary_button(
-            guide_group, "打开指南目录", self.open_guides_source_folder, 2, 0,
-            columnspan=2,
+            guide_group, "打开指南目录", self.open_guides_source_folder, 1, 1,
         )
 
-        transfer = ctk.CTkFrame(cartridge_group, fg_color="transparent")
-        transfer.grid(row=6, column=0, columnspan=2, padx=14, pady=(0, 14), sticky="ew")
+        transfer = ctk.CTkFrame(
+            toolbar, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        transfer.grid(row=3, column=0, padx=18, pady=(0, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.hub_upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=235, anchor="w", text_color=MUTED,

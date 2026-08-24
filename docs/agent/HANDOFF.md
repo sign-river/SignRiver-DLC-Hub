@@ -1,3 +1,10 @@
+## 2026-08-25：收紧指南层并提升全局上传进度层级
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；指南发布层改为按内容自然高度布局，避免纵向区域溢出；上传状态、进度条和暂停按钮移出卡带层，作为页面级全局上传进度行。
+- 普通按钮改为固定宽度紧凑双列排列；“一键双端发布卡带”保留主按钮权重但取消横向铺满，避免误导为全局发布入口。
+- 未改变按钮、文本、发布逻辑或暂停行为。验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、Ruff、`git diff --check` 通过。未启动发布器 GUI，未构建、未上传、未推送。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：卡带与公告、指南发布改为纵向两层
 
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；撤销左右双列操作区，改为上下两个业务层：上层“卡带与公告”，下层“指南发布”。
