@@ -47,3 +47,23 @@ def test_windows_security_product_detection_only_allows_fixed_system_names() -> 
     assert security.is_windows_security_product("Windows Security")
     assert not security.is_windows_security_product("Huorong")
     assert not security.is_windows_security_product("Defender Helper")
+
+
+def test_lenovo_security_product_uses_the_pc_manager_launcher(tmp_path: Path) -> None:
+    manager = tmp_path / "LenovoPcManager.exe"
+    manager.touch()
+    product = security.SecurityProduct("Lenovo Anti-Virus powered by Huorong Security")
+
+    assert security.is_lenovo_security_product(product)
+    assert security.find_lenovo_pc_manager_executable(({
+        "display_name": "联想电脑管家（原厂驱动和官方服务）",
+        "display_icon": f'"{manager}",0',
+        "install_location": str(tmp_path),
+    },)) == manager
+
+
+def test_non_lenovo_security_product_keeps_its_registered_executable(tmp_path: Path) -> None:
+    executable = tmp_path / "vendor-ui.exe"
+    product = security.SecurityProduct("Example Antivirus", executable)
+
+    assert security.preferred_security_product_executable(product) == executable

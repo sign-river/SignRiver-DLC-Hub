@@ -1,3 +1,10 @@
+### 2026-08-24：安全软件检测优先打开联想电脑管家主界面
+
+- Windows 安全中心把“Lenovo Anti-Virus powered by Huorong Security”登记为安全产品，但其 `pathToSignedProductExe` 指向的是联想电脑管家内部的杀毒子模块；直接执行该路径会绕开电脑管家主界面，用户无法得到预期的产品入口。
+- 现已对该联想安全产品增加只读注册表解析：仅从卸载信息中定位已存在且文件名严格为 `LenovoPcManager.exe` 的联想电脑管家启动器，找到时打开主界面；找不到时明确提示且绝不回退启动杀毒子模块。Windows Defender 则始终通过固定 `windowsdefender://threatsettings/` URI 打开 Windows 安全中心界面。未尝试传递非公开参数跳转“病毒历史记录”或“白名单”页，避免依赖不稳定的厂商内部协议。
+- 改动先完成于 Git 基线 `app/versions/0.1.0/`，并定向同步相关入口与安全软件基础设施到活动模块 `app/versions/0.2.0/`。本机注册表解析实测定位到 `C:\Program Files (x86)\Lenovo\PCManager\5.1.200.8201\LenovoPcManager.exe`；用户需重启客户端。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_security_software.py tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（83 项通过）、Ruff、基线/活动入口与安全模块 `compileall`、`git diff --check` 通过；启动 `launcher.py` 持续 7 秒未提前退出（PID 82356，随后仅停止本次验证进程）。
+
 ### 2026-08-24：修复帮助与诊断页底部诊断组件被压扁
 
 - 截图中的浅蓝条就是“仍然无法解决？/ 导出诊断”组件被父页面高度挤压后的残留。原实现把四个“其他工具”卡片和底部组件都按固定高度直接放进不可滚动的页面；在高 DPI 或较矮窗口中，最后一个组件成为被挤压对象，标签和按钮因裁切而看似消失。

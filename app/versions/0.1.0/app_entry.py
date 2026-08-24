@@ -71,7 +71,9 @@ from .signriver_app.infrastructure.patching import (
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.security_software import (
     discover_security_products,
+    is_lenovo_security_product,
     is_windows_security_product,
+    preferred_security_product_executable,
 )
 from .signriver_app.infrastructure.persistence import (
     Database,
@@ -2978,7 +2980,7 @@ class DlcHubApplication:
                 font=ctk.CTkFont(size=14, weight="bold"),
                 anchor="w",
             ).pack(side="left", padx=14, pady=12)
-            target = product.executable
+            target = preferred_security_product_executable(product)
             can_open = (
                 target is not None and target.suffix.casefold() == ".exe"
             ) or is_windows_security_product(product)
@@ -2991,14 +2993,6 @@ class DlcHubApplication:
             ).pack(side="right", padx=12, pady=8)
 
     def _open_security_product(self, product) -> None:
-        target = product.executable
-        if target is not None and target.suffix.casefold() == ".exe" and target.is_file():
-            try:
-                os.startfile(str(target))  # type: ignore[attr-defined]
-                return
-            except OSError as error:
-                self._notify(f"无法打开 {product.name}：{error}", error=True)
-                return
         if is_windows_security_product(product):
             try:
                 if not webbrowser.open(WINDOWS_SECURITY_URI):
@@ -3007,6 +3001,17 @@ class DlcHubApplication:
             except Exception as error:
                 self._notify(f"无法打开 Windows 安全中心：{error}", error=True)
                 return
+        target = preferred_security_product_executable(product)
+        if target is not None and target.suffix.casefold() == ".exe" and target.is_file():
+            try:
+                os.startfile(str(target))  # type: ignore[attr-defined]
+                return
+            except OSError as error:
+                self._notify(f"无法打开 {product.name}：{error}", error=True)
+                return
+        if is_lenovo_security_product(product):
+            self._notify("未找到联想电脑管家的主界面程序，未启动杀毒模块。", error=True)
+            return
         self._notify(f"无法确认 {product.name} 的启动程序。", error=True)
 
     def _remove_guide_tool(self, path: Path) -> None:

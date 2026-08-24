@@ -204,6 +204,8 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'text="打开文件"' in source
     assert 'def _open_file(self, path: Path)' in source
     assert 'is_windows_security_product(product)' in source
+    assert 'is_lenovo_security_product(product)' in source
+    assert 'preferred_security_product_executable(product)' in source
     assert 'webbrowser.open(WINDOWS_SECURITY_URI)' in source
     assert 'self.tool_center_detail_page = ctk.CTkFrame(' in source
     assert 'text="← 返回常用工具"' in source
