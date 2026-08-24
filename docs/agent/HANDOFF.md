@@ -1,3 +1,11 @@
+## 2026-08-24：发布器游戏配置新增同步选择框
+
+- 目标：在“游戏卡带配置”页面标题上方增加游戏选择下拉框，并与“DLC / 补丁发布包”的当前发布游戏下拉框保持同步。
+- 改动：`src/signriver_publisher/content_management_ui.py` 的游戏配置页新增 `profile_game_menu`；两个选择框均复用 `_select_game`。`refresh()` 同步两个选择框的选项和值；资源导入/清空期间的禁用与恢复通过 `_configure_game_selectors()` 同步处理。
+- 活动版本：本任务只涉及发布器，不修改 `app/state.json`；其当前 `active_version` 仍为 `0.2.0`。无需客户端模块同步或重启客户端。
+- 验证（2026-08-24）：` .\\.venv\\Scripts\\python.exe -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py` 通过；` .\\.venv\\Scripts\\python.exe -m ruff check src/signriver_publisher/content_management_ui.py` 通过；` .\\.venv\\Scripts\\python.exe -m compileall -q src/signriver_publisher` 通过；`git diff --check` 通过。未启动发布器 GUI、未构建、未上传、未推送。
+- Git：分支 `main`，改动仅限本任务文件；完成后创建本地 commit，不自动 push。
+
 ## 2026-08-24：关闭 Windows Defender 教程与 helper 工具流程
 
 - 状态：本任务已完成并本地提交，工作区干净，可切换窗口。未 push。

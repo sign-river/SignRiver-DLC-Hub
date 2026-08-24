@@ -494,14 +494,28 @@ class ContentManagementUiMixin:
         )
         card.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
+        selector = ctk.CTkFrame(card, fg_color="transparent")
+        selector.grid(row=0, column=0, padx=20, pady=(14, 2), sticky="ew")
+        selector.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            selector, text="当前编辑游戏", width=110, anchor="w"
+        ).grid(row=0, column=0, padx=(0, 10), sticky="w")
+        self.profile_game_menu = ctk.CTkOptionMenu(
+            selector,
+            command=self._select_game,
+            width=280,
+            fg_color=LIGHT_BLUE,
+            button_color=BLUE,
+        )
+        self.profile_game_menu.grid(row=0, column=1, sticky="ew")
         ctk.CTkLabel(
             card,
             text="游戏卡带配置",
             font=("Microsoft YaHei UI", 20, "bold"),
             text_color=BLUE,
-        ).grid(row=0, column=0, padx=20, pady=(16, 8), sticky="w")
+        ).grid(row=1, column=0, padx=20, pady=(8, 8), sticky="w")
         form = ctk.CTkFrame(card, fg_color="transparent")
-        form.grid(row=1, column=0, padx=20, pady=(0, 8), sticky="ew")
+        form.grid(row=2, column=0, padx=20, pady=(0, 8), sticky="ew")
         form.grid_columnconfigure(1, weight=1)
         labels = (
             ("游戏 ID", "game_id"),
@@ -553,8 +567,12 @@ class ContentManagementUiMixin:
         games = self.workspace.list_games()
         self._game_label_ids = {item.display_name: item.game_id for item in games}
         labels = [item.display_name for item in games]
-        self.game_menu.configure(values=labels or ["尚未配置游戏"])
-        self.game_menu.set(self.profile.display_name)
+        selector_values = labels or ["尚未配置游戏"]
+        for selector_name in ("game_menu", "profile_game_menu"):
+            selector = getattr(self, selector_name, None)
+            if selector is not None:
+                selector.configure(values=selector_values)
+                selector.set(self.profile.display_name)
         self._refresh_content_release_summary()
         self.refresh_resource_lists()
         for key, entry in self.profile_entries.items():
@@ -659,6 +677,13 @@ class ContentManagementUiMixin:
         self._log(f"用户操作：切换当前游戏为“{self.profile.display_name}”。")
         self.refresh()
 
+    def _configure_game_selectors(self, **kwargs) -> None:
+        """Apply transient state changes to both synchronized game menus."""
+        for selector_name in ("game_menu", "profile_game_menu"):
+            selector = getattr(self, selector_name, None)
+            if selector is not None:
+                selector.configure(**kwargs)
+
     def _fill_local_outputs(self) -> None:
         for child in self.local_output_list.winfo_children():
             child.destroy()
@@ -744,7 +769,7 @@ class ContentManagementUiMixin:
             return
         self.dlc_import_button.configure(state="disabled", text="准备中…")
         self.dlc_clear_button.configure(state="disabled")
-        self.game_menu.configure(state="disabled")
+        self._configure_game_selectors(state="disabled")
 
         def progress(index: int, total: int, name: str) -> None:
             self._post_ui(
@@ -785,7 +810,7 @@ class ContentManagementUiMixin:
         self._end_background_mutation("dlc-import")
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
-        self.game_menu.configure(state="normal")
+        self._configure_game_selectors(state="normal")
         if self.profile.game_id == profile.game_id:
             self.refresh()
         self._log(f"后台任务：已完成“{profile.display_name}”的 DLC 导入，共 {len(imported)} 项。")
@@ -795,7 +820,7 @@ class ContentManagementUiMixin:
         self._end_background_mutation("dlc-import")
         self.dlc_import_button.configure(state="normal", text="导入")
         self.dlc_clear_button.configure(state="normal")
-        self.game_menu.configure(state="normal")
+        self._configure_game_selectors(state="normal")
         self._log(f"后台任务：DLC 导入失败：{message}")
         if not self.winfo_exists():
             return
@@ -851,7 +876,7 @@ class ContentManagementUiMixin:
         self._log(f"用户操作：开始清空“{self.profile.display_name}”的{label}。")
         import_button.configure(state="disabled")
         clear_button.configure(state="disabled", text="正在清空…")
-        self.game_menu.configure(state="disabled")
+        self._configure_game_selectors(state="disabled")
         profile = self.profile
 
         def work() -> None:
@@ -889,7 +914,7 @@ class ContentManagementUiMixin:
         self._end_background_mutation(operation_key)
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
-        self.game_menu.configure(state="normal")
+        self._configure_game_selectors(state="normal")
         if self.profile.game_id == profile.game_id:
             self.refresh()
         self._log(f"后台任务：已清空“{profile.display_name}”的{label}，共 {count} 项。")
@@ -901,7 +926,7 @@ class ContentManagementUiMixin:
         self._end_background_mutation(operation_key)
         import_button.configure(state="normal")
         clear_button.configure(state="normal", text="清空全部")
-        self.game_menu.configure(state="normal")
+        self._configure_game_selectors(state="normal")
         self._log(f"后台任务：清空本地资源失败：{message}")
         messagebox.showerror("清理失败", message)
 
