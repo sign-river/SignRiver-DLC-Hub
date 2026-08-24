@@ -119,7 +119,7 @@ def _collect(source_dir: Path) -> tuple[GuideResourceSummary, tuple[Path, ...]]:
             if raw_attachment in {None, ""}:
                 continue
             release_tag = str(tool.get("release_tag") or "hub").strip().lower()
-            if release_tag != "hub":
+            if release_tag not in {"hub", "guides"}:
                 # tools/other Release assets are published separately.
                 continue
             attachment_name = _flat_name(raw_attachment, "工具 asset_name")
