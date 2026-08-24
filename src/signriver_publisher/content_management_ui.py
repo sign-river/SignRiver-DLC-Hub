@@ -497,6 +497,16 @@ class ContentManagementUiMixin:
         selector = ctk.CTkFrame(card, fg_color="transparent")
         selector.grid(row=0, column=0, padx=20, pady=(14, 2), sticky="ew")
         selector.grid_columnconfigure(1, weight=1)
+        ctk.CTkButton(
+            selector,
+            text="← 返回全部游戏卡带",
+            width=170,
+            height=32,
+            fg_color="transparent",
+            text_color=BLUE,
+            hover_color="#EAF4FD",
+            command=self._return_to_cartridge_detail,
+        ).grid(row=0, column=2, padx=(12, 0), sticky="e")
         ctk.CTkLabel(
             selector, text="当前编辑游戏", width=110, anchor="w"
         ).grid(row=0, column=0, padx=(0, 10), sticky="w")

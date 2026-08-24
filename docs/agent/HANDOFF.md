@@ -1,3 +1,10 @@
+## 2026-08-25：游戏卡带配置页补回直接返回入口
+
+- 修改范围：`src/signriver_publisher/content_management_ui.py`、`src/signriver_publisher/cartridge_management_ui.py`；在“游戏卡带配置”页顶部增加“← 返回全部游戏卡带”按钮，点击后回到直接上一级列表页并刷新列表。
+- 返回路径保持逐层原则，不改变配置编辑、保存或游戏选择逻辑。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；两个发布器源码 `py_compile`、Ruff、`git diff --check` 通过。未启动发布器 GUI，未构建、未上传、未推送。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：全部游戏卡带子页面取消内层小列表约束
 
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；“全部游戏卡带”详情页移除 `_card` 内层卡片和小边框列表，改为标题加全宽滚动列表直接占据子页面内容区。

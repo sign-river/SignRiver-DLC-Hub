@@ -277,6 +277,12 @@ class CartridgeManagementUiMixin:
         self.tabs.set("游戏支持数据")
         self.game_support_tabs.set("游戏配置")
 
+    def _return_to_cartridge_detail(self) -> None:
+        """Return from editing a cartridge to its immediate list page."""
+        self.tabs.set("游戏支持数据")
+        self.game_support_tabs.set("卡带与公告")
+        self._show_cartridge_detail()
+
     def _update_freshness_summary(self) -> None:
         if not hasattr(self, "freshness_summary"):
             return
