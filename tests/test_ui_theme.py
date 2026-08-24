@@ -160,6 +160,13 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'command=self._return_from_solution_detail' in source
     assert 'text="← 回到一键排错"' in source
     assert 'text="← 返回解决方案"' in source
+    log_layout = source.split('self.log_card = _card(self.page_host)', 1)[1].split(
+        'self.log_preview = ctk.CTkTextbox(', 1
+    )[0]
+    assert 'text="返回指南", width=92' in log_layout
+    assert '.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))' in log_layout
+    assert 'log_tools.grid(row=2, column=0, sticky="ew", padx=(0, 16))' in log_layout
+    assert 'log_action_grid.grid(row=2, column=1, sticky="ne")' in log_layout
 
 
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:

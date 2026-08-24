@@ -1549,22 +1549,19 @@ class DlcHubApplication:
         log_command_area.pack(fill="x", padx=24, pady=(18, 8))
         log_command_area.grid_columnconfigure(0, weight=1)
 
-        log_primary_area = ctk.CTkFrame(
-            log_command_area, fg_color="transparent"
-        )
-        log_primary_area.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
-        log_primary_area.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            log_primary_area, text="运行日志", text_color=UI["primary"],
-            font=ctk.CTkFont(size=18, weight="bold")
-        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+            log_command_area, text="运行日志", text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w")
+        # Keep navigation on a dedicated line so it is not mistaken for a log
+        # operation and does not crowd the filter/actions area.
         ctk.CTkButton(
-            log_primary_area, text="返回指南", width=92,
+            log_command_area, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
-        ).grid(row=0, column=1, sticky="e", pady=(0, 8))
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))
 
-        log_tools = ctk.CTkFrame(log_primary_area, fg_color="transparent")
-        log_tools.grid(row=1, column=0, sticky="ew")
+        log_tools = ctk.CTkFrame(log_command_area, fg_color="transparent")
+        log_tools.grid(row=2, column=0, sticky="ew", padx=(0, 16))
         log_tools.grid_columnconfigure(1, weight=1)
         self.log_level_filter = _combo_box(
             log_tools, values=["全部", "INFO", "WARNING", "ERROR"], width=100,
@@ -1581,7 +1578,7 @@ class DlcHubApplication:
         log_action_grid = ctk.CTkFrame(
             log_command_area, fg_color="transparent"
         )
-        log_action_grid.grid(row=0, column=1, sticky="ne")
+        log_action_grid.grid(row=2, column=1, sticky="ne")
         for column in range(2):
             log_action_grid.grid_columnconfigure(
                 column, weight=1, uniform="log-actions"

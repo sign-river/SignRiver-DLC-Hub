@@ -1,3 +1,10 @@
+### 2026-08-24：运行日志页分离返回导航与操作区
+
+- 用户反馈运行日志页右上角同时挤入“返回指南”、刷新、打开日志目录、导出诊断包和复制日志，层级混杂且视觉拥挤；要求“返回指南”单独一行，其余按钮按合适方式调整。
+- 现已将“运行日志”标题独占首行，“返回指南”置于紧随其后的独立导航行；筛选控件与四个日志操作按钮统一移至第三行，筛选区域保持左侧自适应宽度，刷新/目录/诊断/复制按钮继续为右侧规则 2×2 操作区。导航按钮不再被误认为日志操作，也不会挤压筛选输入框。
+- 改动先完成于 Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，再仅定向同步同一布局到实际活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖、未修改 `app/state.json`。用户需重启客户端；未构建、未上传、未推送。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（78 项通过）；` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py`、基线/活动入口 `compileall`、基线/活动布局同步断言及 `git diff --check` 通过。未启动 GUI。
+
 ### 2026-08-24：补丁工具改为直达安装目录和下载缓存
 
 - 用户要求补丁工具中原“打开游戏目录”不再打开游戏根目录，而是打开实际安装补丁的目录；同时要求确认并提供补丁缓存入口。
