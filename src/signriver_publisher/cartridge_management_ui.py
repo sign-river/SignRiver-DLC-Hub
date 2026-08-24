@@ -49,109 +49,130 @@ class CartridgeManagementUiMixin:
 
         toolbar = self._card(self.cartridge_home_page, 0, "卡带统一管理")
         toolbar.grid_columnconfigure(0, weight=1)
+        toolbar.grid_rowconfigure(2, weight=1)
         toolbar.grid_rowconfigure(3, weight=0)
+        toolbar.grid_rowconfigure(4, weight=0)
+
+        overview = ctk.CTkFrame(
+            toolbar, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        overview.grid(row=1, column=0, padx=18, pady=(0, 12), sticky="ew")
+        overview.grid_columnconfigure(0, weight=1)
+        overview.grid_columnconfigure(1, weight=1)
         self.hub_summary = ctk.CTkLabel(
-            toolbar,
+            overview,
             text="正在读取卡带…",
             text_color=TEXT,
             anchor="w",
             justify="left",
         )
-        self.hub_summary.grid(row=1, column=0, padx=22, pady=(0, 4), sticky="ew")
-        self.hub_hint = ctk.CTkLabel(
-            toolbar,
+        self.hub_summary.grid(row=0, column=0, padx=14, pady=12, sticky="ew")
+        self.hub_target_summary = ctk.CTkLabel(
+            overview, text="发布目标：正在读取…", text_color=MUTED,
+            anchor="w", justify="left",
+        )
+        self.hub_target_summary.grid(row=0, column=1, padx=14, pady=12, sticky="ew")
+        self.hub_status_summary = ctk.CTkLabel(
+            overview, text="公告与指南：正在读取…", text_color=MUTED,
+            anchor="w", justify="left",
+        )
+        self.hub_status_summary.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 12), sticky="ew")
+
+        operations = ctk.CTkFrame(toolbar, fg_color="transparent")
+        operations.grid(row=2, column=0, padx=18, pady=(0, 12), sticky="nsew")
+        operations.grid_columnconfigure((0, 1), weight=1, uniform="operation_groups")
+        operations.grid_rowconfigure(0, weight=1)
+
+        cartridge_group = ctk.CTkFrame(
+            operations, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        cartridge_group.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
+        cartridge_group.grid_columnconfigure((0, 1), weight=1, uniform="cartridge_actions")
+        ctk.CTkLabel(
+            cartridge_group, text="卡带管理", text_color=BLUE,
+            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
+        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
+
+        guide_group = ctk.CTkFrame(
+            operations, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        guide_group.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
+        guide_group.grid_columnconfigure((0, 1), weight=1, uniform="guide_actions")
+        ctk.CTkLabel(
+            guide_group, text="指南与公告", text_color=BLUE,
+            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
+        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
+
+        def secondary_button(parent, text, command, row, column, columnspan=1):
+            button = ctk.CTkButton(
+                parent, text=text, fg_color=LIGHT_BLUE,
+                command=command,
+            )
+            button.grid(row=row, column=column, columnspan=columnspan,
+                        padx=6, pady=4, sticky="ew")
+            return button
+
+        self.hub_refresh_button = secondary_button(
+            cartridge_group, "刷新卡带", self.refresh_cartridge_management, 1, 0
+        )
+        self.hub_generate_button = secondary_button(
+            cartridge_group, "重新生成全部", self.generate_client_hub, 1, 1
+        )
+        secondary_button(
+            cartridge_group, "全部游戏卡带", self._show_cartridge_detail, 2, 0
+        )
+        secondary_button(
+            cartridge_group, "打开 hub 目录", self.open_hub_output_folder, 2, 1
+        )
+        self.announcement_manage_button = secondary_button(
+            guide_group, "管理公告", self.open_announcement_manager, 1, 0
+        )
+        self.guides_publish_button = secondary_button(
+            guide_group, "双端发布指南", self.publish_guides_mirror, 1, 1
+        )
+        secondary_button(
+            guide_group, "打开指南目录", self.open_guides_source_folder, 2, 0,
+            columnspan=2,
+        )
+
+        execution = ctk.CTkFrame(
+            toolbar, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        execution.grid(row=3, column=0, padx=18, pady=(0, 12), sticky="ew")
+        execution.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            execution,
             text=(
                 "完整主表会统一生成；GitLink 发布时按卡带逐项比较，"
                 "只上传新增或发生变化的文档。"
             ),
-            text_color=MUTED,
-            anchor="w",
-        )
-        self.hub_hint.grid(row=2, column=0, padx=22, pady=(0, 10), sticky="ew")
-
-        actions = ctk.CTkFrame(toolbar, fg_color="transparent")
-        actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in range(4):
-            actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
-        for row in range(2):
-            actions.grid_rowconfigure(row, weight=1, uniform="hub_action_rows")
-        self.hub_refresh_button = ctk.CTkButton(
-            actions,
-            text="刷新卡带",
-            fg_color=LIGHT_BLUE,
-            command=self.refresh_cartridge_management,
-        )
-        self.hub_refresh_button.grid(row=0, column=0, padx=4, pady=3, sticky="nsew")
-        self.announcement_manage_button = ctk.CTkButton(
-            actions,
-            text="管理公告",
-            fg_color=LIGHT_BLUE,
-            command=self.open_announcement_manager,
-        )
-        self.announcement_manage_button.grid(row=0, column=1, padx=4, pady=3, sticky="nsew")
-        self.hub_generate_button = ctk.CTkButton(
-            actions,
-            text="重新生成全部",
-            fg_color=LIGHT_BLUE,
-            command=self.generate_client_hub,
-        )
-        self.hub_generate_button.grid(row=0, column=2, padx=4, pady=3, sticky="nsew")
-        ctk.CTkButton(
-            actions,
-            text="打开 hub 目录",
-            fg_color=LIGHT_BLUE,
-            command=self.open_hub_output_folder,
-        ).grid(row=0, column=3, padx=4, pady=3, sticky="nsew")
-        ctk.CTkButton(
-            actions,
-            text="打开指南目录",
-            fg_color=LIGHT_BLUE,
-            command=self.open_guides_source_folder,
-        ).grid(row=1, column=0, padx=4, pady=3, sticky="nsew")
+            text_color=MUTED, anchor="w", justify="left",
+        ).grid(row=0, column=0, padx=14, pady=(12, 8), sticky="ew")
         self.hub_publish_button = ctk.CTkButton(
-            actions,
-            text="一键双端发布卡带",
-            fg_color=BLUE,
-            command=self.publish_cartridge_hub_mirror,
+            execution, text="一键双端发布卡带", fg_color=BLUE,
+            height=40, command=self.publish_cartridge_hub_mirror,
         )
-        self.hub_publish_button.grid(row=1, column=1, padx=4, pady=3, sticky="nsew")
-        self.guides_publish_button = ctk.CTkButton(
-            actions,
-            text="双端发布指南",
-            fg_color=BLUE,
-            command=self.publish_guides_mirror,
-        )
-        self.guides_publish_button.grid(row=1, column=2, padx=4, pady=3, sticky="nsew")
-        ctk.CTkButton(
-            actions,
-            text="全部游戏卡带",
-            fg_color=LIGHT_BLUE,
-            command=self._show_cartridge_detail,
-        ).grid(row=1, column=3, padx=4, pady=3, sticky="nsew")
+        self.hub_publish_button.grid(row=1, column=0, padx=14, pady=(0, 12), sticky="ew")
 
         transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
         transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.hub_upload_status = ctk.CTkLabel(
-            transfer,
-            text="等待发布",
-            width=235,
-            anchor="w",
-            text_color=MUTED,
+            transfer, text="等待发布", width=235, anchor="w", text_color=MUTED,
         )
         self.hub_upload_status.grid(row=0, column=0, padx=(0, 12), sticky="w")
         self.hub_upload_progress = ctk.CTkProgressBar(
-            transfer, height=14, progress_color=BLUE
+            transfer, height=14, progress_color=BLUE,
         )
         self.hub_upload_progress.grid(row=0, column=1, padx=8, sticky="ew")
         self.hub_upload_progress.set(0)
         self.hub_publish_pause_button = ctk.CTkButton(
-            transfer,
-            text="暂停发布",
-            width=110,
-            fg_color=LIGHT_BLUE,
-            state="disabled",
-            command=self.toggle_publish_pause,
+            transfer, text="暂停发布", width=110, fg_color=LIGHT_BLUE,
+            state="disabled", command=self.toggle_publish_pause,
         )
         self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
 
@@ -231,10 +252,13 @@ class CartridgeManagementUiMixin:
         target = f"{self.settings.owner}/{self.settings.repository}"
         guide_status = self.workspace.guide_resource_summary().status_text
         self.hub_summary.configure(
+            text=f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张"
+        )
+        self.hub_target_summary.configure(text=f"发布目标 {target} / hub")
+        self.hub_status_summary.configure(
             text=(
-                f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张 · "
-                f"公告 {self.workspace.announcement_status()} · 报错指南 {guide_status} · "
-                f"发布目标 {target} / hub"
+                f"公告 {self.workspace.announcement_status()} · "
+                f"报错指南 {guide_status}"
             )
         )
         self._schedule_scrollable_reset(self.cartridge_list)

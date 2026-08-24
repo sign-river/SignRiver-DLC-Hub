@@ -1,3 +1,11 @@
+## 2026-08-25：卡带统一管理页按三段式重构布局
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；保留现有所有按钮、文本和进度控件，重排为“概览信息—业务操作分组—发布与进度”三段式结构。
+- 概览区拆分卡带统计、发布目标、公告与指南状态；中部按“卡带管理”和“指南与公告”分组，使用浅色描边次级按钮；底部将说明、一键双端发布 CTA 与横向进度控制行组合，消除卡片底部留白。`双端发布指南`降为次级按钮，保持唯一主高亮 CTA。
+- 发布器任务不涉及客户端活动模块；`app/state.json` 仍为 `0.2.0`，无需客户端同步或重启。未启动发布器 GUI，未构建、未上传、未推送。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m ruff check src/signriver_publisher/cartridge_management_ui.py`、`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、`git diff --check` 通过。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：下载取消按钮与强制关闭提示
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；补丁资源下载阶段显示“取消全部下载”按钮；关闭窗口遇到未完成任务时改为确认提示，确认后向程序更新下载事件和下载队列发送中断指令再关闭。已按功能范围同步到活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
