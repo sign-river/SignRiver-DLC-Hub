@@ -154,10 +154,12 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 24))' in source
     assert 'guide_actions = ctk.CTkScrollableFrame(' in source
     assert 'guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))' in source
-    assert 'def _return_to_guide_from_solution_list' in source
-    assert 'self._show_page("报错指南")' in _app_method_source("_return_to_guide_from_solution_list")
-    assert 'text="返回解决方案", command=self._show_solution_list' in source
-    assert 'text="回到一键排错", command=self._return_from_solution_detail' in source
+    assert 'self.solution_back_button' not in source
+    assert 'def _return_to_guide_from_solution_list' not in source
+    assert 'self.solution_detail_back_button = ctk.CTkButton(' in source
+    assert 'command=self._return_from_solution_detail' in source
+    assert 'text="← 回到一键排错"' in source
+    assert 'text="← 返回解决方案"' in source
 
 
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:

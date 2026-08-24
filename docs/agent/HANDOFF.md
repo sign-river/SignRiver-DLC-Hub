@@ -1,3 +1,10 @@
+### 2026-08-24：解决方案详情改为逐层返回导航
+
+- 用户指出“解决方案详情”同时显示标题栏的“返回指南”和正文的“← 返回解决方案”，前者会跨层跳过解决方案列表，造成导航重复且不符合逐层返回习惯。
+- 已移除解决方案页标题栏的共用“返回指南”按钮及其跨层返回方法。详情页仅保留正文顶部的返回按钮：从解决方案列表进入时显示“← 返回解决方案”并回到列表；从一键排错结果进入时动态显示“← 回到一键排错”并回到一键排错结果。一级“一键排错”页面自身的“返回指南”仍作为一级到指南首页的单层返回，不受本次修改影响。
+- 改动先完成于 Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，再仅定向同步相同导航代码到实际活动模块 `app/versions/0.2.0/app_entry.py`；未覆盖活动模块其他独立变更，未修改 `app/state.json`。用户需重启客户端后查看。
+- 验证（2026-08-24）：` .\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（78 项通过）、` .\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py`、基线/活动入口 `compileall` 与 `git diff --check` 通过。未启动 GUI（本轮启动验证命令受本地执行策略拦截），未构建、未上传、未推送。
+
 ### 2026-08-24：安全软件检测优先打开联想电脑管家主界面
 
 - Windows 安全中心把“Lenovo Anti-Virus powered by Huorong Security”登记为安全产品，但其 `pathToSignedProductExe` 指向的是联想电脑管家内部的杀毒子模块；直接执行该路径会绕开电脑管家主界面，用户无法得到预期的产品入口。

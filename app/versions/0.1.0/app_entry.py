@@ -2424,11 +2424,6 @@ class DlcHubApplication:
             header, text="解决方案", text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
-        self.solution_back_button = ctk.CTkButton(
-            header, text="返回指南", width=112,
-            command=self._return_to_guide_from_solution_list,
-        )
-        self.solution_back_button.pack(side="right")
         self.solution_detail_origin = "list"
         # 指南正文由出厂目录提供，远程 hub 使用相同 guide_id 覆盖更新。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
@@ -2465,7 +2460,16 @@ class DlcHubApplication:
         self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
         detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
         detail_header.pack(fill="x", padx=24, pady=(12, 4))
-        ctk.CTkButton(detail_header, text="← 返回解决方案", width=120, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._show_solution_list).pack(side="left")
+        self.solution_detail_back_button = ctk.CTkButton(
+            detail_header,
+            text="← 返回解决方案",
+            width=136,
+            fg_color="transparent",
+            hover_color=UI["primary_surface"],
+            text_color=UI["primary"],
+            command=self._return_from_solution_detail,
+        )
+        self.solution_detail_back_button.pack(side="left")
         self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
@@ -3129,22 +3133,15 @@ class DlcHubApplication:
                     border_color=UI["primary_border"],
                 ).pack(anchor="w", pady=(0, 10))
         if self.solution_detail_origin == "quick_check":
-            self.solution_back_button.configure(
-                text="回到一键排错", command=self._return_from_solution_detail
-            )
+            self.solution_detail_back_button.configure(text="← 回到一键排错")
         else:
-            self.solution_back_button.configure(
-                text="返回解决方案", command=self._show_solution_list
-            )
+            self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_page.update_idletasks()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
 
     def _show_solution_list(self) -> None:
         self.solution_detail_origin = "list"
-        self.solution_back_button.configure(
-            text="返回指南", command=self._return_to_guide_from_solution_list
-        )
         self.solution_detail_page.pack_forget()
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
@@ -3409,15 +3406,9 @@ class DlcHubApplication:
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
-    def _return_to_guide_from_solution_list(self) -> None:
-        self._show_page("报错指南")
-
     def _return_from_solution_detail(self) -> None:
         if self.solution_detail_origin == "quick_check":
             self.solution_detail_origin = "list"
-            self.solution_back_button.configure(
-                text="返回指南", command=self._return_to_guide_from_solution_list
-            )
             self._show_page("简单错误检测")
             return
         self._show_solution_list()
