@@ -70,7 +70,7 @@ class CartridgeManagementUiMixin:
 
         actions = ctk.CTkFrame(toolbar, fg_color="transparent")
         actions.grid(row=3, column=0, padx=18, pady=(0, 10), sticky="ew")
-        for column in range(7):
+        for column in range(8):
             actions.grid_columnconfigure(column, weight=1, uniform="hub_actions")
         self.hub_refresh_button = ctk.CTkButton(
             actions,
@@ -121,6 +121,12 @@ class CartridgeManagementUiMixin:
             command=self.publish_guides_mirror,
         )
         self.guides_publish_button.grid(row=0, column=6, padx=4, sticky="ew")
+        ctk.CTkButton(
+            actions,
+            text="全部游戏卡带",
+            fg_color=LIGHT_BLUE,
+            command=self._show_cartridge_detail,
+        ).grid(row=0, column=7, padx=4, sticky="ew")
 
         transfer = ctk.CTkFrame(toolbar, fg_color="transparent")
         transfer.grid(row=4, column=0, padx=22, pady=(0, 14), sticky="ew")
@@ -147,17 +153,6 @@ class CartridgeManagementUiMixin:
             command=self.toggle_publish_pause,
         )
         self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
-
-        entry_card = self._card(self.cartridge_home_page, 1, "全部游戏卡带")
-        entry_card.grid_columnconfigure(0, weight=1)
-        self.home_hub_summary = ctk.CTkLabel(
-            entry_card, text="正在读取卡带…", text_color=MUTED, anchor="w", justify="left"
-        )
-        self.home_hub_summary.grid(row=1, column=0, padx=22, pady=(0, 12), sticky="ew")
-        ctk.CTkButton(
-            entry_card, text="查看全部游戏卡带详细列表", height=42, fg_color=BLUE,
-            command=self._show_cartridge_detail,
-        ).grid(row=2, column=0, padx=22, pady=(0, 16), sticky="ew")
 
         list_card = self._card(self.cartridge_detail_page, 1, "全部游戏卡带")
         list_card.grid_rowconfigure(1, weight=1)
@@ -241,13 +236,6 @@ class CartridgeManagementUiMixin:
                 f"发布目标 {target} / hub"
             )
         )
-        if hasattr(self, "home_hub_summary"):
-            self.home_hub_summary.configure(
-                text=(
-                    f"共 {len(profiles)} 张游戏卡带 · 已生成 {generated} 张\n"
-                    f"公告：{self.workspace.announcement_status()} · 发布目标：{target} / hub"
-                )
-            )
         self._schedule_scrollable_reset(self.cartridge_list)
 
     def open_cartridge_config(self, game_id: str) -> None:
