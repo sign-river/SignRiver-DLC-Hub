@@ -233,6 +233,10 @@ class DownloadQueue:
         return tuple(recovered)
 
     def enqueue(self, spec: DownloadSpec) -> Future:
+        LOGGER.info(
+            "Download queued: task=%s game=%s file=%s source=%s",
+            spec.task_id, spec.game_id, spec.filename, spec.url,
+        )
         with self._lock:
             current = self._futures.get(spec.task_id)
             if current is not None and not current.done():
@@ -481,12 +485,22 @@ class DownloadQueue:
         control: DownloadControl,
         verifier: Callable[[Path, str], object] | None,
     ) -> DownloadSnapshot:
+        LOGGER.info(
+            "Download started: task=%s game=%s file=%s",
+            spec.task_id, spec.game_id, spec.filename,
+        )
         try:
-            return self.manager.run(
+            result = self.manager.run(
                 spec, control, self._record, verifier=verifier
             )
+            LOGGER.info(
+                "Download finished: task=%s state=%s bytes=%s sha256=%s",
+                spec.task_id, result.state.value, result.bytes_downloaded,
+                result.sha256 or "",
+            )
+            return result
         except Exception as error:
-            LOGGER.exception("Download worker crashed: task=%s", spec.task_id)
+            LOGGER.exception("Download failed: task=%s file=%s", spec.task_id, spec.filename)
             with self._lock:
                 current = self._snapshots.get(spec.task_id, DownloadSnapshot(spec=spec))
             failed = current.evolve(

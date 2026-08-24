@@ -402,9 +402,17 @@ class GuideCatalogService:
             if parsed.scheme != "https" or not parsed.netloc:
                 raise GuideCatalogError("工具下载地址必须为 HTTPS，或指定 hub 附件名")
             url = tool.download_url
+        LOGGER.info(
+            "Guide attachment download started: tool=%s revision=%s url=%s",
+            tool.tool_id, tool.revision or "", url,
+        )
         target = self.cache_dir / "tools" / tool.tool_id / tool.filename
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = self._open(url, self.timeout)
+        try:
+            payload = self._open(url, self.timeout)
+        except Exception:
+            LOGGER.exception("Guide attachment download failed: tool=%s url=%s", tool.tool_id, url)
+            raise
         if not payload:
             raise GuideCatalogError("工具下载为空")
         temporary = target.with_name(f".{target.name}.part")
@@ -415,10 +423,22 @@ class GuideCatalogService:
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
+        LOGGER.info(
+            "Guide attachment download finished: tool=%s revision=%s path=%s bytes=%s",
+            tool.tool_id, tool.revision or "", target, target.stat().st_size,
+        )
         return target
 
     def _fetch(self, asset_name: str) -> bytes:
-        return self._open(fixed_release_asset_url(self.download_source, GUIDES_RELEASE_TAG, asset_name), self.timeout)
+        url = fixed_release_asset_url(self.download_source, GUIDES_RELEASE_TAG, asset_name)
+        LOGGER.info("Guide resource download started: asset=%s source=%s url=%s", asset_name, self.download_source, url)
+        try:
+            payload = self._open(url, self.timeout)
+        except Exception:
+            LOGGER.exception("Guide resource download failed: asset=%s url=%s", asset_name, url)
+            raise
+        LOGGER.info("Guide resource download finished: asset=%s bytes=%s", asset_name, len(payload))
+        return payload
 
     @staticmethod
     def _download_bytes(url: str, timeout: float) -> bytes:

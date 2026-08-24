@@ -122,6 +122,10 @@ class HelperToolsService:
     def download(self, tool: GuideTool, cancel_event: threading.Event | None = None) -> Path:
         cancel = cancel_event or threading.Event()
         dest = self.tool_dir(tool.tool_id)
+        LOGGER.info(
+            "Helper tool download started: tool=%s revision=%s source=%s asset=%s",
+            tool.tool_id, tool.revision or "", self.download_source, tool.asset_name or tool.filename,
+        )
         staging = self.root / f".{tool.tool_id}.download"
         backup = self.root / f".{tool.tool_id}.previous"
         if staging.exists():
@@ -151,12 +155,18 @@ class HelperToolsService:
             os.replace(staging, dest)
             if backup.exists():
                 shutil.rmtree(backup)
+            LOGGER.info(
+                "Helper tool download finished: tool=%s revision=%s path=%s",
+                tool.tool_id, tool.revision or "", dest,
+            )
             return dest
         except HelperToolCancelled:
+            LOGGER.info("Helper tool download cancelled: tool=%s revision=%s", tool.tool_id, tool.revision or "")
             if staging.exists():
                 shutil.rmtree(staging)
             raise
         except Exception:
+            LOGGER.exception("Helper tool download failed: tool=%s revision=%s", tool.tool_id, tool.revision or "")
             if staging.exists():
                 shutil.rmtree(staging)
             if not dest.exists() and backup.exists():

@@ -1,3 +1,9 @@
+## 2026-08-25：下载取消按钮与强制关闭提示
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；补丁资源下载阶段显示“取消全部下载”按钮；关闭窗口遇到未完成任务时改为确认提示，确认后向程序更新下载事件和下载队列发送中断指令再关闭。已按功能范围同步到活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（全部通过）；两个活动/基线入口文件 `py_compile` 通过；`python -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py` 通过；`git diff --check` 通过。
+- 当前活动版本仍为 `0.2.0`，客户端若已运行需重启后查看；未启动 GUI、未构建、未上传、未推送。工作区原有未提交改动已保留，未安全拆分提交。
+
 ## 2026-08-24：发布器游戏配置新增同步选择框
 
 - 目标：在“游戏卡带配置”页面标题上方增加游戏选择下拉框，并与“DLC / 补丁发布包”的当前发布游戏下拉框保持同步。
@@ -1991,6 +1997,12 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 已实际迁移双源资产：发布 6 个样例指南资源到 `guides` Release；从 GitLink 和 GitHub 的 `hub` Release 删除原先混入的 6 个指南/样例附件。线上验收确认 GitLink、GitHub 均能从 `guides` 读取样例指南，GitLink `hub` 不再有 guide/sample 资源；本地 `output/hub/` 不再生成指南文件。
 - 待提交前验证：发布器/平台指南相关 pytest、Ruff、compileall、`git diff --check`。未构建客户端发布包、未上传客户端更新、未 push。
 
+## 2026-08-25：统一记录卡带、指南和工具下载日志
+
+- 客户端下载观测已补齐：`DownloadQueue` 记录卡带/DLC/补丁任务的排队、开始、完成（状态、字节数、SHA-256）和失败；`GuideCatalogService` 记录指南索引/详情及普通附件的开始、完成、失败；`HelperToolsService` 记录工具下载开始、完成、取消和失败。
+- 日志使用现有客户端 logger，随 `data/logs/launcher.log` 输出，不把令牌写入日志；URL、任务 ID、游戏 ID、文件名、工具 ID、revision 和结果路径用于定位问题。
+- 已定向同步到活动模块 `0.2.0`，未整目录覆盖。验证：`tests/test_download_queue.py tests/test_helper_tools.py tests/test_platform_content.py`（53 项通过）、相关 Ruff、compileall 和 `git diff --check` 通过。未启动 GUI；客户端重启后日志行为生效。
+
 ## 2026-08-24：报错指南详情页按层级收敛返回按钮
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`；问题记录详情态将标题栏“返回指南”动态替换为“← 返回记录”，移除详情内容内重复的返回记录按钮；常用工具详情态同样将标题栏按钮动态替换为“← 返回常用工具”，移除详情页内侧返回按钮。回到列表后恢复“返回指南”。
@@ -2071,3 +2083,47 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 全部游戏卡带列表及发布操作收进独立详情页，新增“返回卡带与公告”路径；刷新逻辑同时更新主页面摘要。
 - 活动版本规则不适用：本次修改的是发布器源码，不涉及客户端模块同步或 `app/state.json`。
 - 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（126 项通过）；`python -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/cartridge_management_ui.py`；`git diff --check` 通过。未启动发布器 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：修复解决方案列表首次点击返回指南无效
+
+- 根因：解决方案页标题栏按钮初始仍绑定详情态返回处理器；列表态第一次点击只会重新显示列表并更新按钮命令，导致必须第二次点击才返回“报错指南”。
+- 修改范围：`app/versions/0.1.0/app_entry.py` 将初始列表态按钮直接绑定到 `_show_page("报错指南")`；同步同一代码块到活动模块 `app/versions/0.2.0/app_entry.py`；`tests/test_ui_theme.py` 增加源码回归断言。未整目录覆盖活动模块。
+- 当前活动版本仍为 `0.2.0`，采用定向同步；验证对象为基线与活动模块源码。客户端若已运行需重启后加载修复。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（76 项通过）；`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`；`git diff --check` 通过。未构建、未上传、未推送。
+
+## 2026-08-25：发布器卡带主页面取消内部侧栏
+
+- 修改范围：`src/signriver_publisher/ui.py`、`src/signriver_publisher/cartridge_management_ui.py`。
+- “游戏支持数据”改用无侧栏页面路由；主页面直接承载“卡带统一管理”完整操作栏（包括公告管理），下方仅显示全部卡带摘要和进入详细列表按钮。
+- 全部游戏卡带详细节点继续封装在独立列表页，保留“返回卡带与公告”入口；编辑卡带仍可跳转到内部游戏配置页。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（126 项通过）；发布器两个源码文件 `py_compile` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：运行日志按钮布局紧凑化
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；运行日志页改为标题栏内返回入口，筛选与刷新、打开目录、导出诊断包、复制日志统一放入带边框的单行工具栏，减少空白并改善按钮层级；同步到活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
+- 活动版本仍为 `0.2.0`，采用定向同步；验证对象为基线与活动模块源码。客户端若已运行需重启后查看。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（76 项通过）；两个模块 `py_compile`、`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：全部游戏卡带并入统一操作栏
+
+## 2026-08-25：客户端关闭顺序平滑化
+
+- 修改范围：`app/versions/0.1.0/app_entry.py` 的客户端关闭流程；同步到活动模块 `app/versions/0.2.0/app_entry.py`。增加关闭幂等保护，关闭游戏选择器和公告顶层窗口后停止 Tk 事件循环，再销毁主窗口，避免主窗口先消失后递归拆除子控件造成“解剖”式视觉效果。
+- 新增 `tests/test_ui_theme.py` 源码回归断言，覆盖子窗口收尾、`quit()` 与 `destroy()` 顺序。
+- 当前活动版本仍为 `0.2.0`，采用定向同步；客户端若已运行需重启后查看。未构建、未上传、未推送。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（全部通过）；基线与活动模块 `py_compile` 通过；`git diff --check` 通过。
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`。
+- 删除主页面下方“全部游戏卡带”大容器，将“全部游戏卡带”改为与刷新、公告、生成、目录和发布按钮同级的小按钮；详细列表页和返回路径保持不变。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；发布器源码 `py_compile` 通过；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：卡带统一管理操作区重新排版
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`。
+- 主容器改为“左侧摘要说明 + 右侧 4×2 操作按钮 + 底部全宽发布进度”的布局，减少单行按钮拥挤并利用横向空间；按钮功能和详细卡带列表入口不变。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`；`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。
+## 2026-08-25：交换问题记录页清空与返回按钮位置
+
+- 修改范围：`app/versions/0.1.0/app_entry.py` 调整问题记录标题栏右侧按钮的 pack 顺序，使视觉顺序为“清空全部—刷新—返回指南”；同一代码块定向同步到活动模块 `app/versions/0.2.0/app_entry.py`。`tests/test_ui_theme.py` 增加顺序回归断言。
+- 当前活动版本仍为 `0.2.0`，采用定向同步；未修改 `app/state.json`，未整目录覆盖活动模块。客户端若已运行需重启后查看。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（79 项通过）；`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`；`python -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py`；`git diff --check` 均通过。未构建、未上传、未推送。

@@ -88,7 +88,8 @@ def test_helper_tool_cancel_deletes_partial_download(tmp_path: Path) -> None:
     assert not service.is_installed(tool)
 
 
-def test_helper_tool_revision_marks_old_download_stale_and_replaces_safely(tmp_path: Path) -> None:
+def test_helper_tool_revision_marks_old_download_stale_and_replaces_safely(tmp_path: Path, caplog) -> None:
+    caplog.set_level("INFO")
     payloads = [b"old", b"new"]
     service = HelperToolsService(
         tmp_path / "helper-tools", opener=lambda *_args: payloads.pop(0)
@@ -107,6 +108,8 @@ def test_helper_tool_revision_marks_old_download_stale_and_replaces_safely(tmp_p
     service.download(new)
     assert service.is_installed(new)
     assert (service.tool_dir(new.tool_id) / "repair.ps1").read_bytes() == b"new"
+    assert "Helper tool download started" in caplog.text
+    assert "Helper tool download finished" in caplog.text
 
 
 def test_helper_tool_rejects_zip_slip(tmp_path: Path) -> None:
