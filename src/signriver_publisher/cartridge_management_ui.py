@@ -40,7 +40,7 @@ class CartridgeManagementUiMixin:
         self.cartridge_detail_page.grid(row=0, column=0, sticky="nsew")
         self.cartridge_detail_page.grid_remove()
         self.cartridge_detail_page.grid_columnconfigure(0, weight=1)
-        self.cartridge_detail_page.grid_rowconfigure(2, weight=1)
+        self.cartridge_detail_page.grid_rowconfigure(1, weight=1)
         ctk.CTkButton(
             self.cartridge_detail_page, text="← 返回卡带与公告", width=150,
             fg_color="transparent", text_color=BLUE, hover_color="#EAF4FD",
@@ -171,16 +171,22 @@ class CartridgeManagementUiMixin:
         )
         self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
 
-        list_card = self._card(self.cartridge_detail_page, 1, "全部游戏卡带")
+        list_card = ctk.CTkFrame(self.cartridge_detail_page, fg_color="transparent")
+        list_card.grid(row=1, column=0, padx=8, pady=8, sticky="nsew")
+        list_card.grid_columnconfigure(0, weight=1)
         list_card.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
+            list_card,
+            text="全部游戏卡带",
+            font=("Microsoft YaHei UI", 20, "bold"),
+            text_color=BLUE,
+        ).grid(row=0, column=0, padx=12, pady=(8, 10), sticky="w")
         self.cartridge_list = ctk.CTkScrollableFrame(
             list_card,
-            fg_color="#FAFAFA",
-            border_width=1,
-            border_color="#E0E0E0",
+            fg_color="transparent",
         )
         self.cartridge_list.grid(
-            row=1, column=0, padx=16, pady=(2, 16), sticky="nsew"
+            row=1, column=0, padx=4, pady=(0, 8), sticky="nsew"
         )
 
     def _show_cartridge_home(self) -> None:

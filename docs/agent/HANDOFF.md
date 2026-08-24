@@ -1,3 +1,10 @@
+## 2026-08-25：全部游戏卡带子页面取消内层小列表约束
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；“全部游戏卡带”详情页移除 `_card` 内层卡片和小边框列表，改为标题加全宽滚动列表直接占据子页面内容区。
+- 保留返回入口、卡带列表滚动能力和每项“编辑卡带”子界面，不改变卡带数据读取或编辑逻辑。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、Ruff、`git diff --check` 通过。未启动发布器 GUI，未构建、未上传、未推送。
+- 工作区另有既有未提交改动：`app/versions/0.1.0/app_entry.py`、`tests/test_client_problem_center.py`、`tests/test_ui_theme.py`，未纳入本任务提交。
+
 ## 2026-08-25：收紧指南层并提升全局上传进度层级
 
 - 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；指南发布层改为按内容自然高度布局，避免纵向区域溢出；上传状态、进度条和暂停按钮移出卡带层，作为页面级全局上传进度行。
