@@ -2567,96 +2567,315 @@ class DlcHubApplication:
     def _build_tool_center_page(self) -> None:
         header = ctk.CTkFrame(self.tool_center_card, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(18, 8))
-        ctk.CTkLabel(header, text="常用工具", text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
-        ctk.CTkButton(header, text="返回指南", width=92, command=lambda: self._show_page("报错指南")).pack(side="right")
-        self.tool_center_list = ctk.CTkScrollableFrame(self.tool_center_card, fg_color=UI["panel"], corner_radius=10)
-        self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        self.tool_center_detail = ctk.CTkScrollableFrame(self.tool_center_card, fg_color=UI["panel"], corner_radius=10)
+        ctk.CTkLabel(
+            header,
+            text="常用工具",
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            header,
+            text="返回指南",
+            width=92,
+            command=lambda: self._show_page("报错指南"),
+        ).pack(side="right")
+        self.tool_center_list = ctk.CTkScrollableFrame(
+            self.tool_center_card, fg_color=UI["panel"], corner_radius=10
+        )
+        self.tool_center_list.pack(
+            fill="both", expand=True, padx=24, pady=(0, 18)
+        )
+        self.tool_center_detail_page = ctk.CTkFrame(
+            self.tool_center_card, fg_color="transparent"
+        )
+        detail_header = ctk.CTkFrame(
+            self.tool_center_detail_page, fg_color="transparent"
+        )
+        detail_header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkButton(
+            detail_header,
+            text="← 返回常用工具",
+            width=128,
+            fg_color="transparent",
+            hover_color=UI["primary_surface"],
+            text_color=UI["primary"],
+            command=self._show_tool_center_list,
+        ).pack(side="left")
+        self.tool_center_detail_title = ctk.CTkLabel(
+            detail_header,
+            text="",
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+            anchor="e",
+        )
+        self.tool_center_detail_title.pack(side="right")
+        self.tool_center_detail_body = ctk.CTkScrollableFrame(
+            self.tool_center_detail_page, fg_color=UI["panel"], corner_radius=10
+        )
+        self.tool_center_detail_body.pack(
+            fill="both", expand=True, padx=24, pady=(0, 18)
+        )
 
     def _guide_tools_for_current_platform(self) -> list[GuideTool]:
         tools: list[GuideTool] = []
         for article in self.solution_articles.values():
             for block in article[2]:
-                if block[0] == "tool" and isinstance(block[1], GuideTool) and block[1] not in tools:
+                if (
+                    block[0] == "tool"
+                    and isinstance(block[1], GuideTool)
+                    and block[1] not in tools
+                ):
                     tools.append(block[1])
         return tools
 
-    def _refresh_tool_center(self) -> None:
-        self.tool_center_detail.pack_forget()
+    def _show_tool_center_list(self) -> None:
+        self.tool_center_detail_page.pack_forget()
         self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    def _show_tool_center_detail(self, title: str) -> None:
+        self.tool_center_detail_title.configure(text=title)
+        for child in self.tool_center_detail_body.winfo_children():
+            child.destroy()
+        self.tool_center_list.pack_forget()
+        self.tool_center_detail_page.pack(fill="both", expand=True)
+
+    def _refresh_tool_center(self) -> None:
+        self._show_tool_center_list()
         for child in self.tool_center_list.winfo_children():
             child.destroy()
         tools = self._guide_tools_for_current_platform()
         if self.host_platform == "windows":
-            internal = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            internal = ctk.CTkFrame(
+                self.tool_center_list,
+                fg_color=UI["card"],
+                border_width=1,
+                border_color=UI["border"],
+                corner_radius=8,
+            )
             internal.pack(fill="x", padx=8, pady=6)
-            ctk.CTkLabel(internal, text="安全软件检测", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
-            ctk.CTkLabel(internal, text="只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=(2, 10))
-            ctk.CTkButton(internal, text="查看详情", width=104, command=self._show_security_products).pack(anchor="w", padx=14, pady=(0, 10))
-        patch_tool = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            ctk.CTkLabel(
+                internal,
+                text="安全软件检测",
+                text_color=UI["text"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(10, 0))
+            ctk.CTkLabel(
+                internal,
+                text="只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。",
+                text_color=UI["text_secondary"],
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(2, 10))
+            ctk.CTkButton(
+                internal, text="查看详情", width=104, command=self._show_security_products
+            ).pack(anchor="w", padx=14, pady=(0, 10))
+        patch_tool = ctk.CTkFrame(
+            self.tool_center_list,
+            fg_color=UI["card"],
+            border_width=1,
+            border_color=UI["border"],
+            corner_radius=8,
+        )
         patch_tool.pack(fill="x", padx=8, pady=6)
-        ctk.CTkLabel(patch_tool, text="补丁工具", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
-        ctk.CTkLabel(patch_tool, text="查看当前游戏补丁状态、已下载文件和受控目录。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=(2, 10))
-        ctk.CTkButton(patch_tool, text="查看详情", width=104, command=self._show_patch_tool).pack(anchor="w", padx=14, pady=(0, 10))
+        ctk.CTkLabel(
+            patch_tool,
+            text="补丁工具",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(10, 0))
+        ctk.CTkLabel(
+            patch_tool,
+            text="查看当前游戏补丁状态、已下载文件和受控目录。",
+            text_color=UI["text_secondary"],
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(2, 10))
+        ctk.CTkButton(
+            patch_tool, text="查看详情", width=104, command=self._show_patch_tool
+        ).pack(anchor="w", padx=14, pady=(0, 10))
         if not tools:
-            ctk.CTkLabel(self.tool_center_list, text="暂时没有适用于当前平台的可下载工具。", text_color=UI["text_secondary"]).pack(anchor="w", padx=16, pady=16)
+            ctk.CTkLabel(
+                self.tool_center_list,
+                text="暂时没有适用于当前平台的可下载工具。",
+                text_color=UI["text_secondary"],
+            ).pack(anchor="w", padx=16, pady=16)
         for tool in tools:
-            row = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            row = ctk.CTkFrame(
+                self.tool_center_list,
+                fg_color=UI["card"],
+                border_width=1,
+                border_color=UI["border"],
+                corner_radius=8,
+            )
             row.pack(fill="x", padx=8, pady=6)
-            ctk.CTkLabel(row, text=tool.title, text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
-            ctk.CTkLabel(row, text=tool.description or "开发者提供的受控工具", text_color=UI["text_secondary"], anchor="w", justify="left").pack(fill="x", padx=14, pady=(2, 10))
-            ctk.CTkButton(row, text="查看详情", width=104, command=lambda item=tool: self._show_guide_tool_detail(item)).pack(anchor="w", padx=14, pady=(0, 10))
+            ctk.CTkLabel(
+                row,
+                text=tool.title,
+                text_color=UI["text"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(10, 0))
+            ctk.CTkLabel(
+                row,
+                text=tool.description or "开发者提供的受控工具",
+                text_color=UI["text_secondary"],
+                anchor="w",
+                justify="left",
+            ).pack(fill="x", padx=14, pady=(2, 10))
+            ctk.CTkButton(
+                row,
+                text="查看详情",
+                width=104,
+                command=lambda item=tool: self._show_guide_tool_detail(item),
+            ).pack(anchor="w", padx=14, pady=(0, 10))
 
     def _show_guide_tool_detail(self, tool: GuideTool) -> None:
-        """Render one developer-provided tool's controlled actions in its detail page."""
-        for child in self.tool_center_detail.winfo_children():
-            child.destroy()
-        self.tool_center_list.pack_forget()
-        self.tool_center_detail.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        top = ctk.CTkFrame(self.tool_center_detail, fg_color="transparent")
-        top.pack(fill="x", padx=16, pady=(16, 8))
-        ctk.CTkButton(top, text="返回常用工具", width=116, command=self._refresh_tool_center).pack(side="right")
-        ctk.CTkLabel(top, text=tool.title, text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold"), anchor="w").pack(fill="x")
-        ctk.CTkLabel(self.tool_center_detail, text=tool.description or "开发者提供的受控工具。", text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 12))
+        """Render one developer-provided tool in the shared detail subpage."""
+        self._show_tool_center_detail(tool.title)
+        body = self.tool_center_detail_body
+        ctk.CTkLabel(
+            body,
+            text=tool.description or "开发者提供的受控工具。",
+            text_color=UI["text_secondary"],
+            anchor="w",
+            justify="left",
+            wraplength=720,
+        ).pack(fill="x", padx=16, pady=(16, 12))
         target = self._guide_tool_cache_path(tool)
-        status = "已下载，可在本程序中运行。" if target.is_file() else "尚未下载；下载后仅能由本程序按开发者声明的方式运行。"
-        ctk.CTkLabel(self.tool_center_detail, text=f"状态：{status}", text_color=UI["text"], anchor="w").pack(fill="x", padx=16, pady=(0, 12))
-        actions = ctk.CTkFrame(self.tool_center_detail, fg_color="transparent")
+        status = (
+            "已下载，可在本程序中运行。"
+            if target.is_file()
+            else "尚未下载；下载后仅能由本程序按开发者声明的方式运行。"
+        )
+        ctk.CTkLabel(
+            body, text=f"状态：{status}", text_color=UI["text"], anchor="w"
+        ).pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(fill="x", padx=16, pady=(0, 14))
-        ctk.CTkButton(actions, text="运行" if target.is_file() else "下载并运行", width=112, command=lambda: self._open_downloaded_guide_tool(target, tool) if target.is_file() else self._download_guide_tool(tool)).pack(side="left")
-        ctk.CTkButton(actions, text="卸载", width=82, fg_color="transparent", text_color=UI["danger"], command=lambda: self._remove_guide_tool(target)).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            actions,
+            text="运行" if target.is_file() else "下载并运行",
+            width=112,
+            command=lambda: (
+                self._open_downloaded_guide_tool(target, tool)
+                if target.is_file()
+                else self._download_guide_tool(tool)
+            ),
+        ).pack(side="left")
+        ctk.CTkButton(
+            actions,
+            text="卸载",
+            width=82,
+            fg_color="transparent",
+            text_color=UI["danger"],
+            command=lambda: self._remove_guide_tool(target),
+        ).pack(side="left", padx=(8, 0))
         if tool.quick_check:
-            ctk.CTkLabel(self.tool_center_detail, text="此工具已由开发者标注为只读一键排错项；运行一键排错时会按固定参数下载并捕获输出。", text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
+            ctk.CTkLabel(
+                body,
+                text=(
+                    "此工具已由开发者标注为只读一键排错项；运行一键排错时会按固定参数下载并捕获输出。"
+                ),
+                text_color=UI["text_secondary"],
+                anchor="w",
+                justify="left",
+                wraplength=720,
+            ).pack(fill="x", padx=16, pady=(0, 14))
 
     def _show_patch_tool(self) -> None:
-        dialog = ctk.CTkToplevel(self.window)
-        dialog.title("补丁工具")
-        dialog.geometry("620x450")
-        dialog.transient(self.window)
-        body = ctk.CTkScrollableFrame(dialog, fg_color=UI["panel"])
-        body.pack(fill="both", expand=True, padx=18, pady=18)
-        ctk.CTkLabel(body, text="当前补丁状态", text_color=UI["primary"], font=ctk.CTkFont(size=18, weight="bold"), anchor="w").pack(fill="x", pady=(2, 10))
+        self._show_tool_center_detail("补丁工具")
+        body = self.tool_center_detail_body
+        ctk.CTkLabel(
+            body,
+            text="当前补丁状态",
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(16, 10))
         installation = self.current_installation
         game_root = installation.root if installation is not None else None
         bundle = self.patch_bundle
-        status = "当前游戏未提供补丁资源。" if bundle is None else ("补丁已通过审计。" if self._patch_is_healthy() else "补丁未安装、未完成或审计未通过。")
+        status = (
+            "当前游戏未提供补丁资源。"
+            if bundle is None
+            else (
+                "补丁已通过审计。"
+                if self._patch_is_healthy()
+                else "补丁未安装、未完成或审计未通过。"
+            )
+        )
         details = [f"游戏目录：{game_root if game_root else '未检测到'}", f"状态：{status}"]
-        ctk.CTkLabel(body, text="\n".join(details), text_color=UI["text_secondary"], justify="left", anchor="w").pack(fill="x", pady=(0, 12))
+        ctk.CTkLabel(
+            body,
+            text="\n".join(details),
+            text_color=UI["text_secondary"],
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 12))
         if game_root is not None:
-            ctk.CTkButton(body, text="打开游戏目录", width=120, command=lambda root=game_root: self._open_path(root)).pack(anchor="w", pady=(0, 10))
+            ctk.CTkButton(
+                body,
+                text="打开游戏目录",
+                width=120,
+                command=lambda root=game_root: self._open_path(root),
+            ).pack(anchor="w", padx=16, pady=(0, 10))
         ready = self._patch_ready_paths() or {}
         if ready:
-            ctk.CTkLabel(body, text="已下载补丁文件", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", pady=(4, 6))
+            ctk.CTkLabel(
+                body,
+                text="已下载补丁文件",
+                text_color=UI["text"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                anchor="w",
+            ).pack(fill="x", padx=16, pady=(4, 6))
             for role, path in ready.items():
-                row = ctk.CTkFrame(body, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
-                row.pack(fill="x", pady=4)
-                ctk.CTkLabel(row, text=f"{role}：{path.name}", text_color=UI["text"], anchor="w").pack(side="left", padx=12, pady=9)
-                ctk.CTkButton(row, text="打开位置", width=86, command=lambda item=path: self._open_path(item.parent)).pack(side="right", padx=(4, 10), pady=6)
-                ctk.CTkButton(row, text="打开文件", width=86, command=lambda item=path: self._open_file(item)).pack(side="right", padx=(10, 0), pady=6)
+                row = ctk.CTkFrame(
+                    body,
+                    fg_color=UI["card"],
+                    border_width=1,
+                    border_color=UI["border"],
+                    corner_radius=8,
+                )
+                row.pack(fill="x", padx=16, pady=4)
+                ctk.CTkLabel(
+                    row,
+                    text=f"{role}：{path.name}",
+                    text_color=UI["text"],
+                    anchor="w",
+                ).pack(side="left", padx=12, pady=9)
+                ctk.CTkButton(
+                    row,
+                    text="打开位置",
+                    width=86,
+                    command=lambda item=path: self._open_path(item.parent),
+                ).pack(side="right", padx=(4, 10), pady=6)
+                ctk.CTkButton(
+                    row,
+                    text="打开文件",
+                    width=86,
+                    command=lambda item=path: self._open_file(item),
+                ).pack(side="right", padx=(10, 0), pady=6)
         else:
-            ctk.CTkLabel(body, text="尚无已验证的补丁下载文件。", text_color=UI["muted"], anchor="w").pack(fill="x", pady=(4, 8))
-        ctk.CTkButton(body, text="从云端重新下载补丁", width=170, command=self._redownload_patch_assets).pack(anchor="w", pady=(16, 4))
-        ctk.CTkLabel(body, text="此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。", text_color=UI["muted"], wraplength=550, justify="left", anchor="w").pack(fill="x", pady=(0, 2))
+            ctk.CTkLabel(
+                body,
+                text="尚无已验证的补丁下载文件。",
+                text_color=UI["muted"],
+                anchor="w",
+            ).pack(fill="x", padx=16, pady=(4, 8))
+        ctk.CTkButton(
+            body,
+            text="从云端重新下载补丁",
+            width=170,
+            command=self._redownload_patch_assets,
+        ).pack(anchor="w", padx=16, pady=(16, 4))
+        ctk.CTkLabel(
+            body,
+            text="此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。",
+            text_color=UI["muted"],
+            wraplength=720,
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 16))
 
     def _redownload_patch_assets(self) -> None:
         if self.download_queue is None or self.patch_bundle is None:
@@ -2706,26 +2925,56 @@ class DlcHubApplication:
         threading.Thread(target=worker, daemon=True).start()
 
     def _render_security_products(self, products) -> None:
-        dialog = ctk.CTkToplevel(self.window)
-        dialog.title("安全软件检测")
-        dialog.geometry("560x360")
-        dialog.transient(self.window)
-        ctk.CTkLabel(dialog, text="已检测到的安全软件", text_color=UI["primary"], font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w", padx=20, pady=(20, 4))
-        ctk.CTkLabel(dialog, text="仅列举和打开系统已登记的产品；不会关闭防护或修改设置。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=20, pady=(0, 12))
-        body = ctk.CTkScrollableFrame(dialog, fg_color=UI["panel"])
-        body.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        self._show_tool_center_detail("安全软件检测")
+        body = self.tool_center_detail_body
+        ctk.CTkLabel(
+            body,
+            text="已检测到的安全软件",
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(16, 4))
+        ctk.CTkLabel(
+            body,
+            text="仅列举和打开系统已登记的产品；不会关闭防护或修改设置。",
+            text_color=UI["text_secondary"],
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 12))
         if not products:
-            ctk.CTkLabel(body, text="未从 Windows 安全中心读取到已登记的安全软件。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=14)
+            ctk.CTkLabel(
+                body,
+                text="未从 Windows 安全中心读取到已登记的安全软件。",
+                text_color=UI["text_secondary"],
+                anchor="w",
+            ).pack(fill="x", padx=16, pady=14)
             return
         for product in products:
-            row = ctk.CTkFrame(body, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
-            row.pack(fill="x", padx=8, pady=6)
-            ctk.CTkLabel(row, text=product.name, text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(side="left", padx=14, pady=12)
+            row = ctk.CTkFrame(
+                body,
+                fg_color=UI["card"],
+                border_width=1,
+                border_color=UI["border"],
+                corner_radius=8,
+            )
+            row.pack(fill="x", padx=16, pady=6)
+            ctk.CTkLabel(
+                row,
+                text=product.name,
+                text_color=UI["text"],
+                font=ctk.CTkFont(size=14, weight="bold"),
+                anchor="w",
+            ).pack(side="left", padx=14, pady=12)
             target = product.executable
             can_open = (
                 target is not None and target.suffix.casefold() == ".exe"
             ) or is_windows_security_product(product)
-            ctk.CTkButton(row, text="打开", width=76, state="normal" if can_open else "disabled", command=lambda item=product: self._open_security_product(item)).pack(side="right", padx=12, pady=8)
+            ctk.CTkButton(
+                row,
+                text="打开",
+                width=76,
+                state="normal" if can_open else "disabled",
+                command=lambda item=product: self._open_security_product(item),
+            ).pack(side="right", padx=12, pady=8)
 
     def _open_security_product(self, product) -> None:
         target = product.executable

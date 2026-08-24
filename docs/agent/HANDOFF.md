@@ -1,3 +1,9 @@
+### 2026-08-24：常用工具详情统一为页面内子界面
+
+- 用户要求“常用工具 → 查看详情”采用与解决方案详情相同的页面内子界面，而非在工具列表中展开或弹出独立系统窗口。常用工具现在拥有列表页和详情子页；详情页顶部提供“← 返回常用工具”。
+- 开发者声明工具、内置补丁工具和 Windows 安全软件检测均复用该详情子页。补丁工具与安全软件检测不再创建 `CTkToplevel` 独立窗口，现有下载、打开、运行、卸载和受控重下载边界保持不变。
+- 验证（2026-08-24）：`python -m pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py`（78 项）、`ruff check`、基线/活动入口 `compileall` 与 `git diff --check` 通过；启动 `launcher.py` 持续 6 秒未提前退出（PID 92520，随后仅停止本次验证进程）。
+
 ### 2026-08-24：修复补丁工具旧角色兼容性
 
 - 用户点击“补丁工具”时实际触发 `KeyError: 'original_backup_dll'`。根因是活动模块 `0.2.0` 的卡带仍产生旧角色名 `original_backup_dll`，而近期补丁工具 UI 已按新角色名 `original_dll` 查找资源，造成界面回调异常；与下载是否成功无关。

@@ -198,6 +198,11 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'def _open_file(self, path: Path)' in source
     assert 'is_windows_security_product(product)' in source
     assert 'webbrowser.open(WINDOWS_SECURITY_URI)' in source
+    assert 'self.tool_center_detail_page = ctk.CTkFrame(' in source
+    assert 'text="← 返回常用工具"' in source
+    assert 'def _show_tool_center_detail(self, title: str)' in source
+    assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _show_patch_tool', 1)[1].split('def _redownload_patch_assets', 1)[0]
+    assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _render_security_products', 1)[1].split('def _open_security_product', 1)[0]
 
 
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
