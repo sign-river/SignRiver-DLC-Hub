@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
 import threading
 import time
 import webbrowser
@@ -68,6 +69,7 @@ from .signriver_app.infrastructure.patching import (
     RepairJournal,
 )
 from .signriver_app.infrastructure.speed_test import measure_download_speed
+from .signriver_app.infrastructure.security_software import discover_security_products
 from .signriver_app.infrastructure.persistence import (
     Database,
     DownloadTaskRepository,
@@ -76,6 +78,8 @@ from .signriver_app.infrastructure.persistence import (
     UserSettingsRepository,
 )
 
+
+QUICK_CHECK_LOW_DISK_BYTES = 10 * 1024 * 1024 * 1024
 
 UI = {
     "brand": "#3A7EBF",
@@ -1326,7 +1330,7 @@ class DlcHubApplication:
         self.game_cache_cleanup_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.cache_cleanup_button = ctk.CTkButton(
             cache_action,
-            text="清理全部缓存",
+            text="清除所有缓存",
             command=self._cleanup_cache,
             width=104,
             fg_color=UI["danger_surface"],
@@ -1486,6 +1490,7 @@ class DlcHubApplication:
             ("解决方案", "按现象查看对应的处理办法", "常见问题教程"),
             ("问题记录", "查看已记录的异常与处理建议", "问题记录"),
             ("运行日志", "查看详细运行信息", "运行日志"),
+            ("常用工具", "下载、运行或移除开发者提供的实用工具", "常用工具"),
         ):
             tool = ctk.CTkFrame(
                 guide_actions, height=72, fg_color=UI["card"],
@@ -1505,17 +1510,19 @@ class DlcHubApplication:
                 widget.bind("<Button-1>", lambda _event, target=target: self._show_page(target))
                 widget.bind("<Enter>", lambda _event, card=tool: card.configure(fg_color=UI["primary_surface"]))
                 widget.bind("<Leave>", lambda _event, card=tool: card.configure(fg_color=UI["card"]))
-        guide_footer = ctk.CTkFrame(self.error_guide_card, fg_color="transparent")
-        guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 32))
-        ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text_secondary"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left")
-        ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(12, 0))
-        ctk.CTkButton(guide_footer, text="导出诊断 →", width=92, height=28, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._export_diagnostics).pack(side="right")
-        ctk.CTkFrame(self.error_guide_card, height=1, fg_color=UI["border"], corner_radius=0).pack(side="bottom", fill="x", padx=36, pady=(0, 18))
+        guide_footer = ctk.CTkFrame(self.error_guide_card, fg_color=UI["primary_surface"], corner_radius=10, height=72)
+        guide_footer.pack(fill="x", padx=36, pady=(0, 24))
+        guide_footer.pack_propagate(False)
+        ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left", padx=(16, 0), pady=16)
+        ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(14, 8), pady=16)
+        ctk.CTkButton(guide_footer, text="导出诊断 →", width=104, height=32, command=self._export_diagnostics).pack(side="right", padx=14, pady=14)
 
         self.guide_tutorial_card = _card(self.page_host)
         self._build_error_tutorial_page()
         self.quick_check_card = _card(self.page_host)
         self._build_quick_check_page()
+        self.tool_center_card = _card(self.page_host)
+        self._build_tool_center_page()
 
         self.log_card = _card(self.page_host)
         log_command_area = ctk.CTkFrame(self.log_card, fg_color="transparent")
@@ -1643,6 +1650,7 @@ class DlcHubApplication:
             "报错指南": (self.error_guide_card,),
             "常见问题教程": (self.guide_tutorial_card,),
             "简单错误检测": (self.quick_check_card,),
+            "常用工具": (self.tool_center_card,),
             "问题记录": (self.problem_card,),
             "运行日志": (self.log_card,),
             "设置": (self.settings_list,),
@@ -2397,10 +2405,12 @@ class DlcHubApplication:
             header, text="解决方案", text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(side="left")
-        ctk.CTkButton(
-            header, text="返回指南", width=92,
-            command=lambda: self._show_page("报错指南"),
-        ).pack(side="right")
+        self.solution_back_button = ctk.CTkButton(
+            header, text="返回指南", width=112,
+            command=self._return_from_solution_detail,
+        )
+        self.solution_back_button.pack(side="right")
+        self.solution_detail_origin = "list"
         # 指南正文由出厂目录提供，远程 hub 使用相同 guide_id 覆盖更新。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
         self._load_remote_solution_articles(allow_network=False)
@@ -2468,7 +2478,7 @@ class DlcHubApplication:
     def _download_guide_tool(self, tool: GuideTool) -> None:
         prompt = (
             f"将下载附件：{tool.title}\n\n{tool.description or '附件用途由该指南提供。'}"
-            "\n\n下载完成后只会打开所在文件夹，不会自动运行。是否继续？"
+            "\n\n下载完成后将在本程序中受控启动；不会执行用户输入的命令。是否继续？"
         )
         if not messagebox.askyesno("下载指南附件", prompt, parent=self.window):
             return
@@ -2501,9 +2511,240 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _guide_tool_cache_path(self, tool: GuideTool) -> Path:
+        """Return the only cache location that may hold a downloaded guide tool."""
+        return self.guide_catalog.cache_dir / "tools" / tool.tool_id / tool.filename
+
+    @staticmethod
+    def _guide_tool_command(path: Path, tool: GuideTool) -> list[str]:
+        """Build a fixed interpreter invocation for a developer-declared tool."""
+        commands = {
+            "powershell": ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File"],
+            "cmd": ["cmd", "/c"],
+            "shell": ["sh"],
+        }
+        try:
+            return commands[tool.run_mode] + [str(path)]
+        except KeyError as error:
+            raise GuideCatalogError("该工具不是可捕获输出的命令工具") from error
+
+    def _run_guide_tool_capture(self, path: Path, tool: GuideTool, *, timeout: int) -> tuple[int, str]:
+        """Run a fixed, downloaded command tool and capture its bounded text output."""
+        completed = subprocess.run(
+            self._guide_tool_command(path, tool), capture_output=True, text=True,
+            timeout=timeout, check=False,
+        )
+        output = (completed.stdout or "") + ("\n" + completed.stderr if completed.stderr else "")
+        return completed.returncode, output.strip()
+
     def _open_downloaded_guide_tool(self, path: Path, tool: GuideTool) -> None:
-        open_directory(path.parent)
-        self._notify(f"已下载指南附件：{tool.title}；请自行查看或运行。")
+        """Run a developer-declared guide tool; never accept a user command."""
+        if not path.is_file():
+            self._notify(f"工具文件不存在：{tool.title}", error=True)
+            return
+        def worker() -> None:
+            try:
+                if tool.run_mode == "open":
+                    if os.name == "nt":
+                        os.startfile(str(path))  # type: ignore[attr-defined]
+                    elif self.host_platform.startswith("macos"):
+                        subprocess.Popen(["open", str(path)])
+                    else:
+                        subprocess.Popen(["xdg-open", str(path)])
+                    result = "工具已启动；图形界面的运行结果将在工具窗口中显示。"
+                else:
+                    exit_code, output = self._run_guide_tool_capture(path, tool, timeout=120)
+                    result = f"退出码：{exit_code}\n\n{output or '工具未输出文本。'}"
+                self._post_ui(lambda value=result: messagebox.showinfo(f"工具运行结果：{tool.title}", value, parent=self.window))
+            except Exception as error:
+                self.context.logger.exception("Guide tool execution failed: %s", tool.tool_id)
+                self._post_ui(lambda value=str(error): self._notify(f"工具运行失败：{value}", error=True))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _build_tool_center_page(self) -> None:
+        header = ctk.CTkFrame(self.tool_center_card, fg_color="transparent")
+        header.pack(fill="x", padx=24, pady=(18, 8))
+        ctk.CTkLabel(header, text="常用工具", text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
+        ctk.CTkButton(header, text="返回指南", width=92, command=lambda: self._show_page("报错指南")).pack(side="right")
+        self.tool_center_list = ctk.CTkScrollableFrame(self.tool_center_card, fg_color=UI["panel"], corner_radius=10)
+        self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.tool_center_detail = ctk.CTkScrollableFrame(self.tool_center_card, fg_color=UI["panel"], corner_radius=10)
+
+    def _guide_tools_for_current_platform(self) -> list[GuideTool]:
+        tools: list[GuideTool] = []
+        for article in self.solution_articles.values():
+            for block in article[2]:
+                if block[0] == "tool" and isinstance(block[1], GuideTool) and block[1] not in tools:
+                    tools.append(block[1])
+        return tools
+
+    def _refresh_tool_center(self) -> None:
+        self.tool_center_detail.pack_forget()
+        self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        for child in self.tool_center_list.winfo_children():
+            child.destroy()
+        tools = self._guide_tools_for_current_platform()
+        if self.host_platform == "windows":
+            internal = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            internal.pack(fill="x", padx=8, pady=6)
+            ctk.CTkLabel(internal, text="安全软件检测", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
+            ctk.CTkLabel(internal, text="只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=(2, 10))
+            ctk.CTkButton(internal, text="查看详情", width=104, command=self._show_security_products).pack(anchor="w", padx=14, pady=(0, 10))
+        patch_tool = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+        patch_tool.pack(fill="x", padx=8, pady=6)
+        ctk.CTkLabel(patch_tool, text="补丁工具", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
+        ctk.CTkLabel(patch_tool, text="查看当前游戏补丁状态、已下载文件和受控目录。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=(2, 10))
+        ctk.CTkButton(patch_tool, text="查看详情", width=104, command=self._show_patch_tool).pack(anchor="w", padx=14, pady=(0, 10))
+        if not tools:
+            ctk.CTkLabel(self.tool_center_list, text="暂时没有适用于当前平台的可下载工具。", text_color=UI["text_secondary"]).pack(anchor="w", padx=16, pady=16)
+        for tool in tools:
+            row = ctk.CTkFrame(self.tool_center_list, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            row.pack(fill="x", padx=8, pady=6)
+            ctk.CTkLabel(row, text=tool.title, text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", padx=14, pady=(10, 0))
+            ctk.CTkLabel(row, text=tool.description or "开发者提供的受控工具", text_color=UI["text_secondary"], anchor="w", justify="left").pack(fill="x", padx=14, pady=(2, 10))
+            ctk.CTkButton(row, text="查看详情", width=104, command=lambda item=tool: self._show_guide_tool_detail(item)).pack(anchor="w", padx=14, pady=(0, 10))
+
+    def _show_guide_tool_detail(self, tool: GuideTool) -> None:
+        """Render one developer-provided tool's controlled actions in its detail page."""
+        for child in self.tool_center_detail.winfo_children():
+            child.destroy()
+        self.tool_center_list.pack_forget()
+        self.tool_center_detail.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        top = ctk.CTkFrame(self.tool_center_detail, fg_color="transparent")
+        top.pack(fill="x", padx=16, pady=(16, 8))
+        ctk.CTkButton(top, text="返回常用工具", width=116, command=self._refresh_tool_center).pack(side="right")
+        ctk.CTkLabel(top, text=tool.title, text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold"), anchor="w").pack(fill="x")
+        ctk.CTkLabel(self.tool_center_detail, text=tool.description or "开发者提供的受控工具。", text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 12))
+        target = self._guide_tool_cache_path(tool)
+        status = "已下载，可在本程序中运行。" if target.is_file() else "尚未下载；下载后仅能由本程序按开发者声明的方式运行。"
+        ctk.CTkLabel(self.tool_center_detail, text=f"状态：{status}", text_color=UI["text"], anchor="w").pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(self.tool_center_detail, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 14))
+        ctk.CTkButton(actions, text="运行" if target.is_file() else "下载并运行", width=112, command=lambda: self._open_downloaded_guide_tool(target, tool) if target.is_file() else self._download_guide_tool(tool)).pack(side="left")
+        ctk.CTkButton(actions, text="卸载", width=82, fg_color="transparent", text_color=UI["danger"], command=lambda: self._remove_guide_tool(target)).pack(side="left", padx=(8, 0))
+        if tool.quick_check:
+            ctk.CTkLabel(self.tool_center_detail, text="此工具已由开发者标注为只读一键排错项；运行一键排错时会按固定参数下载并捕获输出。", text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
+
+    def _show_patch_tool(self) -> None:
+        dialog = ctk.CTkToplevel(self.window)
+        dialog.title("补丁工具")
+        dialog.geometry("620x450")
+        dialog.transient(self.window)
+        body = ctk.CTkScrollableFrame(dialog, fg_color=UI["panel"])
+        body.pack(fill="both", expand=True, padx=18, pady=18)
+        ctk.CTkLabel(body, text="当前补丁状态", text_color=UI["primary"], font=ctk.CTkFont(size=18, weight="bold"), anchor="w").pack(fill="x", pady=(2, 10))
+        installation = self.current_installation
+        game_root = installation.root if installation is not None else None
+        bundle = self.patch_bundle
+        status = "当前游戏未提供补丁资源。" if bundle is None else ("补丁已通过审计。" if self._patch_is_healthy() else "补丁未安装、未完成或审计未通过。")
+        details = [f"游戏目录：{game_root if game_root else '未检测到'}", f"状态：{status}"]
+        ctk.CTkLabel(body, text="\n".join(details), text_color=UI["text_secondary"], justify="left", anchor="w").pack(fill="x", pady=(0, 12))
+        if game_root is not None:
+            ctk.CTkButton(body, text="打开游戏目录", width=120, command=lambda root=game_root: self._open_path(root)).pack(anchor="w", pady=(0, 10))
+        ready = self._patch_ready_paths() or {}
+        if ready:
+            ctk.CTkLabel(body, text="已下载补丁文件", text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(fill="x", pady=(4, 6))
+            for role, path in ready.items():
+                row = ctk.CTkFrame(body, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+                row.pack(fill="x", pady=4)
+                ctk.CTkLabel(row, text=f"{role}：{path.name}", text_color=UI["text"], anchor="w").pack(side="left", padx=12, pady=9)
+                ctk.CTkButton(row, text="打开位置", width=86, command=lambda item=path: self._open_path(item.parent)).pack(side="right", padx=(4, 10), pady=6)
+                ctk.CTkButton(row, text="打开文件", width=86, command=lambda item=path: self._open_file(item)).pack(side="right", padx=(10, 0), pady=6)
+        else:
+            ctk.CTkLabel(body, text="尚无已验证的补丁下载文件。", text_color=UI["muted"], anchor="w").pack(fill="x", pady=(4, 8))
+        ctk.CTkButton(body, text="从云端重新下载补丁", width=170, command=self._redownload_patch_assets).pack(anchor="w", pady=(16, 4))
+        ctk.CTkLabel(body, text="此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。", text_color=UI["muted"], wraplength=550, justify="left", anchor="w").pack(fill="x", pady=(0, 2))
+
+    def _redownload_patch_assets(self) -> None:
+        if self.download_queue is None or self.patch_bundle is None:
+            self._notify("当前游戏没有可重新下载的补丁资源。", error=True)
+            return
+        missing = self._patch_assets_missing_hash()
+        if missing:
+            self._notify("补丁资源缺少有效 SHA-256，已拒绝重新下载。", error=True)
+            return
+        specs = self._patch_download_specs()
+        task_ids = tuple(spec.task_id for spec in specs)
+        snapshots = self._patch_snapshots_by_task()
+        active = {DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.PAUSING, DownloadState.RETRYING, DownloadState.VERIFYING}
+        if any(item.state in active for item in snapshots.values()):
+            self._notify("当前补丁下载仍在进行，请完成或取消后再重新下载。", error=True)
+            return
+        if not messagebox.askyesno("重新下载补丁", "将仅删除当前游戏补丁的已下载缓存并从云端重新获取。不会自动应用到游戏目录。是否继续？", parent=self.window):
+            return
+        try:
+            self.download_queue.forget(task_ids, delete_cached_packages=True)
+            for spec in specs:
+                future = self.download_queue.enqueue(spec)
+                future.add_done_callback(self._patch_redownload_finished)
+        except Exception as error:
+            self.context.logger.exception("Unable to re-download patch assets")
+            self._notify(f"无法开始重新下载补丁：{error}", error=True)
+            return
+        self._notify("已开始重新下载补丁资源；下载完成后不会自动应用。")
+
+    def _patch_redownload_finished(self, future) -> None:
+        try:
+            result = future.result()
+            failed = result.state is not DownloadState.READY
+            message = f"补丁文件 {result.spec.filename}{'下载完成' if not failed else '下载失败：' + result.state.value}"
+            self._post_ui(lambda value=message, error=failed: self._notify(value, error=error))
+        except Exception as error:
+            self.context.logger.exception("Patch re-download task crashed")
+            self._post_ui(lambda value=str(error): self._notify(f"补丁重新下载异常：{value}", error=True))
+
+    def _show_security_products(self) -> None:
+        if self.host_platform != "windows":
+            self._notify("安全软件检测当前仅支持 Windows。")
+            return
+        def worker() -> None:
+            products = discover_security_products()
+            self._post_ui(lambda value=products: self._render_security_products(value))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_security_products(self, products) -> None:
+        dialog = ctk.CTkToplevel(self.window)
+        dialog.title("安全软件检测")
+        dialog.geometry("560x360")
+        dialog.transient(self.window)
+        ctk.CTkLabel(dialog, text="已检测到的安全软件", text_color=UI["primary"], font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w", padx=20, pady=(20, 4))
+        ctk.CTkLabel(dialog, text="仅列举和打开系统已登记的产品；不会关闭防护或修改设置。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=20, pady=(0, 12))
+        body = ctk.CTkScrollableFrame(dialog, fg_color=UI["panel"])
+        body.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        if not products:
+            ctk.CTkLabel(body, text="未从 Windows 安全中心读取到已登记的安全软件。", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=14, pady=14)
+            return
+        for product in products:
+            row = ctk.CTkFrame(body, fg_color=UI["card"], border_width=1, border_color=UI["border"], corner_radius=8)
+            row.pack(fill="x", padx=8, pady=6)
+            ctk.CTkLabel(row, text=product.name, text_color=UI["text"], font=ctk.CTkFont(size=14, weight="bold"), anchor="w").pack(side="left", padx=14, pady=12)
+            target = product.executable
+            ctk.CTkButton(row, text="打开", width=76, state="normal" if target is not None else "disabled", command=lambda item=product: self._open_security_product(item)).pack(side="right", padx=12, pady=8)
+
+    def _open_security_product(self, product) -> None:
+        target = product.executable
+        if target is None or target.suffix.casefold() != ".exe" or not target.is_file():
+            self._notify(f"无法确认 {product.name} 的启动程序。", error=True)
+            return
+        try:
+            os.startfile(str(target))  # type: ignore[attr-defined]
+        except OSError as error:
+            self._notify(f"无法打开 {product.name}：{error}", error=True)
+
+    def _remove_guide_tool(self, path: Path) -> None:
+        root = self.guide_catalog.cache_dir / "tools"
+        try:
+            path.resolve().relative_to(root.resolve())
+        except ValueError:
+            self._notify("拒绝移除受控目录外的文件。", error=True)
+            return
+        if path.exists() and messagebox.askyesno("卸载工具", f"确定删除已下载的工具文件？\n{path.name}", parent=self.window):
+            path.unlink()
+            try:
+                path.parent.rmdir()
+            except OSError:
+                pass
+            self._refresh_tool_center()
 
     @staticmethod
     def _normalize_solution_search_text(text: str) -> str:
@@ -2604,11 +2845,23 @@ class DlcHubApplication:
                     border_width=1,
                     border_color=UI["primary_border"],
                 ).pack(anchor="w", pady=(0, 10))
+        if self.solution_detail_origin == "quick_check":
+            self.solution_back_button.configure(
+                text="回到一键排错", command=self._return_from_solution_detail
+            )
+        else:
+            self.solution_back_button.configure(
+                text="返回指南", command=self._return_from_solution_detail
+            )
         self.solution_detail_page.update_idletasks()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
 
     def _show_solution_list(self) -> None:
+        self.solution_detail_origin = "list"
+        self.solution_back_button.configure(
+            text="返回指南", command=self._return_from_solution_detail
+        )
         self.solution_detail_page.pack_forget()
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
@@ -2649,6 +2902,7 @@ class DlcHubApplication:
         self.quick_check_steps: list = []
         self.quick_check_running = False
         self.quick_check_paused = False
+        self.quick_check_waiting = False
         self._set_quick_check_controls()
 
     def _run_quick_check(self) -> None:
@@ -2673,9 +2927,19 @@ class DlcHubApplication:
                 pass
             else:
                 self.quick_check_steps.append(self._quick_check_patch_state)
+        if self.host_platform == "windows":
+            self.quick_check_steps.append(self._quick_check_security_products)
         self.quick_check_steps.append(self._quick_check_recent_problems)
+        # Only tools explicitly marked by a developer are admitted here.  The
+        # user cannot supply a command, path, or opt-in flag through the UI.
+        self.quick_check_steps.extend(
+            lambda selected_tool=tool: self._quick_check_declared_tool(selected_tool)
+            for tool in self._guide_tools_for_current_platform()
+            if tool.quick_check
+        )
         self.quick_check_running = True
         self.quick_check_paused = False
+        self.quick_check_waiting = False
         self._render_quick_check_output()
         self._set_quick_check_controls()
         self.window.after(30, self._advance_quick_check)
@@ -2692,7 +2956,15 @@ class DlcHubApplication:
         self._add_quick_check_result(f"游戏目录：{'存在' if root.is_dir() else '不存在'} · {root}", None if root.is_dir() else "game-directory-missing")
         if root.is_dir():
             free = shutil.disk_usage(root).free
-            self._add_quick_check_result(f"所在磁盘可用空间：{_format_size(free)}", "disk-space")
+            if free < QUICK_CHECK_LOW_DISK_BYTES:
+                self._add_quick_check_result(
+                    f"所在磁盘可用空间不足：{_format_size(free)}（建议至少保留 10GB）",
+                    "disk-space",
+                )
+            else:
+                self._add_quick_check_result(
+                    f"所在磁盘可用空间充足：{_format_size(free)}（已满足至少 10GB）"
+                )
 
     def _quick_check_patch_state(self) -> None:
         installation = self.current_installation
@@ -2706,6 +2978,34 @@ class DlcHubApplication:
         except Exception:
             self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch-state")
 
+    def _quick_check_security_products(self) -> None:
+        """List Windows Security Center products without blocking the UI thread."""
+        self.quick_check_waiting = True
+        self._add_quick_check_result("安全软件：正在从 Windows 安全中心读取已登记产品……")
+        self._render_quick_check_output()
+
+        def worker() -> None:
+            products = discover_security_products()
+            names = "、".join(product.name for product in products)
+            message = (
+                f"安全软件：已检测到 {names}。可在“常用工具 → 安全软件检测”中打开已确认的产品。"
+                if names else
+                "安全软件：未从 Windows 安全中心读取到已登记产品；这不代表系统未启用防护。"
+            )
+
+            def finish() -> None:
+                if not self.quick_check_running:
+                    return
+                self._add_quick_check_result(message)
+                self.quick_check_waiting = False
+                self._render_quick_check_output()
+                if not self.quick_check_paused:
+                    self.window.after(0, self._advance_quick_check)
+
+            self._post_ui(finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _quick_check_recent_problems(self) -> None:
         try:
             recent = self.problem_store.list_reports()
@@ -2716,8 +3016,59 @@ class DlcHubApplication:
         except Exception:
             self._add_quick_check_result("近期异常：无法读取问题记录。", "update-module-basics")
 
+    def _quick_check_declared_tool(self, tool: GuideTool) -> None:
+        """Run one developer-marked, non-interactive diagnostic tool off the UI thread."""
+        if tool.run_mode == "open":
+            self._add_quick_check_result(
+                f"{tool.title}：跳过（不是可捕获输出的诊断工具）。",
+                tool.quick_check_problem_guide or "update-module-basics",
+            )
+            return
+        self.quick_check_waiting = True
+        self._add_quick_check_result(f"{tool.title}：正在下载并执行只读诊断工具……")
+        self._render_quick_check_output()
+
+        def worker() -> None:
+            try:
+                target = self._guide_tool_cache_path(tool)
+                if not target.is_file():
+                    target = self.guide_catalog.download_tool(tool)
+                exit_code, output = self._run_guide_tool_capture(
+                    target, tool, timeout=tool.quick_check_timeout_seconds,
+                )
+                preview = " ".join(output.split())[:360]
+                if exit_code == 0:
+                    summary = tool.quick_check_success or "检查完成。"
+                    message = f"{tool.title}：{summary}"
+                    if preview:
+                        message += f" 输出：{preview}"
+                    solution_id = None
+                else:
+                    message = f"{tool.title}：检测工具退出码 {exit_code}。"
+                    if preview:
+                        message += f" 输出：{preview}"
+                    solution_id = tool.quick_check_problem_guide or "update-module-basics"
+            except Exception as error:
+                self.context.logger.exception("Declared quick-check tool failed: %s", tool.tool_id)
+                message = f"{tool.title}：工具无法完成检测（{type(error).__name__}：{error}）。"
+                solution_id = tool.quick_check_problem_guide or "update-module-basics"
+
+            def finish() -> None:
+                # A terminated run must not receive late worker results.
+                if not self.quick_check_running:
+                    return
+                self._add_quick_check_result(message, solution_id)
+                self.quick_check_waiting = False
+                self._render_quick_check_output()
+                if not self.quick_check_paused:
+                    self.window.after(0, self._advance_quick_check)
+
+            self._post_ui(finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _advance_quick_check(self) -> None:
-        if not self.quick_check_running or self.quick_check_paused:
+        if not self.quick_check_running or self.quick_check_paused or self.quick_check_waiting:
             return
         if not self.quick_check_steps:
             self.quick_check_lines.extend(("", "检测完成。此结果仅覆盖常见问题；如仍无法处理，请导出诊断信息。"))
@@ -2747,6 +3098,7 @@ class DlcHubApplication:
             return
         self.quick_check_running = False
         self.quick_check_paused = False
+        self.quick_check_waiting = False
         self.quick_check_steps.clear()
         self.quick_check_lines.extend(("", "检测已由用户终止。"))
         self._render_quick_check_output()
@@ -2770,9 +3122,19 @@ class DlcHubApplication:
         self.quick_check_lines.append(f"{len(self.quick_check_results)}. {text}")
 
     def _open_solution_article(self, article_id: str) -> None:
+        self.solution_detail_origin = "quick_check"
         self._show_page("常见问题教程")
-        self._show_solution_list()
         self._show_solution_detail(article_id)
+
+    def _return_from_solution_detail(self) -> None:
+        if self.solution_detail_origin == "quick_check":
+            self.solution_detail_origin = "list"
+            self.solution_back_button.configure(
+                text="返回指南", command=self._return_from_solution_detail
+            )
+            self._show_page("简单错误检测")
+            return
+        self._show_solution_list()
 
     def _set_quick_check_controls(self) -> None:
         active = self.quick_check_running
@@ -2803,7 +3165,7 @@ class DlcHubApplication:
         for index, section in enumerate(sections):
             if page_name == "DLC 库" and section is self.catalog_card:
                 section.pack(fill="both", expand=True)
-            elif page_name in {"高级DLC视图", "下载任务", "报错指南", "常见问题教程", "简单错误检测", "问题记录", "运行日志", "设置"}:
+            elif page_name in {"高级DLC视图", "下载任务", "报错指南", "常见问题教程", "简单错误检测", "常用工具", "问题记录", "运行日志", "设置"}:
                 section.pack(fill="both", expand=True)
             else:
                 bottom = 18 if index < len(sections) - 1 else 0
@@ -2817,6 +3179,8 @@ class DlcHubApplication:
             )
         if page_name == "下载任务":
             self._refresh_task_page()
+        elif page_name == "常用工具":
+            self._refresh_tool_center()
         elif page_name == "问题记录":
             self._show_problem_list()
             self._refresh_problem_center()
@@ -3188,12 +3552,13 @@ class DlcHubApplication:
             messagebox.showerror("清除记录失败", str(error), parent=self.window)
 
     def _cleanup_cache(self) -> None:
+        """Preview and clear every re-downloadable file in the app cache."""
         if self.cache_cleanup_running:
             return
         if self._content_work_is_active():
             messagebox.showwarning(
                 "当前任务尚未结束",
-                "请先等待下载、安装或补丁操作结束，再分析缓存。",
+                "请先等待下载、安装或补丁操作结束，再清除所有缓存。",
                 parent=self.window,
             )
             return
@@ -3202,51 +3567,24 @@ class DlcHubApplication:
         if reconcile_running:
             messagebox.showwarning(
                 "缓存目录正在核对",
-                "请等待当前资源目录的缓存核对完成后再分析和清理。",
+                "请等待当前资源目录的缓存核对完成后再清除所有缓存。",
                 parent=self.window,
             )
             return
-        snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
-        active_ids = [
-            item.spec.task_id for item in snapshots
-            if item.state not in {
-                DownloadState.READY, DownloadState.CANCELLED,
-                DownloadState.FAILED, DownloadState.CORRUPT,
-            }
-        ]
-        ready_paths = tuple(
-            item.result_path for item in snapshots
-            if item.state is DownloadState.READY and item.result_path is not None
-        )
-        repository = self.install_repository
-        install_service = self.install_service
         self._set_cache_cleanup_running(True, "正在分析……")
 
         def worker() -> None:
             try:
-                protected = list(ready_paths)
-                if repository is not None:
-                    protected.extend(
-                        self.context.paths.cache / "packages" / receipt.game_id / receipt.package_sha256
-                        for receipt in repository.active()
-                    )
                 usage = self.cache_maintenance.usage_bytes()
-                plan = self.cache_maintenance.plan(
-                    protected_paths=protected, active_task_ids=active_ids
-                )
-                maintenance = (
-                    install_service.preview_install_maintenance()
-                    if install_service is not None else None
-                )
+                plan = self.cache_maintenance.plan_full_cleanup()
                 self._post_ui(
-                    lambda usage=usage, plan=plan, maintenance=maintenance:
-                    self._confirm_cache_cleanup(usage, plan, maintenance)
+                    lambda usage=usage, plan=plan:
+                    self._confirm_cache_cleanup(usage, plan)
                 )
             except Exception as error:
-                self.context.logger.exception("Cache cleanup analysis failed")
-                message = str(error)
+                self.context.logger.exception("Full cache cleanup analysis failed")
                 self._post_ui(
-                    lambda message=message:
+                    lambda message=str(error):
                     self._finish_cache_cleanup_error(message)
                 )
 
@@ -3299,7 +3637,7 @@ class DlcHubApplication:
                     "没有可单独清理的内容"
                 )
             )
-            self._set_cache_cleanup_running(False, "分析并清理")
+            self._set_cache_cleanup_running(False, "清除所有缓存")
             return
         if not messagebox.askyesno(
             "确认清理游戏缓存",
@@ -3310,7 +3648,7 @@ class DlcHubApplication:
             "已安装的游戏文件不会受影响；以后需要时会重新下载。",
             parent=self.window,
         ):
-            self._set_cache_cleanup_running(False, "分析并清理")
+            self._set_cache_cleanup_running(False, "清除所有缓存")
             return
         self.cache_cleanup_button.configure(text="正在清理…")
 
@@ -3338,7 +3676,7 @@ class DlcHubApplication:
         self.cache_status.configure(
             text=f"已清理当前游戏 {plan.file_count} 个缓存文件、{_format_size(plan.bytes_to_remove)}"
         )
-        self._set_cache_cleanup_running(False, "分析并清理")
+        self._set_cache_cleanup_running(False, "清除所有缓存")
         self._schedule_cache_usage_scan(force=True)
         self._reconcile_catalog_cache()
 
@@ -3352,83 +3690,49 @@ class DlcHubApplication:
                 state="disabled" if running else "normal"
             )
 
-    def _confirm_cache_cleanup(self, usage, plan, maintenance) -> None:
-        transaction_count = len(maintenance.candidates) if maintenance is not None else 0
-        transaction_bytes = (
-            maintenance.reclaimable_bytes if maintenance is not None else 0
-        )
-        if not plan.paths and not transaction_count:
+    def _confirm_cache_cleanup(self, usage, plan) -> None:
+        if not plan.paths:
             self.cache_usage_bytes = usage
             self.cache_status.configure(
-                text=f"缓存 {_format_size(usage)}，无可安全清理内容"
+                text=f"缓存 {_format_size(usage)}，没有可清除的应用缓存文件"
             )
-            self._set_cache_cleanup_running(False, "分析并清理")
+            self._set_cache_cleanup_running(False, "清除所有缓存")
             return
         if not messagebox.askyesno(
-            "确认清理缓存",
-            f"当前下载缓存 {_format_size(usage)}。\n"
-            f"· 无引用/隔离缓存：{plan.file_count} 个文件，约 "
-            f"{_format_size(plan.bytes_to_remove)}；\n"
-            f"· 已终结安装事务：{transaction_count} 个目录，约 "
-            f"{_format_size(transaction_bytes)}。\n\n"
-            "已安装 DLC、仍被引用的资源包、活动事务及其备份不会删除。是否继续？",
+            "确认清除所有缓存",
+            f"当前应用缓存 {_format_size(usage)}。\n"
+            f"将删除 {plan.file_count} 个可重新下载的缓存文件，约 "
+            f"{_format_size(plan.bytes_to_remove)}。\n\n"
+            "不会删除游戏目录、已安装 DLC、原始备份、用户设置或运行日志。"
+            "清除后需要的资源会在下次使用时重新下载。是否继续？",
             parent=self.window,
         ):
-            self._set_cache_cleanup_running(False, "分析并清理")
+            self._set_cache_cleanup_running(False, "清除所有缓存")
             return
-        self.cache_cleanup_button.configure(text="正在清理……")
-        install_service = self.install_service
+        self.cache_cleanup_button.configure(text="正在清除……")
 
         def worker() -> None:
             try:
-                snapshots = (
-                    self.download_queue.snapshots()
-                    if self.download_queue is not None else ()
-                )
-                active_ids = [
-                    item.spec.task_id for item in snapshots
-                    if item.state not in {
-                        DownloadState.READY, DownloadState.CANCELLED,
-                        DownloadState.FAILED, DownloadState.CORRUPT,
-                    }
-                ]
-                protected = [
-                    item.result_path for item in snapshots
-                    if item.state is DownloadState.READY
-                    and item.result_path is not None
-                ]
-                if self.install_repository is not None:
-                    protected.extend(
-                        self.context.paths.cache / "packages" / receipt.game_id / receipt.package_sha256
-                        for receipt in self.install_repository.active()
-                    )
-                fresh_plan = self.cache_maintenance.plan(
-                    protected_paths=protected, active_task_ids=active_ids
-                )
+                fresh_plan = self.cache_maintenance.plan_full_cleanup()
                 invalidate_hashes = getattr(
                     self.download_queue, "invalidate_hashes", None
                 )
                 try:
                     self.cache_maintenance.execute(fresh_plan)
                 finally:
-                    # Cleanup can remove several candidates before Windows
-                    # rejects one locked path.  Invalidate every candidate so
-                    # no stale digest survives a partially successful pass.
+                    # A partial deletion may invalidate a cached READY digest
+                    # before Windows reports a locked file.  Clear every
+                    # planned path so a later download is always rechecked.
                     if callable(invalidate_hashes):
                         invalidate_hashes(fresh_plan.paths)
-                result = (
-                    install_service.execute_install_maintenance()
-                    if install_service is not None and transaction_count else None
-                )
                 self._post_ui(
-                    lambda usage=usage, plan=fresh_plan, result=result:
-                    self._finish_cache_cleanup(usage, plan, result)
+                    lambda usage=usage, plan=fresh_plan:
+                    self._finish_cache_cleanup(usage, plan)
                 )
             except Exception as error:
-                self.context.logger.exception("Cache cleanup failed")
-                message = str(error)
+                self.context.logger.exception("Full cache cleanup failed")
                 self._post_ui(
-                    lambda message=message:
+                    lambda message=str(error):
                     self._finish_cache_cleanup_error(message)
                 )
 
@@ -3436,36 +3740,24 @@ class DlcHubApplication:
             target=worker, daemon=True, name="cache-maintenance-execute"
         ).start()
 
-    def _finish_cache_cleanup(self, usage, plan, maintenance_result) -> None:
-        removed_transactions = (
-            len(maintenance_result.removed) if maintenance_result is not None else 0
-        )
-        failed_transactions = (
-            len(maintenance_result.failed) if maintenance_result is not None else 0
-        )
+    def _finish_cache_cleanup(self, usage, plan) -> None:
         self.cache_usage_bytes = max(0, usage - plan.bytes_to_remove)
         self.cache_status.configure(
             text=(
-                f"已清理 {plan.file_count} 个缓存文件、"
-                f"{removed_transactions} 个终态事务；失败 {failed_transactions} 项"
+                f"已清除 {plan.file_count} 个缓存文件，"
+                f"释放约 {_format_size(plan.bytes_to_remove)}"
             )
         )
-        self._set_cache_cleanup_running(False, "分析并清理")
+        self._set_cache_cleanup_running(False, "清除所有缓存")
         self._schedule_cache_usage_scan(force=True)
         self._reconcile_catalog_cache()
-        if failed_transactions:
-            messagebox.showwarning(
-                "清理部分完成",
-                f"缓存已完成清理，但有 {failed_transactions} 个安装事务目录因权限或占用被保留。",
-                parent=self.window,
-            )
 
     def _finish_cache_cleanup_error(self, message: str) -> None:
-        self._set_cache_cleanup_running(False, "分析并清理")
-        self.cache_status.configure(text="缓存分析或清理失败")
+        self._set_cache_cleanup_running(False, "清除所有缓存")
+        self.cache_status.configure(text="清除所有缓存失败")
         self._schedule_cache_usage_scan(force=True)
         self._reconcile_catalog_cache()
-        messagebox.showerror("缓存清理失败", message, parent=self.window)
+        messagebox.showerror("清除缓存失败", message, parent=self.window)
 
     def _toggle_download_never_timeout(self) -> None:
         enabled = bool(self.download_never_timeout_var.get())
@@ -4057,6 +4349,21 @@ class DlcHubApplication:
         )
         self.cache_usage_bar.set(game_bytes / usage if usage else 0)
 
+    def _open_file(self, path: Path) -> None:
+        """Open an already verified, existing file without accepting arbitrary input."""
+        if not path.is_file():
+            self._notify(f"文件不存在或不可用：{path.name}", error=True)
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif self.host_platform.startswith("macos"):
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as error:
+            self._notify(f"无法打开文件：{error}", error=True)
+
     def _open_path(self, path: Path) -> None:
         try:
             path.mkdir(parents=True, exist_ok=True)
@@ -4207,15 +4514,10 @@ class DlcHubApplication:
         return stored
 
     def _update_problem_badge(self) -> None:
+        # Problem records are diagnostics for developers, not user-facing alerts.
         button = getattr(self, "navigation_buttons", {}).get("报错指南")
-        if button is None:
-            return
-        try:
-            count = self.problem_store.unresolved_count()
-        except Exception:
-            self.context.logger.exception("Unable to count unresolved problems")
-            count = 0
-        button.configure(text=f"报错指南 ({count})" if count else "报错指南")
+        if button is not None:
+            button.configure(text="报错指南")
 
     def _refresh_problem_center(self, select_event_id: str | None = None) -> None:
         if not hasattr(self, "problem_list"):

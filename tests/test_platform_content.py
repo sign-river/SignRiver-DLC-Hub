@@ -131,6 +131,46 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
     assert not windows_tool.applies_to("steamos")
 
 
+def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive() -> None:
+    tool = GuideTool.from_dict({
+        "tool_id": "security-scan", "title": "安全软件扫描", "description": "",
+        "asset_name": "security-scan.ps1", "platforms": ["windows"],
+        "run_mode": "powershell", "quick_check": True,
+        "quick_check_read_only": True,
+        "quick_check_success": "未发现需要处理的项目。",
+        "quick_check_problem_guide": "security-interference",
+        "quick_check_timeout_seconds": 45,
+    })
+
+    assert tool.quick_check
+    assert tool.quick_check_timeout_seconds == 45
+    assert tool.quick_check_problem_guide == "security-interference"
+    assert tool.applies_to("windows")
+    assert not tool.applies_to("steamos")
+
+    with pytest.raises(ValueError, match="explicitly read-only"):
+        GuideTool.from_dict({
+            "tool_id": "not-read-only", "title": "未声明", "description": "",
+            "asset_name": "check.ps1", "platforms": ["windows"],
+            "run_mode": "powershell", "quick_check": True,
+        })
+
+    with pytest.raises(ValueError, match="command run_mode"):
+        GuideTool.from_dict({
+            "tool_id": "graphic", "title": "图形工具", "description": "",
+            "asset_name": "graphic.exe", "platforms": ["windows"],
+            "quick_check": True,
+        })
+    with pytest.raises(ValueError, match="between 5 and 120"):
+        GuideTool.from_dict({
+            "tool_id": "bad-timeout", "title": "超时", "description": "",
+            "asset_name": "check.ps1", "platforms": ["windows"],
+            "run_mode": "powershell", "quick_check": True,
+            "quick_check_read_only": True,
+            "quick_check_timeout_seconds": 121,
+        })
+
+
 def test_workspace_exports_only_cloud_confirmed_resources(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     profile = PublisherCartridge.from_dict({

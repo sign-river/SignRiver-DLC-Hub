@@ -106,3 +106,29 @@ def test_game_usage_and_cleanup_follow_game_cache_roots(tmp_path: Path) -> None:
     assert not stellaris.exists()
     assert not bad.exists()
     assert hoi4.exists()
+
+
+def test_full_cleanup_plan_removes_all_owned_cache_files(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    owned = {
+        cache / "downloads" / "game" / "ready.zip": b"download",
+        cache / "packages" / "game" / ("a" * 64) / "dlc.zip": b"package",
+        cache / "quarantine" / "game" / "broken.bin": b"quarantine",
+        cache / "module-0.2.0-example.zip.part": b"module",
+    }
+    outside_scope = cache / "task-records" / "history.json"
+    for path, payload in owned.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    outside_scope.parent.mkdir(parents=True, exist_ok=True)
+    outside_scope.write_text("keep", encoding="utf-8")
+
+    maintenance = CacheMaintenance(cache)
+    plan = maintenance.plan_full_cleanup()
+
+    assert set(plan.paths) == set(owned)
+    assert plan.file_count == len(owned)
+    assert plan.bytes_to_remove == sum(len(payload) for payload in owned.values())
+    maintenance.execute(plan)
+    assert not any(path.exists() for path in owned)
+    assert outside_scope.exists()

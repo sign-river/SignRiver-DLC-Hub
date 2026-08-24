@@ -182,6 +182,22 @@ def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
     assert "app.ico" in source
 
 
+def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'def _show_guide_tool_detail(self, tool: GuideTool)' in source
+    assert 'text="查看详情"' in source
+    assert 'def _guide_tools_for_current_platform' in source
+    assert 'if tool.quick_check' in source
+    assert 'self._quick_check_declared_tool(selected_tool)' in source
+    assert 'self.quick_check_waiting' in source
+    assert 'def _run_guide_tool_capture' in source
+    assert 'capture_output=True' in source
+    assert 'def _quick_check_security_products' in source
+    assert 'text="打开文件"' in source
+    assert 'def _open_file(self, path: Path)' in source
+
+
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
@@ -530,7 +546,7 @@ def test_settings_groups_related_controls_into_compact_setting_rows() -> None:
     assert "self.announcement_card = general_card" in source
     assert 'text="开始测速"' in source
     assert 'text="检查更新"' in source
-    assert 'text="清理全部缓存"' in source
+    assert 'text="\u6e05\u9664\u6240\u6709\u7f13\u5b58"' in source
     assert "self.download_manager.configure_timeout" in source
     assert "def _refresh_announcement" in source
     assert "def _show_announcement_dialog" in source
@@ -705,10 +721,9 @@ def test_cache_analysis_and_cleanup_do_not_block_tk_thread() -> None:
 
     assert 'name="cache-maintenance-preview"' in cleanup_method
     assert 'name="cache-maintenance-execute"' in cleanup_method
-    assert "preview_install_maintenance" in cleanup_method
-    assert "execute_install_maintenance" in cleanup_method
+    assert "plan_full_cleanup" in cleanup_method
     assert "self._post_ui(" in cleanup_method
-    assert "活动事务及其备份不会删除" in cleanup_method
+    assert "不会删除游戏目录、已安装 DLC、原始备份、用户设置或运行日志" in cleanup_method
 
 
 def test_client_refuses_to_close_during_destructive_background_work() -> None:

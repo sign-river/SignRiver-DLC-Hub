@@ -1,3 +1,9 @@
+### 2026-08-24：已知问题目标已完成（当前活动模块 0.2.0）
+
+- 已在 Git 跟踪基线 `app/versions/0.1.0/` 完成并定向同步本任务相关代码到活动模块 `app/versions/0.2.0/`：磁盘余量判断、指南缓存校验、一键排错返回导航、清除所有缓存、帮助布局、常用工具详情页、声明式只读诊断工具、安全软件检测和补丁工具。`app/state.json` 仍指向 `0.2.0`，未修改版本切换策略。
+- 声明式诊断工具必须同时配置 `quick_check: true` 与 `quick_check_read_only: true`；仅允许固定命令模式、受控下载路径、后台执行、5–120 秒超时和输出捕获。Windows 安全软件检查仅使用 Security Center 只读枚举；补丁重新下载只处理当前补丁缓存，不自动应用。
+- KI-005（SteamOS VirtualBox `BLKCACHE_IOERR`）保留为外部环境阻塞，未启动、修改或修复用户虚拟机；需要在真实宿主机检查磁盘空间/健康、虚拟磁盘与快照链后再继续。
+- 验证（2026-08-24）：`python -m compileall -q`（基线与 0.2.0 的入口/指南模块）通过；`python -m pytest -q tests/test_cache_maintenance.py tests/test_ui_theme.py tests/test_security_software.py tests/test_platform_content.py` 通过（75 项）；`git diff --check` 通过（仅有既有 LF/CRLF 工作区警告）。已用 `Start-Process .\.venv\Scripts\python.exe launcher.py` 启动活动模块 0.2.0 并持续运行 6 秒、未提前退出，随后仅终止本次验证进程；用户需要重启客户端以加载本地同步的 0.2.0。
 
 ### 2026-08-24：登记帮助与诊断页导航与底部布局问题
 

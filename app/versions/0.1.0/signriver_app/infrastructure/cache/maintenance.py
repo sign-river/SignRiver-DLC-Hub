@@ -109,6 +109,38 @@ class CacheMaintenance:
             len(files),
         )
 
+    def plan_full_cleanup(self) -> CacheCleanupPlan:
+        """Plan deletion of every application-owned, re-downloadable cache file.
+
+        The cache root may be shared with the launcher, so this deliberately
+        limits deletion to documented download namespaces and launcher module
+        archives.  It never accepts arbitrary paths or reaches game/data roots.
+        """
+        files: list[Path] = []
+        for name in ("downloads", "packages", "quarantine"):
+            files.extend(self._files_in(self.cache_root / name))
+        try:
+            root_entries = tuple(self.cache_root.iterdir())
+        except OSError:
+            root_entries = ()
+        for path in root_entries:
+            if (
+                path.name.startswith("module-")
+                and path.name.endswith((".zip", ".zip.part"))
+                and self._regular_file_size(path) >= 0
+            ):
+                try:
+                    details = path.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if stat.S_ISREG(details.st_mode):
+                    files.append(path)
+        return CacheCleanupPlan(
+            tuple(files),
+            sum(self._regular_file_size(path) for path in files),
+            len(files),
+        )
+
     def game_usage(self, game_id: str, snapshots=()) -> CacheGameUsage:
         """Summarize one game's readable, self-contained package cache."""
         files = self._files_in(self.cache_root / "packages" / game_id)

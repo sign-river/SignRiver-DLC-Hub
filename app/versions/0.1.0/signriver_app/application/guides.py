@@ -76,12 +76,39 @@ class GuideTool:
     filename: str
     platforms: tuple[str, ...]
     run_mode: str = "open"
+    quick_check: bool = False
+    quick_check_read_only: bool = False
+    quick_check_success: str = ""
+    quick_check_problem_guide: str = ""
+    quick_check_timeout_seconds: int = 30
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "GuideTool":
         run_mode = str(value.get("run_mode") or "open").strip().lower()
         if run_mode not in {"open", "powershell", "cmd", "shell"}:
             raise ValueError("unsupported guide tool run_mode")
+        raw_quick_check = value.get("quick_check", False)
+        if not isinstance(raw_quick_check, bool):
+            raise ValueError("guide tool quick_check must be a boolean")
+        quick_check = raw_quick_check
+        raw_read_only = value.get("quick_check_read_only", False)
+        if not isinstance(raw_read_only, bool):
+            raise ValueError("guide tool quick_check_read_only must be a boolean")
+        if quick_check and run_mode == "open":
+            raise ValueError("quick-check guide tools must use a command run_mode")
+        if quick_check and not raw_read_only:
+            raise ValueError("quick-check guide tools must be explicitly read-only")
+        raw_timeout = value.get("quick_check_timeout_seconds", 30)
+        if isinstance(raw_timeout, bool):
+            raise ValueError("guide tool quick_check_timeout_seconds must be an integer")
+        try:
+            timeout_seconds = int(raw_timeout)
+        except (TypeError, ValueError) as error:
+            raise ValueError("guide tool quick_check_timeout_seconds must be an integer") from error
+        if not 5 <= timeout_seconds <= 120:
+            raise ValueError("guide tool quick_check_timeout_seconds must be between 5 and 120")
+        raw_problem_guide = str(value.get("quick_check_problem_guide") or "").strip()
+        problem_guide = _id(raw_problem_guide, "quick_check_problem_guide") if raw_problem_guide else ""
         raw_asset_name = str(value.get("asset_name") or "").strip()
         asset_name = Path(raw_asset_name).name
         if raw_asset_name and asset_name != raw_asset_name:
@@ -96,6 +123,11 @@ class GuideTool:
             filename=filename or asset_name,
             platforms=_platforms(value.get("platforms")),
             run_mode=run_mode,
+            quick_check=quick_check,
+            quick_check_read_only=raw_read_only,
+            quick_check_success=str(value.get("quick_check_success") or "").strip(),
+            quick_check_problem_guide=problem_guide,
+            quick_check_timeout_seconds=timeout_seconds,
         )
 
     def applies_to(self, platform: str) -> bool:
@@ -137,81 +169,141 @@ class GuideCatalogService:
         self.download_source = normalize_download_source(source)
         self.entries = ()
 
+    def _parse_index_payload(self, raw_payload: bytes | str) -> tuple[GuideIndexEntry, ...]:
+        payload = json.loads(raw_payload)
+        if not isinstance(payload, dict):
+            raise ValueError("guide index must be an object")
+        if int(payload.get("schema_version", 0)) != _GUIDE_SCHEMA:
+            raise ValueError("unsupported guide schema")
+        raw_entries = payload.get("guides")
+        if not isinstance(raw_entries, list):
+            raise ValueError("guides must be a list")
+        return tuple(
+            entry
+            for entry in (
+                GuideIndexEntry.from_dict(item)
+                for item in raw_entries
+                if isinstance(item, dict)
+            )
+            if entry.applies_to(self.platform)
+        )
+
     def refresh_index(self, *, allow_network: bool = True) -> tuple[GuideIndexEntry, ...]:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        candidates: list[tuple[str, Path | None]] = []
+        cache_path = self.cache_dir / GUIDES_INDEX_ASSET_NAME
         if allow_network:
             try:
-                payload = self._fetch(GUIDES_INDEX_ASSET_NAME)
-                path = self.cache_dir / GUIDES_INDEX_ASSET_NAME
-                path.write_bytes(payload)
-                candidates.append(("remote", path))
+                raw_payload = self._fetch(GUIDES_INDEX_ASSET_NAME)
+                entries = self._parse_index_payload(raw_payload)
             except Exception as error:
-                LOGGER.info("Optional remote guide index unavailable: %s", error)
-        candidates.extend((("cache", self.cache_dir / GUIDES_INDEX_ASSET_NAME),
-                           ("bootstrap", None if self.bootstrap_dir is None else self.bootstrap_dir / GUIDES_INDEX_ASSET_NAME)))
+                # A reverse proxy may return a JSON/HTML 404 response.  Never
+                # persist it as a cache entry or turn an optional guide refresh
+                # into recurring startup warning noise.
+                LOGGER.debug("Ignoring invalid remote guide index: %s", error)
+            else:
+                cache_path.write_bytes(raw_payload)
+                self.entries = entries
+                return entries
+        candidates = (
+            ("cache", cache_path),
+            (
+                "bootstrap",
+                None if self.bootstrap_dir is None
+                else self.bootstrap_dir / GUIDES_INDEX_ASSET_NAME,
+            ),
+        )
         for label, path in candidates:
             if path is None or not path.is_file():
                 continue
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                if int(payload.get("schema_version", 0)) != _GUIDE_SCHEMA:
-                    raise ValueError("unsupported guide schema")
-                raw_entries = payload.get("guides")
-                if not isinstance(raw_entries, list):
-                    raise ValueError("guides must be a list")
-                self.entries = tuple(
-                    entry for entry in (GuideIndexEntry.from_dict(item) for item in raw_entries if isinstance(item, dict))
-                    if entry.applies_to(self.platform)
-                )
-                return self.entries
+                entries = self._parse_index_payload(path.read_text(encoding="utf-8"))
             except Exception as error:
-                LOGGER.warning("Ignoring invalid %s guide index: %s", label, error)
+                if label == "cache":
+                    path.unlink(missing_ok=True)
+                LOGGER.debug("Ignoring invalid %s guide index: %s", label, error)
+                continue
+            self.entries = entries
+            return entries
         self.entries = ()
         return ()
 
-    def load_guide(self, entry: GuideIndexEntry, *, allow_network: bool = True) -> GuideDocument:
+    def _parse_guide_payload(
+        self, entry: GuideIndexEntry, raw_payload: bytes | str
+    ) -> GuideDocument:
+        payload = json.loads(raw_payload)
+        if not isinstance(payload, dict):
+            raise GuideCatalogError("guide detail must be an object")
+        if _id(payload.get("guide_id"), "guide_id") != entry.guide_id:
+            raise GuideCatalogError("guide detail id does not match index")
+        raw_blocks = payload.get("blocks", [])
+        if not isinstance(raw_blocks, list):
+            raise GuideCatalogError("guide blocks must be a list")
+        blocks: list[tuple[str, str]] = []
+        for block in raw_blocks:
+            if not isinstance(block, dict):
+                continue
+            kind = str(block.get("kind") or "text")
+            text = str(block.get("text") or "").strip()
+            if kind in {"heading", "text"} and text:
+                blocks.append((kind, text))
+        raw_tools = payload.get("tools", [])
+        if not isinstance(raw_tools, list):
+            raise GuideCatalogError("guide tools must be a list")
+        tools = tuple(
+            tool
+            for tool in (
+                GuideTool.from_dict(item)
+                for item in raw_tools
+                if isinstance(item, dict)
+            )
+            if tool.applies_to(self.platform)
+        )
+        return GuideDocument(entry=entry, blocks=tuple(blocks), tools=tools)
+
+    def load_guide(
+        self, entry: GuideIndexEntry, *, allow_network: bool = True
+    ) -> GuideDocument:
         path = self.cache_dir / entry.asset_name
         if allow_network:
             try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(self._fetch(entry.asset_name))
+                raw_payload = self._fetch(entry.asset_name)
+                document = self._parse_guide_payload(entry, raw_payload)
             except Exception as error:
-                LOGGER.info("Optional remote guide %s unavailable: %s", entry.guide_id, error)
-        bootstrap_path = None if self.bootstrap_dir is None else self.bootstrap_dir / entry.asset_name
-        for candidate in (path, bootstrap_path):
+                LOGGER.debug(
+                    "Ignoring invalid remote guide detail %s: %s",
+                    entry.guide_id,
+                    error,
+                )
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw_payload)
+                return document
+        bootstrap_path = (
+            None if self.bootstrap_dir is None
+            else self.bootstrap_dir / entry.asset_name
+        )
+        for label, candidate in (("cache", path), ("bootstrap", bootstrap_path)):
             if candidate is None or not candidate.is_file():
                 continue
             try:
-                payload = json.loads(candidate.read_text(encoding="utf-8"))
-                if not isinstance(payload, dict):
-                    raise GuideCatalogError("guide detail must be an object")
-                if _id(payload.get("guide_id"), "guide_id") != entry.guide_id:
-                    raise GuideCatalogError("guide detail id does not match index")
-                raw_blocks = payload.get("blocks", [])
-                if not isinstance(raw_blocks, list):
-                    raise GuideCatalogError("guide blocks must be a list")
-                blocks: list[tuple[str, str]] = []
-                for block in raw_blocks:
-                    if not isinstance(block, dict):
-                        continue
-                    kind = str(block.get("kind") or "text")
-                    text = str(block.get("text") or "").strip()
-                    if kind in {"heading", "text"} and text:
-                        blocks.append((kind, text))
-                raw_tools = payload.get("tools", [])
-                if not isinstance(raw_tools, list):
-                    raise GuideCatalogError("guide tools must be a list")
-                tools = tuple(
-                    tool
-                    for tool in (GuideTool.from_dict(item) for item in raw_tools if isinstance(item, dict))
-                    if tool.applies_to(self.platform)
+                return self._parse_guide_payload(
+                    entry, candidate.read_text(encoding="utf-8")
                 )
-                return GuideDocument(entry=entry, blocks=tuple(blocks), tools=tools)
-            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError) as error:
-                LOGGER.warning(
-                    "Ignoring invalid optional guide detail %s at %s: %s",
-                    entry.guide_id, candidate, error,
+            except (
+                OSError,
+                UnicodeError,
+                json.JSONDecodeError,
+                ValueError,
+                GuideCatalogError,
+            ) as error:
+                if label == "cache":
+                    candidate.unlink(missing_ok=True)
+                LOGGER.debug(
+                    "Ignoring invalid optional %s guide detail %s at %s: %s",
+                    label,
+                    entry.guide_id,
+                    candidate,
+                    error,
                 )
         raise GuideCatalogError(f"未找到指南详情：{entry.title}")
 
