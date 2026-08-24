@@ -36,6 +36,7 @@ class CartridgeManagementUiMixin:
         self.cartridge_home_page = ctk.CTkFrame(self.cartridges_tab, fg_color="transparent")
         self.cartridge_home_page.grid(row=0, column=0, sticky="nsew")
         self.cartridge_home_page.grid_columnconfigure(0, weight=1)
+        self.cartridge_home_page.grid_rowconfigure(1, weight=1)
         self.cartridge_detail_page = ctk.CTkFrame(self.cartridges_tab, fg_color="transparent")
         self.cartridge_detail_page.grid(row=0, column=0, sticky="nsew")
         self.cartridge_detail_page.grid_remove()
@@ -163,6 +164,40 @@ class CartridgeManagementUiMixin:
             command=self.toggle_publish_pause,
         )
         self.hub_publish_pause_button.grid(row=0, column=2, padx=(12, 0))
+
+        workflow = self._card(self.cartridge_home_page, 1, "发布流程")
+        workflow.grid_rowconfigure(1, weight=1)
+        workflow.grid_columnconfigure((0, 1, 2), weight=1, uniform="hub_workflow")
+        workflow_steps = (
+            ("1  刷新卡带", "读取当前游戏卡带与本地生成状态。"),
+            ("2  生成主表", "将卡带、公告和指南整理为可发布文件。"),
+            ("3  双端发布", "确认内容后同步到 GitLink 与 GitHub。"),
+        )
+        for column, (title, description) in enumerate(workflow_steps):
+            step = ctk.CTkFrame(
+                workflow,
+                fg_color="#F5F9FE",
+                border_width=1,
+                border_color="#D8E8F7",
+                corner_radius=10,
+            )
+            step.grid(row=1, column=column, padx=10, pady=(4, 18), sticky="nsew")
+            step.grid_rowconfigure(1, weight=1)
+            ctk.CTkLabel(
+                step,
+                text=title,
+                font=("Microsoft YaHei UI", 15, "bold"),
+                text_color=BLUE,
+                anchor="w",
+            ).grid(row=0, column=0, padx=16, pady=(16, 6), sticky="nw")
+            ctk.CTkLabel(
+                step,
+                text=description,
+                text_color=MUTED,
+                justify="left",
+                anchor="nw",
+                wraplength=260,
+            ).grid(row=1, column=0, padx=16, pady=(0, 16), sticky="new")
 
         list_card = self._card(self.cartridge_detail_page, 1, "全部游戏卡带")
         list_card.grid_rowconfigure(1, weight=1)

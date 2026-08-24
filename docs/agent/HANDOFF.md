@@ -2127,3 +2127,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 修改范围：`app/versions/0.1.0/app_entry.py` 调整问题记录标题栏右侧按钮的 pack 顺序，使视觉顺序为“清空全部—刷新—返回指南”；同一代码块定向同步到活动模块 `app/versions/0.2.0/app_entry.py`。`tests/test_ui_theme.py` 增加顺序回归断言。
 - 当前活动版本仍为 `0.2.0`，采用定向同步；未修改 `app/state.json`，未整目录覆盖活动模块。客户端若已运行需重启后查看。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（79 项通过）；`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`；`python -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py`；`git diff --check` 均通过。未构建、未上传、未推送。
+
+## 2026-08-25：发布器卡带首页填充空白区域
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`；卡带首页保留上方摘要与 4×2 操作栏，下方新增自适应“发布流程”三步说明卡，利用窗口剩余高度并明确刷新、生成、双端发布的操作顺序。
+- 发布器源码验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`；`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（127 项通过）；`git diff --check` 通过。
+- 本次不涉及客户端活动模块；未启动 GUI、未构建、未上传、未推送。
