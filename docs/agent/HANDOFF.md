@@ -2030,7 +2030,7 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 ## 2026-08-24：拓展工具发布记录
 
 - 已确认后续拓展工具使用已有双源 `tools` Release：GitLink `https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools`，GitHub 下载根地址 `https://github.com/sign-river/signriver-dlc-assets/releases/download/tools`。
-- 发布者操作顺序：先将同名附件上传到两个源的 `tools` Release；再在 `publisher-workspace/guides/guide_*.json` 的 `tools` 条目填写唯一 `tool_id`、`asset_name`、`release_tag: "tools"`、`package_kind`、`launch_action` 和 `platforms`；最后用发布器重新生成 hub 并双端发布指南索引/详情。`tools` 附件不得放入 `guides/assets/`。
+- 发布者操作顺序：维护整个 `tools` Release 的统一 `tools_index.json`，将索引和工具附件上传到两个源；指南详情中的 `tools` 条目只填写关联用的 `tool_id`（兼容保留完整元数据时必须与索引一致）。`tools` 附件不得放入 `guides/assets/`。
 - 客户端按当前下载源拼接 `tools` Release URL，用户确认后下载、解压和启动；新增拓展工具不需要客户端更新。云端不得复用内置 `tool_id`，同名项会被过滤；内置工具变更必须随客户端版本更新。
 - 链接核对：GitLink 页面和 GitHub 下载根地址已尝试访问；当前网络工具对 GitLink 页面返回安全限制、GitHub 根地址返回 404（根地址本身不是具体附件 URL），不代表项目配置失效。未上传或修改任何 Release。
 

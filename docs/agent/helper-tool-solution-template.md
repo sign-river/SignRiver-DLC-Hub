@@ -42,9 +42,11 @@ GitHub 示例：
 - GitLink：`https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools`
 - GitHub：`https://github.com/sign-river/signriver-dlc-assets/releases/download/tools`
 
-发布新工具时，先把同名附件上传到两个源的 `tools` Release，再在指南详情 JSON 中引用；不要为单个工具另建 Release，也不要把工具附件复制到 `publisher-workspace/guides/assets/`。
+发布新工具时，先为整个 `tools` Release 更新统一的 `tools_index.json`，再把工具附件和索引上传到两个源；指南详情 JSON 只按 `tool_id` 做可选关联引用。不要为单个工具另建 Release，也不要把工具附件复制到 `publisher-workspace/guides/assets/`。
 
 由 `fixed_release_asset_url(download_source, "tools", asset_name)` 生成，禁止把源写死在按钮回调里。
+
+工具目录约定：`tools_index.json` 是整个 `tools` Release 的唯一工具目录；每个条目必须包含稳定 `tool_id`、标题、说明、`asset_name`、`filename`、`revision`、`platforms`、`package_kind`、`launch_action` 和 `release_tag: "tools"`。工具文件即使尚未下载，也应凭索引在“常用工具”中显示。
 
 ## 出厂指南 JSON
 
