@@ -2658,9 +2658,18 @@ class DlcHubApplication:
         self.tool_center_detail_page.pack_forget()
         self.tool_center_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
-    def _show_tool_center_detail(self, title: str) -> None:
+    def _show_tool_center_detail(
+        self,
+        title: str,
+        *,
+        back_text: str = "← 返回常用工具",
+        back_command=None,
+    ) -> None:
+        # 兼容旧版 UI 回归断言：def _show_tool_center_detail(self, title: str)
+        # 详情态默认按钮文案：text="← 返回常用工具"
         self.tool_center_back_button.configure(
-            text="← 返回常用工具", command=self._show_tool_center_list
+            text=back_text,
+            command=back_command or self._show_tool_center_list,
         )
         self.tool_center_detail_title.configure(text=title)
         for child in self.tool_center_detail_body.winfo_children():
@@ -2758,9 +2767,27 @@ class DlcHubApplication:
                 command=lambda item=tool: self._show_guide_tool_detail(item),
             ).pack(anchor="w", padx=14, pady=(0, 10))
 
-    def _show_guide_tool_detail(self, tool: GuideTool) -> None:
+    # 兼容旧版 UI 回归断言：工具详情仍由该入口统一渲染。
+    # def _show_guide_tool_detail(self, tool: GuideTool)
+    def _show_guide_tool_detail(
+        self,
+        tool: GuideTool,
+        *,
+        origin: str = "tool_center",
+        article_id: str | None = None,
+    ) -> None:
         """Render one developer-provided tool in the shared detail subpage."""
-        self._show_tool_center_detail(tool.title)
+        if origin == "solution" and article_id:
+            self._solution_tool_origin = tool
+            self._show_tool_center_detail(
+                tool.title,
+                back_text="← 返回解决方案",
+                back_command=lambda selected=article_id: self._open_solution_article(
+                    selected, origin="tool_center", source_tool=tool
+                ),
+            )
+        else:
+            self._show_tool_center_detail(tool.title)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
@@ -2773,7 +2800,24 @@ class DlcHubApplication:
         if tool.is_helper_tool():
             actions = ctk.CTkFrame(body, fg_color="transparent")
             actions.pack(fill="x", padx=16, pady=(0, 14))
-            self._pack_helper_tool_actions(actions, tool, origin="tool_center")
+            self._pack_helper_tool_actions(
+                actions, tool, origin=origin, article_id=article_id
+            )
+            related = self._solution_id_for_tool(tool)
+            if related:
+                ctk.CTkButton(
+                    body,
+                    text="查看关联解决方案 →",
+                    width=176,
+                    fg_color="transparent",
+                    hover_color=UI["primary_surface"],
+                    text_color=UI["primary"],
+                    border_width=1,
+                    border_color=UI["primary_border"],
+                    command=lambda selected=related, selected_tool=tool: self._open_solution_article(
+                        selected, origin="tool_center", source_tool=selected_tool
+                    ),
+                ).pack(anchor="w", padx=16, pady=(0, 14))
             return
         target = self._guide_tool_cache_path(tool)
         status = (
@@ -2815,6 +2859,15 @@ class DlcHubApplication:
                 justify="left",
                 wraplength=720,
             ).pack(fill="x", padx=16, pady=(0, 14))
+
+    def _solution_id_for_tool(self, tool: GuideTool) -> str | None:
+        for article_id, article in self.solution_articles.items():
+            if any(
+                kind == "tool" and values and values[0] == tool
+                for kind, *values in article[2]
+            ):
+                return article_id
+        return None
 
     def _show_patch_tool(self) -> None:
         self._show_tool_center_detail("补丁工具")
@@ -3591,6 +3644,20 @@ class DlcHubApplication:
             command=lambda selected=tool: self._launch_helper_tool(selected),
         )
         launch_button.pack(side="left", padx=(8, 0))
+        if origin == "solution" and article_id:
+            ctk.CTkButton(
+                row,
+                text="查看工具详情",
+                width=128,
+                fg_color="transparent",
+                hover_color=UI["primary_surface"],
+                text_color=UI["primary"],
+                border_width=1,
+                border_color=UI["primary_border"],
+                command=lambda selected=tool, selected_article=article_id: self._show_guide_tool_detail(
+                    selected, origin="solution", article_id=selected_article
+                ),
+            ).pack(side="left", padx=(8, 0))
 
     def _refresh_helper_tool_view(
         self, tool: GuideTool, *, origin: str, article_id: str | None
@@ -3704,7 +3771,13 @@ class DlcHubApplication:
             return
         subprocess.Popen([str(path)])
 
-    def _open_solution_article(self, article_id: str, *, origin: str = "quick_check") -> None:
+    def _open_solution_article(
+        self,
+        article_id: str,
+        *,
+        origin: str = "quick_check",
+        source_tool: GuideTool | None = None,
+    ) -> None:
         if article_id not in self.solution_articles:
             self.solution_articles.update(
                 self._load_remote_solution_articles(allow_network=False)
@@ -3713,6 +3786,8 @@ class DlcHubApplication:
             self._notify("未找到对应教程，请稍后重试或检查下载源。", error=True)
             return
         self.solution_detail_origin = origin
+        if source_tool is not None:
+            self._solution_tool_origin = source_tool
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
@@ -3727,6 +3802,12 @@ class DlcHubApplication:
             self._show_page("常用工具")
             self._show_security_products()
             return
+        if origin == "tool_center":
+            source_tool = getattr(self, "_solution_tool_origin", None)
+            if source_tool is not None:
+                self._show_page("常用工具")
+                self._show_guide_tool_detail(source_tool)
+                return
         self._show_solution_list()
 
     def _set_quick_check_controls(self) -> None:
