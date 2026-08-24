@@ -2035,3 +2035,39 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 已按功能范围同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`，仅基线实现与定向同步。
 - 新增 UI 源码回归断言，确保一键排错不再包含近期异常步骤或文案。
 - 验证：`python -m pytest -q tests/test_client_problem_center.py tests/test_ui_theme.py`（75 项通过）；两个活动/基线 `app_entry.py` 均通过 `py_compile`，`git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启。
+
+## 2026-08-25：正式发布前活动模块接口审计与补丁资源命名对齐
+
+- 审计确认：`original_dll_source` 是下载到本地的原始库发布资源路径；`runtime_original_library_name` 是安装目录内的 `_o` 备份文件名；发布器/云端资源角色 `original_dll` 是统一资源角色。它们不是三个不同文件，不能混用为同一个字段。
+- 根因不是云端卡带单独损坏，而是被忽略的活动模块 `0.2.0` 落后于 Git 跟踪基线：补丁引擎、卡带领域模型、资源目录、平台资源筛选、DLC 交付模式和安装服务存在接口/行为漂移。
+- 已按功能范围将补丁引擎、原始库仓库、补丁/卡带领域模型、DLC 目录服务、卡带适配器、目录包检查、安装服务等基线文件定向同步到活动模块 `0.2.0`，未整目录覆盖 UI 独立改动；活动模块恢复 `repair_patch`、共享目录 DLC、平台资源筛选及一致的资源角色调用链。
+- 活动模块 API 冒烟验证通过：`PatchProfile`、`OriginalLibraryVault`、`PatchEngine.apply(original_dll_source=...)`、`PatchEngine.repair_patch`、安装服务均可导入；基线与活动模块编译通过。
+- 验证：补丁/平台/卡带/DLC/UI 专项 85 项通过；完整 pytest 曾出现 1 次 Windows 临时发布批次目录偶发丢失，失败测试单独连续 5 次均通过；`python -m pytest -q --lf`、`python -m ruff check .`、`python -m compileall -q src app\\versions\\0.1.0 app\\versions\\0.2.0`、`git diff --check` 均通过。
+- 当前活动版本仍为 `0.2.0`；本次采用定向同步，客户端若已运行需重启。尚未构建、上传或推送；发布前必须从 Git 跟踪基线构建目标模块，不能把本地忽略目录同步误报为已发布。
+
+## 2026-08-25：修复活动模块补丁参数名不兼容
+
+- 根因：活动模块 `0.2.0` 的 `PatchEngine.apply()` 仅接受旧参数 `original_backup_dll_source`，而客户端调用传入 `original_dll_source`，导致一键解锁在补丁执行前抛出 `TypeError`。
+- 修改范围：仅定向修改被忽略的活动模块 `app/versions/0.2.0/signriver_app/infrastructure/patching/engine.py`；同时接受新旧参数名，未覆盖活动模块其他独立改动。基线 `0.1.0` 已包含新参数实现，无需改动。
+- 当前活动版本：`0.2.0`；对齐方式为定向同步活动模块，未构建或切换发布版本。已验证活动引擎动态导入、两个参数均存在；`python -m py_compile`、`python -m pytest -q tests/test_patch_engine.py`（35 项）和 `git diff --check` 均通过。
+- 客户端若已运行需重启后加载修复；未上传、未推送。
+
+## 2026-08-25：解决方案搜索下拉框高度对齐
+
+- 修改范围：`app/versions/0.1.0/app_entry.py` 的 `_combo_box` 支持可选高度；解决方案页“模糊匹配/精确匹配”下拉框设置为 `height=34`，与旁边搜索框一致。已按功能范围定向同步到活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（76 项通过）；两个模块 `py_compile` 通过；`git diff --check` 通过。
+- 当前活动版本仍为 `0.2.0`；客户端若已运行需重启后查看。未构建、未上传、未推送。
+
+## 2026-08-25：解决方案列表顶部搜索布局整理
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`；将解决方案搜索区改为带边框的紧凑工具栏，增加“搜索”标签，输入框与匹配模式下拉框使用自适应网格并统一内边距，标题栏和返回按钮逻辑保持不变。
+- 已按功能范围定向同步到当前活动模块 `app/versions/0.2.0/app_entry.py`，未整目录覆盖；活动版本仍为 `0.2.0`，仅基线实现与定向同步。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（全部通过）；两个模块 `py_compile` 与 `git diff --check` 通过。未启动 GUI、未构建、未上传、未推送；客户端若已运行需重启后查看。
+
+## 2026-08-25：发布器卡带与公告主页面重排
+
+- 修改范围：`src/signriver_publisher/ui.py`、`src/signriver_publisher/cartridge_management_ui.py`。
+- “游戏支持数据”侧栏隐藏“游戏配置”入口，但保留内部页面供“编辑卡带”跳转；“卡带与公告”成为主页面，提供公告管理、状态摘要和“查看全部游戏卡带”入口。
+- 全部游戏卡带列表及发布操作收进独立详情页，新增“返回卡带与公告”路径；刷新逻辑同时更新主页面摘要。
+- 活动版本规则不适用：本次修改的是发布器源码，不涉及客户端模块同步或 `app/state.json`。
+- 验证：`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_ui_theme.py`（126 项通过）；`python -m py_compile src/signriver_publisher/ui.py src/signriver_publisher/cartridge_management_ui.py`；`git diff --check` 通过。未启动发布器 GUI、未构建、未上传、未推送。

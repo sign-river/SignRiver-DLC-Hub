@@ -221,17 +221,25 @@ class _SectionSidebar:
             self.set(name)
         return page
 
+    def hide(self, name: str) -> None:
+        """Keep an internal page available without exposing a sidebar entry."""
+        button = self._buttons.get(name)
+        if button is not None:
+            button.pack_forget()
+
     def set(self, name: str) -> None:
         if name not in self._pages:
             raise ValueError(f"未知页面：{name}")
         for page_name, page in self._pages.items():
             page.grid_remove()
             selected = page_name == name
-            self._buttons[page_name].configure(
-                fg_color="#1976D2" if selected else "transparent",
-                hover_color="#1565C0" if selected else "#EAF4FD",
-                text_color="white" if selected else "#334155",
-            )
+            button = self._buttons.get(page_name)
+            if button is not None:
+                button.configure(
+                    fg_color="#1976D2" if selected else "transparent",
+                    hover_color="#1565C0" if selected else "#EAF4FD",
+                    text_color="white" if selected else "#334155",
+                )
         self._pages[name].grid()
         self._current = name
 
@@ -386,8 +394,10 @@ class PublisherApplication(
 
     def _build_game_support_workspace(self) -> None:
         self.game_support_tabs = self._nested_tabs(self.game_support_tab)
-        self.games_tab = self.game_support_tabs.add("游戏配置")
         self.cartridges_tab = self.game_support_tabs.add("卡带与公告")
+        # 游戏配置仍保留为内部页面，供“编辑卡带”跳转；不再占用侧栏入口。
+        self.games_tab = self.game_support_tabs.add("游戏配置")
+        self.game_support_tabs.hide("游戏配置")
         self._build_games_tab()
         self._build_cartridge_management_tab()
 
