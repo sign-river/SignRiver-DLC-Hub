@@ -173,8 +173,11 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
         )
         self._scrollbar_color = self._SCROLLBAR_THUMB
         self._scrollbar_animation_id = None
+        self._scrollbar_dragging = False
         self._scrollbar._canvas.bind("<Enter>", self._on_scrollbar_enter, add="+")
         self._scrollbar._canvas.bind("<Leave>", self._on_scrollbar_leave, add="+")
+        self._scrollbar._canvas.bind("<Button-1>", self._on_scrollbar_press, add="+")
+        self._scrollbar._canvas.bind("<ButtonRelease-1>", self._on_scrollbar_release, add="+")
         # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
         self._scrollbar_visible = None
         self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
@@ -189,18 +192,35 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
         return "#" + "".join(f"{channel:02X}" for channel in channels)
 
     def _on_scrollbar_enter(self, _event=None):
-        self._animate_scrollbar(self._SCROLLBAR_THUMB_HOVER)
+        if not self._scrollbar_dragging:
+            self._animate_scrollbar(self._SCROLLBAR_THUMB_HOVER)
 
     def _on_scrollbar_leave(self, _event=None):
-        self._animate_scrollbar(self._SCROLLBAR_THUMB)
+        if not self._scrollbar_dragging:
+            self._animate_scrollbar(self._SCROLLBAR_THUMB)
+
+    def _cancel_scrollbar_animation(self):
+        if self._scrollbar_animation_id is None:
+            return
+        try:
+            self.after_cancel(self._scrollbar_animation_id)
+        except (TclError, RuntimeError):
+            pass
+        self._scrollbar_animation_id = None
+
+    def _on_scrollbar_press(self, _event=None):
+        self._scrollbar_dragging = True
+        self._cancel_scrollbar_animation()
+        self._scrollbar.configure(button_color=self._SCROLLBAR_THUMB_HOVER)
+        self._scrollbar_color = self._SCROLLBAR_THUMB_HOVER
+
+    def _on_scrollbar_release(self, _event=None):
+        self._scrollbar_dragging = False
 
     def _animate_scrollbar(self, target: str):
-        if self._scrollbar_animation_id is not None:
-            try:
-                self.after_cancel(self._scrollbar_animation_id)
-            except (TclError, RuntimeError):
-                pass
-            self._scrollbar_animation_id = None
+        if self._scrollbar_dragging:
+            return
+        self._cancel_scrollbar_animation()
         start = self._scrollbar_color
         if start == target:
             return
