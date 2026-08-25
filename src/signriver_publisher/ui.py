@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tkinter import messagebox
+from tkinter import TclError, messagebox
 
 from .acceptance_ui import AcceptanceUiMixin
 from .announcement_ui import AnnouncementUiMixin
@@ -338,8 +338,26 @@ class PublisherApplication(
         self._build_game_support_workspace()
         self._build_account_test_workspace()
 
+    def _destroy_widget_descendants(self, widget) -> None:
+        """Destroy a widget tree from its leaves upward while the root stays alive."""
+        try:
+            children = tuple(widget.winfo_children())
+        except TclError:
+            return
+        for child in children:
+            self._destroy_widget_descendants(child)
+            try:
+                if child.winfo_exists():
+                    child.destroy()
+            except TclError:
+                # The child can be removed by an earlier callback or parent
+                # teardown.  It is already in the intended final state.
+                continue
+
     def _close_publisher(self) -> None:
         """Close only after active release work reaches a safe terminal state."""
+        if self._is_closing:
+            return
         active_preparations = self.acceptance.active_preparations()
         if active_preparations:
             games = ", ".join(
@@ -372,7 +390,11 @@ class PublisherApplication(
 
         self._is_closing = True
         self._ui_pump_running = False
+        # Hide the outer shell first, then dispose descendants from the leaves
+        # upward.  The root is intentionally the final destroyed component.
         self.withdraw()
+        self._destroy_widget_descendants(self)
+        self.quit()
         self.destroy()
 
     def _nested_tabs(self, parent):

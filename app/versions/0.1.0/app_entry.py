@@ -320,6 +320,7 @@ class DlcHubApplication:
 
     def __init__(self, context) -> None:
         self.context = context
+        self._closing = False
         self._configure_windows_app_identity()
         ctk.set_appearance_mode("Light")
         ctk.set_default_color_theme("blue")
@@ -7120,6 +7121,27 @@ class DlcHubApplication:
         self.catalog_preview.configure(text=f"正在取消 {requested} 个未完成下载任务……")
         self._schedule_cancel_poll()
 
+    def _cancel_downloads_for_close(self) -> None:
+        """Interrupt active downloads before honoring a forced window close."""
+        if self.update_download_active and not self.update_download_preparing:
+            event = self.update_download_cancel_event
+            if event is not None:
+                event.set()
+        if self.download_queue is None:
+            return
+        cancellable = {
+            DownloadState.QUEUED, DownloadState.DOWNLOADING,
+            DownloadState.PAUSING, DownloadState.PAUSED,
+            DownloadState.RETRYING, DownloadState.VERIFYING,
+        }
+        task_ids = tuple(
+            item.spec.task_id
+            for item in self.download_queue.snapshots()
+            if item.state in cancellable
+        )
+        if task_ids:
+            self.download_queue.cancel_many(task_ids)
+
     def _schedule_cancel_poll(self) -> None:
         if self.batch_cancel_poll_pending:
             return
@@ -9543,19 +9565,51 @@ class DlcHubApplication:
         self._notify(f"{entry.display_name}：{text}")
         messagebox.showinfo(text, f"{entry.display_name}：{text}", parent=self.window)
 
+    def _destroy_widget_descendants(self, widget) -> None:
+        """Destroy a widget tree from its leaves upward while the root stays alive."""
+        try:
+            children = tuple(widget.winfo_children())
+        except TclError:
+            return
+        for child in children:
+            self._destroy_widget_descendants(child)
+            try:
+                if child.winfo_exists():
+                    child.destroy()
+            except TclError:
+                # A sibling callback or the parent teardown may already have
+                # removed this widget.  The required end state is still met.
+                continue
+
     def _close(self) -> None:
+        if self._closing:
+            return
         if self._content_work_is_active() or self.cache_cleanup_running:
-            messagebox.showwarning(
+            if not messagebox.askyesno(
                 "任务仍在进行",
                 "当前仍有下载、安装、补丁恢复或缓存维护任务。\n"
-                "请等待完成，或先取消全部下载，再关闭程序。",
+                "点击“确定”将立即中断当前下载并关闭程序；"
+                "尚未完成的安装或补丁操作不会继续。\n确定要关闭吗？",
                 parent=self.window,
-            )
-            return
-        self._hide_game_picker()
+            ):
+                return
+            self._cancel_downloads_for_close()
+        self._closing = True
         self.ui_event_pump_running = False
         if self.download_queue is not None:
             self.download_queue.shutdown(wait=False)
+
+        # Hide the only visible outer shell before releasing any child widgets.
+        # This makes the shutdown visually atomic, while the explicit
+        # leaf-to-root teardown below enforces the component lifetime order.
+        self.window.withdraw()
+        self._hide_game_picker()
+        self._close_announcement_dialog()
+        self._destroy_widget_descendants(self.window)
+
+        # Stop the event loop only after child components are gone; destroy the
+        # outer root last so Tk never exposes its recursive teardown to users.
+        self.window.quit()
         self.window.destroy()
 
     def _show_download_state(self, snapshot) -> None:

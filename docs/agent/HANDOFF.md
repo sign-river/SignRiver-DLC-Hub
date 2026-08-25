@@ -2252,3 +2252,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 
 - 日志资料收集的 Windows `dxdiag` 首次启动失败（返回非零、未产生目标文件或进程异常）时，现在会等待 1 秒后自动重试一次；重试前只删除本次受控输出目录中的 `system/DxDiag.txt`，不会读取或复用既有收集目录的结果。两次均失败才在本次收集结果中标记失败。
 - 已同步基线 `app/versions/0.1.0/` 与活动模块 `app/versions/0.2.0/` 的 `support_bundle.py`，未修改 `app/state.json`。验证：`pytest -q tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_diagnostics.py tests/test_helper_tools.py`（14 项通过）、Ruff、`py_compile`、两个模块文件 SHA-256 一致及 `git diff --check` 均通过。客户端如已运行，需完全退出并重启后加载本次逻辑。
+
+## 2026-08-25：统一窗口关闭与组件销毁顺序
+
+- 问题根因：客户端关闭流程虽然会先关闭已登记的临时窗口，但主窗口仍保持可见，随后直接执行 `quit()` / `destroy()`；Tk 在根窗口仍可见时递归回收其子树，因而可能出现外层框架仍在、内部卡片和控件逐步消失的视觉过程。
+- 客户端基线 `app/versions/0.1.0/app_entry.py` 新增叶子到根的子树销毁辅助方法；关闭时依次停止 UI 事件泵与下载队列、`withdraw()` 隐藏主窗口、关闭已登记弹窗、递归销毁全部子组件、最后 `quit()` 与销毁根窗口。相同代码已定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`，未覆盖活动模块其他文件。
+- 发布器 `src/signriver_publisher/ui.py` 采用相同顺序并增加关闭重入保护，避免发布器与客户端的生命周期标准分叉。
+- 新增 `docs/ui-shutdown-lifecycle-standard.md`，规定所有 CustomTkinter / Tk 根窗口的关闭五步顺序、临时窗口登记要求及回归断言要求。
+- 验证（2026-08-25）：`python -m py_compile app\versions\0.1.0\app_entry.py app\versions\0.2.0\app_entry.py src\signriver_publisher\ui.py`、`python -m ruff check app\versions\0.1.0\app_entry.py src\signriver_publisher\ui.py tests\test_ui_theme.py tests\test_publisher_ui_threading.py`、`python -m pytest -q tests\test_ui_theme.py tests\test_publisher_ui_threading.py tests\test_client_problem_center.py` 均通过（153 项 pytest）。未执行 GUI 人工视觉验证、构建、上传或推送；客户端若已运行，需完全退出后重新启动以加载活动模块的修复。

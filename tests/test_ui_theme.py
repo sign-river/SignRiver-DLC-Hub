@@ -817,7 +817,53 @@ def test_client_refuses_to_close_during_destructive_background_work() -> None:
     assert "self._content_work_is_active()" in close_method
     assert "self.cache_cleanup_running" in close_method
     assert "任务仍在进行" in close_method
+    assert "messagebox.askyesno" in close_method
+    assert "self._cancel_downloads_for_close()" in close_method
     assert close_method.index("return") < close_method.index("self.window.destroy()")
+
+
+def test_client_hides_outer_shell_and_destroys_children_before_root() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    descendant_method = source.split("def _destroy_widget_descendants", 1)[1].split(
+        "def _close", 1
+    )[0]
+    close_method = source.split("def _close", 1)[1].split(
+        "def _show_download_state", 1
+    )[0]
+
+    assert "widget.winfo_children()" in descendant_method
+    assert descendant_method.index("self._destroy_widget_descendants(child)") < descendant_method.index(
+        "child.destroy()"
+    )
+    assert "self._closing" in close_method
+    assert close_method.index("self.window.withdraw()") < close_method.index(
+        "self._hide_game_picker()"
+    )
+    assert close_method.index("self.window.withdraw()") < close_method.index(
+        "self._close_announcement_dialog()"
+    )
+    assert close_method.index("self._close_announcement_dialog()") < close_method.index(
+        "self._destroy_widget_descendants(self.window)"
+    )
+    assert close_method.index("self._destroy_widget_descendants(self.window)") < close_method.index(
+        "self.window.quit()"
+    )
+    assert close_method.index("self.window.quit()") < close_method.index(
+        "self.window.destroy()"
+    )
+
+
+def test_download_cancel_button_is_visible_during_patch_downloads() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    state_method = source.split("def _set_batch_download_state", 1)[1].split(
+        "def _cancel_all_downloads", 1
+    )[0]
+
+    assert '"patch_downloading"' not in state_method.split(
+        "interactive = state not in", 1
+    )[1].split("}", 1)[0]
+    assert "def _cancel_downloads_for_close" in source
+    assert "self.download_queue.cancel_many(task_ids)" in source
 
 
 def test_dangerous_bulk_uninstall_is_not_exposed() -> None:

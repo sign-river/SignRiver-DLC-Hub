@@ -615,13 +615,23 @@ class _CloseHarness:
         self._ui_pump_running = True
         self._is_closing = False
         self.withdrawn = False
+        self.quit_called = False
         self.destroyed = False
 
     def _active_background_mutations(self):
         return PublisherApplication._active_background_mutations(self)
 
+    def winfo_children(self):
+        return ()
+
+    def _destroy_widget_descendants(self, widget) -> None:
+        PublisherApplication._destroy_widget_descendants(self, widget)
+
     def withdraw(self) -> None:
         self.withdrawn = True
+
+    def quit(self) -> None:
+        self.quit_called = True
 
     def destroy(self) -> None:
         self.destroyed = True
@@ -712,11 +722,17 @@ def test_publisher_idle_close_stops_pump_then_destroys() -> None:
     assert not harness._ui_pump_running
 
 
-def test_publisher_close_hides_window_before_destroying() -> None:
+def test_publisher_close_hides_window_and_destroys_children_before_root() -> None:
     source = inspect.getsource(PublisherApplication._close_publisher)
 
-    assert source.index("self.withdraw()") < source.index("self.destroy()")
     assert "self._is_closing = True" in source
+    assert source.index("self.withdraw()") < source.index(
+        "self._destroy_widget_descendants(self)"
+    )
+    assert source.index("self._destroy_widget_descendants(self)") < source.index(
+        "self.quit()"
+    )
+    assert source.index("self.quit()") < source.index("self.destroy()")
 
 
 def test_release_center_batch_sidebar_is_fixed_and_primary_actions_are_larger() -> None:
