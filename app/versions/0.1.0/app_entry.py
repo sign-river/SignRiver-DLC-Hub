@@ -377,6 +377,9 @@ class DlcHubApplication:
             download_source="gitlink",
         )
         self._helper_download_cancels: dict[str, threading.Event] = {}
+        self.tool_center_log_lines: list[str] = []
+        self.tool_center_log_autoscroll = True
+        self.tool_center_operation_running = False
         self._current_solution_article_id: str | None = None
         self.current_announcement: Announcement | None = None
         self.announcement_dialog = None
@@ -2561,9 +2564,16 @@ class DlcHubApplication:
         if not messagebox.askyesno("下载指南附件", prompt, parent=self.window):
             return
 
+        self.tool_center_operation_running = True
+        self.tool_center_detail_status.configure(text="● 下载中", text_color=UI["primary"])
+        self._set_tool_progress(True, 0.15, "正在连接云端工具源... (15%)")
+        self._append_tool_log(f"开始下载：{tool.title}")
+
         def worker() -> None:
             try:
+                self._post_ui(lambda: self._set_tool_progress(True, 0.45, "正在下载工具包... (45%)"))
                 path = self.guide_catalog.download_tool(tool)
+                self._post_ui(lambda: self._set_tool_progress(True, 0.85, "正在校验并准备运行... (85%)"))
                 self._post_ui(
                     lambda selected_path=path, selected_tool=tool: self._open_downloaded_guide_tool(
                         selected_path, selected_tool
@@ -2585,9 +2595,23 @@ class DlcHubApplication:
                 )
                 self._record_problem(report)
                 message = str(error)
+                self._post_ui(lambda value=message: self._append_tool_log(f"下载失败：{value}"))
                 self._post_ui(lambda value=message: self._notify(f"指南附件下载失败：{value}", error=True))
+            finally:
+                self._post_ui(lambda: self._finish_tool_operation())
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_tool_operation(self) -> None:
+        self.tool_center_operation_running = False
+        self._set_tool_progress(False)
+
+    def _set_tool_ready(self, ready: bool, running: bool = False) -> None:
+        label = "● 运行中" if running else ("● 已就绪" if ready else "● 未下载")
+        color = UI["primary"] if running or ready else UI["text_secondary"]
+        status = getattr(self, "tool_center_detail_status", None)
+        if status is not None:
+            status.configure(text=label, text_color=color)
 
     def _guide_tool_cache_path(self, tool: GuideTool) -> Path:
         """Return the only cache location that may hold a downloaded guide tool."""
@@ -2620,6 +2644,8 @@ class DlcHubApplication:
         if not path.is_file():
             self._notify(f"工具文件不存在：{tool.title}", error=True)
             return
+        self._set_tool_ready(True, running=True)
+        self._append_tool_log(f"启动工具：{tool.title}")
         def worker() -> None:
             try:
                 if tool.run_mode == "open":
@@ -2633,10 +2659,15 @@ class DlcHubApplication:
                 else:
                     exit_code, output = self._run_guide_tool_capture(path, tool, timeout=120)
                     result = f"退出码：{exit_code}\n\n{output or '工具未输出文本。'}"
+                    self._post_ui(lambda value=output: self._append_tool_log(value or "工具未输出文本。"))
+                    self._post_ui(lambda code=exit_code: self._append_tool_log(f"工具结束，退出码：{code}"))
                 self._post_ui(lambda value=result: messagebox.showinfo(f"工具运行结果：{tool.title}", value, parent=self.window))
             except Exception as error:
                 self.context.logger.exception("Guide tool execution failed: %s", tool.tool_id)
                 self._post_ui(lambda value=str(error): self._notify(f"工具运行失败：{value}", error=True))
+                self._post_ui(lambda value=str(error): self._append_tool_log(f"运行失败：{value}"))
+            finally:
+                self._post_ui(lambda: self._set_tool_ready(path.is_file(), running=False))
         threading.Thread(target=worker, daemon=True).start()
 
     def _build_tool_center_page(self) -> None:
@@ -2664,13 +2695,16 @@ class DlcHubApplication:
         self.tool_center_list.bind(
             "<Configure>", self._on_tool_center_resize, add="+"
         )
-        self.tool_center_detail_page = ctk.CTkFrame(
-            self.tool_center_card, fg_color="transparent"
-        )
+        self.tool_center_detail_page = ctk.CTkFrame(self.tool_center_card, fg_color=UI["card"])
         detail_header = ctk.CTkFrame(
             self.tool_center_detail_page, fg_color="transparent"
         )
         detail_header.pack(fill="x", padx=24, pady=(18, 8))
+        self.tool_center_detail_back_button = ctk.CTkButton(
+            detail_header, text="←", width=34, height=30,
+            command=self._show_tool_center_list, **BUTTON_SECONDARY,
+        )
+        self.tool_center_detail_back_button.pack(side="left", padx=(0, 10))
         self.tool_center_detail_title = ctk.CTkLabel(
             detail_header,
             text="",
@@ -2679,12 +2713,78 @@ class DlcHubApplication:
             anchor="w",
         )
         self.tool_center_detail_title.pack(side="left", fill="x", expand=True)
-        self.tool_center_detail_body = ctk.CTkScrollableFrame(
-            self.tool_center_detail_page, fg_color=UI["panel"], corner_radius=10
+        self.tool_center_detail_status = ctk.CTkLabel(
+            detail_header, text="● 未下载", text_color=UI["text_secondary"],
+            font=ctk.CTkFont(size=12, weight="bold"),
         )
+        self.tool_center_detail_status.pack(side="right")
+        self.tool_center_detail_body = ctk.CTkFrame(
+            self.tool_center_detail_page, fg_color="transparent", height=230
+        )
+        self.tool_center_detail_body.pack_propagate(False)
         self.tool_center_detail_body.pack(
-            fill="both", expand=True, padx=24, pady=(0, 18)
+            fill="x", padx=24, pady=(0, 10)
         )
+        self.tool_center_progress_frame = ctk.CTkFrame(
+            self.tool_center_detail_page, fg_color=UI["panel"], corner_radius=8
+        )
+        self.tool_center_progress_label = ctk.CTkLabel(
+            self.tool_center_progress_frame, text="", anchor="w", text_color=UI["text_secondary"]
+        )
+        self.tool_center_progress = ctk.CTkProgressBar(
+            self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
+        )
+        self.tool_center_console = ctk.CTkTextbox(
+            self.tool_center_detail_page, fg_color="#111827", text_color="#d1fae5",
+            font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
+        )
+        self.tool_center_console_toolbar = ctk.CTkFrame(self.tool_center_detail_page, fg_color="transparent")
+        self.tool_center_console_toolbar.pack(fill="x", padx=24, pady=(0, 4))
+        for text, command in (("一键复制", self._copy_tool_logs), ("清空日志", self._clear_tool_logs)):
+            ctk.CTkButton(self.tool_center_console_toolbar, text=text, width=92, height=26,
+                          command=command, **BUTTON_SECONDARY).pack(side="left", padx=(0, 6))
+        self.tool_center_console_lock = ctk.CTkCheckBox(
+            self.tool_center_console_toolbar, text="锁定自动滚屏", command=self._toggle_tool_autoscroll
+        )
+        self.tool_center_console_lock.select()
+        self.tool_center_console_lock.pack(side="left")
+        self.tool_center_console.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+
+    def _append_tool_log(self, message: str) -> None:
+        line = f"[{time.strftime('%H:%M:%S')}] {message}"
+        self.tool_center_log_lines.append(line)
+        console = getattr(self, "tool_center_console", None)
+        if console is not None and console.winfo_exists():
+            console.insert("end", line + "\n")
+            if self.tool_center_log_autoscroll:
+                console.see("end")
+
+    def _clear_tool_logs(self) -> None:
+        self.tool_center_log_lines.clear()
+        console = getattr(self, "tool_center_console", None)
+        if console is not None:
+            console.delete("1.0", "end")
+
+    def _copy_tool_logs(self) -> None:
+        self.window.clipboard_clear()
+        self.window.clipboard_append("\n".join(self.tool_center_log_lines))
+        self._notify("运行日志已复制。")
+
+    def _toggle_tool_autoscroll(self) -> None:
+        self.tool_center_log_autoscroll = bool(self.tool_center_console_lock.get())
+
+    def _set_tool_progress(self, visible: bool, value: float = 0, message: str = "") -> None:
+        frame = getattr(self, "tool_center_progress_frame", None)
+        if frame is None:
+            return
+        if visible:
+            frame.pack(fill="x", padx=24, pady=(0, 8), before=self.tool_center_console_toolbar)
+            self.tool_center_progress_label.pack(fill="x", padx=12, pady=(8, 2))
+            self.tool_center_progress.pack(fill="x", padx=12, pady=(0, 10))
+            self.tool_center_progress.set(value)
+            self.tool_center_progress_label.configure(text=message)
+        else:
+            frame.pack_forget()
 
     def _guide_tools_for_current_platform(self) -> list[GuideTool]:
         tools: list[GuideTool] = list(self.guide_catalog.tools)
@@ -2719,6 +2819,11 @@ class DlcHubApplication:
             command=back_command or self._show_tool_center_list,
         )
         self.tool_center_detail_title.configure(text=title)
+        self.tool_center_detail_back_button.configure(command=back_command or self._show_tool_center_list)
+        self.tool_center_detail_status.configure(text="● 未下载", text_color=UI["text_secondary"])
+        self._set_tool_progress(False)
+        self._clear_tool_logs()
+        self._append_tool_log(f"已打开工具详情：{title}")
         for child in self.tool_center_detail_body.winfo_children():
             child.destroy()
         self.tool_center_list.pack_forget()
@@ -2886,6 +2991,7 @@ class DlcHubApplication:
                 ).pack(anchor="w", padx=16, pady=(0, 14))
             return
         target = self._guide_tool_cache_path(tool)
+        self._set_tool_ready(target.is_file())
         status = (
             "已下载，可在本程序中运行。"
             if target.is_file()
@@ -2939,6 +3045,7 @@ class DlcHubApplication:
     def _show_support_collection_tool(self) -> None:
         """Render the built-in support-folder collector in the tool center."""
         self._show_tool_center_detail("日志资料收集")
+        self._set_tool_ready(True)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
@@ -2990,6 +3097,8 @@ class DlcHubApplication:
         if self.support_collection_running:
             return
         self.support_collection_running = True
+        self._set_tool_ready(True, running=True)
+        self._append_tool_log("开始收集日志资料...")
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="disabled", text="正在收集……")
@@ -3030,6 +3139,8 @@ class DlcHubApplication:
     def _finish_support_collection(self, result: SupportCollectionResult) -> None:
         self.support_collection_running = False
         self.last_support_collection_output = result.output_dir
+        self._set_tool_ready(True)
+        self._append_tool_log(f"资料收集完成：{result.output_dir}")
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="normal", text="一键收集资料")
@@ -3052,6 +3163,8 @@ class DlcHubApplication:
 
     def _finish_support_collection_error(self, message: str) -> None:
         self.support_collection_running = False
+        self._set_tool_ready(True)
+        self._append_tool_log(f"资料收集失败：{message}")
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="normal", text="一键收集资料")
@@ -3069,6 +3182,7 @@ class DlcHubApplication:
 
     def _show_patch_tool(self) -> None:
         self._show_tool_center_detail("补丁工具")
+        self._set_tool_ready(self.patch_bundle is not None)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,

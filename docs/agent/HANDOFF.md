@@ -2332,3 +2332,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 根因：解决方案详情页按钮初始化时固定跳转“报错指南”；详情打开后仅更新按钮文字，未切换回调，因此“← 返回解决方案”实际仍跳到报错指南。
 - 基线 `app/versions/0.1.0/app_entry.py` 在详情展示时绑定已有的 `_return_from_solution_detail`，并将同一代码块定向同步到活动模块 `app/versions/0.2.0/app_entry.py`；未修改 `app/state.json`、未整目录覆盖。活动客户端需完全退出并重启后加载。
 - 验证（2026-08-26）：`pytest -q tests/test_client_problem_center.py tests/test_ui_theme.py`（83 项通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：扩展工具详情页扁平化与运行反馈
+
+- 修改基线 `app/versions/0.1.0/app_entry.py`：工具详情页改为固定信息/操作区、按需进度条和底部深色终端日志控制台；顶栏使用返回图标、工具名及运行状态徽章，移除详情外层滚动容器。
+- 下载、启动和日志资料收集流程增加状态徽章与日志追加；控制台提供一键复制、清空日志、锁定自动滚屏。下载仍复用既有 `GuideCatalogService` 和确认/安全边界。
+- 已定向同步到活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`；活动客户端需完全退出并重启后加载。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_support_collection_ui.py`（65 项通过）；基线与活动模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
