@@ -246,6 +246,8 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     )[0]
     assert 'text="打开游戏内补丁安装目录"' in patch_tool
     assert 'text="打开软件内补丁缓存"' in patch_tool
+    assert 'text="刷新补丁列表"' in patch_tool
+    assert "command=self._refresh_patch_tool" in patch_tool
     assert 'text="打开游戏目录"' not in patch_tool
     assert 'resolve_game_directory(' in patch_tool
     assert 'self.download_manager.cache_root' in patch_tool

@@ -1,3 +1,11 @@
+## 2026-08-26：补丁工具增加刷新补丁列表按钮
+
+- 目标：在“补丁工具”详情页提供手动刷新入口，重新读取当前补丁缓存/下载状态并更新已下载补丁列表。
+- 修改范围：Git 跟踪基线 `app/versions/0.1.0/app_entry.py` 新增“刷新补丁列表”按钮及 `_refresh_patch_tool()`，并按功能范围同步到实际活动模块 `app/versions/0.2.0/app_entry.py`；更新 `tests/test_ui_theme.py` 回归断言。未修改 `app/state.json`。
+- 活动版本：`0.2.0`，已定向同步相关文件；客户端若已运行需完全退出并重启后加载。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_client_problem_center.py` 通过；基线与活动模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+- 下一步：如需确认视觉位置，重启当前客户端查看补丁工具页；正式发布时按版本发布流程构建并同步更新说明。
+
 ## 2026-08-25：运行日志工具栏调整
 
 - 修改范围：Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，并按功能范围定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`（`app/state.json` 的 `active_version` 仍为 `0.2.0`，未修改）；同步更新 `tests/test_ui_theme.py` 的工具栏布局断言。

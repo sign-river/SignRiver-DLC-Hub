@@ -3410,6 +3410,12 @@ class DlcHubApplication:
                 width=150,
                 command=lambda path=cache_directory: self._open_path(path),
             ).pack(side="left", padx=(10, 0))
+        ctk.CTkButton(
+            body,
+            text="刷新补丁列表",
+            width=120,
+            command=self._refresh_patch_tool,
+        ).pack(anchor="w", padx=16, pady=(0, 10))
         ready = self._patch_ready_paths() or {}
         if ready:
             ctk.CTkLabel(
@@ -3468,6 +3474,11 @@ class DlcHubApplication:
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=16, pady=(0, 16))
+
+    def _refresh_patch_tool(self) -> None:
+        """Re-read patch state and redraw the detail page without leaving it."""
+        self._show_patch_tool()
+        self._notify("补丁列表已刷新。")
 
     def _redownload_patch_assets(self) -> None:
         if self.download_queue is None or self.patch_bundle is None:
