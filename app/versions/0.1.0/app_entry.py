@@ -4267,7 +4267,11 @@ class DlcHubApplication:
             self._show_page("简单错误检测")
             return
         if origin == "security_products":
-            self._show_page("常用工具")
+            self._skip_tool_center_refresh = True
+            try:
+                self._show_page("常用工具")
+            finally:
+                self._skip_tool_center_refresh = False
             self._show_security_products()
             return
         if origin == "tool_center":
