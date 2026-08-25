@@ -2639,6 +2639,9 @@ class DlcHubApplication:
         self.tool_center_list.pack(
             fill="both", expand=True, padx=24, pady=(0, 18)
         )
+        self.tool_center_list.bind(
+            "<Configure>", self._on_tool_center_resize, add="+"
+        )
         self.tool_center_detail_page = ctk.CTkFrame(
             self.tool_center_card, fg_color="transparent"
         )
@@ -2699,126 +2702,145 @@ class DlcHubApplication:
         self.tool_center_list.pack_forget()
         self.tool_center_detail_page.pack(fill="both", expand=True)
 
+    def _tool_center_column_count(self, width: int | None = None) -> int:
+        if width is None:
+            width = self.tool_center_list.winfo_width()
+        usable_width = max(width - 16, 260)
+        return max(1, min(4, usable_width // 260))
+
+    def _on_tool_center_resize(self, _event=None) -> None:
+        columns = self._tool_center_column_count()
+        if columns == self.tool_center_columns:
+            return
+        if not self.tool_center_list.winfo_exists():
+            return
+        self.tool_center_columns = columns
+        if self.current_page == "常用工具":
+            self._refresh_tool_center()
+
+    def _hide_tool_description_tooltip(self, _event=None) -> None:
+        if self.tool_description_after_id is not None:
+            try:
+                self.window.after_cancel(self.tool_description_after_id)
+            except TclError:
+                pass
+            self.tool_description_after_id = None
+        tooltip = self.tool_description_tooltip
+        self.tool_description_tooltip = None
+        if tooltip is not None:
+            try:
+                tooltip.destroy()
+            except TclError:
+                pass
+
+    def _show_tool_description_tooltip(self, widget, description: str) -> None:
+        self._hide_tool_description_tooltip()
+        self.tool_description_after_id = self.window.after(300, lambda: self._open_tool_description_tooltip(widget, description))
+
+    def _open_tool_description_tooltip(self, widget, description: str) -> None:
+        self.tool_description_after_id = None
+        if self.current_page != "常用工具" or not widget.winfo_exists():
+            return
+        tooltip = ctk.CTkToplevel(self.window)
+        tooltip.overrideredirect(True)
+        tooltip.configure(fg_color=UI["text"])
+        tooltip.attributes("-topmost", True)
+        label = ctk.CTkLabel(
+            tooltip,
+            text=description,
+            text_color=UI["card"],
+            fg_color=UI["text"],
+            justify="left",
+            anchor="w",
+            wraplength=360,
+            font=ctk.CTkFont(size=12),
+        )
+        label.pack(fill="both", padx=10, pady=8)
+        tooltip.update_idletasks()
+        x = widget.winfo_rootx()
+        y = widget.winfo_rooty() + widget.winfo_height() + 6
+        tooltip.geometry(f"{tooltip.winfo_reqwidth()}x{tooltip.winfo_reqheight()}+{x}+{y}")
+        self.tool_description_tooltip = tooltip
+
+    def _bind_tool_description(self, widget, description: str) -> None:
+        widget.bind(
+            "<Enter>",
+            lambda _event, target=widget, text=description: self._show_tool_description_tooltip(target, text),
+            add="+",
+        )
+        widget.bind("<Leave>", self._hide_tool_description_tooltip, add="+")
+
+    def _create_tool_center_card(self, title: str, description: str, command, row: int, column: int) -> None:
+        card = ctk.CTkFrame(
+            self.tool_center_list,
+            fg_color=UI["card"],
+            border_width=1,
+            border_color=UI["border"],
+            corner_radius=8,
+        )
+        card.grid(row=row, column=column, padx=6, pady=6, sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+        title_label = ctk.CTkLabel(
+            card,
+            text=title,
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        )
+        title_label.grid(row=0, column=0, padx=14, pady=(14, 10), sticky="ew")
+        ctk.CTkButton(
+            card, text="查看详情", width=104, command=command
+        ).grid(row=1, column=0, padx=14, pady=(0, 14), sticky="w")
+        self._bind_tool_description(card, description)
+        self._bind_tool_description(title_label, description)
+
     def _refresh_tool_center(self) -> None:
+        self._hide_tool_description_tooltip()
         self._show_tool_center_list()
         for child in self.tool_center_list.winfo_children():
             child.destroy()
         tools = self._guide_tools_for_current_platform()
+        columns = self.tool_center_columns or self._tool_center_column_count()
+        self.tool_center_columns = columns
+        for column in range(columns):
+            self.tool_center_list.grid_columnconfigure(column, weight=1, uniform="tool-card")
+
+        cards: list[tuple[str, str, object]] = []
         if self.host_platform == "windows":
-            internal = ctk.CTkFrame(
-                self.tool_center_list,
-                fg_color=UI["card"],
-                border_width=1,
-                border_color=UI["border"],
-                corner_radius=8,
+            cards.append((
+                "安全软件检测",
+                "只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。",
+                self._show_security_products,
+            ))
+        cards.append((
+            "补丁工具",
+            "查看当前游戏补丁状态、已下载文件和受控目录。",
+            self._show_patch_tool,
+        ))
+        cards.append((
+            "日志资料收集",
+            "整理当前游戏日志、配置、程序问题记录和 Windows DxDiag 报告；不会自动收集截图或大型崩溃转储。",
+            self._show_support_collection_tool,
+        ))
+        cards.extend(
+            (
+                tool.title,
+                tool.description or "开发者提供的受控工具",
+                lambda item=tool: self._show_guide_tool_detail(item),
             )
-            internal.pack(fill="x", padx=8, pady=6)
-            ctk.CTkLabel(
-                internal,
-                text="安全软件检测",
-                text_color=UI["text"],
-                font=ctk.CTkFont(size=14, weight="bold"),
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(10, 0))
-            ctk.CTkLabel(
-                internal,
-                text="只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。",
-                text_color=UI["text_secondary"],
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(2, 10))
-            ctk.CTkButton(
-                internal, text="查看详情", width=104, command=self._show_security_products
-            ).pack(anchor="w", padx=14, pady=(0, 10))
-        patch_tool = ctk.CTkFrame(
-            self.tool_center_list,
-            fg_color=UI["card"],
-            border_width=1,
-            border_color=UI["border"],
-            corner_radius=8,
+            for tool in tools
         )
-        patch_tool.pack(fill="x", padx=8, pady=6)
-        ctk.CTkLabel(
-            patch_tool,
-            text="补丁工具",
-            text_color=UI["text"],
-            font=ctk.CTkFont(size=14, weight="bold"),
-            anchor="w",
-        ).pack(fill="x", padx=14, pady=(10, 0))
-        ctk.CTkLabel(
-            patch_tool,
-            text="查看当前游戏补丁状态、已下载文件和受控目录。",
-            text_color=UI["text_secondary"],
-            anchor="w",
-        ).pack(fill="x", padx=14, pady=(2, 10))
-        ctk.CTkButton(
-            patch_tool, text="查看详情", width=104, command=self._show_patch_tool
-        ).pack(anchor="w", padx=14, pady=(0, 10))
-        support_tool = ctk.CTkFrame(
-            self.tool_center_list,
-            fg_color=UI["card"],
-            border_width=1,
-            border_color=UI["border"],
-            corner_radius=8,
-        )
-        support_tool.pack(fill="x", padx=8, pady=6)
-        ctk.CTkLabel(
-            support_tool,
-            text="日志资料收集",
-            text_color=UI["text"],
-            font=ctk.CTkFont(size=14, weight="bold"),
-            anchor="w",
-        ).pack(fill="x", padx=14, pady=(10, 0))
-        ctk.CTkLabel(
-            support_tool,
-            text=(
-                "整理当前游戏日志、配置、程序问题记录和 Windows DxDiag 报告；"
-                "不会自动收集截图或大型崩溃转储。"
-            ),
-            text_color=UI["text_secondary"],
-            anchor="w",
-            justify="left",
-        ).pack(fill="x", padx=14, pady=(2, 10))
-        ctk.CTkButton(
-            support_tool,
-            text="查看详情",
-            width=104,
-            command=self._show_support_collection_tool,
-        ).pack(anchor="w", padx=14, pady=(0, 10))
-        if not tools:
+        if not cards:
             ctk.CTkLabel(
                 self.tool_center_list,
                 text="暂时没有适用于当前平台的可下载工具。",
                 text_color=UI["text_secondary"],
-            ).pack(anchor="w", padx=16, pady=16)
-        for tool in tools:
-            row = ctk.CTkFrame(
-                self.tool_center_list,
-                fg_color=UI["card"],
-                border_width=1,
-                border_color=UI["border"],
-                corner_radius=8,
+            ).grid(row=0, column=0, columnspan=columns, padx=16, pady=16, sticky="w")
+            return
+        for index, (title, description, command) in enumerate(cards):
+            self._create_tool_center_card(
+                title, description, command, index // columns, index % columns
             )
-            row.pack(fill="x", padx=8, pady=6)
-            ctk.CTkLabel(
-                row,
-                text=tool.title,
-                text_color=UI["text"],
-                font=ctk.CTkFont(size=14, weight="bold"),
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(10, 0))
-            ctk.CTkLabel(
-                row,
-                text=tool.description or "开发者提供的受控工具",
-                text_color=UI["text_secondary"],
-                anchor="w",
-                justify="left",
-            ).pack(fill="x", padx=14, pady=(2, 10))
-            ctk.CTkButton(
-                row,
-                text="查看详情",
-                width=104,
-                command=lambda item=tool: self._show_guide_tool_detail(item),
-            ).pack(anchor="w", padx=14, pady=(0, 10))
 
     # 兼容旧版 UI 回归断言：工具详情仍由该入口统一渲染。
     # def _show_guide_tool_detail(self, tool: GuideTool)

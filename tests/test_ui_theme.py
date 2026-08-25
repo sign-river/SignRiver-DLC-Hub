@@ -243,6 +243,29 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _render_security_products', 1)[1].split('def _open_security_product', 1)[0]
 
 
+def test_tool_center_uses_adaptive_cards_and_hover_descriptions() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert 'self.tool_center_list.bind(' in source
+    assert '"<Configure>", self._on_tool_center_resize' in source
+    assert 'def _tool_center_column_count(self, width: int | None = None)' in source
+    assert 'return max(1, min(4, usable_width // 260))' in source
+    assert 'def _create_tool_center_card(' in source
+    assert '.grid(row=row, column=column, padx=6, pady=6, sticky="nsew")' in source
+    assert 'self._bind_tool_description(card, description)' in source
+    assert 'self._bind_tool_description(title_label, description)' in source
+    assert 'self.window.after(300' in source
+    assert 'tooltip.overrideredirect(True)' in source
+    assert 'tooltip.attributes("-topmost", True)' in source
+    assert 'text=description' in source
+    assert 'tool.description or' in source
+    assert 'cards.append((' in source
+    assert 'self._create_tool_center_card(' in source
+    assert 'row.pack(fill="x", padx=8, pady=6)' not in source.split(
+        'def _refresh_tool_center', 1
+    )[1].split('def _show_guide_tool_detail', 1)[0]
+
+
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
