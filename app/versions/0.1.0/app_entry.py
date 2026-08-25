@@ -3805,11 +3805,9 @@ class DlcHubApplication:
         try:
             textbox._fitting_solution_text = True
             textbox.update_idletasks()
-            result = textbox._textbox.count("1.0", "end-1c", "displaylines")
+            result = textbox._textbox.count("1.0", "end-1c", "-displaylines")
             lines = int(result[0] if isinstance(result, tuple) else result)
-            font = textbox._textbox.cget("font")
-            line_height = max(16, int(textbox._textbox.tk.call("font", "metrics", font, "-linespace")))
-            height = max(34, lines * line_height + 10)
+            height = max(34, lines * 22 + 10)
             if int(textbox.cget("height")) != height:
                 textbox.configure(height=height)
                 self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)
