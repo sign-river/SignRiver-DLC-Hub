@@ -3794,8 +3794,15 @@ class DlcHubApplication:
         dialog.focus_set()
 
     def _solution_detail_wraplength(self) -> int:
-        width = self.solution_detail_body.winfo_width()
-        return max(420, width - 8) if width > 0 else 820
+        try:
+            width = int(self.solution_detail_body.winfo_width())
+            scaling = float(self.window._get_window_scaling())
+        except Exception:
+            width, scaling = 0, 1.0
+        if width <= 1:
+            return 720
+        # Tk reports the scaled pixel width; wraplength expects logical pixels.
+        return max(280, int(width / max(scaling, 1.0)) - 48)
 
     def _update_solution_detail_wraplength(self, _event=None) -> None:
         wraplength = self._solution_detail_wraplength()
