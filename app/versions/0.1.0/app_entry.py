@@ -4094,12 +4094,14 @@ class DlcHubApplication:
                 message = "显卡驱动：未读取到显示适配器信息，请打开详情页手动检查。"
                 warning = "update-module-basics"
             else:
-                summary = "；".join(
-                    f"{info.name}{'（当前显示输出）' if info.is_active else ''} {info.version}（{info.driver_year or '日期未知'}）"
-                    for info in infos
-                )
                 outdated = [info for info in infos if info.status == "建议更新"]
-                message = f"显卡驱动：{'建议更新' if outdated else '已读取'} · {summary}"
+                active = [info.name for info in infos if info.is_active]
+                if outdated:
+                    message = f"显卡驱动：发现 {len(outdated)} 个驱动可能偏旧，点击工具详情查看。"
+                elif active:
+                    message = f"显卡驱动：已读取 {len(infos)} 个适配器，当前显示输出为 {active[0]}。"
+                else:
+                    message = f"显卡驱动：已读取 {len(infos)} 个适配器，点击工具详情查看。"
                 warning = "update-module-basics" if outdated else None
 
             def finish() -> None:
