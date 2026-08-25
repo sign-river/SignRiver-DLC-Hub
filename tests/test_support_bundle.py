@@ -228,3 +228,28 @@ def test_all_bootstrap_games_have_support_collection_profiles() -> None:
         for path in root.glob("cartridge_*.json")
     }
     assert game_ids == set(GAME_SUPPORT_PROFILES)
+
+
+def test_support_collection_reports_background_stages(tmp_path: Path) -> None:
+    progress: list[str] = []
+    collector = SupportBundleCollector(tmp_path / "app", tmp_path / "data")
+
+    collector.collect(
+        app_version="0.2.0",
+        launcher_version="0.1.2",
+        game_id=None,
+        game_root=None,
+        host_platform="linux",
+        progress=progress.append,
+    )
+
+    assert progress == [
+        "已创建收集目录",
+        "正在收集系统信息（DxDiag）",
+        "系统信息收集完成",
+        "正在收集程序运行日志和问题记录",
+        "程序运行日志和问题记录收集完成",
+        "正在收集当前游戏日志与配置",
+        "当前游戏日志与配置收集完成",
+        "正在汇总收集结果",
+    ]

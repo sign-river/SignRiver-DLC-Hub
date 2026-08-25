@@ -178,9 +178,12 @@ class SupportBundleCollector:
         game_root: Path | None,
         problems: Iterable[object] = (),
         host_platform: str | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> SupportCollectionResult:
+        report = progress or (lambda _message: None)
         timestamp = self._now().strftime("%Y%m%d-%H%M%S")
         output_dir = self._unique_output_dir(f"日志资料收集-{timestamp}")
+        report("已创建收集目录")
         for name in ("system", "SignRiver-DLC-Hub-程序日志", "game"):
             (output_dir / name).mkdir(parents=True, exist_ok=True)
 
@@ -190,16 +193,23 @@ class SupportBundleCollector:
         skipped_dumps: list[str] = []
         detected_platform = (host_platform or platform_module.system()).casefold()
 
+        report("正在收集系统信息（DxDiag）")
         self._collect_dxdiag(output_dir / "system", detected_platform, copied, skipped, failed)
+        report("系统信息收集完成")
+        report("正在收集程序运行日志和问题记录")
         self._collect_signriver(
             output_dir / "SignRiver-DLC-Hub-程序日志",
             app_version, launcher_version, problems,
             copied, skipped, failed,
         )
+        report("程序运行日志和问题记录收集完成")
+        report("正在收集当前游戏日志与配置")
         self._collect_game(
             output_dir / "game", game_id, game_root, copied, skipped, failed,
             skipped_dumps,
         )
+        report("当前游戏日志与配置收集完成")
+        report("正在汇总收集结果")
         return SupportCollectionResult(
             output_dir=output_dir,
             copied=tuple(copied),

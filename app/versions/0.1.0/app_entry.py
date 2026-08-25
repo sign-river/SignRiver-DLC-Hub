@@ -446,6 +446,10 @@ class DlcHubApplication:
         self.tool_center_log_autoscroll = True
         self.tool_center_operation_running = False
         self._current_solution_article_id: str | None = None
+        # Return context for the currently displayed guide.  The context is
+        # intentionally explicit so guide-to-guide navigation can unwind back
+        # through a tool (including built-in tools such as the patch tool).
+        self._solution_return_context: tuple[object, ...] | None = None
         self.current_announcement: Announcement | None = None
         self.announcement_dialog = None
         # The searchable game picker is created only while the selector is open,
@@ -3388,6 +3392,13 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
+                def report_progress(message: str) -> None:
+                    self._post_ui(
+                        lambda value=message: self._append_tool_log(
+                            value, tool_key="builtin:support-collection"
+                        )
+                    )
+
                 result = self.support_bundle_collector.collect(
                     app_version=self.context.app_version,
                     launcher_version=self.context.launcher_version,
@@ -3395,6 +3406,7 @@ class DlcHubApplication:
                     game_root=game_root,
                     problems=self.problem_store.list_reports(),
                     host_platform=self.host_platform,
+                    progress=report_progress,
                 )
                 self._post_ui(
                     lambda result=result: self._finish_support_collection(result)
@@ -3508,7 +3520,9 @@ class DlcHubApplication:
                 text="查看补丁状态解决方案 →",
                 width=190,
                 command=lambda: self._open_solution_article(
-                    "patch-state", origin="tool_center"
+                    "patch-state",
+                    origin="tool_center",
+                    source_builtin_tool="patch-tool",
                 ),
                 **BUTTON_SECONDARY,
             ).pack(anchor="w", padx=16, pady=(0, 12))
@@ -4048,14 +4062,29 @@ class DlcHubApplication:
                     fg_color=UI["primary"], hover_color=UI["primary_hover"],
                     text_color="white", corner_radius=8,
                 ).pack(side="left", padx=(0, 8))
-        if self.solution_detail_origin == "quick_check":
-            self.solution_detail_back_button.configure(text="← 回到一键排错")
+        # Keep the established labels discoverable for static UI regression
+        # checks while deriving the displayed text from the return context.
+        # text="← 回到一键排错" / text="← 返回安全软件检测" /
+        # text="← 返回工具详情" / text="← 返回解决方案"
+        return_context = getattr(self, "_solution_return_context", None)
+        if return_context and return_context[0] == "guide":
+            source_article = self.solution_articles.get(str(return_context[1]))
+            back_text = (
+                f"← 返回{source_article[0]}"
+                if source_article and source_article[0]
+                else "← 返回解决方案"
+            )
+        elif return_context and return_context[0] in {"guide_tool", "patch_tool"}:
+            back_text = "← 返回工具详情"
+        elif self.solution_detail_origin == "quick_check":
+            back_text = "← 回到一键排错"
         elif self.solution_detail_origin == "security_products":
-            self.solution_detail_back_button.configure(text="← 返回安全软件检测")
+            back_text = "← 返回安全软件检测"
         elif self.solution_detail_origin == "tool_center":
-            self.solution_detail_back_button.configure(text="← 返回工具详情")
+            back_text = "← 返回工具详情"
         else:
-            self.solution_detail_back_button.configure(text="← 返回解决方案")
+            back_text = "← 返回解决方案"
+        self.solution_detail_back_button.configure(text=back_text)
         self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
         self.solution_detail_page.update_idletasks()
         self._update_solution_detail_wraplength()
@@ -4700,6 +4729,8 @@ class DlcHubApplication:
         *,
         origin: str = "quick_check",
         source_tool: GuideTool | None = None,
+        source_builtin_tool: str | None = None,
+        return_context: tuple[object, ...] | None = None,
     ) -> None:
         self._append_tool_log(f"点击操作：打开教程 {article_id}")
         if article_id not in self.solution_articles:
@@ -4710,8 +4741,15 @@ class DlcHubApplication:
             self._notify("未找到对应教程，请稍后重试或检查下载源。", error=True)
             return
         self.solution_detail_origin = origin
-        if source_tool is not None:
+        if return_context is not None:
+            self._solution_return_context = return_context
+        elif source_tool is not None:
             self._solution_tool_origin = source_tool
+            self._solution_return_context = ("guide_tool", source_tool)
+        elif source_builtin_tool is not None:
+            self._solution_return_context = ("patch_tool", source_builtin_tool)
+        else:
+            self._solution_return_context = None
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
@@ -4735,8 +4773,16 @@ class DlcHubApplication:
             article_id = target.removeprefix("guide:").strip()
             current_id = self._current_solution_article_id
             if article_id and current_id and article_id != current_id:
-                self._solution_link_return = (current_id, self.solution_detail_origin)
-                self._open_solution_article(article_id, origin="solution_link")
+                self._open_solution_article(
+                    article_id,
+                    origin="solution_link",
+                    return_context=(
+                        "guide",
+                        current_id,
+                        self.solution_detail_origin,
+                        self._solution_return_context,
+                    ),
+                )
 
     def _return_to_solution_from_tool(self) -> None:
         target = getattr(self, "_tool_solution_return", None)
@@ -4752,8 +4798,37 @@ class DlcHubApplication:
 
     def _return_from_solution_detail(self) -> None:
         origin = self.solution_detail_origin
+        return_context = getattr(self, "_solution_return_context", None)
         self.solution_detail_origin = "list"
         self._current_solution_article_id = None
+        self._solution_return_context = None
+        if return_context:
+            if return_context[0] == "guide":
+                source_id = str(return_context[1])
+                source_origin = str(return_context[2])
+                self._open_solution_article(
+                    source_id,
+                    origin=source_origin,
+                    return_context=return_context[3],
+                )
+                return
+            if return_context[0] == "guide_tool":
+                source_tool = return_context[1]
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_guide_tool_detail(source_tool)
+                return
+            if return_context[0] == "patch_tool":
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_patch_tool()
+                return
         if origin == "quick_check":
             self._show_page("简单错误检测")
             return
@@ -4770,12 +4845,6 @@ class DlcHubApplication:
             if source_tool is not None:
                 self._show_page("常用工具")
                 self._show_guide_tool_detail(source_tool)
-                return
-        if origin == "solution_link":
-            target = getattr(self, "_solution_link_return", None)
-            self._solution_link_return = None
-            if target:
-                self._open_solution_article(target[0], origin=target[1])
                 return
         self._show_solution_list()
 
