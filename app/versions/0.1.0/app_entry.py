@@ -2941,7 +2941,10 @@ class DlcHubApplication:
             command=back_command or self._show_tool_center_list,
         )
         self.tool_center_detail_title.configure(text=title)
-        self.tool_center_detail_back_button.configure(command=back_command or self._show_tool_center_list)
+        self.tool_center_detail_back_button.configure(
+            text=back_text,
+            command=back_command or self._show_tool_center_list,
+        )
         self._set_tool_ready(not requires_cloud_download)
         self._set_tool_progress(False)
         self._clear_tool_logs()

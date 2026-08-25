@@ -241,6 +241,12 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'self.tool_center_detail_page = ctk.CTkFrame(' in source
     assert 'text="← 返回常用工具"' in source
     assert 'def _show_tool_center_detail(self, title: str)' in source
+    detail_header = source.split('def _show_tool_center_detail(', 1)[1].split(
+        'def _tool_center_column_count', 1
+    )[0]
+    assert 'self.tool_center_detail_back_button.configure(' in detail_header
+    assert 'text=back_text,' in detail_header
+    assert 'command=back_command or self._show_tool_center_list,' in detail_header
     patch_tool = source.split('def _show_patch_tool', 1)[1].split(
         'def _redownload_patch_assets', 1
     )[0]
