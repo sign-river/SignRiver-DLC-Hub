@@ -51,6 +51,40 @@ def _load_object(path: Path, label: str) -> dict[str, object]:
     return value
 
 
+_GUIDE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
+
+def _collect_guide_images(
+    source_dir: Path, detail_name: str, detail: dict[str, object],
+    output_names: set[str], files: list[Path],
+) -> int:
+    raw_blocks = detail.get("blocks", [])
+    if not isinstance(raw_blocks, list):
+        raise GuideExportError(f"{detail_name} 的 blocks 必须是列表")
+    count = 0
+    for block in raw_blocks:
+        if not isinstance(block, dict) or str(block.get("kind") or "") != "image":
+            continue
+        raw_name = str(block.get("asset_name") or "").strip()
+        asset_name = Path(raw_name).name
+        if (
+            not raw_name or asset_name != raw_name or asset_name in {".", ".."}
+            or Path(asset_name).suffix.casefold() not in _GUIDE_IMAGE_EXTENSIONS
+        ):
+            raise GuideExportError(
+                f"{detail_name} 的图片 asset_name 必须是平铺的 PNG/JPEG/WebP/GIF/BMP 文件名"
+            )
+        if asset_name.casefold() in output_names:
+            raise GuideExportError(f"指南资源文件名重复：{asset_name}")
+        image_path = source_dir / "assets" / asset_name
+        if not image_path.is_file():
+            raise GuideExportError(f"指南图片不存在：assets/{asset_name}")
+        output_names.add(asset_name.casefold())
+        files.append(image_path)
+        count += 1
+    return count
+
+
 def _manifest_path(output_dir: Path) -> Path:
     return output_dir / _MANIFEST_NAME
 
@@ -109,6 +143,9 @@ def _collect(source_dir: Path) -> tuple[GuideResourceSummary, tuple[Path, ...]]:
         detail = _load_object(detail_path, detail_name)
         output_names.add(detail_name.casefold())
         files.append(detail_path)
+        attachment_count += _collect_guide_images(
+            source_dir, detail_name, detail, output_names, files
+        )
         tools = detail.get("tools", [])
         if not isinstance(tools, list):
             raise GuideExportError(f"{detail_name} 的 tools 必须是列表")

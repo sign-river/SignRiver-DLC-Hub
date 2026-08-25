@@ -10,7 +10,7 @@ from signriver_app.application.cartridge_catalog import (
     CartridgeCatalogError,
     CartridgeCatalogService,
 )
-from signriver_app.application.guides import GuideCatalogError, GuideCatalogService, GuideTool
+from signriver_app.application.guides import GuideCatalogError, GuideCatalogService, GuideIndexEntry, GuideTool
 from signriver_app.domain import CartridgeIndexEntry, INDEX_ASSET_NAME
 from signriver_publisher.client_cartridges import build_client_cartridge_index
 from signriver_publisher.models import PublisherCartridge
@@ -328,6 +328,32 @@ def test_invalid_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> 
 
     assert document.entry.guide_id == "network-basics"
     assert document.blocks
+
+
+def test_remote_guide_image_is_downloaded_and_cached_per_guide(tmp_path: Path) -> None:
+    image_bytes = b"fake-png"
+
+    entry = GuideIndexEntry.from_dict({
+        "guide_id": "remote-image",
+        "title": "图片指南",
+        "summary": "",
+        "asset_name": "remote-image.json",
+        "platforms": ["all"],
+    })
+    payload = json.dumps({
+        "guide_id": "remote-image",
+        "blocks": [{"kind": "image", "asset_name": "guide-image.png"}],
+        "tools": [],
+    })
+    def opener(url: str, _timeout: float) -> bytes:
+        if url.endswith("remote-image.json"):
+            return payload.encode()
+        return image_bytes if url.endswith("guide-image.png") else b""
+
+    service = GuideCatalogService(tmp_path / "cache", opener=opener)
+    document = service.load_guide(entry, allow_network=True)
+    assert document.blocks[0][0] == "image"
+    assert Path(document.blocks[0][1]).read_bytes() == image_bytes
 
 
 def test_mismatched_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> None:

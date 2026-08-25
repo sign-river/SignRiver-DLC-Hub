@@ -19,7 +19,7 @@
     },
     {
       "kind": "image",
-      "path": "config/guides/assets/network-download-settings.png"
+      "asset_name": "network-download-settings.png"
     },
     {
       "kind": "heading",

@@ -19,7 +19,7 @@
     },
     {
       "kind": "image",
-      "path": "config/guides/assets/game-directory-scan.png"
+      "asset_name": "game-directory-scan.png"
     },
     {
       "kind": "heading",

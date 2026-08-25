@@ -69,6 +69,23 @@ def test_export_hub_guides_rejects_missing_attachment_and_collisions(tmp_path: P
         export_hub_guides(source, output)
 
 
+def test_export_hub_guides_includes_declared_image_assets(tmp_path: Path) -> None:
+    source = tmp_path / "guides"
+    output = tmp_path / "guides-output"
+    _write_guide_source(source)
+    detail_path = source / "guide_network.json"
+    detail = json.loads(detail_path.read_text(encoding="utf-8"))
+    detail["blocks"] = [{"kind": "image", "asset_name": "network.png"}]
+    detail_path.write_text(json.dumps(detail), encoding="utf-8")
+    (source / "assets" / "network.png").write_bytes(b"png")
+
+    written = export_hub_guides(source, output)
+
+    assert {path.name for path in written} == {
+        "guides_index.json", "guide_network.json", "network.png", "guide_network_note.txt",
+    }
+
+
 def test_workspace_guides_assets_are_separate_from_hub(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()

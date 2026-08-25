@@ -25,6 +25,7 @@ GUIDES_RELEASE_TAG = "guides"
 TOOLS_INDEX_ASSET_NAME = "tools_index.json"
 TOOLS_RELEASE_TAG = "tools"
 _GUIDE_SCHEMA = 1
+_GUIDE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _TOOL_DETAIL_ACTIONS = {"open_guide", "open_url", "open_folder"}
 
@@ -355,6 +356,7 @@ class GuideCatalogService:
         for entry in previous_entries:
             if entry.asset_name.casefold() not in keep:
                 (self.cache_dir / entry.asset_name).unlink(missing_ok=True)
+                shutil.rmtree(self.cache_dir / "assets" / entry.guide_id, ignore_errors=True)
 
     def refresh_tools(self, *, allow_network: bool = True) -> tuple[GuideTool, ...]:
         """Refresh the independent tools catalogue; failure never hides guides."""
@@ -464,7 +466,8 @@ class GuideCatalogService:
         return ()
 
     def _parse_guide_payload(
-        self, entry: GuideIndexEntry, raw_payload: bytes | str, *, builtin: bool = False
+        self, entry: GuideIndexEntry, raw_payload: bytes | str, *, builtin: bool = False,
+        image_root: Path | None = None,
     ) -> GuideDocument:
         payload = json.loads(raw_payload)
         if not isinstance(payload, dict):
@@ -486,10 +489,20 @@ class GuideCatalogService:
                 url = str(block.get("url") or "").strip()
                 if url.startswith("https://"):
                     blocks.append((kind, text, url))
-            elif kind == "image" and builtin:
-                path = str(block.get("path") or "").strip().replace("\\", "/")
-                if path.startswith("config/guides/") and ".." not in path:
-                    blocks.append((kind, path))
+            elif kind == "image":
+                raw_path = str(block.get("asset_name") or block.get("path") or "").strip().replace("\\", "/")
+                if raw_path.startswith("config/guides/") and builtin and ".." not in raw_path:
+                    blocks.append((kind, raw_path))
+                    continue
+                asset_name = Path(raw_path).name
+                if (
+                    raw_path == asset_name
+                    and asset_name not in {"", ".", ".."}
+                    and Path(asset_name).suffix.casefold() in _GUIDE_IMAGE_EXTENSIONS
+                ):
+                    candidate = (image_root or (self.cache_dir / "assets")) / asset_name
+                    if candidate.is_file():
+                        blocks.append((kind, str(candidate)))
         raw_tools = payload.get("tools", [])
         if not isinstance(raw_tools, list):
             raise GuideCatalogError("guide tools must be a list")
@@ -529,7 +542,11 @@ class GuideCatalogService:
         if allow_network and not entry.builtin:
             try:
                 raw_payload = self._fetch(entry.asset_name)
-                document = self._parse_guide_payload(entry, raw_payload, builtin=False)
+                self._cache_guide_images(entry.guide_id, raw_payload)
+                document = self._parse_guide_payload(
+                    entry, raw_payload, builtin=False,
+                    image_root=self.cache_dir / "assets" / entry.guide_id,
+                )
             except Exception as error:
                 LOGGER.debug(
                     "Ignoring invalid remote guide detail %s: %s",
@@ -550,7 +567,8 @@ class GuideCatalogService:
                 continue
             try:
                 return self._parse_guide_payload(
-                    entry, candidate.read_text(encoding="utf-8"), builtin=entry.builtin
+                    entry, candidate.read_text(encoding="utf-8"), builtin=entry.builtin,
+                    image_root=(self.bootstrap_dir / "assets") if entry.builtin and self.bootstrap_dir else self.cache_dir / "assets" / entry.guide_id,
                 )
             except (
                 OSError,
@@ -569,6 +587,40 @@ class GuideCatalogService:
                     error,
                 )
         raise GuideCatalogError(f"未找到指南详情：{entry.title}")
+
+    def _cache_guide_images(self, guide_id: str, raw_payload: bytes | str) -> None:
+        try:
+            payload = json.loads(raw_payload)
+        except (TypeError, UnicodeError, json.JSONDecodeError):
+            return
+        blocks = payload.get("blocks", []) if isinstance(payload, dict) else []
+        if not isinstance(blocks, list):
+            return
+        target_dir = self.cache_dir / "assets" / guide_id
+        for block in blocks:
+            if not isinstance(block, dict) or str(block.get("kind") or "") != "image":
+                continue
+            raw_name = str(block.get("asset_name") or block.get("path") or "").strip().replace("\\", "/")
+            asset_name = Path(raw_name).name
+            if (
+                raw_name != asset_name
+                or asset_name in {"", ".", ".."}
+                or Path(asset_name).suffix.casefold() not in _GUIDE_IMAGE_EXTENSIONS
+            ):
+                continue
+            target = target_dir / asset_name
+            if target.is_file() and target.stat().st_size > 0:
+                continue
+            payload_bytes = self._fetch(asset_name)
+            if not payload_bytes:
+                raise GuideCatalogError(f"指南图片为空：{asset_name}")
+            target_dir.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f".{target.name}.part")
+            try:
+                temporary.write_bytes(payload_bytes)
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def download_tool(self, tool: GuideTool) -> Path:
         if not tool.applies_to(self.platform):
