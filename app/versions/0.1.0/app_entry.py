@@ -2718,10 +2718,10 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=12, weight="bold"),
         )
         self.tool_center_detail_status.pack(side="right")
-        self.tool_center_detail_body = ctk.CTkFrame(
-            self.tool_center_detail_page, fg_color="transparent", height=230
+        self.tool_center_detail_body = ctk.CTkScrollableFrame(
+            self.tool_center_detail_page, fg_color="transparent", height=230,
+            corner_radius=0,
         )
-        self.tool_center_detail_body.pack_propagate(False)
         self.tool_center_detail_body.pack(
             fill="x", padx=24, pady=(0, 10)
         )
@@ -2735,7 +2735,7 @@ class DlcHubApplication:
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
         self.tool_center_console = ctk.CTkTextbox(
-            self.tool_center_detail_page, fg_color="#111827", text_color="#d1fae5",
+            self.tool_center_detail_page, height=200, fg_color=UI["card"], text_color=UI["text"],
             font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
         )
         self.tool_center_console_toolbar = ctk.CTkFrame(self.tool_center_detail_page, fg_color="transparent")
@@ -2748,7 +2748,7 @@ class DlcHubApplication:
         )
         self.tool_center_console_lock.select()
         self.tool_center_console_lock.pack(side="left")
-        self.tool_center_console.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.tool_center_console.pack(fill="x", expand=False, padx=24, pady=(0, 18))
 
     def _append_tool_log(self, message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}"
@@ -3339,6 +3339,8 @@ class DlcHubApplication:
 
     def _render_security_products(self, products) -> None:
         self._show_tool_center_detail("安全软件检测")
+        self._set_tool_ready(True)
+        self._append_tool_log(f"安全软件检测完成：发现 {len(products)} 个已登记产品")
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
