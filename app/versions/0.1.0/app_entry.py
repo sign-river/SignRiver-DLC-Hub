@@ -2765,13 +2765,13 @@ class DlcHubApplication:
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
         self.tool_center_console_panel = ctk.CTkFrame(
-            self.tool_center_detail_page, fg_color=UI["card"],
+            self.tool_center_detail_page, fg_color="#FFFFFF",
             border_width=1, border_color=UI["border"], corner_radius=8,
         )
         self.tool_center_console_panel.pack(fill="x", padx=24, pady=(0, 18))
         self.tool_center_console_toolbar = ctk.CTkFrame(
-            self.tool_center_console_panel, fg_color="transparent", height=42,
-            corner_radius=0,
+            self.tool_center_console_panel, fg_color="#F8FAFC", height=44,
+            corner_radius=7,
         )
         self.tool_center_console_toolbar.pack(fill="x", padx=0, pady=0)
         self.tool_center_console_toolbar.pack_propagate(False)
@@ -2798,11 +2798,11 @@ class DlcHubApplication:
         )
         self.tool_center_console_divider.pack(fill="x", padx=0)
         self.tool_center_console = ctk.CTkTextbox(
-            self.tool_center_console_panel, height=110, fg_color=UI["card"], text_color=UI["text"],
+            self.tool_center_console_panel, height=110, fg_color="#FFFFFF", text_color=UI["text"],
             border_width=0, corner_radius=0,
-            font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
+            font=ctk.CTkFont(family="Consolas", size=12), wrap="none",
         )
-        self.tool_center_console.pack(fill="x", padx=0, pady=(0, 8))
+        self.tool_center_console.pack(fill="x", padx=12, pady=(8, 12))
 
     def _append_tool_log(self, message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}"
