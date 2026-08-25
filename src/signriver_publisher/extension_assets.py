@@ -138,6 +138,9 @@ def _tool_records(source_dir: Path) -> tuple[dict[str, _ToolRecord], tuple[Path,
             raise ExtensionExportError(f"工具 {tool_id} 缺少 description")
         if not str(raw_tool.get("revision") or "").strip():
             raise ExtensionExportError(f"工具 {tool_id} 缺少 revision")
+        requires_cloud_download = raw_tool.get("requires_cloud_download", True)
+        if not isinstance(requires_cloud_download, bool):
+            raise ExtensionExportError(f"工具 {tool_id} 的 requires_cloud_download 必须是布尔值")
         _normalise_platforms(raw_tool.get("platforms"), f"工具 {tool_id} 的 platforms")
         package_kind = str(raw_tool.get("package_kind") or "file").strip().lower()
         launch_action = str(raw_tool.get("launch_action") or "legacy").strip().lower()
@@ -184,7 +187,10 @@ def _validate_guide_tool_references(
                 raise ExtensionExportError(
                     f"{detail_name} 引用了不存在于 tools_index.json 的工具：{tool_id}"
                 )
-            for field in ("asset_name", "filename", "package_kind", "launch_action", "executable_name", "revision"):
+            for field in (
+                "asset_name", "filename", "package_kind", "launch_action",
+                "executable_name", "revision", "requires_cloud_download",
+            ):
                 expected = record.payload.get(field)
                 actual = reference.get(field)
                 if actual not in {None, ""} and str(actual).strip() != str(expected or "").strip():

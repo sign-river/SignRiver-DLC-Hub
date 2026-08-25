@@ -116,6 +116,35 @@ def test_extension_preflight_rejects_inconsistent_guide_metadata(tmp_path: Path)
         workspace.extension_publish_assets()
 
 
+def test_extension_preflight_rejects_non_boolean_download_requirement(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    _write_extension_source(workspace)
+    index = workspace.tools_source_dir / "tools_index.json"
+    payload = json.loads(index.read_text(encoding="utf-8"))
+    payload["tools"][0]["requires_cloud_download"] = "false"
+    index.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(ExtensionExportError, match="requires_cloud_download 必须是布尔值"):
+        workspace.extension_publish_assets()
+
+
+def test_extension_preflight_rejects_inconsistent_download_requirement(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    _write_extension_source(
+        workspace,
+        reference={
+            "tool_id": "sample-tool",
+            "release_tag": "tools",
+            "requires_cloud_download": False,
+        },
+    )
+
+    with pytest.raises(ExtensionExportError, match="requires_cloud_download 与 tools_index.json 不一致"):
+        workspace.extension_publish_assets()
+
+
 def test_extension_preflight_allows_unreferenced_tools(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()
