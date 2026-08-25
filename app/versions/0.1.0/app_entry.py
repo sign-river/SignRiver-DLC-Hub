@@ -4384,6 +4384,9 @@ class DlcHubApplication:
         self._show_solution_detail(article_id)
 
     def _activate_solution_button(self, target: str) -> None:
+        if target == "dlc-home":
+            self._show_page("DLC 库")
+            return
         if target == "patch-tool":
             article_id = self._current_solution_article_id
             if article_id:

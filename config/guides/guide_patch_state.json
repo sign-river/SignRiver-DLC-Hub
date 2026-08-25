@@ -27,6 +27,11 @@
       "text": "如果补丁状态显示三个项目均正常，请返回主页面重新执行“一键解锁”。如果缺少 unlock.dll 补丁，请点击“从云端重新下载补丁”，再点击“刷新补丁列表”，多刷新几次，观察 unlock.dll 是否出现。"
     },
     {
+      "kind": "button",
+      "text": "返回主页执行一键解锁 →",
+      "target": "dlc-home"
+    },
+    {
       "kind": "image",
       "asset_name": "patch-tool-status.png"
     },
