@@ -438,7 +438,11 @@ class DlcHubApplication:
             download_source="gitlink",
         )
         self._helper_download_cancels: dict[str, threading.Event] = {}
-        self.tool_center_log_lines: list[str] = []
+        # Tool detail logs are isolated by stable tool key.  Do not derive
+        # these logs from the global notification/snackbar stream.
+        self.tool_center_logs: dict[str, list[str]] = {}
+        self.tool_center_active_log_key: str | None = None
+        self.tool_center_log_lines: list[str] = []  # compatibility alias for the visible tool
         self.tool_center_log_autoscroll = True
         self.tool_center_operation_running = False
         self._current_solution_article_id: str | None = None
@@ -2644,17 +2648,19 @@ class DlcHubApplication:
             self._refresh_tool_center()
 
     def _download_guide_tool(self, tool: GuideTool) -> None:
+        tool_key = f"guide:{tool.tool_id}"
         prompt = (
             f"将下载附件：{tool.title}\n\n{tool.description or '附件用途由该指南提供。'}"
             "\n\n下载完成后将在本程序中受控启动；不会执行用户输入的命令。是否继续？"
         )
         if not messagebox.askyesno("下载指南附件", prompt, parent=self.window):
+            self._append_tool_log("下载已取消：用户取消确认", tool_key=tool_key)
             return
 
         self.tool_center_operation_running = True
         self.tool_center_detail_status.configure(text="● 下载中", text_color=UI["primary"])
         self._set_tool_progress(True, 0.15, "正在连接云端工具源... (15%)")
-        self._append_tool_log(f"开始下载：{tool.title}")
+        self._append_tool_log(f"开始下载：{tool.title}", tool_key=tool_key)
 
         def worker() -> None:
             try:
@@ -2682,7 +2688,7 @@ class DlcHubApplication:
                 )
                 self._record_problem(report)
                 message = str(error)
-                self._post_ui(lambda value=message: self._append_tool_log(f"下载失败：{value}"))
+                self._post_ui(lambda value=message, key=tool_key: self._append_tool_log(f"下载失败：{value}", tool_key=key))
                 self._post_ui(lambda value=message: self._notify(f"指南附件下载失败：{value}", error=True))
             finally:
                 self._post_ui(lambda: self._finish_tool_operation())
@@ -2728,11 +2734,13 @@ class DlcHubApplication:
 
     def _open_downloaded_guide_tool(self, path: Path, tool: GuideTool) -> None:
         """Run a developer-declared guide tool; never accept a user command."""
+        tool_key = f"guide:{tool.tool_id}"
         if not path.is_file():
+            self._append_tool_log(f"启动失败：工具文件不存在：{tool.title}", tool_key=tool_key)
             self._notify(f"工具文件不存在：{tool.title}", error=True)
             return
         self._set_tool_ready(True, running=True)
-        self._append_tool_log(f"启动工具：{tool.title}")
+        self._append_tool_log(f"启动工具：{tool.title}", tool_key=tool_key)
         def worker() -> None:
             try:
                 if tool.run_mode == "open":
@@ -2746,13 +2754,13 @@ class DlcHubApplication:
                 else:
                     exit_code, output = self._run_guide_tool_capture(path, tool, timeout=120)
                     result = f"退出码：{exit_code}\n\n{output or '工具未输出文本。'}"
-                    self._post_ui(lambda value=output: self._append_tool_log(value or "工具未输出文本。"))
-                    self._post_ui(lambda code=exit_code: self._append_tool_log(f"工具结束，退出码：{code}"))
+                    self._post_ui(lambda value=output, key=tool_key: self._append_tool_log(value or "工具未输出文本。", tool_key=key))
+                    self._post_ui(lambda code=exit_code, key=tool_key: self._append_tool_log(f"工具结束，退出码：{code}", tool_key=key))
                 self._post_ui(lambda value=result: messagebox.showinfo(f"工具运行结果：{tool.title}", value, parent=self.window))
             except Exception as error:
                 self.context.logger.exception("Guide tool execution failed: %s", tool.tool_id)
                 self._post_ui(lambda value=str(error): self._notify(f"工具运行失败：{value}", error=True))
-                self._post_ui(lambda value=str(error): self._append_tool_log(f"运行失败：{value}"))
+                self._post_ui(lambda value=str(error), key=tool_key: self._append_tool_log(f"运行失败：{value}", tool_key=key))
             finally:
                 self._post_ui(lambda: self._set_tool_ready(path.is_file(), running=False))
         threading.Thread(target=worker, daemon=True).start()
@@ -2868,26 +2876,58 @@ class DlcHubApplication:
         )
         self.tool_center_console.pack(fill="x", padx=12, pady=(8, 12))
 
-    def _append_tool_log(self, message: str) -> None:
-        line = f"[{time.strftime('%H:%M:%S')}] {message}"
-        if self.tool_center_log_lines and self.tool_center_log_lines[-1].split("] ", 1)[-1] == message:
-            return
-        self.tool_center_log_lines.append(line)
+    def _tool_key_for_title(self, title: str) -> str:
+        return {
+            "补丁工具": "builtin:patch-tool",
+            "日志资料收集": "builtin:support-collection",
+            "安全软件检测": "builtin:security-products",
+            "显卡驱动详情": "builtin:gpu-driver",
+        }.get(title, f"builtin:{title}")
+
+    def _set_active_tool_log(self, key: str) -> None:
+        self.tool_center_active_log_key = key
+        self.tool_center_log_lines = self.tool_center_logs.setdefault(key, [])
         console = getattr(self, "tool_center_console", None)
         if console is not None and console.winfo_exists():
+            console.delete("1.0", "end")
+            console.insert("end", "\n".join(self.tool_center_log_lines) + ("\n" if self.tool_center_log_lines else ""))
+            if self.tool_center_log_autoscroll:
+                console.see("end")
+
+    def _append_tool_log(self, message: str, *, tool_key: str | None = None) -> None:
+        key = tool_key or self.tool_center_active_log_key
+        if not key:
+            return
+        lines = self.tool_center_logs.setdefault(key, [])
+        line = f"[{time.strftime('%H:%M:%S')}] {message}"
+        if lines and lines[-1].split("] ", 1)[-1] == message:
+            return
+        lines.append(line)
+        if key == self.tool_center_active_log_key:
+            self.tool_center_log_lines = lines
+        console = getattr(self, "tool_center_console", None)
+        if key == self.tool_center_active_log_key and console is not None and console.winfo_exists():
             console.insert("end", line + "\n")
             if self.tool_center_log_autoscroll:
                 console.see("end")
 
     def _clear_tool_logs(self) -> None:
-        self.tool_center_log_lines.clear()
+        key = self.tool_center_active_log_key
+        if key:
+            self.tool_center_logs.setdefault(key, []).clear()
+            self.tool_center_log_lines = self.tool_center_logs[key]
         console = getattr(self, "tool_center_console", None)
         if console is not None:
             console.delete("1.0", "end")
+        if key:
+            self._append_tool_log("已清空当前工具日志", tool_key=key)
 
     def _copy_tool_logs(self) -> None:
+        key = self.tool_center_active_log_key
         self.window.clipboard_clear()
         self.window.clipboard_append("\n".join(self.tool_center_log_lines))
+        if key:
+            self._append_tool_log("已复制当前工具日志", tool_key=key)
         self._notify("运行日志已复制。")
 
     def _toggle_tool_autoscroll(self) -> None:
@@ -2933,6 +2973,7 @@ class DlcHubApplication:
         requires_cloud_download: bool = True,
         back_text: str = "← 返回常用工具",
         back_command=None,
+        tool_key: str | None = None,
     ) -> None:
         # 兼容旧版 UI 回归断言：def _show_tool_center_detail(self, title: str)
         # 详情态默认按钮文案：text="← 返回常用工具"
@@ -2941,11 +2982,14 @@ class DlcHubApplication:
             command=back_command or self._show_tool_center_list,
         )
         self.tool_center_detail_title.configure(text=title)
-        self.tool_center_detail_back_button.configure(command=back_command or self._show_tool_center_list)
+        self.tool_center_detail_back_button.configure(
+            text=back_text,
+            command=back_command or self._show_tool_center_list,
+        )
         self._set_tool_ready(not requires_cloud_download)
         self._set_tool_progress(False)
-        self._clear_tool_logs()
-        self._append_tool_log(f"已打开工具详情：{title}")
+        self._set_active_tool_log(tool_key or self._tool_key_for_title(title))
+        self._append_tool_log(f"打开工具详情：{title}")
         for child in self.tool_center_detail_body.winfo_children():
             child.destroy()
         self.tool_center_list.pack_forget()
@@ -3102,10 +3146,13 @@ class DlcHubApplication:
                 requires_cloud_download=tool.requires_cloud_download,
                 back_text=back_text,
                 back_command=self._return_from_tool_to_solution,
+                tool_key=f"helper:{tool.tool_id}" if tool.is_helper_tool() else f"guide:{tool.tool_id}",
             )
         else:
             self._show_tool_center_detail(
-                tool.title, requires_cloud_download=tool.requires_cloud_download
+                tool.title,
+                requires_cloud_download=tool.requires_cloud_download,
+                tool_key=f"helper:{tool.tool_id}" if tool.is_helper_tool() else f"guide:{tool.tool_id}",
             )
         body = self.tool_center_detail_body
         if tool.detail_intro:
@@ -3226,11 +3273,16 @@ class DlcHubApplication:
     def _activate_tool_detail_action(
         self, tool: GuideTool, action: str, guide_id: str, url: str
     ) -> None:
+        key = self.tool_center_active_log_key
+        self._append_tool_log(f"点击操作：{action}", tool_key=key)
         if action == "open_guide":
             self._open_solution_article(guide_id, origin="tool_center", source_tool=tool)
             return
         if action == "open_url":
-            webbrowser.open(url)
+            if webbrowser.open(url):
+                self._append_tool_log(f"已打开链接：{url}", tool_key=key)
+            else:
+                self._append_tool_log(f"打开链接失败：{url}", tool_key=key)
             return
         if action == "open_folder":
             folder = (
@@ -3239,9 +3291,21 @@ class DlcHubApplication:
                 else self._guide_tool_cache_path(tool).parent
             )
             if not folder.is_dir():
+                self._append_tool_log("打开工具目录失败：目录不存在", tool_key=key)
                 self._notify("请先下载工具，下载完成后才能打开工具目录。", error=True)
                 return
             self._open_path(folder)
+
+    def _open_tool_url(self, url: str, label: str, *, tool_key: str | None = None) -> None:
+        key = tool_key or self.tool_center_active_log_key
+        self._append_tool_log(f"点击操作：打开链接 {label}", tool_key=key)
+        try:
+            if not webbrowser.open(url):
+                raise RuntimeError("系统未接受链接")
+            self._append_tool_log(f"已打开链接：{label}", tool_key=key)
+        except Exception as error:
+            self._append_tool_log(f"打开链接失败：{error}", tool_key=key)
+            self._notify(f"无法打开链接：{error}", error=True)
 
     def _solution_id_for_tool(self, tool: GuideTool) -> str | None:
         for article_id, article in self.solution_articles.items():
@@ -3308,7 +3372,8 @@ class DlcHubApplication:
             return
         self.support_collection_running = True
         self._set_tool_ready(True, running=True)
-        self._append_tool_log("开始收集日志资料...")
+        support_key = "builtin:support-collection"
+        self._append_tool_log("开始收集日志资料...", tool_key=support_key)
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="disabled", text="正在收集……")
@@ -3350,7 +3415,7 @@ class DlcHubApplication:
         self.support_collection_running = False
         self.last_support_collection_output = result.output_dir
         self._set_tool_ready(True)
-        self._append_tool_log(f"资料收集完成：{result.output_dir}")
+        self._append_tool_log(f"资料收集完成：{result.output_dir}", tool_key="builtin:support-collection")
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="normal", text="一键收集资料")
@@ -3374,7 +3439,7 @@ class DlcHubApplication:
     def _finish_support_collection_error(self, message: str) -> None:
         self.support_collection_running = False
         self._set_tool_ready(True)
-        self._append_tool_log(f"资料收集失败：{message}")
+        self._append_tool_log(f"资料收集失败：{message}", tool_key="builtin:support-collection")
         button = getattr(self, "support_collection_start_button", None)
         if button is not None:
             button.configure(state="normal", text="一键收集资料")
@@ -3384,8 +3449,10 @@ class DlcHubApplication:
         messagebox.showerror("资料收集失败", message, parent=self.window)
 
     def _open_support_collection_folder(self) -> None:
+        self._append_tool_log("点击操作：打开收集文件夹", tool_key="builtin:support-collection")
         output = self.last_support_collection_output
         if output is None or not output.is_dir():
+            self._append_tool_log("打开收集文件夹失败：尚未生成文件夹", tool_key="builtin:support-collection")
             self._notify("尚未找到本次会话生成的资料收集文件夹。", error=True)
             return
         self._open_path(output)
@@ -3538,10 +3605,14 @@ class DlcHubApplication:
     def _refresh_patch_tool(self) -> None:
         """Re-read patch state and redraw the detail page without leaving it."""
         self._show_patch_tool()
+        self._append_tool_log("点击操作：刷新补丁列表", tool_key="builtin:patch-tool")
         self._notify("补丁列表已刷新。")
 
     def _redownload_patch_assets(self) -> None:
+        patch_key = "builtin:patch-tool"
+        self._append_tool_log("点击操作：从云端重新下载补丁", tool_key=patch_key)
         if self.download_queue is None or self.patch_bundle is None:
+            self._append_tool_log("重新下载失败：当前没有可用补丁资源", tool_key=patch_key)
             self._notify("当前游戏没有可重新下载的补丁资源。", error=True)
             return
         specs = self._patch_download_specs()
@@ -3549,9 +3620,11 @@ class DlcHubApplication:
         snapshots = self._patch_snapshots_by_task()
         active = {DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.PAUSING, DownloadState.RETRYING, DownloadState.VERIFYING}
         if any(item.state in active for item in snapshots.values()):
+            self._append_tool_log("重新下载取消：已有补丁下载正在进行", tool_key=patch_key)
             self._notify("当前补丁下载仍在进行，请完成或取消后再重新下载。", error=True)
             return
         if not messagebox.askyesno("重新下载补丁", "将仅删除当前游戏补丁的已下载缓存并从云端重新获取。不会自动应用到游戏目录。是否继续？", parent=self.window):
+            self._append_tool_log("重新下载已取消：用户取消确认", tool_key=patch_key)
             return
         try:
             filenames = ", ".join(spec.filename for spec in specs)
@@ -3559,17 +3632,17 @@ class DlcHubApplication:
                 "操作：重新下载补丁资源；删除受控缓存并重新获取文件：%s",
                 filenames or "（无文件）",
             )
-            self._append_tool_log(
-                f"重新下载补丁：删除受控缓存并重新获取 {filenames or '（无文件）'}"
-            )
+            self._append_tool_log(f"重新下载补丁：删除受控缓存并重新获取 {filenames or '（无文件）'}", tool_key=patch_key)
             self.download_queue.forget(task_ids, delete_cached_packages=True)
             for spec in specs:
                 future = self.download_queue.enqueue(spec)
                 future.add_done_callback(self._patch_redownload_finished)
         except Exception as error:
             self.context.logger.exception("Unable to re-download patch assets")
+            self._append_tool_log(f"重新下载失败：{error}", tool_key=patch_key)
             self._notify(f"无法开始重新下载补丁：{error}", error=True)
             return
+        self._append_tool_log("已开始重新下载补丁资源", tool_key=patch_key)
         self._notify("已开始重新下载补丁资源；下载完成后不会自动应用。")
 
     def _patch_redownload_finished(self, future) -> None:
@@ -3579,14 +3652,14 @@ class DlcHubApplication:
             message = f"补丁文件 {result.spec.filename}{'下载完成' if not failed else '下载失败：' + result.state.value}"
             self._post_ui(
                 lambda value=message, error=failed: (
-                    self._append_tool_log(value), self._notify(value, error=error)
+                    self._append_tool_log(value, tool_key="builtin:patch-tool"), self._notify(value, error=error)
                 )
             )
         except Exception as error:
             self.context.logger.exception("Patch re-download task crashed")
             self._post_ui(
                 lambda value=str(error): (
-                    self._append_tool_log(f"补丁重新下载异常：{value}"),
+                    self._append_tool_log(f"补丁重新下载异常：{value}", tool_key="builtin:patch-tool"),
                     self._notify(f"补丁重新下载异常：{value}", error=True),
                 )
             )
@@ -3603,7 +3676,7 @@ class DlcHubApplication:
     def _render_security_products(self, products) -> None:
         self._show_tool_center_detail("安全软件检测", requires_cloud_download=False)
         self._set_tool_ready(True)
-        self._append_tool_log(f"安全软件检测完成：发现 {len(products)} 个已登记产品")
+        self._append_tool_log(f"安全软件检测完成：发现 {len(products)} 个已登记产品", tool_key="builtin:security-products")
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
@@ -3690,32 +3763,42 @@ class DlcHubApplication:
         ).pack(side="right", padx=12, pady=10)
 
     def _open_security_product(self, product) -> None:
+        key = "builtin:security-products"
+        self._append_tool_log(f"点击操作：打开安全软件 {product.name}", tool_key=key)
         if is_windows_security_product(product):
             try:
                 if not webbrowser.open(WINDOWS_SECURITY_URI):
                     raise RuntimeError("系统未接受 Windows 安全中心链接")
+                self._append_tool_log("已打开 Windows 安全中心", tool_key=key)
                 return
             except Exception as error:
+                self._append_tool_log(f"打开 Windows 安全中心失败：{error}", tool_key=key)
                 self._notify(f"无法打开 Windows 安全中心：{error}", error=True)
                 return
         target = preferred_security_product_executable(product)
         if target is not None and target.suffix.casefold() == ".exe" and target.is_file():
             try:
                 os.startfile(str(target))  # type: ignore[attr-defined]
+                self._append_tool_log(f"已启动安全软件：{product.name}", tool_key=key)
                 return
             except OSError as error:
+                self._append_tool_log(f"启动安全软件失败：{error}", tool_key=key)
                 self._notify(f"无法打开 {product.name}：{error}", error=True)
                 return
         if is_lenovo_security_product(product):
+            self._append_tool_log("启动失败：未找到联想电脑管家主程序", tool_key=key)
             self._notify("未找到联想电脑管家的主界面程序，未启动杀毒模块。", error=True)
             return
+        self._append_tool_log(f"启动失败：无法确认 {product.name} 的启动程序", tool_key=key)
         self._notify(f"无法确认 {product.name} 的启动程序。", error=True)
 
     def _remove_guide_tool(self, path: Path) -> None:
+        self._append_tool_log(f"点击操作：卸载工具 {path.name}")
         root = self.guide_catalog.cache_dir / "tools"
         try:
             path.resolve().relative_to(root.resolve())
         except ValueError:
+            self._append_tool_log("卸载失败：目标不在受控目录内")
             self._notify("拒绝移除受控目录外的文件。", error=True)
             return
         if path.exists() and messagebox.askyesno("卸载工具", f"确定删除已下载的工具文件？\n{path.name}", parent=self.window):
@@ -3725,6 +3808,9 @@ class DlcHubApplication:
             except OSError:
                 pass
             self._refresh_tool_center()
+            self._append_tool_log(f"已卸载工具：{path.name}")
+        elif path.exists():
+            self._append_tool_log("卸载已取消：用户取消确认")
 
     @staticmethod
     def _normalize_solution_search_text(text: str) -> str:
@@ -4195,7 +4281,7 @@ class DlcHubApplication:
                 actions = ctk.CTkFrame(body, fg_color="transparent")
                 actions.pack(fill="x", padx=16, pady=(0, 14))
                 ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
-                ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+                ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
         for info in infos:
             active_text = " · 当前显示输出" if info.is_active else ""
             text = f"{info.name}{active_text}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
@@ -4205,9 +4291,9 @@ class DlcHubApplication:
             actions = ctk.CTkFrame(body, fg_color="transparent")
             actions.pack(fill="x", padx=16, pady=(0, 14))
             ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
-            ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+            ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
             if info.vendor_url:
-                ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: webbrowser.open(url), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+                ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: self._open_tool_url(url, "厂商官网", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(
             body,
             text="提示：NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络才能正常访问；也可以优先尝试 Windows 更新。",
@@ -4220,6 +4306,7 @@ class DlcHubApplication:
             threading.Thread(target=worker, daemon=True).start()
 
     def _open_gpu_device_manager(self) -> None:
+        self._append_tool_log("点击操作：打开设备管理器", tool_key="builtin:gpu-driver")
         try:
             if os.name == "nt":
                 # 设备管理器在部分系统策略下必须提升权限；runas 会由系统弹出 UAC 确认框。
@@ -4231,6 +4318,7 @@ class DlcHubApplication:
             else:
                 subprocess.Popen(["mmc.exe", "devmgmt.msc"])
         except (OSError, AttributeError) as error:
+            self._append_tool_log(f"打开设备管理器失败：{error}", tool_key="builtin:gpu-driver")
             self._notify(f"无法打开设备管理器：{error}", error=True)
 
     def _quick_check_security_products(self) -> None:
@@ -4491,26 +4579,33 @@ class DlcHubApplication:
         origin: str,
         article_id: str | None = None,
     ) -> None:
+        tool_key = f"helper:{tool.tool_id}"
         cancel = self._helper_download_cancels.get(tool.tool_id)
         if cancel is not None:
+            self._append_tool_log(f"点击操作：暂停下载 {tool.title}", tool_key=tool_key)
             cancel.set()
             return
         if self.helper_tools.is_installed(tool):
+            self._append_tool_log(f"点击操作：删除下载 {tool.title}", tool_key=tool_key)
             if not messagebox.askyesno(
                 "删除下载",
                 f"确定删除已下载的 {tool.title} 吗？删除后需要重新下载才能启动。",
                 parent=self.window,
             ):
+                self._append_tool_log("删除已取消：用户取消确认", tool_key=tool_key)
                 return
             try:
                 self.helper_tools.delete(tool.tool_id)
             except OSError as error:
+                self._append_tool_log(f"删除失败：{error}", tool_key=tool_key)
                 self._notify(f"删除工具失败：{error}", error=True)
                 return
+            self._append_tool_log(f"已删除 {tool.title}", tool_key=tool_key)
             self._notify(f"已删除 {tool.title}")
             self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
             return
         cancel = threading.Event()
+        self._append_tool_log(f"开始下载：{tool.title}", tool_key=tool_key)
         self._helper_download_cancels[tool.tool_id] = cancel
         self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
 
@@ -4518,16 +4613,17 @@ class DlcHubApplication:
             try:
                 self.helper_tools.download(tool, cancel)
             except HelperToolCancelled:
+                self._post_ui(lambda key=tool_key: self._append_tool_log(f"已取消 {tool.title} 下载", tool_key=key))
                 self._post_ui(lambda: self._notify(f"已取消 {tool.title} 下载"))
             except Exception as error:
                 self.context.logger.exception("Helper tool download failed: %s", tool.tool_id)
                 message = str(error)
                 self._post_ui(
-                    lambda value=message: self._notify(
-                        f"工具下载失败：{value}", error=True
-                    )
+                    lambda value=message, key=tool_key: self._append_tool_log(f"下载失败：{value}", tool_key=key)
                 )
+                self._post_ui(lambda value=message: self._notify(f"工具下载失败：{value}", error=True))
             else:
+                self._post_ui(lambda key=tool_key: self._append_tool_log(f"{tool.title} 已下载", tool_key=key))
                 self._post_ui(lambda: self._notify(f"{tool.title} 已下载"))
             finally:
                 self._post_ui(
@@ -4549,23 +4645,33 @@ class DlcHubApplication:
         self._refresh_helper_tool_view(tool, origin=origin, article_id=article_id)
 
     def _launch_helper_tool(self, tool: GuideTool) -> None:
+        tool_key = f"helper:{tool.tool_id}"
+        self._append_tool_log(
+            f"点击操作：{'打开工具文件夹' if tool.launch_action == 'open_folder' else '启动工具'} {tool.title}",
+            tool_key=tool_key,
+        )
         if not self.helper_tools.is_installed(tool):
+            self._append_tool_log("启动失败：工具尚未下载", tool_key=tool_key)
             self._notify("请先下载工具。", error=True)
             return
         folder = self.helper_tools.tool_dir(tool.tool_id)
         if tool.launch_action == "open_folder":
+            self._append_tool_log(f"打开工具目录：{folder}", tool_key=tool_key)
             self._open_path(folder)
             return
         executable = self.helper_tools.find_executable(tool)
         if executable is None:
+            self._append_tool_log("未找到可执行文件，已打开工具文件夹", tool_key=tool_key)
             self._notify("未找到可执行文件，已打开工具文件夹。", error=True)
             self._open_path(folder)
             return
         try:
             self.context.logger.info("操作：启动工具：%s", tool.title)
             self._start_helper_executable(executable, run_as_admin=tool.run_as_admin)
+            self._append_tool_log(f"已启动工具：{tool.title}", tool_key=tool_key)
         except Exception as error:
             self.context.logger.exception("Helper tool launch failed: %s", tool.tool_id)
+            self._append_tool_log(f"启动失败：{error}", tool_key=tool_key)
             self._notify(f"启动工具失败：{error}", error=True)
 
     def _start_helper_executable(self, path: Path, *, run_as_admin: bool) -> None:
@@ -4595,6 +4701,7 @@ class DlcHubApplication:
         origin: str = "quick_check",
         source_tool: GuideTool | None = None,
     ) -> None:
+        self._append_tool_log(f"点击操作：打开教程 {article_id}")
         if article_id not in self.solution_articles:
             self.solution_articles.update(
                 self._load_remote_solution_articles(allow_network=False)
@@ -4609,6 +4716,7 @@ class DlcHubApplication:
         self._show_solution_detail(article_id)
 
     def _activate_solution_button(self, target: str) -> None:
+        self._append_tool_log(f"点击操作：教程导航 {target}")
         if target == "dlc-home":
             self._show_page("DLC 库")
             return
@@ -5716,8 +5824,6 @@ class DlcHubApplication:
             self.context.logger.warning("操作结果：%s", message)
         else:
             self.context.logger.info("操作结果：%s", message)
-        if getattr(self, "tool_center_detail_body", None) is not None:
-            self._append_tool_log(message)
         self.notice_serial += 1
         serial = self.notice_serial
         snackbar = getattr(self, "snackbar", None)
@@ -6045,6 +6151,7 @@ class DlcHubApplication:
     def _open_file(self, path: Path) -> None:
         """Open an already verified, existing file without accepting arbitrary input."""
         if not path.is_file():
+            self._append_tool_log(f"打开文件失败：文件不存在：{path.name}")
             self._notify(f"文件不存在或不可用：{path.name}", error=True)
             return
         try:
@@ -6055,7 +6162,9 @@ class DlcHubApplication:
                 subprocess.Popen(["open", str(path)])
             else:
                 subprocess.Popen(["xdg-open", str(path)])
+            self._append_tool_log(f"已打开文件：{path}")
         except Exception as error:
+            self._append_tool_log(f"打开文件失败：{error}")
             self._notify(f"无法打开文件：{error}", error=True)
 
     @staticmethod
@@ -6071,7 +6180,9 @@ class DlcHubApplication:
             self._append_tool_log(f"打开目录：{path}")
             path.mkdir(parents=True, exist_ok=True)
             open_directory(path)
+            self._append_tool_log(f"已打开目录：{path}")
         except Exception as error:
+            self._append_tool_log(f"打开目录失败：{error}")
             messagebox.showerror("无法打开目录", str(error), parent=self.window)
 
     def _refresh_log_preview(self) -> None:
