@@ -148,16 +148,24 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert '("问题记录", "查看已记录的异常与处理建议", "问题记录")' in source
     assert 'text="帮助与诊断"' in source
     assert 'text="开始一键排错  →"' in source
+    assert "_quick_check_recent_problems" not in source
+    assert '"近期异常："' not in source
     assert '("解决方案", "按现象查看对应的处理办法", "常见问题教程")' in source
     assert '("运行日志", "查看详细运行信息", "运行日志")' in source
     assert 'text="返回指南"' in source
+    problem_layout = source.split('problem_header = ctk.CTkFrame(self.problem_card', 1)[1].split(
+        'problem_body = ctk.CTkFrame(', 1
+    )[0]
+    assert problem_layout.index('text="返回指南"') < problem_layout.index(
+        'text="刷新"'
+    ) < problem_layout.index('text="清空全部"')
     assert 'guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 24))' in source
     assert 'guide_actions = ctk.CTkScrollableFrame(' in source
     assert 'guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))' in source
     assert 'self.solution_back_button' not in source
     assert 'def _return_to_guide_from_solution_list' not in source
     assert 'self.solution_detail_back_button = ctk.CTkButton(' in source
-    assert 'command=self._return_from_solution_detail' in source
+    assert 'command=lambda: self._show_page("报错指南")' in source
     assert 'text="← 回到一键排错"' in source
     assert 'text="← 返回解决方案"' in source
     assert 'text="可以关闭 Windows Defender"' in source
@@ -172,9 +180,10 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
         'self.log_preview = ctk.CTkTextbox(', 1
     )[0]
     assert 'text="返回指南", width=92' in log_layout
-    assert '.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))' in log_layout
-    assert 'log_tools.grid(row=2, column=0, sticky="ew", padx=(0, 16))' in log_layout
-    assert 'log_action_grid.grid(row=2, column=1, sticky="ne")' in log_layout
+    assert ').grid(row=0, column=1, sticky="e")' in log_layout
+    assert 'border_color=UI["border"], corner_radius=10' in log_layout
+    assert 'log_tools.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(14, 0))' in log_layout
+    assert 'log_action_grid.grid(row=0, column=3, sticky="e"' in log_layout
 
 
 def test_top_brand_area_warns_that_the_app_is_free_and_open_source() -> None:
@@ -210,7 +219,7 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'def _show_guide_tool_detail(self, tool: GuideTool)' in source
-    assert 'text="查看详情"' in source
+    assert 'text="' + ''.join(chr(code) for code in (0x67e5, 0x770b, 0x8be6, 0x60c5)) in source
     assert 'def _guide_tools_for_current_platform' in source
     assert 'if tool.quick_check' in source
     assert 'self._quick_check_declared_tool(selected_tool)' in source
@@ -243,7 +252,7 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _render_security_products', 1)[1].split('def _open_security_product', 1)[0]
 
 
-def test_tool_center_uses_adaptive_cards_and_hover_descriptions() -> None:
+def test_tool_center_uses_adaptive_cards_with_visible_descriptions() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert 'self.tool_center_list.bind(' in source
@@ -251,19 +260,44 @@ def test_tool_center_uses_adaptive_cards_and_hover_descriptions() -> None:
     assert 'def _tool_center_column_count(self, width: int | None = None)' in source
     assert 'return max(1, min(4, usable_width // 260))' in source
     assert 'def _create_tool_center_card(' in source
-    assert '.grid(row=row, column=column, padx=6, pady=6, sticky="nsew")' in source
-    assert 'self._bind_tool_description(card, description)' in source
-    assert 'self._bind_tool_description(title_label, description)' in source
-    assert 'self.window.after(300' in source
-    assert 'tooltip.overrideredirect(True)' in source
-    assert 'tooltip.attributes("-topmost", True)' in source
-    assert 'text=description' in source
+    assert 'height=164' in source
+    assert 'card.grid_propagate(False)' in source
+    assert 'card.grid_rowconfigure(1, weight=1)' in source
+    assert 'TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45' in source
+    assert 'def _tool_center_card_description(self, description: str)' in source
+    assert 'text=self._tool_center_card_description(description)' in source
+    assert 'text_color=UI["text_secondary"]' in source
+    assert 'wraplength=236' in source
+    assert 'text="' + ''.join(chr(code) for code in (0x67e5, 0x770b, 0x8be6, 0x60c5)) + ' ' + chr(0x2192) + '"' in source
+    assert '**BUTTON_SECONDARY' in source
+    assert 'def _hide_tool_description_tooltip' not in source
+    assert 'CTkToplevel(self.window)' not in source.split(
+        'def _create_tool_center_card', 1
+    )[1].split('def _refresh_tool_center', 1)[0]
     assert 'tool.description or' in source
     assert 'cards.append((' in source
     assert 'self._create_tool_center_card(' in source
     assert 'row.pack(fill="x", padx=8, pady=6)' not in source.split(
         'def _refresh_tool_center', 1
     )[1].split('def _show_guide_tool_detail', 1)[0]
+
+
+def test_remote_guide_refresh_replaces_removed_entries_in_memory() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    merge = source.split(
+        'def _merge_remote_solution_articles', 1
+    )[1].split('def _download_guide_tool', 1)[0]
+    assert 'builtin_ids = {' in merge
+    assert 'if article_id in builtin_ids' in merge
+    assert 'self.solution_articles.update(articles)' in merge
+
+def test_tool_item_ui_spec_documents_the_card_description_limit() -> None:
+    spec = Path(__file__).parents[1] / "docs" / "tool-item-ui-spec.md"
+    text = spec.read_text(encoding="utf-8")
+
+    assert "不超过 **45 个字符**" in text
+    assert "其他指标后续补充" in text
 
 
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
@@ -359,14 +393,19 @@ def test_catalog_promotes_repair_and_labels_advanced_actions() -> None:
     assert 'text="收起高级操作  ▴"' in source
 
 
-def test_log_commands_use_an_aligned_two_by_two_grid() -> None:
+def test_log_commands_use_an_aligned_single_row_toolbar() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
     assert "log_command_area = ctk.CTkFrame(" in source
     assert "log_action_grid = ctk.CTkFrame(" in source
     assert 'uniform="log-actions"' in source
     assert source.count("log_action_grid, text=") == 4
-    assert 'log_tools.grid_columnconfigure(1, weight=1)' in source
+    assert 'log_tools.grid_columnconfigure(2, weight=1)' in source
+    assert 'log_tools, text="筛选"' not in source
+    assert 'self.log_search.grid(row=0, column=0, sticky="w", padx=(12, 8), pady=10)' in source
+    assert 'log_tools, placeholder_text="输入关键词筛选日志", width=180' in source
+    assert 'self.log_level_filter.grid(row=0, column=1, padx=(0, 12), pady=10)' in source
+    assert 'log_action_grid.grid(row=0, column=3' in source
 
 
 def test_catalog_view_toggle_resets_scroll_after_rebuilding_rows() -> None:
@@ -808,7 +847,7 @@ def test_cache_analysis_and_cleanup_do_not_block_tk_thread() -> None:
     assert "不会删除游戏目录、已安装 DLC、原始备份、用户设置或运行日志" in cleanup_method
 
 
-def test_client_refuses_to_close_during_destructive_background_work() -> None:
+def test_client_confirms_before_forced_close_during_background_work() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     close_method = source.split("def _close", 1)[1].split(
         "def _show_download_state", 1

@@ -121,6 +121,9 @@ UI = {
 }
 
 BUTTON_SECONDARY = {"fg_color": "transparent", "hover_color": UI["primary_surface"], "text_color": UI["primary"], "border_width": 1, "border_color": UI["primary_border"]}
+
+# 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
+TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45
 BUTTON_NEUTRAL = {"fg_color": UI["panel"], "hover_color": UI["border"], "text_color": UI["text_secondary"]}
 BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"], "text_color": UI["danger"], "border_width": 1, "border_color": "#F3BBB5"}
 
@@ -522,6 +525,7 @@ class DlcHubApplication:
         self.cache_reconcile_active_key = None
         self.cache_reconcile_pending = None
         self.compact_layout = None
+        self.tool_center_columns = None
         self.catalog_online = False
         self.notice_serial = 0
         self.current_installation = None
@@ -1585,62 +1589,57 @@ class DlcHubApplication:
 
         self.log_card = _card(self.page_host)
         log_command_area = ctk.CTkFrame(self.log_card, fg_color="transparent")
-        log_command_area.pack(fill="x", padx=24, pady=(18, 8))
+        log_command_area.pack(fill="x", padx=24, pady=(18, 10))
         log_command_area.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             log_command_area, text="运行日志", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-        # Keep navigation on a dedicated line so it is not mistaken for a log
-        # operation and does not crowd the filter/actions area.
+        ).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
             log_command_area, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 12))
+        ).grid(row=0, column=1, sticky="e")
 
-        log_tools = ctk.CTkFrame(log_command_area, fg_color="transparent")
-        log_tools.grid(row=2, column=0, sticky="ew", padx=(0, 16))
-        log_tools.grid_columnconfigure(1, weight=1)
+        log_tools = ctk.CTkFrame(
+            log_command_area, fg_color=UI["panel"],
+            border_width=1, border_color=UI["border"], corner_radius=10,
+        )
+        log_tools.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        log_tools.grid_columnconfigure(2, weight=1)
+        self.log_search = ctk.CTkEntry(
+            log_tools, placeholder_text="输入关键词筛选日志", width=180
+        )
+        self.log_search.grid(row=0, column=0, sticky="w", padx=(12, 8), pady=10)
+        self.log_search.bind("<KeyRelease>", self._schedule_log_refresh)
         self.log_level_filter = _combo_box(
             log_tools, values=["全部", "INFO", "WARNING", "ERROR"], width=100,
             command=lambda _value: self._refresh_log_preview(),
         )
         self.log_level_filter.set("全部")
-        self.log_level_filter.grid(row=0, column=0)
-        self.log_search = ctk.CTkEntry(
-            log_tools, placeholder_text="筛选日志关键词", width=220
-        )
-        self.log_search.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        self.log_search.bind("<KeyRelease>", self._schedule_log_refresh)
+        self.log_level_filter.grid(row=0, column=1, padx=(0, 12), pady=10)
 
-        log_action_grid = ctk.CTkFrame(
-            log_command_area, fg_color="transparent"
-        )
-        log_action_grid.grid(row=2, column=1, sticky="ne")
-        for column in range(2):
-            log_action_grid.grid_columnconfigure(
-                column, weight=1, uniform="log-actions"
-            )
+        log_action_grid = ctk.CTkFrame(log_tools, fg_color="transparent")
+        log_action_grid.grid(row=0, column=3, sticky="e", padx=(0, 10), pady=6)
+        for column in range(4):
+            log_action_grid.grid_columnconfigure(column, weight=1, uniform="log-actions")
         ctk.CTkButton(
             log_action_grid, text="刷新",
-            command=self._refresh_log_preview, width=128,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 4))
+            command=self._refresh_log_preview, width=96,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ctk.CTkButton(
             log_action_grid, text="打开日志目录",
-            command=lambda: self._open_path(self.context.paths.data / "logs"), width=128,
-        ).grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 4))
+            command=lambda: self._open_path(self.context.paths.data / "logs"), width=116,
+        ).grid(row=0, column=1, sticky="ew", padx=4)
         self.diagnostics_export_button = ctk.CTkButton(
             log_action_grid, text="导出诊断包",
-            command=self._export_diagnostics, width=128,
+            command=self._export_diagnostics, width=116,
         )
-        self.diagnostics_export_button.grid(
-            row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0)
-        )
+        self.diagnostics_export_button.grid(row=0, column=2, sticky="ew", padx=4)
         ctk.CTkButton(
             log_action_grid, text="复制当前日志",
-            command=self._copy_log, width=128,
-        ).grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(4, 0))
+            command=self._copy_log, width=116,
+        ).grid(row=0, column=3, sticky="ew", padx=(4, 0))
         self.log_preview = ctk.CTkTextbox(
             self.log_card, height=520, wrap="word", fg_color=UI["panel"],
             border_width=1, border_color=UI["border"], text_color=UI["text_secondary"],
@@ -1657,20 +1656,20 @@ class DlcHubApplication:
             problem_header, text="问题记录", text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(side="left")
-        ctk.CTkButton(
-            problem_header, text="清空全部", width=88,
-            fg_color=UI["danger"], hover_color=UI["danger_hover"],
-            command=self._clear_problems,
-        ).pack(side="right")
-        ctk.CTkButton(
-            problem_header, text="刷新", width=72,
-            command=self._refresh_problem_center,
-        ).pack(side="right", padx=(0, 8))
         self.problem_back_button = ctk.CTkButton(
             problem_header, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
         )
         self.problem_back_button.pack(side="right", padx=(0, 8))
+        ctk.CTkButton(
+            problem_header, text="刷新", width=72,
+            command=self._refresh_problem_center,
+        ).pack(side="right", padx=(0, 8))
+        ctk.CTkButton(
+            problem_header, text="清空全部", width=88,
+            fg_color=UI["danger"], hover_color=UI["danger_hover"],
+            command=self._clear_problems,
+        ).pack(side="right")
         problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
         problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.problem_list_panel = ctk.CTkFrame(problem_body, fg_color="transparent")
@@ -2457,20 +2456,31 @@ class DlcHubApplication:
         ).pack(side="left")
         self.solution_detail_back_button = ctk.CTkButton(
             header, text="返回指南", width=92,
-            command=self._return_from_solution_detail,
+            command=lambda: self._show_page("报错指南"),
         )
         self.solution_detail_back_button.pack(side="right")
         self.solution_detail_origin = "list"
-        # 指南正文由出厂目录提供；远程 hub 只能追加新 guide_id，不能覆盖内置指南。
+        # 指南正文由出厂目录提供；远程 guides Release 只能追加新 guide_id，不能覆盖内置指南。
         self.solution_articles: dict[str, tuple[object, ...]] = {}
         self.solution_articles.update(
             self._load_remote_solution_articles(allow_network=False)
         )
         self.solution_search_bar = ctk.CTkFrame(
-            self.guide_tutorial_card, fg_color="transparent"
+            self.guide_tutorial_card,
+            fg_color=UI["panel"],
+            border_color=UI["border"],
+            border_width=1,
+            corner_radius=10,
         )
-        self.solution_search_bar.pack(fill="x", padx=24, pady=(0, 10))
-        self.solution_search_bar.grid_columnconfigure(0, weight=1)
+        self.solution_search_bar.pack(fill="x", padx=24, pady=(0, 14))
+        self.solution_search_bar.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            self.solution_search_bar,
+            text="搜索",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, padx=(12, 8), pady=10, sticky="w")
         self.solution_search_query = StringVar(value="")
         self.solution_search = ctk.CTkEntry(
             self.solution_search_bar,
@@ -2478,7 +2488,7 @@ class DlcHubApplication:
             placeholder_text="搜索解决方案标题、现象或处理方法",
             height=34,
         )
-        self.solution_search.grid(row=0, column=0, sticky="ew")
+        self.solution_search.grid(row=0, column=1, pady=10, sticky="ew")
         self.solution_search_mode = _combo_box(
             self.solution_search_bar,
             values=["模糊匹配", "精确匹配"],
@@ -2487,7 +2497,7 @@ class DlcHubApplication:
             height=34,
         )
         self.solution_search_mode.set("模糊匹配")
-        self.solution_search_mode.grid(row=0, column=1, padx=(8, 0))
+        self.solution_search_mode.grid(row=0, column=2, padx=(8, 12), pady=10)
         self.solution_list = ctk.CTkScrollableFrame(
             self.guide_tutorial_card, fg_color="transparent", corner_radius=0,
         )
@@ -2527,6 +2537,15 @@ class DlcHubApplication:
         return articles
 
     def _merge_remote_solution_articles(self, articles: dict[str, tuple[object, ...]]) -> None:
+        builtin_ids = {
+            entry.guide_id
+            for entry in self.guide_catalog._load_bootstrap_entries()
+        }
+        self.solution_articles = {
+            article_id: article
+            for article_id, article in self.solution_articles.items()
+            if article_id in builtin_ids
+        }
         self.solution_articles.update(articles)
         self._render_solution_articles()
         if self.current_page == "常用工具":
@@ -2719,84 +2738,53 @@ class DlcHubApplication:
         if self.current_page == "常用工具":
             self._refresh_tool_center()
 
-    def _hide_tool_description_tooltip(self, _event=None) -> None:
-        if self.tool_description_after_id is not None:
-            try:
-                self.window.after_cancel(self.tool_description_after_id)
-            except TclError:
-                pass
-            self.tool_description_after_id = None
-        tooltip = self.tool_description_tooltip
-        self.tool_description_tooltip = None
-        if tooltip is not None:
-            try:
-                tooltip.destroy()
-            except TclError:
-                pass
-
-    def _show_tool_description_tooltip(self, widget, description: str) -> None:
-        self._hide_tool_description_tooltip()
-        self.tool_description_after_id = self.window.after(300, lambda: self._open_tool_description_tooltip(widget, description))
-
-    def _open_tool_description_tooltip(self, widget, description: str) -> None:
-        self.tool_description_after_id = None
-        if self.current_page != "常用工具" or not widget.winfo_exists():
-            return
-        tooltip = ctk.CTkToplevel(self.window)
-        tooltip.overrideredirect(True)
-        tooltip.configure(fg_color=UI["text"])
-        tooltip.attributes("-topmost", True)
-        label = ctk.CTkLabel(
-            tooltip,
-            text=description,
-            text_color=UI["card"],
-            fg_color=UI["text"],
-            justify="left",
-            anchor="w",
-            wraplength=360,
-            font=ctk.CTkFont(size=12),
-        )
-        label.pack(fill="both", padx=10, pady=8)
-        tooltip.update_idletasks()
-        x = widget.winfo_rootx()
-        y = widget.winfo_rooty() + widget.winfo_height() + 6
-        tooltip.geometry(f"{tooltip.winfo_reqwidth()}x{tooltip.winfo_reqheight()}+{x}+{y}")
-        self.tool_description_tooltip = tooltip
-
-    def _bind_tool_description(self, widget, description: str) -> None:
-        widget.bind(
-            "<Enter>",
-            lambda _event, target=widget, text=description: self._show_tool_description_tooltip(target, text),
-            add="+",
-        )
-        widget.bind("<Leave>", self._hide_tool_description_tooltip, add="+")
+    def _tool_center_card_description(self, description: str) -> str:
+        """Keep the fixed-height card summary readable without changing detail content."""
+        description = " ".join(str(description or "").split())
+        if len(description) <= TOOL_CARD_DESCRIPTION_MAX_LENGTH:
+            return description
+        return description[: TOOL_CARD_DESCRIPTION_MAX_LENGTH - 1].rstrip() + "…"
 
     def _create_tool_center_card(self, title: str, description: str, command, row: int, column: int) -> None:
+        """Render a compact, self-explanatory card without transient hover content."""
         card = ctk.CTkFrame(
             self.tool_center_list,
+            height=164,
             fg_color=UI["card"],
             border_width=1,
             border_color=UI["border"],
             corner_radius=8,
         )
-        card.grid(row=row, column=column, padx=6, pady=6, sticky="nsew")
+        card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+        card.grid_propagate(False)
         card.grid_columnconfigure(0, weight=1)
-        title_label = ctk.CTkLabel(
+        card.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
             card,
             text=title,
             text_color=UI["text"],
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(size=15, weight="bold"),
             anchor="w",
-        )
-        title_label.grid(row=0, column=0, padx=14, pady=(14, 10), sticky="ew")
+        ).grid(row=0, column=0, padx=16, pady=(16, 6), sticky="ew")
+        ctk.CTkLabel(
+            card,
+            text=self._tool_center_card_description(description),
+            text_color=UI["text_secondary"],
+            font=ctk.CTkFont(size=12),
+            justify="left",
+            anchor="nw",
+            wraplength=236,
+        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="new")
         ctk.CTkButton(
-            card, text="查看详情", width=104, command=command
-        ).grid(row=1, column=0, padx=14, pady=(0, 14), sticky="w")
-        self._bind_tool_description(card, description)
-        self._bind_tool_description(title_label, description)
+            card,
+            text="查看详情 →",
+            width=104,
+            height=30,
+            command=command,
+            **BUTTON_SECONDARY,
+        ).grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
 
     def _refresh_tool_center(self) -> None:
-        self._hide_tool_description_tooltip()
         self._show_tool_center_list()
         for child in self.tool_center_list.winfo_children():
             child.destroy()
@@ -2820,7 +2808,7 @@ class DlcHubApplication:
         ))
         cards.append((
             "日志资料收集",
-            "整理当前游戏日志、配置、程序问题记录和 Windows DxDiag 报告；不会自动收集截图或大型崩溃转储。",
+            "整理游戏日志、配置、问题记录和 DxDiag 报告；不收集截图或大型转储。",
             self._show_support_collection_tool,
         ))
         cards.extend(
@@ -2867,7 +2855,7 @@ class DlcHubApplication:
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
-            text=tool.description or "开发者提供的受控工具。",
+            text=tool.description or "开发者提供的受控工具",
             text_color=UI["text_secondary"],
             anchor="w",
             justify="left",
@@ -2924,6 +2912,7 @@ class DlcHubApplication:
             text_color=UI["danger"],
             command=lambda: self._remove_guide_tool(target),
         ).pack(side="left", padx=(8, 0))
+
         if tool.quick_check:
             ctk.CTkLabel(
                 body,
@@ -3573,7 +3562,6 @@ class DlcHubApplication:
                 self.quick_check_steps.append(self._quick_check_patch_state)
         if self.host_platform == "windows":
             self.quick_check_steps.append(self._quick_check_security_products)
-        self.quick_check_steps.append(self._quick_check_recent_problems)
         # Only tools explicitly marked by a developer are admitted here.  The
         # user cannot supply a command, path, or opt-in flag through the UI.
         self.quick_check_steps.extend(
@@ -3660,16 +3648,6 @@ class DlcHubApplication:
             self._post_ui(finish)
 
         threading.Thread(target=worker, daemon=True).start()
-
-    def _quick_check_recent_problems(self) -> None:
-        try:
-            recent = self.problem_store.list_reports()
-            if recent:
-                self._add_quick_check_result("近期异常：" + recent[0].summary, self._solution_id_for_problem_code(recent[0].code))
-            else:
-                self._add_quick_check_result("近期异常：未记录到异常")
-        except Exception:
-            self._add_quick_check_result("近期异常：无法读取问题记录。", "update-module-basics")
 
     def _quick_check_declared_tool(self, tool: GuideTool) -> None:
         """Run one developer-marked, non-interactive diagnostic tool off the UI thread."""
@@ -5664,10 +5642,20 @@ class DlcHubApplication:
         severity = severity_labels.get(report.severity.value, report.severity.value)
         header = ctk.CTkFrame(self.problem_detail_content, fg_color="transparent")
         header.pack(fill="x", padx=4, pady=(12, 10))
-        ctk.CTkLabel(
+        detail_title = ctk.CTkLabel(
             header, text=report.summary, text_color=UI["text"], anchor="w",
             font=ctk.CTkFont(size=20, weight="bold"), wraplength=600,
-        ).pack(anchor="w")
+            justify="left",
+        )
+        detail_title.pack(fill="x", anchor="w")
+
+        def update_detail_title_wraplength(event, label=detail_title) -> None:
+            scaling = label._get_widget_scaling()
+            wraplength = max(1, int(event.width / scaling) - 8)
+            if label.cget("wraplength") != wraplength:
+                label.configure(wraplength=wraplength)
+
+        header.bind("<Configure>", update_detail_title_wraplength)
         meta = ctk.CTkFrame(header, fg_color="transparent")
         meta.pack(fill="x", pady=(8, 0))
         for text, color, background in (
@@ -7049,10 +7037,10 @@ class DlcHubApplication:
             self.download_selected_button.configure(
                 text="请重新扫描", state="disabled"
             )
-        # During patch download/apply and cancel/repair/restore the DLC-level cancel
-        # button must not tear down anything; the patch flow owns those tasks.
+        # 补丁下载同样由下载队列管理，必须提供可见的取消入口；应用补丁、
+        # 修复和恢复阶段没有可安全中断的下载任务，因此继续隐藏该按钮。
         interactive = state not in {
-            "cancelling", "patch_downloading", "patch_applying", "repairing",
+            "cancelling", "patch_applying", "repairing",
             "restoring", "installing",
         }
         cancelable_states = {
