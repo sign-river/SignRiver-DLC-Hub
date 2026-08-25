@@ -2729,7 +2729,7 @@ class DlcHubApplication:
             corner_radius=0,
         )
         self.tool_center_detail_body.pack(
-            fill="x", padx=24, pady=(0, 10)
+            fill="both", expand=True, padx=24, pady=(0, 10)
         )
         self.tool_center_progress_frame = ctk.CTkFrame(
             self.tool_center_detail_page, fg_color=UI["panel"], corner_radius=8
