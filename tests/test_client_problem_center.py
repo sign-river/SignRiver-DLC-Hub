@@ -525,7 +525,7 @@ def test_gui_callback_exception_records_patch_context_and_solution(app_module) -
     assert "KeyError" in report.technical_details
     app._open_solution_article = Mock()
     app._open_problem_solution(report)
-    app._open_solution_article.assert_called_once_with("patch-assets-missing")
+    app._open_solution_article.assert_called_once_with("patch-state")
 
 
 def test_gui_callback_hook_is_installed(app_module) -> None:

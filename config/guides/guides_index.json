@@ -38,15 +38,6 @@
       ]
     },
     {
-      "guide_id": "patch-assets-missing",
-      "title": "补丁资源缺失或未完整读取",
-      "summary": "确认当前下载源、游戏目录与已发布资源后再次刷新。",
-      "asset_name": "guide_patch_assets_missing.json",
-      "platforms": [
-        "all"
-      ]
-    },
-    {
       "guide_id": "security-interference",
       "title": "安全软件疑似干扰",
       "summary": "仅人工核对安全软件记录和已发布资源，不自动更改防护设置。",

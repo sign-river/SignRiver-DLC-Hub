@@ -116,7 +116,7 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
 
     assert [entry.guide_id for entry in entries] == [
         "network-basics", "game-directory-missing", "disk-space", "patch-state",
-        "patch-assets-missing", "update-module-basics",
+        "update-module-basics",
     ]
     document = service.load_guide(entries[0], allow_network=False)
     assert document.blocks

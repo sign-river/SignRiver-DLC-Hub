@@ -6107,14 +6107,14 @@ class DlcHubApplication:
         if code is ProblemCode.PATCH_SECURITY_INTERFERENCE_SUSPECTED:
             return "security-interference"
         if code.value.startswith(("PATCH-ASSET", "PKG-ASSET")):
-            return "patch-assets-missing"
+            return "patch-state"
         if code.value.startswith(("PATCH-", "PKG-", "FS-")):
             return "patch-state"
         return "update-module-basics"
 
     def _open_problem_solution(self, report: ProblemReport) -> None:
         solution_id = (
-            "patch-assets-missing"
+            "patch-state"
             if report.code is ProblemCode.APP_GUI_CALLBACK_FAILED
             and report.task_id == "patch-tool"
             else self._solution_id_for_problem_code(report.code)
