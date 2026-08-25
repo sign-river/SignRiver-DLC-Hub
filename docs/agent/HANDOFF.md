@@ -2233,3 +2233,10 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 新增 UI 回归断言，验证网格布局、悬浮描述、详情入口和旧单列渲染移除。
 - 验证（2026-08-25）：`pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py tests\test_helper_tools.py`（104 项通过）；两个版本模块 `py_compile`、Ruff、`git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
 - 当前工作区仍有本任务之外的诊断资料收集、发布器和文档未提交改动，提交时必须保持隔离。
+
+## 2026-08-25：发布资源页按资源类型二维分区
+
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`、`tests/test_publisher_ui_threading.py`。发布资源页保留“浏览与维护 / 生成与发布”左右操作维度，并纵向分为“卡带与公告”和“扩展指南与工具”；顶部改为两张资源摘要卡和全局“刷新资源概览”。
+- 中间资源区改为独立可滚动容器，确保窗口空间较小时，两类资源与其操作按钮仍可访问；“等待发布 / 进度条 / 暂停发布”留在页面底部，始终作为全局发布状态区显示。
+- 未改变发布行为：卡带仍走原双端卡带发布；指南仍走 `guides` Release；`tools_index.json` 与工具包仍走 `tools` Release；扩展仍只有“预检并双端发布扩展”统一入口并保持本地 SHA-256 增量规则。
+- 本次仅修改发布器源码，不涉及客户端活动模块（当前仍为 `0.2.0`）。验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、`python -m ruff check src/signriver_publisher/cartridge_management_ui.py tests/test_publisher_ui_threading.py`、`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_publisher_extension_assets.py tests/test_publisher_guides.py tests/test_publisher_workspace.py`（187 项通过）及 `git diff --check` 均通过。已实际启动发布器核验顶部摘要、两类分区、统一扩展发布入口与全局进度区；未执行生成或上传，未构建、未推送。

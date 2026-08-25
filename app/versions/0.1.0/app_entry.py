@@ -521,6 +521,9 @@ class DlcHubApplication:
         self.cache_reconcile_active_key = None
         self.cache_reconcile_pending = None
         self.compact_layout = None
+        self.tool_center_columns = None
+        self.tool_description_after_id = None
+        self.tool_description_tooltip = None
         self.catalog_online = False
         self.notice_serial = 0
         self.current_installation = None

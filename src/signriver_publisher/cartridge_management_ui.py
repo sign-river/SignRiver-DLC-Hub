@@ -52,101 +52,152 @@ class CartridgeManagementUiMixin:
         toolbar.grid_rowconfigure(2, weight=1)
         toolbar.grid_rowconfigure(3, weight=0)
 
-        overview = ctk.CTkFrame(
-            toolbar, fg_color="#F7FAFE", border_width=1,
-            border_color="#D8E6F4", corner_radius=10,
-        )
+        overview = ctk.CTkFrame(toolbar, fg_color="transparent")
         overview.grid(row=1, column=0, padx=18, pady=(0, 12), sticky="ew")
-        overview.grid_columnconfigure(0, weight=1)
-        overview.grid_columnconfigure(1, weight=1)
+        overview.grid_columnconfigure((0, 1), weight=1, uniform="resource_summary")
+
+        cartridge_overview = ctk.CTkFrame(
+            overview, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        cartridge_overview.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
+        cartridge_overview.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            cartridge_overview, text="卡带与公告", text_color=BLUE,
+            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
+        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="ew")
         self.hub_summary = ctk.CTkLabel(
-            overview, text="正在读取卡带…", text_color=TEXT,
+            cartridge_overview, text="正在读取卡带…", text_color=TEXT,
             anchor="w", justify="left",
         )
-        self.hub_summary.grid(row=0, column=0, padx=14, pady=12, sticky="ew")
+        self.hub_summary.grid(row=1, column=0, padx=14, pady=(0, 4), sticky="ew")
         self.hub_target_summary = ctk.CTkLabel(
-            overview, text="发布目标：正在读取…", text_color=MUTED,
-            anchor="w", justify="left",
+            cartridge_overview, text="公告与发布目标：正在读取…", text_color=MUTED,
+            anchor="w", justify="left", wraplength=390,
         )
-        self.hub_target_summary.grid(row=0, column=1, padx=14, pady=12, sticky="ew")
+        self.hub_target_summary.grid(row=2, column=0, padx=14, pady=(0, 12), sticky="ew")
+
+        extension_overview = ctk.CTkFrame(
+            overview, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        extension_overview.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
+        extension_overview.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            extension_overview, text="扩展指南与工具", text_color=BLUE,
+            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
+        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="ew")
         self.hub_status_summary = ctk.CTkLabel(
-            overview, text="公告、指南与工具：正在读取…", text_color=MUTED,
-            anchor="w", justify="left",
+            extension_overview, text="正在读取扩展资源…", text_color=MUTED,
+            anchor="w", justify="left", wraplength=390,
         )
-        self.hub_status_summary.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 12), sticky="ew")
+        self.hub_status_summary.grid(row=1, column=0, padx=14, pady=(0, 12), sticky="ew")
+        self.hub_refresh_button = ctk.CTkButton(
+            overview, text="刷新资源概览", width=132, height=36,
+            fg_color=LIGHT_BLUE, command=self.refresh_cartridge_management,
+        )
+        self.hub_refresh_button.grid(row=0, column=2, padx=(12, 0), sticky="ns")
 
-        operations = ctk.CTkFrame(toolbar, fg_color="transparent")
+        operations = ctk.CTkScrollableFrame(toolbar, fg_color="transparent")
         operations.grid(row=2, column=0, padx=18, pady=(0, 10), sticky="nsew")
-        operations.grid_columnconfigure((0, 1), weight=1, uniform="resource_operations")
+        operations.grid_columnconfigure(0, weight=1)
 
-        browse_group = ctk.CTkFrame(
-            operations, fg_color="#F7FAFE", border_width=1,
-            border_color="#D8E6F4", corner_radius=10,
-        )
-        browse_group.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
-        browse_group.grid_columnconfigure((0, 1), weight=1, uniform="browse_actions")
-        ctk.CTkLabel(
-            browse_group, text="浏览与维护", text_color=BLUE,
-            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
-        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 4), sticky="w")
-        ctk.CTkLabel(
-            browse_group, text="打开或维护已有资源，不会生成或上传文件。",
-            text_color=MUTED, anchor="w", justify="left",
-        ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+        def resource_section(parent, row, title, description):
+            section = ctk.CTkFrame(
+                parent, fg_color="#F7FAFE", border_width=1,
+                border_color="#D8E6F4", corner_radius=10,
+            )
+            section.grid(row=row, column=0, pady=(0, 10), sticky="ew")
+            section.grid_columnconfigure((0, 1), weight=1, uniform="resource_columns")
+            ctk.CTkLabel(
+                section, text=title, text_color=BLUE,
+                font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
+            ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 2), sticky="ew")
+            ctk.CTkLabel(
+                section, text=description, text_color=MUTED,
+                anchor="w", justify="left",
+            ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+            return section
 
-        publish_group = ctk.CTkFrame(
-            operations, fg_color="#F7FAFE", border_width=1,
-            border_color="#D8E6F4", corner_radius=10,
-        )
-        publish_group.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
-        publish_group.grid_columnconfigure((0, 1), weight=1, uniform="publish_actions")
-        ctk.CTkLabel(
-            publish_group, text="生成与发布", text_color=BLUE,
-            font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
-        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 4), sticky="w")
-        ctk.CTkLabel(
-            publish_group, text="先生成卡带；扩展发布会在上传前统一校验指南和工具引用。",
-            text_color=MUTED, anchor="w", justify="left",
-        ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+        def operation_group(parent, column, title, description):
+            group = ctk.CTkFrame(parent, fg_color=CARD, corner_radius=8)
+            group.grid(row=2, column=column, padx=(0, 6) if column == 0 else (6, 0),
+                       pady=(0, 12), sticky="nsew")
+            group.grid_columnconfigure((0, 1), weight=1, uniform="operation_actions")
+            ctk.CTkLabel(
+                group, text=title, text_color=BLUE,
+                font=("Microsoft YaHei UI", 13, "bold"), anchor="w",
+            ).grid(row=0, column=0, columnspan=2, padx=12, pady=(10, 2), sticky="ew")
+            ctk.CTkLabel(
+                group, text=description, text_color=MUTED,
+                anchor="w", justify="left", wraplength=390,
+            ).grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            return group
 
-        def action_button(parent, text, command, row, column, *, primary=False):
+        def action_button(parent, text, command, row, column, *, primary=False, columnspan=1):
             button = ctk.CTkButton(
                 parent, text=text, width=190, height=36,
                 fg_color=BLUE if primary else LIGHT_BLUE,
                 command=command,
             )
-            button.grid(row=row, column=column, padx=6, pady=4, sticky="ew")
+            button.grid(
+                row=row, column=column, columnspan=columnspan,
+                padx=6, pady=4, sticky="ew",
+            )
             return button
 
-        self.hub_refresh_button = action_button(
-            browse_group, "刷新资源概览", self.refresh_cartridge_management, 2, 0
+        cartridge_section = resource_section(
+            operations, 0, "卡带与公告",
+            "管理游戏卡带、公告与 Hub 发布物。",
         )
-        action_button(browse_group, "全部游戏卡带", self._show_cartridge_detail, 2, 1)
+        cartridge_browse = operation_group(
+            cartridge_section, 0, "浏览与维护",
+            "查看或维护已有卡带、公告和 Hub 文件，不会生成或上传。",
+        )
+        cartridge_publish = operation_group(
+            cartridge_section, 1, "生成与发布",
+            "先生成全部卡带，再将卡带资源发布到双端。",
+        )
+        action_button(cartridge_browse, "全部游戏卡带", self._show_cartridge_detail, 2, 0)
         self.announcement_manage_button = action_button(
-            browse_group, "管理公告", self.open_announcement_manager, 3, 0
+            cartridge_browse, "管理公告", self.open_announcement_manager, 2, 1
         )
-        action_button(browse_group, "打开 hub 目录", self.open_hub_output_folder, 3, 1)
-        action_button(browse_group, "打开指南目录", self.open_guides_source_folder, 4, 0)
-        action_button(browse_group, "打开工具目录", self.open_tools_source_folder, 4, 1)
-
+        action_button(
+            cartridge_browse, "打开 hub 目录", self.open_hub_output_folder, 3, 0,
+            columnspan=2,
+        )
         self.hub_generate_button = action_button(
-            publish_group, "重新生成全部卡带", self.generate_client_hub, 2, 0
+            cartridge_publish, "重新生成全部卡带", self.generate_client_hub, 2, 0
         )
         self.hub_publish_button = action_button(
-            publish_group, "一键双端发布卡带", self.publish_cartridge_hub_mirror, 2, 1,
-            primary=True,
+            cartridge_publish, "一键双端发布卡带", self.publish_cartridge_hub_mirror,
+            2, 1, primary=True,
         )
+
+        extension_section = resource_section(
+            operations, 1, "扩展指南与工具",
+            "管理相互引用的指南、工具索引和工具包。",
+        )
+        extension_browse = operation_group(
+            extension_section, 0, "浏览与维护",
+            "查看或维护本地指南和工具源文件，不会生成或上传。",
+        )
+        extension_publish = operation_group(
+            extension_section, 1, "生成与发布",
+            "上传前统一校验指南、tools_index.json、工具包与 tool_id 引用。",
+        )
+        action_button(extension_browse, "打开指南目录", self.open_guides_source_folder, 2, 0)
+        action_button(extension_browse, "打开工具目录", self.open_tools_source_folder, 2, 1)
         self.extensions_publish_button = action_button(
-            publish_group, "预检并双端发布扩展", self.publish_extensions_mirror, 3, 0,
-            primary=True,
+            extension_publish, "预检并双端发布扩展", self.publish_extensions_mirror,
+            2, 0, primary=True, columnspan=2,
         )
         self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
-            publish_group,
+            extension_publish,
             text="未修改的扩展文件会由本地成功发布记录中的 SHA-256 跳过；同名新文件直接替换。",
-            text_color=MUTED, anchor="w", justify="left", wraplength=430,
-        ).grid(row=4, column=0, columnspan=2, padx=14, pady=(8, 12), sticky="ew")
-
+            text_color=MUTED, anchor="w", justify="left", wraplength=390,
+        ).grid(row=3, column=0, columnspan=2, padx=12, pady=(6, 10), sticky="ew")
         transfer = ctk.CTkFrame(
             toolbar, fg_color="#F7FAFE", border_width=1,
             border_color="#D8E6F4", corner_radius=10,
@@ -252,12 +303,14 @@ class CartridgeManagementUiMixin:
         self.hub_summary.configure(
             text=f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张"
         )
-        self.hub_target_summary.configure(text=f"发布目标 {target} / hub")
-        self.hub_status_summary.configure(
+        self.hub_target_summary.configure(
             text=(
                 f"公告 {self.workspace.announcement_status()} · "
-                f"扩展资源 {extension_status}"
+                f"发布目标 {target} / hub"
             )
+        )
+        self.hub_status_summary.configure(
+            text=f"{extension_status} · 发布前将校验 tool_id 互相引用"
         )
         self._schedule_scrollable_reset(self.cartridge_list)
 

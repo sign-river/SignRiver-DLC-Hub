@@ -1102,8 +1102,15 @@ def test_extension_management_ui_exposes_unified_publish_flow() -> None:
 
     for text in (
         "发布资源统一管理",
+        "卡带与公告",
+        "扩展指南与工具",
         "浏览与维护",
         "生成与发布",
+        "刷新资源概览",
+        "全部游戏卡带",
+        "管理公告",
+        "打开指南目录",
+        "打开工具目录",
         "预检并双端发布扩展",
         "publish_extensions_mirror",
     ):
