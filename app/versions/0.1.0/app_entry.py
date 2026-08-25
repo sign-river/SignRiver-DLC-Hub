@@ -3723,6 +3723,13 @@ class DlcHubApplication:
                 ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
             elif kind == "text":
                 ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text_secondary"], justify="left", anchor="w", wraplength=820).pack(fill="x", pady=(0, 16))
+            elif kind == "link" and len(values) >= 2:
+                link = ctk.CTkLabel(
+                    self.solution_detail_body, text=values[0], text_color=UI["primary"],
+                    cursor="hand2", anchor="w", justify="left",
+                )
+                link.pack(fill="x", pady=(0, 16))
+                link.bind("<Button-1>", lambda _event, url=values[1]: webbrowser.open(url))
             elif kind == "image":
                 image_path = Path(values[0])
                 if image_path.is_file():

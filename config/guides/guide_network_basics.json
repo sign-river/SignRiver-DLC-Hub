@@ -15,7 +15,12 @@
     },
     {
       "kind": "text",
-      "text": "如果重启软件并切换到合适的下载源后仍无法下载，请联系开发者，并附上问题记录中的错误详情或诊断信息。项目主页：https://github.com/sign-river/SignRiver-DLC-Hub"
+      "text": "如果重启软件并切换到合适的下载源后仍无法下载，请联系开发者，并附上问题记录中的错误详情或诊断信息。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
     }
   ],
   "tools": []

@@ -240,7 +240,7 @@ class GuideTool:
 @dataclass(frozen=True, slots=True)
 class GuideDocument:
     entry: GuideIndexEntry
-    blocks: tuple[tuple[str, str], ...]
+    blocks: tuple[tuple[str, ...], ...]
     tools: tuple[GuideTool, ...]
 
 
@@ -474,7 +474,7 @@ class GuideCatalogService:
         raw_blocks = payload.get("blocks", [])
         if not isinstance(raw_blocks, list):
             raise GuideCatalogError("guide blocks must be a list")
-        blocks: list[tuple[str, str]] = []
+        blocks: list[tuple[str, ...]] = []
         for block in raw_blocks:
             if not isinstance(block, dict):
                 continue
@@ -482,6 +482,10 @@ class GuideCatalogService:
             text = str(block.get("text") or "").strip()
             if kind in {"heading", "text"} and text:
                 blocks.append((kind, text))
+            elif kind == "link" and text:
+                url = str(block.get("url") or "").strip()
+                if url.startswith("https://"):
+                    blocks.append((kind, text, url))
         raw_tools = payload.get("tools", [])
         if not isinstance(raw_tools, list):
             raise GuideCatalogError("guide tools must be a list")
