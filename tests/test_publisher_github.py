@@ -129,6 +129,26 @@ def test_github_client_ensure_repository_creates_missing_target(monkeypatch) -> 
     assert calls == ["Release assets"]
 
 
+def test_github_client_removes_assets_absent_from_local_snapshot(monkeypatch) -> None:
+    client = GitHubReleaseClient(GitHubRepository("sign-river", "assets"), "token")
+    release = GitHubRelease(
+        4,
+        "guides",
+        "https://uploads.example.test/4{?name}",
+        (
+            {"id": 10, "name": "guides_index.json"},
+            {"id": 11, "name": "old-guide.json"},
+        ),
+    )
+    deleted: list[int] = []
+    monkeypatch.setattr(client, "delete_asset", lambda asset_id: deleted.append(asset_id))
+
+    removed = client.delete_assets_not_in_release(release, {"guides_index.json"})
+
+    assert removed == ("old-guide.json",)
+    assert deleted == [11]
+
+
 def test_github_client_initializes_empty_repository_before_creating_release(
     monkeypatch,
 ) -> None:

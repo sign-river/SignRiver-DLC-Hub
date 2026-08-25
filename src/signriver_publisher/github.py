@@ -192,6 +192,23 @@ class GitHubReleaseClient:
             if "GitHub API HTTP 404:" not in str(error):
                 raise
 
+    def delete_assets_not_in_release(
+        self, release: GitHubRelease, keep_names: set[str]
+    ) -> tuple[str, ...]:
+        """Remove Release attachments absent from the requested local snapshot."""
+        keep = {name.casefold() for name in keep_names}
+        removed: list[str] = []
+        for asset in release.assets:
+            name = str(asset.get("name") or "")
+            asset_id = asset.get("id")
+            if name.casefold() in keep:
+                continue
+            if not isinstance(asset_id, int):
+                raise GitHubPublisherError(f"GitHub 附件缺少数字 ID：{name}")
+            self.delete_asset(asset_id)
+            removed.append(name)
+        return tuple(removed)
+
     def upload_asset(
         self,
         release: GitHubRelease,

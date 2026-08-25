@@ -619,7 +619,8 @@ class CartridgeManagementUiMixin:
             f"GitLink · {targets[0][1]}/{targets[0][2]} · tools\n"
             f"GitHub · {targets[1][1]}/{targets[1][2]} · guides\n"
             f"GitHub · {targets[1][1]}/{targets[1][2]} · tools\n\n"
-            "本地成功发布记录中 SHA-256 未变化的文件将跳过；变更文件按同名覆盖。是否继续？",
+            "本地成功发布记录中 SHA-256 未变化的文件将跳过；变更文件按同名覆盖；"
+            "云端仅有的旧指南或工具将被移除。是否继续？",
         ):
             return
         if not self._begin_background_mutation("publish", "正在预检并双端发布扩展"):
@@ -650,6 +651,7 @@ class CartridgeManagementUiMixin:
                 gitlink_repo = GitLinkRepository(targets[0][1], targets[0][2])
                 manager = RemoteResourceManager(GitLinkAttachmentClient(targets[0][3]), gitlink_repo)
                 completed = 0
+                removed = 0
                 for profile, assets, _ in release_sets:
                     previous = self.workspace.load_publish_state(profile, gitlink_repo.owner, gitlink_repo.name)
                     result = manager.sync_release(
@@ -664,6 +666,7 @@ class CartridgeManagementUiMixin:
                         checkpoint=lambda state, current=profile: self.workspace.save_publish_state(current, state),
                     )
                     self.workspace.save_publish_state(profile, result.state)
+                    removed += result.removed
                     completed += len(assets)
 
                 stage = "GitHub"
@@ -673,6 +676,17 @@ class CartridgeManagementUiMixin:
                 uploaded = 0
                 skipped = 0
                 for profile, assets, release_name in release_sets:
+                    release = github.ensure_release(profile.release_tag, name=release_name)
+                    github_removed = github.delete_assets_not_in_release(
+                        release, {asset.name for asset in assets}
+                    )
+                    if github_removed:
+                        removed += len(github_removed)
+                        self._post_ui(
+                            lambda tag=profile.release_tag, names=github_removed: self._log(
+                                f"[GitHub {tag}] 移除云端旧附件：{', '.join(names)}"
+                            )
+                        )
                     changed = self.workspace.changed_publish_assets(
                         profile, github_repo.owner, github_repo.name, assets,
                         state_channel="github",
@@ -683,7 +697,6 @@ class CartridgeManagementUiMixin:
                             f"[GitHub {tag}] 本地哈希未变化，跳过 {count} 个附件"
                         ))
                     else:
-                        release = github.ensure_release(profile.release_tag, name=release_name)
                         positions = {asset.name: index for index, asset in enumerate(assets, start=1)}
                         for asset in changed:
                             position = completed + positions[asset.name]
@@ -706,8 +719,10 @@ class CartridgeManagementUiMixin:
                     )
                     completed += len(assets)
                 self._post_ui(lambda guide_count=len(plan.guides), tool_count=len(plan.tools),
-                              uploaded_count=uploaded, skipped_count=skipped: self._extensions_mirror_publish_done(
-                                  guide_count, tool_count, uploaded_count, skipped_count
+                              uploaded_count=uploaded, skipped_count=skipped,
+                              removed_count=removed: self._extensions_mirror_publish_done(
+                                  guide_count, tool_count, uploaded_count, skipped_count,
+                                  removed_count
                               ))
             except (UploadPaused, GitHubUploadPaused) as error:
                 self._post_ui(lambda value=f"{stage}：{error}": self._extensions_mirror_publish_failed(value, paused=True))
@@ -717,7 +732,8 @@ class CartridgeManagementUiMixin:
         threading.Thread(target=worker, daemon=True, name="extensions-mirror-publish").start()
 
     def _extensions_mirror_publish_done(
-        self, guide_count: int, tool_count: int, uploaded: int, skipped: int
+        self, guide_count: int, tool_count: int, uploaded: int, skipped: int,
+        removed: int,
     ) -> None:
         self._end_background_mutation("publish")
         self._upload_control = None
@@ -729,10 +745,15 @@ class CartridgeManagementUiMixin:
         self._log(
             "指南与工具扩展双端发布完成："
             f"guides 每端 {guide_count} 个附件，tools 每端 {tool_count} 个附件；"
-            f"GitHub 上传 {uploaded} 个，按本地哈希跳过 {skipped} 个。"
+            f"GitHub 上传 {uploaded} 个，按本地哈希跳过 {skipped} 个，"
+            f"移除云端旧附件 {removed} 个。"
         )
         self.refresh_cartridge_management()
-        messagebox.showinfo("扩展发布完成", "guides 与 tools Release 已同步到 GitLink 和 GitHub。")
+        messagebox.showinfo(
+            "扩展发布完成",
+            "guides 与 tools Release 已按本地清单同步到 GitLink 和 GitHub。\n"
+            f"本次移除云端旧附件：{removed} 个。",
+        )
 
     def _extensions_mirror_publish_failed(self, message: str, *, paused: bool = False) -> None:
         self._end_background_mutation("publish")
