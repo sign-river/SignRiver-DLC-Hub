@@ -2381,3 +2381,8 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 用户反馈截图中的白灰按钮有“死感”；根因是 `BUTTON_SECONDARY` 使用 `UI["panel"]` + 灰边框。现将 `BUTTON_SECONDARY` 与同语义的 `BUTTON_NEUTRAL` 统一改为 `primary_surface` 浅蓝底、蓝色文字和蓝色边框，并设置浅蓝悬停色。
 - 基线与当前活动模块 `0.2.0` 均已同步，仅修改按钮模板，未修改 `app/state.json`。客户端需完全退出并重启后加载。
 - 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`、两个模块 `py_compile`、Ruff、`git diff --check` 均通过；未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：解决方案详情返回按钮接入次要按钮模板
+
+- 用户反馈解决方案详情页右上角返回按钮仍显示白灰默认样式；该按钮此前未传入任何共享模板参数。现已接入 `BUTTON_SECONDARY`，与工具详情返回按钮保持一致的浅蓝次要样式。
+- 基线与活动模块 `0.2.0` 已同步；验证同上，客户端需完全退出并重启后加载。

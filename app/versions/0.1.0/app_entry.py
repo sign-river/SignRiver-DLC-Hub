@@ -2536,6 +2536,7 @@ class DlcHubApplication:
         self.solution_detail_back_button = ctk.CTkButton(
             self.solution_detail_header, text="← 返回解决方案", width=144,
             command=self._return_from_solution_detail,
+            **BUTTON_SECONDARY,
         )
         self.solution_detail_back_button.pack(side="right")
         self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
