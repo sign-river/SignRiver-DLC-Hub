@@ -2408,3 +2408,27 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 
 - 工具详情页标题栏的返回箭头由左侧移到最右侧，状态徽章保留在其左侧，标题继续占用中间可扩展区域。
 - 基线与活动模块 `0.2.0` 已同步；定向测试、编译、Ruff 和 `git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：工具详情页支持特化介绍与白名单按钮
+
+- `GuideTool` 支持 `detail.intro`、`detail.warnings`、`detail.buttons`；详情页在保留原下载/启动/卸载动作的基础上显示工具专属介绍、注意事项和声明式按钮。
+- 白名单动作只有 `open_guide`、`open_url`、`open_folder`；HTTPS 外链和稳定 `guide_id` 在解析阶段校验，未知动作、命令和脚本不会进入 UI。
+- 修改基线 `app/versions/0.1.0/signriver_app/application/guides.py`、`application/__init__.py`、`app_entry.py` 及定向测试/模板文档；已同步到活动版本 `0.2.0`，未修改 `app/state.json`，未整目录覆盖。客户端若已运行需完全退出并重启。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_platform_content.py tests/test_helper_tools.py tests/test_ui_theme.py tests/test_client_problem_center.py`（全部通过）；基线与活动模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：运行日志卡片统一外框
+
+- 工具详情页运行日志控制台继续由单一外层卡片承担边框与圆角；分隔线和日志正文取消左右内缩，使标题栏、分隔线和正文视觉上连成一个连续容器。
+- 基线 `app/versions/0.1.0/app_entry.py` 已同步到活动模块 `0.2.0`，未修改 `app/state.json` 或覆盖其他活动模块改动。客户端若已运行需完全退出并重启。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_support_collection_ui.py`（65 项通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：运行日志卡片增加内边距与顶栏层次
+
+- 工具详情页运行日志外层卡片固定白底、8px 圆角和闭合浅灰边框；顶栏改为 `#F8FAFC` 微灰背景并保持细分隔线，正文文本框无自身边框/圆角，采用 Consolas 等宽字体并增加 12px 左右、上下 8/12px 内边距，避免内容贴边。
+- 基线 `app/versions/0.1.0/app_entry.py` 与活动模块 `0.2.0/app_entry.py` 已定向同步；未修改 `app/state.json`，未整目录覆盖。客户端若已运行需完全退出并重启。
+- 验证（2026-08-26）：定向 UI/工具/资料收集测试通过；模块编译、Ruff 与 `git diff --check` 已执行；未执行 GUI 人工视觉验证、构建、上传或推送。
+## 2026-08-26：滚动容器按内容溢出自动显示
+
+- 用户反馈客户端多个页面在内容未超出时仍显示侧滚动条。基线 `app/versions/0.1.0/app_entry.py` 新增 `_AutoHideScrollableFrame`，监听内容/画布尺寸变化，仅当内容高度超过可视高度时显示垂直滚动条，否则隐藏并释放画布宽度。
+- 所有客户端滚动页面已按功能范围同步到活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`、未整目录覆盖活动模块其他文件。客户端若已运行需完全退出并重启。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。

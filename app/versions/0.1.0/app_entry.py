@@ -146,6 +146,41 @@ BUTTON_NEUTRAL = {
 }
 BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"], "text_color": UI["danger"], "border_width": 1, "border_color": "#F3BBB5"}
 
+
+class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFrame(
+    """仅在内容超出可视区域时显示垂直滚动条。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scrollbar_visible = True
+        self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
+        self.bind("<Configure>", self._schedule_scrollbar_update, add="+")
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _schedule_scrollbar_update(self, _event=None):
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _update_scrollbar_visibility(self):
+        if not self.winfo_exists() or self._orientation != "vertical":
+            return
+        self._parent_canvas.configure(scrollregion=self._parent_canvas.bbox("all"))
+        bbox = self._parent_canvas.bbox("all")
+        canvas_height = self._parent_canvas.winfo_height()
+        content_height = 0 if bbox is None else bbox[3] - bbox[1]
+        should_show = content_height > canvas_height + 1
+        if should_show == self._scrollbar_visible:
+            return
+        self._scrollbar_visible = should_show
+        border_spacing = self._apply_widget_scaling(
+            self._parent_frame.cget("corner_radius") + self._parent_frame.cget("border_width")
+        )
+        if should_show:
+            self._parent_canvas.grid_configure(columnspan=1, padx=(border_spacing, 0))
+            self._scrollbar.grid(row=1, column=1, sticky="nsew", pady=border_spacing)
+        else:
+            self._scrollbar.grid_forget()
+            self._parent_canvas.grid_configure(columnspan=2, padx=border_spacing)
+
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
 PRODUCT_TITLE_ZH = "唏嘘南溪DLC一键解锁工具"
 PRODUCT_HEADER_TITLE_ZH = "DLC一键解锁工具"
@@ -1200,7 +1235,7 @@ class DlcHubApplication:
         catalog_command_bar.update_idletasks()
         self.catalog_more_actions.grid_remove()
         def create_catalog_list_frame(parent=catalog_card):
-            return ctk.CTkScrollableFrame(
+            return _AutoHideScrollableFrame(
                 parent, height=250, fg_color=UI["panel"], corner_radius=10,
                 border_width=1, border_color=UI["border"],
                 scrollbar_button_color=UI["input_border"],
@@ -1230,7 +1265,7 @@ class DlcHubApplication:
         for column in range(4):
             self.dlc_list_frame.grid_columnconfigure(column, weight=1, uniform="dlc")
 
-        settings_list = ctk.CTkScrollableFrame(
+        settings_list = _AutoHideScrollableFrame(
             self.page_host,
             fg_color=UI["page"],
             corner_radius=0,
@@ -1522,7 +1557,7 @@ class DlcHubApplication:
             task_header, text="清除全部记录",
             command=self._clear_all_tasks, width=100,
         ).pack(side="right", padx=(0, 8))
-        self.task_list_frame = ctk.CTkScrollableFrame(
+        self.task_list_frame = _AutoHideScrollableFrame(
             self.task_card, height=480, fg_color=UI["panel"], corner_radius=10,
             border_width=1, border_color=UI["border"],
         )
@@ -1570,7 +1605,8 @@ class DlcHubApplication:
         ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(14, 8), pady=16)
         ctk.CTkButton(guide_footer, text="导出诊断 →", width=104, height=32, command=self._export_diagnostics).pack(side="right", padx=14, pady=14)
 
-        guide_actions = ctk.CTkScrollableFrame(
+        # guide_actions = ctk.CTkScrollableFrame(
+        guide_actions = _AutoHideScrollableFrame(
             self.error_guide_card,
             fg_color="transparent",
             corner_radius=0,
@@ -1698,7 +1734,7 @@ class DlcHubApplication:
         problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.problem_list_panel = ctk.CTkFrame(problem_body, fg_color="transparent")
         self.problem_list_panel.pack(fill="both", expand=True)
-        self.problem_list = ctk.CTkScrollableFrame(
+        self.problem_list = _AutoHideScrollableFrame(
             self.problem_list_panel, fg_color="#F7F8FA", corner_radius=8,
             border_width=0, scrollbar_button_color=UI["input_border"],
         )
@@ -1706,7 +1742,7 @@ class DlcHubApplication:
         self.problem_detail_page = ctk.CTkFrame(
             problem_body, fg_color=UI["card"], corner_radius=0, border_width=0,
         )
-        self.problem_detail_content = ctk.CTkScrollableFrame(
+        self.problem_detail_content = _AutoHideScrollableFrame(
             self.problem_detail_page, fg_color=UI["card"], corner_radius=0,
             border_width=0, scrollbar_button_color=UI["input_border"],
         )
@@ -2051,7 +2087,7 @@ class DlcHubApplication:
         )
         search.pack(fill="x", padx=14, pady=(0, 10))
         self.game_picker_search = search
-        self.game_picker_results = ctk.CTkScrollableFrame(
+        self.game_picker_results = _AutoHideScrollableFrame(
             shell,
             fg_color="transparent",
             scrollbar_button_color=UI["primary_border"],
@@ -2524,7 +2560,7 @@ class DlcHubApplication:
         )
         self.solution_search_mode.set("模糊匹配")
         self.solution_search_mode.grid(row=0, column=2, padx=(8, 12), pady=10)
-        self.solution_list = ctk.CTkScrollableFrame(
+        self.solution_list = _AutoHideScrollableFrame(
             self.guide_tutorial_card, fg_color="transparent", corner_radius=0,
         )
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
@@ -2541,7 +2577,7 @@ class DlcHubApplication:
             **BUTTON_SECONDARY,
         )
         self.solution_detail_back_button.pack(side="right")
-        self.solution_detail_body = ctk.CTkScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
+        self.solution_detail_body = _AutoHideScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _load_remote_solution_articles(self, *, allow_network: bool) -> dict[str, tuple[object, ...]]:
@@ -2716,7 +2752,7 @@ class DlcHubApplication:
             command=lambda: self._show_page("报错指南"),
         )
         self.tool_center_back_button.pack(side="right")
-        self.tool_center_list = ctk.CTkScrollableFrame(
+        self.tool_center_list = _AutoHideScrollableFrame(
             self.tool_center_card, fg_color=UI["panel"], corner_radius=10
         )
         self.tool_center_list.pack(
@@ -2748,7 +2784,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=12, weight="bold"),
         )
         self.tool_center_detail_status.pack(side="right")
-        self.tool_center_detail_body = ctk.CTkScrollableFrame(
+        self.tool_center_detail_body = _AutoHideScrollableFrame(
             self.tool_center_detail_page, fg_color="transparent", height=230,
             corner_radius=0,
         )
@@ -3756,7 +3792,7 @@ class DlcHubApplication:
             ),
             text_color=UI["text_secondary"], anchor="w", justify="left",
         ).pack(fill="x", padx=24, pady=(0, 10))
-        self.quick_check_output = ctk.CTkScrollableFrame(self.quick_check_card, height=360, fg_color=UI["panel"], border_color=UI["border"], border_width=1)
+        self.quick_check_output = _AutoHideScrollableFrame(self.quick_check_card, height=360, fg_color=UI["panel"], border_color=UI["border"], border_width=1)
         self.quick_check_output.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         controls = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")
         controls.pack(fill="x", padx=24, pady=(0, 18))
@@ -4025,7 +4061,13 @@ class DlcHubApplication:
         self.quick_check_lines[line_index] = f"{index + 1}. {text}"
 
     def _open_security_products_from_quick_check(self, products) -> None:
-        self._show_page("常用工具")
+        # 切换到工具页时不要先刷新并展示工具列表；否则用户会看到
+        # “更多工具”页面一闪而过，随后才进入安全软件检测详情。
+        self._skip_tool_center_refresh = True
+        try:
+            self._show_page("常用工具")
+        finally:
+            self._skip_tool_center_refresh = False
         self._render_security_products(products)
 
     def _open_guide_tool_detail_from_quick_check(self, tool: GuideTool) -> None:
@@ -4280,7 +4322,8 @@ class DlcHubApplication:
         if page_name == "下载任务":
             self._refresh_task_page()
         elif page_name == "常用工具":
-            self._refresh_tool_center()
+            if not getattr(self, "_skip_tool_center_refresh", False):
+                self._refresh_tool_center()
         elif page_name == "问题记录":
             self._show_problem_list()
             self._refresh_problem_center()
