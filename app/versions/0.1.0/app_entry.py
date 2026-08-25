@@ -158,10 +158,9 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
 
     def __init__(self, *args, **kwargs):
         # 细窄的胶囊滑块：轨道透明，避免在浅色页面右侧形成一条呆板灰栏。
-        kwargs.setdefault("scrollbar_width", 8)
-        kwargs.setdefault("scrollbar_corner_radius", 4)
         kwargs.setdefault("scrollbar_fg_color", "transparent")
         super().__init__(*args, **kwargs)
+        self._scrollbar.configure(width=8, corner_radius=4)
         # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
         self._scrollbar_visible = None
         self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
