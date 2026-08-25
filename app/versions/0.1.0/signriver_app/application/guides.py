@@ -486,6 +486,10 @@ class GuideCatalogService:
                 url = str(block.get("url") or "").strip()
                 if url.startswith("https://"):
                     blocks.append((kind, text, url))
+            elif kind == "image" and builtin:
+                path = str(block.get("path") or "").strip().replace("\\", "/")
+                if path.startswith("config/guides/") and ".." not in path:
+                    blocks.append((kind, path))
         raw_tools = payload.get("tools", [])
         if not isinstance(raw_tools, list):
             raise GuideCatalogError("guide tools must be a list")

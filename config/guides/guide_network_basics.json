@@ -10,6 +10,10 @@
       "text": "请先重启软件后重新下载，也可以在“设置”中切换下载源。GitHub 源通常需要梯子才能访问；如果没有梯子，请选择 GitLink 源。"
     },
     {
+      "kind": "image",
+      "path": "config/guides/assets/network-download-settings.png"
+    },
+    {
       "kind": "heading",
       "text": "仍无法下载时"
     },

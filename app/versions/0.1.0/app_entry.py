@@ -14,7 +14,7 @@ from queue import Empty, SimpleQueue
 from urllib.parse import urlparse
 
 import customtkinter as ctk
-from tkinter import BooleanVar, StringVar, TclError, filedialog, messagebox
+from tkinter import BooleanVar, Canvas, StringVar, TclError, filedialog, messagebox
 from signriver_common.platforms import detect_host_platform, open_directory
 from signriver_common.problems import (
     ProblemAction,
@@ -3692,6 +3692,47 @@ class DlcHubApplication:
             for widget in (card, title_label, summary_label, arrow):
                 widget.bind("<Button-1>", callback)
 
+    def _open_solution_image(self, image_path: Path) -> None:
+        from PIL import Image, ImageTk
+
+        try:
+            source = Image.open(image_path).convert("RGB")
+        except (OSError, ValueError):
+            self._notify("图片无法打开。", error=True)
+            return
+        dialog = ctk.CTkToplevel(self.window)
+        dialog.title(f"图片预览 - {image_path.name}")
+        dialog.geometry("900x700")
+        dialog.minsize(480, 360)
+        canvas = Canvas(dialog, background="#202124", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        state = {"scale": 1.0, "photo": None}
+
+        def render() -> None:
+            scale = state["scale"]
+            width = max(1, int(source.width * scale))
+            height = max(1, int(source.height * scale))
+            resized = source.resize((width, height), Image.Resampling.LANCZOS)
+            state["photo"] = ImageTk.PhotoImage(resized)
+            canvas.delete("all")
+            canvas.create_image(0, 0, image=state["photo"], anchor="nw")
+            canvas.configure(scrollregion=(0, 0, width, height))
+
+        def zoom(event) -> str:
+            direction = getattr(event, "delta", 0) or (120 if getattr(event, "num", 0) == 4 else -120)
+            state["scale"] = min(5.0, max(0.1, state["scale"] * (1.1 if direction > 0 else 1 / 1.1)))
+            render()
+            return "break"
+
+        canvas.bind("<MouseWheel>", zoom)
+        canvas.bind("<Button-4>", zoom)
+        canvas.bind("<Button-5>", zoom)
+        canvas.bind("<ButtonPress-1>", lambda event: canvas.scan_mark(event.x, event.y))
+        canvas.bind("<B1-Motion>", lambda event: canvas.scan_dragto(event.x, event.y, gain=1))
+        dialog.after(50, render)
+        dialog.transient(self.window)
+        dialog.focus_set()
+
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
         if article is None:
@@ -3701,6 +3742,7 @@ class DlcHubApplication:
         for child in self.solution_detail_body.winfo_children():
             child.destroy()
         self.solution_detail_images = []
+        self.solution_detail_image_sources = []
         self.solution_detail_title_label.configure(text=title)
         helper_tools = [
             values[0]
@@ -3731,12 +3773,19 @@ class DlcHubApplication:
                 link.pack(fill="x", pady=(0, 16))
                 link.bind("<Button-1>", lambda _event, url=values[1]: webbrowser.open(url))
             elif kind == "image":
-                image_path = Path(values[0])
+                image_path = self.context.paths.root / values[0]
                 if image_path.is_file():
                     from PIL import Image
-                    image = ctk.CTkImage(light_image=Image.open(image_path), size=values[1] if len(values) > 1 else (720, 405))
+                    source = Image.open(image_path).convert("RGB")
+                    max_width, max_height = 820, 520
+                    scale = min(max_width / source.width, max_height / source.height, 1.0)
+                    preview_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
+                    image = ctk.CTkImage(light_image=source, size=preview_size)
                     self.solution_detail_images.append(image)
-                    ctk.CTkLabel(self.solution_detail_body, text="", image=image).pack(anchor="w", pady=(0, 16))
+                    self.solution_detail_image_sources.append(source)
+                    preview = ctk.CTkLabel(self.solution_detail_body, text="", image=image, cursor="hand2")
+                    preview.pack(anchor="w", pady=(0, 16))
+                    preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
             elif kind == "button":
                 if action_row is None:
                     action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
