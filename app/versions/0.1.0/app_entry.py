@@ -127,6 +127,12 @@ BUTTON_SECONDARY = {
     "border_width": 1,
     "border_color": UI["input_border"],
 }
+BUTTON_GHOST = {
+    "fg_color": "transparent",
+    "hover_color": UI["primary_surface"],
+    "text_color": UI["text_secondary"],
+    "border_width": 0,
+}
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
 TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45
@@ -2740,22 +2746,39 @@ class DlcHubApplication:
         self.tool_center_progress = ctk.CTkProgressBar(
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
-        self.tool_center_console = ctk.CTkTextbox(
-            self.tool_center_detail_page, height=110, fg_color=UI["card"], text_color=UI["text"],
-            border_width=1, border_color=UI["input_border"], corner_radius=8,
-            font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
+        self.tool_center_console_panel = ctk.CTkFrame(
+            self.tool_center_detail_page, fg_color=UI["card"],
+            border_width=1, border_color=UI["border"], corner_radius=10,
         )
-        self.tool_center_console_toolbar = ctk.CTkFrame(self.tool_center_detail_page, fg_color="transparent")
-        self.tool_center_console_toolbar.pack(fill="x", padx=24, pady=(0, 4))
-        for text, command in (("一键复制", self._copy_tool_logs), ("清空日志", self._clear_tool_logs)):
-            ctk.CTkButton(self.tool_center_console_toolbar, text=text, width=92, height=26,
-                          command=command, **BUTTON_SECONDARY).pack(side="left", padx=(0, 6))
+        self.tool_center_console_panel.pack(fill="x", padx=24, pady=(0, 18))
+        self.tool_center_console_toolbar = ctk.CTkFrame(
+            self.tool_center_console_panel, fg_color=UI["panel"], height=42,
+        )
+        self.tool_center_console_toolbar.pack(fill="x", padx=1, pady=1)
+        self.tool_center_console_toolbar.pack_propagate(False)
+        ctk.CTkLabel(
+            self.tool_center_console_toolbar, text="运行日志", anchor="w",
+            text_color=UI["text_secondary"], font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(side="left", padx=12)
+        console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
+        console_actions.pack(side="right", padx=6)
+        for text, command in (("⧉ 复制", self._copy_tool_logs), ("⌫ 清空", self._clear_tool_logs)):
+            ctk.CTkButton(console_actions, text=text, width=68, height=26,
+                          command=command, **BUTTON_GHOST).pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
-            self.tool_center_console_toolbar, text="锁定自动滚屏", command=self._toggle_tool_autoscroll
+            console_actions, text="锁定滚屏", width=18, height=18,
+            checkbox_width=18, checkbox_height=18,
+            command=self._toggle_tool_autoscroll, font=ctk.CTkFont(size=12),
+            text_color=UI["text_secondary"],
         )
         self.tool_center_console_lock.select()
-        self.tool_center_console_lock.pack(side="left")
-        self.tool_center_console.pack(fill="x", expand=False, padx=24, pady=(0, 18))
+        self.tool_center_console_lock.pack(side="left", padx=(6, 4))
+        self.tool_center_console = ctk.CTkTextbox(
+            self.tool_center_console_panel, height=110, fg_color=UI["card"], text_color=UI["text"],
+            border_width=0, corner_radius=8,
+            font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
+        )
+        self.tool_center_console.pack(fill="x", padx=8, pady=(0, 8))
 
     def _append_tool_log(self, message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}"
@@ -2785,7 +2808,7 @@ class DlcHubApplication:
         if frame is None:
             return
         if visible:
-            frame.pack(fill="x", padx=24, pady=(0, 8), before=self.tool_center_console_toolbar)
+            frame.pack(fill="x", padx=24, pady=(0, 8), before=self.tool_center_console_panel)
             self.tool_center_progress_label.pack(fill="x", padx=12, pady=(8, 2))
             self.tool_center_progress.pack(fill="x", padx=12, pady=(0, 10))
             self.tool_center_progress.set(value)
