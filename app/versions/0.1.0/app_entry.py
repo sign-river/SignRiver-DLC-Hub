@@ -2571,6 +2571,14 @@ class DlcHubApplication:
         self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
         self.solution_detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
         self.solution_detail_header.pack(fill="x", padx=24, pady=(18, 8))
+        self.solution_detail_title_label = ctk.CTkLabel(
+            self.solution_detail_header,
+            text="",
+            text_color=UI["primary"],
+            font=ctk.CTkFont(size=20, weight="bold"),
+            anchor="w",
+        )
+        self.solution_detail_title_label.pack(side="left", fill="x", expand=True)
         self.solution_detail_back_button = ctk.CTkButton(
             self.solution_detail_header, text="← 返回解决方案", width=144,
             command=self._return_from_solution_detail,
@@ -3681,7 +3689,7 @@ class DlcHubApplication:
         for child in self.solution_detail_body.winfo_children():
             child.destroy()
         self.solution_detail_images = []
-        ctk.CTkLabel(self.solution_detail_body, text=title, text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold"), anchor="w").pack(fill="x", pady=(8, 6))
+        self.solution_detail_title_label.configure(text=title)
         helper_tools = [
             values[0]
             for kind, *values in blocks
