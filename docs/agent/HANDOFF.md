@@ -2364,3 +2364,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 新增 `BUTTON_GHOST` 模板，工具栏按钮透明底、无边框、次级灰文字，仅悬停时浅色高亮；复选框缩小为紧凑尺寸。
 - 进度条改为在整个日志面板之前插入，避免破坏父子容器的 pack 层级；已同步活动模块 `0.2.0`。
 - 验证：65 项定向测试、`py_compile`、Ruff、`git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：解决方案与工具详情页上下组件衔接修正
+
+- 根因：详情页展开时仍保留列表态固定页头，导致外层标题/返回按钮与详情内容区在同一垂直区域错位叠加。
+- 基线 `app/versions/0.1.0/app_entry.py` 为解决方案详情新增独立页头，并在详情态隐藏列表页头；工具详情态同步隐藏常用工具列表页头，返回列表时恢复。相关代码已定向同步到活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`、未整目录覆盖。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送；客户端需完全退出并重启后加载活动模块改动。
