@@ -2,10 +2,6 @@
   "guide_id": "game-directory-missing",
   "blocks": [
     {
-      "kind": "heading",
-      "text": "检查游戏目录"
-    },
-    {
       "kind": "text",
       "text": "请确认游戏仍安装在本机，且磁盘、库文件夹和游戏目录没有被移动、删除或断开。客户端的一键排错会显示当前记录的目录是否存在。"
     },

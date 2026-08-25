@@ -2,6 +2,10 @@
   "guide_id": "network-basics",
   "blocks": [
     {
+      "kind": "text",
+      "text": "下载源打不开、DLC 目录刷新失败或下载中途反复失败时，通常与当前网络、下载源可达性或 DNS/TLS 连接有关。"
+    },
+    {
       "kind": "heading",
       "text": "建议操作"
     },
