@@ -2733,7 +2733,7 @@ class DlcHubApplication:
             detail_header, text="←", width=34, height=30,
             command=self._show_tool_center_list, **BUTTON_SECONDARY,
         )
-        self.tool_center_detail_back_button.pack(side="left", padx=(0, 10))
+        self.tool_center_detail_back_button.pack(side="right", padx=(10, 0))
         self.tool_center_detail_title = ctk.CTkLabel(
             detail_header,
             text="",
