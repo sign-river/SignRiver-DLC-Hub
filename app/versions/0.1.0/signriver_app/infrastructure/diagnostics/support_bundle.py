@@ -180,8 +180,8 @@ class SupportBundleCollector:
         host_platform: str | None = None,
     ) -> SupportCollectionResult:
         timestamp = self._now().strftime("%Y%m%d-%H%M%S")
-        output_dir = self._unique_output_dir(timestamp)
-        for name in ("system", "signriver", "game"):
+        output_dir = self._unique_output_dir(f"日志资料收集-{timestamp}")
+        for name in ("system", "SignRiver-DLC-Hub-程序日志", "game"):
             (output_dir / name).mkdir(parents=True, exist_ok=True)
 
         copied: list[str] = []
@@ -192,7 +192,8 @@ class SupportBundleCollector:
 
         self._collect_dxdiag(output_dir / "system", detected_platform, copied, skipped, failed)
         self._collect_signriver(
-            output_dir / "signriver", app_version, launcher_version, problems,
+            output_dir / "SignRiver-DLC-Hub-程序日志",
+            app_version, launcher_version, problems,
             copied, skipped, failed,
         )
         self._collect_game(

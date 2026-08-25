@@ -66,17 +66,18 @@ def test_support_collection_copies_redacted_files_and_skips_dumps(
     )
 
     assert result.output_dir.parent == data_root / "helper-tools" / "support-collections"
+    assert result.output_dir.name.startswith("日志资料收集-")
     assert (result.output_dir / "system" / "DxDiag.txt").is_file()
-    assert (result.output_dir / "signriver" / "runtime.json").is_file()
+    assert (result.output_dir / "SignRiver-DLC-Hub-程序日志" / "runtime.json").is_file()
     assert (result.output_dir / "game" / "system.log").is_file()
     assert (result.output_dir / "game" / "error.log").is_file()
     assert (result.output_dir / "game" / "settings.txt").is_file()
     assert (result.output_dir / "game" / "crash-report.txt").is_file()
     assert not list(result.output_dir.rglob("*.dmp"))
     assert result.skipped_dumps == (str(dump),)
-    copied_log = (result.output_dir / "signriver" / "launcher.log").read_text(encoding="utf-8")
+    copied_log = (result.output_dir / "SignRiver-DLC-Hub-程序日志" / "launcher.log").read_text(encoding="utf-8")
     copied_game_log = (result.output_dir / "game" / "system.log").read_text(encoding="utf-8")
-    problems = json.loads((result.output_dir / "signriver" / "problems.json").read_text(encoding="utf-8"))
+    problems = json.loads((result.output_dir / "SignRiver-DLC-Hub-程序日志" / "problems.json").read_text(encoding="utf-8"))
     assert "launcher-secret" not in copied_log
     assert "id=private" not in copied_log
     assert str(app_root) not in copied_log
