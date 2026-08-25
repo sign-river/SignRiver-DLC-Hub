@@ -2568,7 +2568,13 @@ class DlcHubApplication:
             "write", lambda *_args: self._render_solution_articles()
         )
         self._render_solution_articles()
-        self.solution_detail_page = ctk.CTkFrame(self.guide_tutorial_card, fg_color=UI["card"], corner_radius=0)
+        self.solution_detail_page = ctk.CTkFrame(
+            self.guide_tutorial_card,
+            fg_color=UI["card"],
+            border_color=UI["border"],
+            border_width=1,
+            corner_radius=10,
+        )
         self.solution_detail_header = ctk.CTkFrame(self.solution_detail_page, fg_color="transparent")
         self.solution_detail_header.pack(fill="x", padx=24, pady=(18, 8))
         self.solution_detail_title_label = ctk.CTkLabel(
@@ -2769,7 +2775,13 @@ class DlcHubApplication:
         self.tool_center_list.bind(
             "<Configure>", self._on_tool_center_resize, add="+"
         )
-        self.tool_center_detail_page = ctk.CTkFrame(self.tool_center_card, fg_color=UI["card"])
+        self.tool_center_detail_page = ctk.CTkFrame(
+            self.tool_center_card,
+            fg_color=UI["card"],
+            border_color=UI["border"],
+            border_width=1,
+            corner_radius=10,
+        )
         detail_header = ctk.CTkFrame(
             self.tool_center_detail_page, fg_color="transparent"
         )
