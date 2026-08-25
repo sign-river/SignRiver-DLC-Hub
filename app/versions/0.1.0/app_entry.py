@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ctypes
 import os
 import shutil
 import subprocess
@@ -4175,8 +4176,16 @@ class DlcHubApplication:
 
     def _open_gpu_device_manager(self) -> None:
         try:
-            subprocess.Popen(["mmc.exe", "devmgmt.msc"])
-        except OSError as error:
+            if os.name == "nt":
+                # 设备管理器在部分系统策略下必须提升权限；runas 会由系统弹出 UAC 确认框。
+                result = ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", "mmc.exe", "devmgmt.msc", None, 1
+                )
+                if result <= 32:
+                    raise OSError(f"ShellExecuteW 返回 {result}")
+            else:
+                subprocess.Popen(["mmc.exe", "devmgmt.msc"])
+        except (OSError, AttributeError) as error:
             self._notify(f"无法打开设备管理器：{error}", error=True)
 
     def _quick_check_security_products(self) -> None:
