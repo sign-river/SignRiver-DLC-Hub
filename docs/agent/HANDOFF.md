@@ -1,3 +1,10 @@
+## 2026-08-25：运行日志工具栏调整
+
+- 修改范围：Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，并按功能范围定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`（`app/state.json` 的 `active_version` 仍为 `0.2.0`，未修改）；同步更新 `tests/test_ui_theme.py` 的工具栏布局断言。
+- “运行日志”工具栏已将关键词搜索框放在最左侧，日志级别下拉框紧接在其右侧，并移除“筛选”文字标签；右侧的刷新、打开日志目录、导出诊断包和复制当前日志操作保持不变。
+- 验证（2026-08-25）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py` 通过；基线和活动模块 `py_compile`、Ruff、`git diff --check` 通过；使用 `ModuleLoader._load_python_module` 成功导入活动模块 `0.2.0`。未启动 GUI、未构建、未上传、未推送。客户端如已运行，需要完全退出并重启才能加载活动模块中的本地同步改动。
+- 工作区原先已有未提交的客户端工具栏、关闭流程与测试改动，且本次所改日志工具栏与其位于相同差异块；为避免将既有改动混入本次提交，未创建本地 Git commit。
+
 ## 2026-08-25：游戏卡带配置页补回直接返回入口
 
 - 修改范围：`src/signriver_publisher/content_management_ui.py`、`src/signriver_publisher/cartridge_management_ui.py`；在“游戏卡带配置”页顶部增加“← 返回全部游戏卡带”按钮，点击后回到直接上一级列表页并刷新列表。
@@ -2240,3 +2247,8 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 中间资源区改为独立可滚动容器，确保窗口空间较小时，两类资源与其操作按钮仍可访问；“等待发布 / 进度条 / 暂停发布”留在页面底部，始终作为全局发布状态区显示。
 - 未改变发布行为：卡带仍走原双端卡带发布；指南仍走 `guides` Release；`tools_index.json` 与工具包仍走 `tools` Release；扩展仍只有“预检并双端发布扩展”统一入口并保持本地 SHA-256 增量规则。
 - 本次仅修改发布器源码，不涉及客户端活动模块（当前仍为 `0.2.0`）。验证：`python -m py_compile src/signriver_publisher/cartridge_management_ui.py`、`python -m ruff check src/signriver_publisher/cartridge_management_ui.py tests/test_publisher_ui_threading.py`、`python -m pytest -q tests/test_publisher_ui_threading.py tests/test_publisher_extension_assets.py tests/test_publisher_guides.py tests/test_publisher_workspace.py`（187 项通过）及 `git diff --check` 均通过。已实际启动发布器核验顶部摘要、两类分区、统一扩展发布入口与全局进度区；未执行生成或上传，未构建、未推送。
+
+## 2026-08-25：DxDiag 首次失败自动重试
+
+- 日志资料收集的 Windows `dxdiag` 首次启动失败（返回非零、未产生目标文件或进程异常）时，现在会等待 1 秒后自动重试一次；重试前只删除本次受控输出目录中的 `system/DxDiag.txt`，不会读取或复用既有收集目录的结果。两次均失败才在本次收集结果中标记失败。
+- 已同步基线 `app/versions/0.1.0/` 与活动模块 `app/versions/0.2.0/` 的 `support_bundle.py`，未修改 `app/state.json`。验证：`pytest -q tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_diagnostics.py tests/test_helper_tools.py`（14 项通过）、Ruff、`py_compile`、两个模块文件 SHA-256 一致及 `git diff --check` 均通过。客户端如已运行，需完全退出并重启后加载本次逻辑。

@@ -94,6 +94,7 @@ def test_support_collection_records_dxdiag_failure_and_non_windows_skip(
         tmp_path / "app",
         tmp_path / "data",
         dxdiag_runner=lambda *_args, **_kwargs: SimpleNamespace(returncode=1),
+        dxdiag_retry_delay=0,
     )
     failed = collector.collect(
         app_version="0.2.0",
@@ -113,6 +114,41 @@ def test_support_collection_records_dxdiag_failure_and_non_windows_skip(
         host_platform="linux",
     )
     assert "DxDiag.txt（当前平台不适用）" in skipped.skipped
+
+
+def test_support_collection_retries_dxdiag_once_after_initial_failure(
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+    delays: list[float] = []
+
+    def run_dxdiag(command, **_kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            return SimpleNamespace(returncode=1)
+        Path(command[-1]).write_text("Display Devices\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    collector = SupportBundleCollector(
+        tmp_path / "app",
+        tmp_path / "data",
+        dxdiag_runner=run_dxdiag,
+        sleep=delays.append,
+        dxdiag_retry_delay=1.0,
+    )
+    result = collector.collect(
+        app_version="0.2.0",
+        launcher_version="0.1.7",
+        game_id=None,
+        game_root=None,
+        host_platform="windows",
+    )
+
+    assert len(calls) == 2
+    assert calls[0][-1] == calls[1][-1]
+    assert delays == [1.0]
+    assert "system/DxDiag.txt" in result.copied
+    assert not result.failed
 
 
 def test_support_collection_keeps_output_contained_and_avoids_name_collisions(

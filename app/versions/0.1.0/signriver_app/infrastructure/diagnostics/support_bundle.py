@@ -6,6 +6,7 @@ import json
 import os
 import platform as platform_module
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -153,11 +154,15 @@ class SupportBundleCollector:
         *,
         now: Callable[[], datetime] | None = None,
         dxdiag_runner: Callable[..., object] | None = None,
+        sleep: Callable[[float], None] | None = None,
+        dxdiag_retry_delay: float = 1.0,
     ) -> None:
         self.app_root = Path(app_root).resolve(strict=False)
         self.data_root = Path(data_root).resolve(strict=False)
         self._now = now or datetime.now
         self._dxdiag_runner = dxdiag_runner or subprocess.run
+        self._sleep = sleep or time.sleep
+        self._dxdiag_retry_delay = max(0.0, dxdiag_retry_delay)
         self._sanitizer = DiagnosticExporter(self.app_root, self.data_root)
 
     @property
@@ -243,20 +248,30 @@ class SupportBundleCollector:
             skipped.append("DxDiag.txt（当前平台不适用）")
             return
         target = destination / "DxDiag.txt"
-        try:
-            completed = self._dxdiag_runner(
-                ["dxdiag", "/whql:off", "/t", str(target)],
-                check=False,
-                capture_output=True,
-                timeout=120,
-            )
-            return_code = getattr(completed, "returncode", 0)
-            if return_code or not target.is_file():
-                failed.append(f"DxDiag.txt（dxdiag 返回 {return_code}）")
-                return
-            copied.append("system/DxDiag.txt")
-        except (OSError, subprocess.SubprocessError) as error:
-            failed.append(f"DxDiag.txt（{error}）")
+        failure_detail = ""
+        for attempt in range(2):
+            try:
+                # A failed dxdiag launch can leave a partial target behind.  Remove
+                # only this controlled output before the retry so it is never reused.
+                target.unlink(missing_ok=True)
+                completed = self._dxdiag_runner(
+                    ["dxdiag", "/whql:off", "/t", str(target)],
+                    check=False,
+                    capture_output=True,
+                    timeout=120,
+                )
+                return_code = getattr(completed, "returncode", 0)
+                if not return_code and target.is_file():
+                    copied.append("system/DxDiag.txt")
+                    return
+                failure_detail = f"dxdiag 返回 {return_code}"
+            except (OSError, subprocess.SubprocessError) as error:
+                failure_detail = str(error)
+
+            if attempt == 0:
+                self._sleep(self._dxdiag_retry_delay)
+
+        failed.append(f"DxDiag.txt（{failure_detail}；已自动重试 1 次）")
 
     def _collect_signriver(
         self,
