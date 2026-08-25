@@ -2345,3 +2345,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 工具详情上方内容区改为独立可滚动容器，恢复安全软件检测页底部“查看教程”入口的可见性；日志控制台改为白底黑字，固定高度约 200px，约为此前视觉高度的一半。
 - 安全软件检测完成后同步更新“已就绪”徽章并写入控制台摘要；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_support_collection_ui.py`（65 项通过）；`py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：工具详情日志实际高度与按钮对比度修正
+
+- `BUTTON_SECONDARY` 共享模板改为浅灰底、深色文字、可见边框和明确悬停色，修复日志工具栏按钮白底无边界的问题；会同步影响使用该模板的次要操作按钮。
+- 日志 `CTkTextbox` 改为白底黑字、`border_width=1`、灰色边框和圆角，逻辑高度调整为 110px，适配高 DPI 后实际视觉高度约为此前一半。
+- 已同步活动模块 `0.2.0`；验证：65 项定向测试、两个模块 `py_compile`、Ruff、`git diff --check` 均通过。未执行 GUI 人工视觉验证、构建、上传或推送。

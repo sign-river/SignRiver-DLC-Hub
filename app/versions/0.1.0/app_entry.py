@@ -120,7 +120,13 @@ UI = {
     "danger_surface_hover": "#FFE1DE",
 }
 
-BUTTON_SECONDARY = {"fg_color": "transparent", "hover_color": UI["primary_surface"], "text_color": UI["primary"], "border_width": 1, "border_color": UI["primary_border"]}
+BUTTON_SECONDARY = {
+    "fg_color": UI["panel"],
+    "hover_color": UI["border"],
+    "text_color": UI["text"],
+    "border_width": 1,
+    "border_color": UI["input_border"],
+}
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
 TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45
@@ -2735,7 +2741,8 @@ class DlcHubApplication:
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
         self.tool_center_console = ctk.CTkTextbox(
-            self.tool_center_detail_page, height=200, fg_color=UI["card"], text_color=UI["text"],
+            self.tool_center_detail_page, height=110, fg_color=UI["card"], text_color=UI["text"],
+            border_width=1, border_color=UI["input_border"], corner_radius=8,
             font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
         )
         self.tool_center_console_toolbar = ctk.CTkFrame(self.tool_center_detail_page, fg_color="transparent")
