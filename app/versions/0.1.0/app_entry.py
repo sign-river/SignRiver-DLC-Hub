@@ -2593,6 +2593,7 @@ class DlcHubApplication:
         self.solution_detail_back_button.pack(side="right")
         self.solution_detail_body = _AutoHideScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.solution_detail_body.bind("<Configure>", self._update_solution_detail_wraplength)
 
     def _load_remote_solution_articles(self, *, allow_network: bool) -> dict[str, tuple[object, ...]]:
         """Load optional cloud guides; callers merge the result on the UI thread."""
@@ -3780,6 +3781,16 @@ class DlcHubApplication:
         dialog.transient(self.window)
         dialog.focus_set()
 
+    def _solution_detail_wraplength(self) -> int:
+        width = self.solution_detail_body.winfo_width()
+        return max(420, width - 8) if width > 0 else 820
+
+    def _update_solution_detail_wraplength(self, _event=None) -> None:
+        wraplength = self._solution_detail_wraplength()
+        for label in getattr(self, "solution_detail_text_labels", ()):
+            if label.winfo_exists():
+                label.configure(wraplength=wraplength)
+
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
         if article is None:
@@ -3790,6 +3801,7 @@ class DlcHubApplication:
             child.destroy()
         self.solution_detail_images = []
         self.solution_detail_image_sources = []
+        self.solution_detail_text_labels = []
         self.solution_detail_title_label.configure(text=title)
         helper_tools = [
             values[0]
@@ -3803,7 +3815,12 @@ class DlcHubApplication:
                 self._pack_helper_tool_actions(
                     actions, tool, origin="solution", article_id=article_id
                 )
-        ctk.CTkLabel(self.solution_detail_body, text=summary, text_color=UI["text_secondary"], anchor="w").pack(fill="x", pady=(0, 18))
+        summary_label = ctk.CTkLabel(
+            self.solution_detail_body, text=summary, text_color=UI["text_secondary"],
+            anchor="w", wraplength=self._solution_detail_wraplength(),
+        )
+        summary_label.pack(fill="x", pady=(0, 18))
+        self.solution_detail_text_labels.append(summary_label)
         action_row = None
         for kind, *values in blocks:
             if kind not in {"button", "tool", "action"}:
@@ -3811,7 +3828,12 @@ class DlcHubApplication:
             if kind == "heading":
                 ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
             elif kind == "text":
-                ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text_secondary"], justify="left", anchor="w", wraplength=820).pack(fill="x", pady=(0, 16))
+                text_label = ctk.CTkLabel(
+                    self.solution_detail_body, text=values[0], text_color=UI["text_secondary"],
+                    justify="left", anchor="w", wraplength=self._solution_detail_wraplength(),
+                )
+                text_label.pack(fill="x", pady=(0, 16))
+                self.solution_detail_text_labels.append(text_label)
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["primary"],
@@ -3880,6 +3902,7 @@ class DlcHubApplication:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
         self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
         self.solution_detail_page.update_idletasks()
+        self._update_solution_detail_wraplength()
         self.solution_list_header.pack_forget()
         self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
