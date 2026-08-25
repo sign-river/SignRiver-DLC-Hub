@@ -87,6 +87,15 @@ def test_problem_record_titles_use_the_available_card_width() -> None:
     assert 'row.bind("<Configure>", update_title_wraplength)' in source
 
 
+def test_problem_detail_titles_are_left_aligned_and_resize_safely() -> None:
+    source = (VERSION_ROOT / "app_entry.py").read_text(encoding="utf-8")
+
+    assert "detail_title = ctk.CTkLabel(" in source
+    assert 'justify="left"' in source
+    assert "def update_detail_title_wraplength(event, label=detail_title) -> None:" in source
+    assert 'header.bind("<Configure>", update_detail_title_wraplength)' in source
+
+
 def test_patch_download_allows_bundle_with_missing_sha256(app_module) -> None:
     app = _app(app_module)
     valid = _asset("valid.dll", b"valid")
@@ -463,7 +472,7 @@ def test_security_quick_check_updates_one_row_and_opens_cached_tool_detail(
 
     assert len(app.quick_check_results) == 1
     text, solution_id, detail_action = app.quick_check_results[0]
-    assert "Windows Defender" in text
+    assert text == "安全软件：已检测到 1 个产品。"
     assert solution_id is None
     assert callable(detail_action)
     detail_action()

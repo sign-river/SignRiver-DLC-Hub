@@ -1,7 +1,7 @@
 ## 2026-08-25：运行日志工具栏调整
 
 - 修改范围：Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，并按功能范围定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`（`app/state.json` 的 `active_version` 仍为 `0.2.0`，未修改）；同步更新 `tests/test_ui_theme.py` 的工具栏布局断言。
-- “运行日志”工具栏已将关键词搜索框放在最左侧，日志级别下拉框紧接在其右侧，并移除“筛选”文字标签；右侧的刷新、打开日志目录、导出诊断包和复制当前日志操作保持不变。
+- “运行日志”工具栏已将关键词搜索框放在最左侧，日志级别下拉框紧接在其右侧，并移除“筛选”文字标签；右侧的刷新、打开日志目录、导出诊断包和复制当前日志操作保持不变。收到窄窗口截图反馈后，搜索框宽度已由 220 缩为 180，避免右侧按钮被挤出可见区域。
 - 验证（2026-08-25）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py` 通过；基线和活动模块 `py_compile`、Ruff、`git diff --check` 通过；使用 `ModuleLoader._load_python_module` 成功导入活动模块 `0.2.0`。未启动 GUI、未构建、未上传、未推送。客户端如已运行，需要完全退出并重启才能加载活动模块中的本地同步改动。
 - 工作区原先已有未提交的客户端工具栏、关闭流程与测试改动，且本次所改日志工具栏与其位于相同差异块；为避免将既有改动混入本次提交，未创建本地 Git commit。
 
@@ -2253,6 +2253,35 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 日志资料收集的 Windows `dxdiag` 首次启动失败（返回非零、未产生目标文件或进程异常）时，现在会等待 1 秒后自动重试一次；重试前只删除本次受控输出目录中的 `system/DxDiag.txt`，不会读取或复用既有收集目录的结果。两次均失败才在本次收集结果中标记失败。
 - 已同步基线 `app/versions/0.1.0/` 与活动模块 `app/versions/0.2.0/` 的 `support_bundle.py`，未修改 `app/state.json`。验证：`pytest -q tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_diagnostics.py tests/test_helper_tools.py`（14 项通过）、Ruff、`py_compile`、两个模块文件 SHA-256 一致及 `git diff --check` 均通过。客户端如已运行，需完全退出并重启后加载本次逻辑。
 
+## 2026-08-25: Tool-center card readability follow-up
+
+- Reworked the existing tool cards only; no new page-level component was added. Each 164px card now shows its description in-place, uses a smaller outlined `View details` action, and no longer opens a delayed topmost tooltip that could cover neighboring cards.
+- The targeted `app_entry.py` card block was manually synchronized from the tracked `0.1.0` baseline to active module `0.2.0`; `app/state.json` was not changed. Restart the client to load the active-module change.
+- Verification: `python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_platform_content.py tests/test_helper_tools.py` (104 passed); baseline and active `py_compile`, Ruff, and `git diff --check` passed. GUI visual verification, packaging, upload, and push were not run.
+- No commit was created because the same tracked files already contained unrelated pre-existing uncommitted changes; do not use broad staging when committing later.
+
+## 2026-08-25：日志资料收集文件夹名称更直观
+
+- 修改基线 `app/versions/0.1.0/signriver_app/infrastructure/diagnostics/support_bundle.py`，每次日志资料收集的顶层目录由纯时间戳改为 `日志资料收集-YYYYMMDD-HHMMSS`；其中本程序资料子目录由 `signriver` 改为 `SignRiver-DLC-Hub-程序日志`，便于在资源管理器中直接辨识内容。
+- 已将相同改动定向同步到实际活动模块 `app/versions/0.2.0/`，未修改 `app/state.json`，未覆盖其他活动模块文件；客户端如已运行，需完全退出并重启。
+- 验证（2026-08-25）：`python -m pytest -q tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_diagnostics.py tests/test_helper_tools.py`（14 项通过）；基线与活动模块 `py_compile`、Ruff、SHA-256 一致及 `git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：常用工具卡片摘要长度约束
+
+- 修改范围：新增 `docs/tool-item-ui-spec.md`，作为生成工具项界面指标约束文档的入口；当前仅规定 `description` 简略描述不超过 45 个字符，推荐 36～42 个字符，其他指标留待后续补充。
+- 客户端基线 `app/versions/0.1.0/app_entry.py` 新增卡片摘要防御性截短逻辑，并缩短内置“日志资料收集”摘要；同步同一相关代码到活动模块 `app/versions/0.2.0/app_entry.py`。卡片摘要超限时显示最多 45 个字符，详情页仍显示完整说明。
+- 当前活动版本为 `0.2.0`，采用定向同步；未修改 `app/state.json`，未整目录覆盖活动模块。客户端若已运行需完全退出并重启后加载本次逻辑。
+- 验证（2026-08-25）：`python -m pytest -q tests/test_ui_theme.py tests/test_platform_content.py tests/test_helper_tools.py`（全部通过）；基线与活动模块 `py_compile`、Ruff、`git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：发布资源统一管理拆分为子页面
+
+- 目标：移除发布器资源管理首页的大型内部滚动操作区，首页仅保留资源概览、刷新按钮和“卡带与公告”“指南与工具”两个子页面入口。
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`、`src/signriver_publisher/publisher_targets_ui.py`、`tests/test_publisher_ui_threading.py`。
+- 页面设计：卡带与公告页承载公告、目录、卡带生成/双端发布及卡带列表；指南与工具页承载目录入口、扩展双端发布及独立进度反馈；两个详情页均提供返回首页入口。
+- 发布反馈：按 `_active_publish_scope` 分离卡带与扩展发布控件，扩展发布不再误更新卡带页进度。
+- 验证：发布器 UI 测试 71 项通过；扩展资源/指南/工作区测试 93 项通过；`py_compile`、Ruff、`git diff --check` 通过。已启动源码发布器进程（PID 48964），已检查首页截图：无大型滚动操作区，概览与两个入口显示正常；未执行上传或发布。
+- 风险/下一步：已完成首页可视化检查；两个详情页未执行实际发布操作，用户可继续点击查看。本任务只改发布器，无客户端活动版本同步要求。
+
 ## 2026-08-25：统一窗口关闭与组件销毁顺序
 
 - 问题根因：客户端关闭流程虽然会先关闭已登记的临时窗口，但主窗口仍保持可见，随后直接执行 `quit()` / `destroy()`；Tk 在根窗口仍可见时递归回收其子树，因而可能出现外层框架仍在、内部卡片和控件逐步消失的视觉过程。
@@ -2260,3 +2289,46 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 发布器 `src/signriver_publisher/ui.py` 采用相同顺序并增加关闭重入保护，避免发布器与客户端的生命周期标准分叉。
 - 新增 `docs/ui-shutdown-lifecycle-standard.md`，规定所有 CustomTkinter / Tk 根窗口的关闭五步顺序、临时窗口登记要求及回归断言要求。
 - 验证（2026-08-25）：`python -m py_compile app\versions\0.1.0\app_entry.py app\versions\0.2.0\app_entry.py src\signriver_publisher\ui.py`、`python -m ruff check app\versions\0.1.0\app_entry.py src\signriver_publisher\ui.py tests\test_ui_theme.py tests\test_publisher_ui_threading.py`、`python -m pytest -q tests\test_ui_theme.py tests\test_publisher_ui_threading.py tests\test_client_problem_center.py` 均通过（153 项 pytest）。未执行 GUI 人工视觉验证、构建、上传或推送；客户端若已运行，需完全退出后重新启动以加载活动模块的修复。
+
+## 2026-08-25：简单任务最小闭环与分层验证约定
+
+- 已在根目录 `AGENTS.md` 新增“任务规模与验证效率约定”，适用于所有 AI：范围明确的简单修改优先最短闭环；默认仅执行适用的语法/静态检查、直接受影响的定向测试及风险确实需要的验证。
+- 禁止为了形式完整默认扩大为无关的全量测试、完整构建、发布、跨平台验收或长时间 GUI 操作；仅在跨模块、发布链路、安全、数据迁移、并发等高风险情形，或定向验证无法覆盖关键风险时扩大范围，并应说明原因。
+- 验证（2026-08-25）：已执行 `git diff --check` 与规则文本差异检查；未运行 pytest、构建或 GUI，因为本任务仅修改长期协作约定。
+- 风险/下一步：规则不免除必要验证；后续 AI 应按任务风险选择最小充分验证集。
+
+## 2026-08-26：指南与工具发布按本地清单移除云端旧附件
+
+- 发布器扩展发布现在把本地 `guides` / `tools` 资产集合视为云端最终清单；GitHub 发布前删除 Release 中不在本地清单的附件，GitLink 继续使用完整同步收敛附件。确认提示和完成提示均显示云端旧附件移除行为及数量。
+- 修改范围：`src/signriver_publisher/cartridge_management_ui.py`、`src/signriver_publisher/github.py`、`tests/test_publisher_github.py`。未修改客户端活动模块；当前活动版本仍为 `0.2.0`。
+- 验证：定向 pytest（GitHub、扩展资源、发布器 UI）全部通过；相关 `py_compile`、Ruff、`git diff --check` 通过。真实云端回归使用现有测试指南：两端从 1 个附件同步移除到 0 个，最终 `guides` / `tools` Release 均为空。未构建、未推送。
+- 风险/下一步：云端测试 Release 标签保留但当前无附件；以后本地删除指南或工具后点击“预检并双端发布扩展”，两端会按本地清单移除对应云端附件。
+
+## 2026-08-26：云端下架同步清理客户端缓存
+
+- 客户端 `GuideCatalogService` 在成功读取云端指南/工具清单后，将其作为远程权威快照：云端删除指南时清理本地指南正文缓存，云端删除工具时清理 `data/guides/tools/<tool_id>/` 缓存目录；明确 404/资源不存在也按空远程清单处理。网络异常或格式异常不会清理缓存。
+- 修改基线 `app/versions/0.1.0/signriver_app/application/guides.py`，并定向同步到当前活动模块 `app/versions/0.2.0/`；未修改 `app/state.json`、未整目录覆盖。客户端若已运行需完全退出并重启后加载。
+- 新增缓存清理回归测试。验证：`pytest -q tests/test_platform_content.py tests/test_ui_theme.py tests/test_helper_tools.py`（全部通过）；基线与活动模块 `py_compile`、Ruff、`git diff --check` 通过。未构建、未上传、未推送。
+
+## 2026-08-26：修复客户端运行时仍显示已下架样例
+
+- 根因：远程刷新后只对内存中的 `solution_articles` 调用 `update()`，已删除的云端样例仍留在当前进程列表；磁盘缓存清理并不会自动清理该内存字典。
+- `app_entry.py` 现在按内置指南 ID 保留正式内置项，并用远程刷新结果替换云端扩展项；云端为空时运行中的客户端刷新后也会移除样例。已同步基线与活动模块 `0.2.0`，活动模块未整目录覆盖。
+- 验证：`pytest -q tests/test_platform_content.py tests/test_ui_theme.py tests/test_helper_tools.py`（全部通过）；两个模块及指南服务 `py_compile`、Ruff、`git diff --check` 通过。客户端需重启加载活动模块；未构建、未上传、未推送。
+
+## 2026-08-26：一键排错安全软件结果摘要收短
+
+- 一键排错列表中的安全软件结果改为“已检测到 N 个产品 / 未读取到已登记产品 / 检测失败”，不再展开具体产品名和操作说明；“查看工具详情”仍进入详情页显示完整产品名称及可用操作。
+- 基线 `app/versions/0.1.0/app_entry.py` 与活动模块 `0.2.0` 已定向同步；验证客户端问题中心、UI 主题测试通过，两个模块 `py_compile`、Ruff、`git diff --check` 通过。客户端需重启加载；未构建、未上传、未推送。
+
+## 2026-08-26：问题记录页清空按钮与详情删除操作
+
+- 问题记录列表顶部按钮改为更明确的“清空全部记录”，按钮宽度、危险色文字和与相邻按钮的间距均增加；进入问题详情后，同一位置切换为“删除当前问题记录”，确认删除后返回列表并刷新，返回记录列表时恢复清空动作。
+- 修改基线 `app/versions/0.1.0/app_entry.py`，并按功能范围同步到活动版本 `0.2.0/app_entry.py`；未修改 `app/state.json`，未整目录覆盖。活动模块已包含本次同步，客户端若已运行需完全退出并重启。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_client_problem_center.py tests/test_ui_theme.py`（83 项通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：解决方案详情返回按钮修复
+
+- 根因：解决方案详情页按钮初始化时固定跳转“报错指南”；详情打开后仅更新按钮文字，未切换回调，因此“← 返回解决方案”实际仍跳到报错指南。
+- 基线 `app/versions/0.1.0/app_entry.py` 在详情展示时绑定已有的 `_return_from_solution_detail`，并将同一代码块定向同步到活动模块 `app/versions/0.2.0/app_entry.py`；未修改 `app/state.json`、未整目录覆盖。活动客户端需完全退出并重启后加载。
+- 验证（2026-08-26）：`pytest -q tests/test_client_problem_center.py tests/test_ui_theme.py`（83 项通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
