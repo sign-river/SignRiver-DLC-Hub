@@ -3794,42 +3794,10 @@ class DlcHubApplication:
         dialog.transient(self.window)
         dialog.focus_set()
 
-    def _solution_detail_wraplength(self) -> int:
-        try:
-            width = int(self.solution_detail_body.winfo_width())
-        except Exception:
-            width = 0
-        if width <= 1:
-            return 720
-        # CTkLabel.configure 会自行把 wraplength 转换为 DPI 缩放后的像素；
-        # 这里直接使用容器逻辑宽度，只扣除正文两侧边距，避免重复除以缩放比例。
-        return max(280, width - 48)
-
-    @staticmethod
-    def _wrap_solution_text(text: str, width: int, font) -> str:
-        """按实际字体宽度逐字符换行，避免 Tk wraplength 的 DPI 差异。"""
-        if width <= 1 or not text:
-            return text
-        lines: list[str] = []
-        for paragraph in text.split("\n"):
-            line = ""
-            for char in paragraph:
-                candidate = line + char
-                if line and font.measure(candidate) > width:
-                    lines.append(line)
-                    line = char
-                else:
-                    line = candidate
-            lines.append(line)
-        return "\n".join(lines)
-
     def _update_solution_detail_wraplength(self, _event=None) -> None:
-        for label, raw_text in getattr(self, "solution_detail_text_labels", ()):
+        for label in getattr(self, "solution_detail_text_labels", ()):
             if label.winfo_exists():
-                width = max(1, label.winfo_width() - 8)
-                font = getattr(label, "_font", None)
-                if font is not None:
-                    label.configure(text=self._wrap_solution_text(raw_text, width, font))
+                label.configure(wraplength=820)
 
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
@@ -3857,10 +3825,10 @@ class DlcHubApplication:
                 )
         summary_label = ctk.CTkLabel(
             self.solution_detail_body, text=summary, text_color=UI["text_secondary"],
-            anchor="w", wraplength=self._solution_detail_wraplength(),
+            anchor="w", wraplength=820,
         )
         summary_label.pack(fill="x", pady=(0, 18))
-        self.solution_detail_text_labels.append((summary_label, summary))
+        self.solution_detail_text_labels.append(summary_label)
         action_row = None
         for kind, *values in blocks:
             if kind not in {"button", "tool", "action"}:
@@ -3870,10 +3838,10 @@ class DlcHubApplication:
             elif kind == "text":
                 text_label = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["text_secondary"],
-                    justify="left", anchor="w", wraplength=self._solution_detail_wraplength(),
+                    justify="left", anchor="w", wraplength=820,
                 )
                 text_label.pack(fill="x", pady=(0, 16))
-                self.solution_detail_text_labels.append((text_label, values[0]))
+                self.solution_detail_text_labels.append(text_label)
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["primary"],
@@ -3947,7 +3915,6 @@ class DlcHubApplication:
         self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
         self.solution_detail_page.pack(fill="both", expand=True)
-        self.window.after_idle(self._update_solution_detail_wraplength)
 
     def _show_solution_list(self) -> None:
         self.solution_detail_origin = "list"
