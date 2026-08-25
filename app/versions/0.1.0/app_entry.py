@@ -152,7 +152,8 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._scrollbar_visible = True
+        # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
+        self._scrollbar_visible = None
         self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
         self.bind("<Configure>", self._schedule_scrollbar_update, add="+")
         self.after_idle(self._update_scrollbar_visibility)
