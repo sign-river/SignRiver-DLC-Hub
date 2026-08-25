@@ -2375,3 +2375,9 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 根因：详情页展开时仍保留列表态固定页头，导致外层标题/返回按钮与详情内容区在同一垂直区域错位叠加。
 - 基线 `app/versions/0.1.0/app_entry.py` 为解决方案详情新增独立页头，并在详情态隐藏列表页头；工具详情态同步隐藏常用工具列表页头，返回列表时恢复。相关代码已定向同步到活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`、未整目录覆盖。
 - 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送；客户端需完全退出并重启后加载活动模块改动。
+
+## 2026-08-26：次要按钮模板改为浅蓝强调样式
+
+- 用户反馈截图中的白灰按钮有“死感”；根因是 `BUTTON_SECONDARY` 使用 `UI["panel"]` + 灰边框。现将 `BUTTON_SECONDARY` 与同语义的 `BUTTON_NEUTRAL` 统一改为 `primary_surface` 浅蓝底、蓝色文字和蓝色边框，并设置浅蓝悬停色。
+- 基线与当前活动模块 `0.2.0` 均已同步，仅修改按钮模板，未修改 `app/state.json`。客户端需完全退出并重启后加载。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`、两个模块 `py_compile`、Ruff、`git diff --check` 均通过；未执行 GUI 人工视觉验证、构建、上传或推送。

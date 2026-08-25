@@ -121,11 +121,11 @@ UI = {
 }
 
 BUTTON_SECONDARY = {
-    "fg_color": UI["panel"],
-    "hover_color": UI["border"],
-    "text_color": UI["text"],
+    "fg_color": UI["primary_surface"],
+    "hover_color": UI["primary_surface_hover"],
+    "text_color": UI["primary"],
     "border_width": 1,
-    "border_color": UI["input_border"],
+    "border_color": UI["primary_border"],
 }
 BUTTON_GHOST = {
     "fg_color": "transparent",
@@ -136,7 +136,13 @@ BUTTON_GHOST = {
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
 TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45
-BUTTON_NEUTRAL = {"fg_color": UI["panel"], "hover_color": UI["border"], "text_color": UI["text_secondary"]}
+BUTTON_NEUTRAL = {
+    "fg_color": UI["primary_surface"],
+    "hover_color": UI["primary_surface_hover"],
+    "text_color": UI["primary"],
+    "border_width": 1,
+    "border_color": UI["primary_border"],
+}
 BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"], "text_color": UI["danger"], "border_width": 1, "border_color": "#F3BBB5"}
 
 # Keep in sync with signriver_launcher.product for packaging/UI naming.
