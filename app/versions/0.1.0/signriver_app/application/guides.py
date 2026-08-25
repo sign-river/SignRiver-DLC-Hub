@@ -489,6 +489,10 @@ class GuideCatalogService:
                 url = str(block.get("url") or "").strip()
                 if url.startswith("https://"):
                     blocks.append((kind, text, url))
+            elif kind == "button" and text:
+                target = str(block.get("target") or "").strip()
+                if target in {"patch-tool"} or target.startswith("guide:"):
+                    blocks.append((kind, text, target))
             elif kind == "image":
                 raw_path = str(block.get("asset_name") or block.get("path") or "").strip().replace("\\", "/")
                 if raw_path.startswith("config/guides/") and builtin and ".." not in raw_path:

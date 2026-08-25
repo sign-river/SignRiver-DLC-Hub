@@ -3064,12 +3064,11 @@ class DlcHubApplication:
         """Render one developer-provided tool in the shared detail subpage."""
         if origin == "solution" and article_id:
             self._solution_tool_origin = tool
+            self._tool_detail_solution_return = (article_id, self.solution_detail_origin)
             self._show_tool_center_detail(
                 tool.title,
                 back_text="← 返回解决方案",
-                back_command=lambda selected=article_id: self._open_solution_article(
-                    selected, origin="tool_center", source_tool=tool
-                ),
+                back_command=self._return_from_tool_to_solution,
             )
         else:
             self._show_tool_center_detail(tool.title)
@@ -3356,8 +3355,15 @@ class DlcHubApplication:
             return
         self._open_path(output)
 
-    def _show_patch_tool(self) -> None:
-        self._show_tool_center_detail("补丁工具")
+    def _show_patch_tool(self, *, return_to_solution=None) -> None:
+        if return_to_solution:
+            self._show_tool_center_detail(
+                "补丁工具",
+                back_text="← 返回解决方案",
+                back_command=self._return_to_solution_from_tool,
+            )
+        else:
+            self._show_tool_center_detail("补丁工具")
         self._set_tool_ready(self.patch_bundle is not None)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
@@ -3387,6 +3393,16 @@ class DlcHubApplication:
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=16, pady=(0, 12))
+        if not return_to_solution:
+            ctk.CTkButton(
+                body,
+                text="查看补丁状态解决方案 →",
+                width=190,
+                command=lambda: self._open_solution_article(
+                    "patch-state", origin="tool_center"
+                ),
+                **BUTTON_SECONDARY,
+            ).pack(anchor="w", padx=16, pady=(0, 12))
         location_actions = ctk.CTkFrame(body, fg_color="transparent")
         location_actions.pack(anchor="w", padx=16, pady=(0, 10))
         if game_root is not None:
@@ -3825,7 +3841,7 @@ class DlcHubApplication:
                     action_row, text=values[0], width=156, height=36,
                     fg_color=UI["primary"], hover_color=UI["primary_hover"],
                     text_color="white", corner_radius=8,
-                    command=lambda target=values[1]: self._show_page(target),
+                    command=lambda target=values[1]: self._activate_solution_button(target),
                 ).pack(side="left", padx=(0, 8))
             elif kind == "tool":
                 tool = values[0]
@@ -4367,6 +4383,37 @@ class DlcHubApplication:
         self._show_page("常见问题教程")
         self._show_solution_detail(article_id)
 
+    def _activate_solution_button(self, target: str) -> None:
+        if target == "patch-tool":
+            article_id = self._current_solution_article_id
+            if article_id:
+                self._tool_solution_return = (article_id, self.solution_detail_origin)
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_patch_tool(return_to_solution=self._tool_solution_return)
+            return
+        if target.startswith("guide:"):
+            article_id = target.removeprefix("guide:").strip()
+            current_id = self._current_solution_article_id
+            if article_id and current_id and article_id != current_id:
+                self._solution_link_return = (current_id, self.solution_detail_origin)
+                self._open_solution_article(article_id, origin="solution_link")
+
+    def _return_to_solution_from_tool(self) -> None:
+        target = getattr(self, "_tool_solution_return", None)
+        self._tool_solution_return = None
+        if target:
+            self._open_solution_article(target[0], origin=target[1])
+
+    def _return_from_tool_to_solution(self) -> None:
+        target = getattr(self, "_tool_detail_solution_return", None)
+        self._tool_detail_solution_return = None
+        if target:
+            self._open_solution_article(target[0], origin=target[1])
+
     def _return_from_solution_detail(self) -> None:
         origin = self.solution_detail_origin
         self.solution_detail_origin = "list"
@@ -4387,6 +4434,12 @@ class DlcHubApplication:
             if source_tool is not None:
                 self._show_page("常用工具")
                 self._show_guide_tool_detail(source_tool)
+                return
+        if origin == "solution_link":
+            target = getattr(self, "_solution_link_return", None)
+            self._solution_link_return = None
+            if target:
+                self._open_solution_article(target[0], origin=target[1])
                 return
         self._show_solution_list()
 

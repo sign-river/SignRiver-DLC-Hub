@@ -356,6 +356,30 @@ def test_remote_guide_image_is_downloaded_and_cached_per_guide(tmp_path: Path) -
     assert Path(document.blocks[0][1]).read_bytes() == image_bytes
 
 
+def test_guide_internal_navigation_buttons_are_whitelisted(tmp_path: Path) -> None:
+    service = GuideCatalogService(tmp_path / "cache")
+    entry = GuideIndexEntry.from_dict({
+        "guide_id": "navigation",
+        "title": "导航",
+        "summary": "",
+        "asset_name": "navigation.json",
+        "platforms": ["all"],
+    })
+    document = service._parse_guide_payload(entry, json.dumps({
+        "guide_id": "navigation",
+        "blocks": [
+            {"kind": "button", "text": "补丁工具", "target": "patch-tool"},
+            {"kind": "button", "text": "安全软件", "target": "guide:security-interference"},
+            {"kind": "button", "text": "危险命令", "target": "cmd:del"},
+        ],
+        "tools": [],
+    }))
+    assert document.blocks == (
+        ("button", "补丁工具", "patch-tool"),
+        ("button", "安全软件", "guide:security-interference"),
+    )
+
+
 def test_mismatched_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> None:
     service = GuideCatalogService(
         tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
