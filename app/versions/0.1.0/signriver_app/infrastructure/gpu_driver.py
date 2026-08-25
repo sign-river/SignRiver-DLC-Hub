@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _datetime
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import Callable
@@ -33,6 +34,52 @@ def _vendor_url(vendor: str, name: str) -> str | None:
     return None
 
 
+_VIRTUAL_ADAPTER_MARKERS = (
+    "virtual", "oray", "todesk", "todesk", "indirect display", "idd",
+    "remote display", "mirage", "spacedesk", "parsec",
+)
+
+
+def _is_virtual_adapter(name: str, vendor: str) -> bool:
+    value = f"{name} {vendor}".casefold()
+    return any(marker in value for marker in _VIRTUAL_ADAPTER_MARKERS)
+
+
+def _driver_year(value: str) -> int | None:
+    """解析 CIM 常见的 DMTF /Date(milliseconds)/ 日期格式。"""
+    match = re.search(r"/Date\(([-+]?\d+)", value)
+    if match:
+        try:
+            timestamp = int(match.group(1)) / 1000
+            return _datetime.datetime.fromtimestamp(timestamp).year
+        except (OverflowError, OSError, ValueError):
+            return None
+    if len(value) >= 4 and value[:4].isdigit():
+        return int(value[:4])
+    return None
+
+
+def _select_physical_adapters(items: list[dict]) -> list[dict]:
+    """最多保留两个真实适配器：优先一块集显和一块独显。"""
+    physical = [
+        item for item in items
+        if not _is_virtual_adapter(
+            str(item.get("Name") or ""), str(item.get("AdapterCompatibility") or "")
+        )
+    ]
+    if len(physical) <= 2:
+        return physical
+
+    def is_integrated(item: dict) -> bool:
+        value = f"{item.get('Name') or ''} {item.get('AdapterCompatibility') or ''}".casefold()
+        return any(token in value for token in ("intel", "uhd", "iris", "vega", "apu"))
+
+    integrated = next((item for item in physical if is_integrated(item)), None)
+    discrete = next((item for item in physical if item is not integrated), None)
+    selected = [item for item in (integrated, discrete) if item is not None]
+    return selected[:2]
+
+
 def discover_gpu_drivers(
     *, runner: Callable[..., object] | None = None,
     now_year: int | None = None,
@@ -59,7 +106,8 @@ def discover_gpu_drivers(
         return ()
     current_year = now_year or _datetime.datetime.now().year
     result: list[GpuDriverInfo] = []
-    for item in raw if isinstance(raw, list) else []:
+    selected_items = _select_physical_adapters(raw) if isinstance(raw, list) else []
+    for item in selected_items:
         if not isinstance(item, dict):
             continue
         name = str(item.get("Name") or "未知显卡").strip()
@@ -67,8 +115,7 @@ def discover_gpu_drivers(
         version = str(item.get("DriverVersion") or "未知").strip()
         date_value = str(item.get("DriverDate") or "").strip()
         year = None
-        if len(date_value) >= 4 and date_value[:4].isdigit():
-            year = int(date_value[:4])
+        year = _driver_year(date_value)
         warning = None
         status = "正常"
         if year is None:
