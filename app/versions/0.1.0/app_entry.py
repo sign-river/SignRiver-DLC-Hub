@@ -3797,13 +3797,13 @@ class DlcHubApplication:
     def _solution_detail_wraplength(self) -> int:
         try:
             width = int(self.solution_detail_body.winfo_width())
-            scaling = float(self.window._get_window_scaling())
         except Exception:
-            width, scaling = 0, 1.0
+            width = 0
         if width <= 1:
             return 720
-        # Tk reports the scaled pixel width; wraplength expects logical pixels.
-        return max(280, int(width / max(scaling, 1.0)) - 48)
+        # CTkLabel.configure 会自行把 wraplength 转换为 DPI 缩放后的像素；
+        # 这里直接使用容器逻辑宽度，只扣除正文两侧边距，避免重复除以缩放比例。
+        return max(280, width - 48)
 
     def _update_solution_detail_wraplength(self, _event=None) -> None:
         wraplength = self._solution_detail_wraplength()
