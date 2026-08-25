@@ -417,9 +417,32 @@ def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -
     assert tool.launch_action == "exe"
     assert tool.executable_name == "dControl.exe"
     assert tool.run_as_admin
+    assert tool.requires_cloud_download
     assert tool.is_helper_tool()
     assert tool.applies_to("windows")
     assert not tool.applies_to("steamos")
+
+
+def test_guide_tool_can_be_marked_as_not_requiring_cloud_download() -> None:
+    tool = GuideTool.from_dict({
+        "tool_id": "local-check",
+        "title": "本地检查",
+        "description": "",
+        "platforms": ["windows"],
+        "requires_cloud_download": False,
+    })
+    assert not tool.requires_cloud_download
+
+
+def test_guide_tool_requires_cloud_download_must_be_boolean() -> None:
+    with pytest.raises(ValueError, match="requires_cloud_download"):
+        GuideTool.from_dict({
+            "tool_id": "invalid-check",
+            "title": "无效检查",
+            "description": "",
+            "platforms": ["windows"],
+            "requires_cloud_download": "false",
+        })
 
 
 def test_remote_guides_cannot_replace_builtin_guides_or_tools(tmp_path: Path) -> None:

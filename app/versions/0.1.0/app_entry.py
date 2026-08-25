@@ -2930,6 +2930,7 @@ class DlcHubApplication:
         self,
         title: str,
         *,
+        requires_cloud_download: bool = True,
         back_text: str = "← 返回常用工具",
         back_command=None,
     ) -> None:
@@ -2941,7 +2942,7 @@ class DlcHubApplication:
         )
         self.tool_center_detail_title.configure(text=title)
         self.tool_center_detail_back_button.configure(command=back_command or self._show_tool_center_list)
-        self.tool_center_detail_status.configure(text="● 未下载", text_color=UI["text_secondary"])
+        self._set_tool_ready(not requires_cloud_download)
         self._set_tool_progress(False)
         self._clear_tool_logs()
         self._append_tool_log(f"已打开工具详情：{title}")
@@ -3098,11 +3099,14 @@ class DlcHubApplication:
             )
             self._show_tool_center_detail(
                 tool.title,
+                requires_cloud_download=tool.requires_cloud_download,
                 back_text=back_text,
                 back_command=self._return_from_tool_to_solution,
             )
         else:
-            self._show_tool_center_detail(tool.title)
+            self._show_tool_center_detail(
+                tool.title, requires_cloud_download=tool.requires_cloud_download
+            )
         body = self.tool_center_detail_body
         if tool.detail_intro:
             ctk.CTkLabel(
@@ -3250,7 +3254,7 @@ class DlcHubApplication:
 
     def _show_support_collection_tool(self) -> None:
         """Render the built-in support-folder collector in the tool center."""
-        self._show_tool_center_detail("日志资料收集")
+        self._show_tool_center_detail("日志资料收集", requires_cloud_download=False)
         self._set_tool_ready(True)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
@@ -3396,11 +3400,12 @@ class DlcHubApplication:
             )
             self._show_tool_center_detail(
                 "补丁工具",
+                requires_cloud_download=True,
                 back_text=back_text,
                 back_command=self._return_to_solution_from_tool,
             )
         else:
-            self._show_tool_center_detail("补丁工具")
+            self._show_tool_center_detail("补丁工具", requires_cloud_download=True)
         self._set_tool_ready(self.patch_bundle is not None)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
@@ -3596,7 +3601,7 @@ class DlcHubApplication:
         threading.Thread(target=worker, daemon=True).start()
 
     def _render_security_products(self, products) -> None:
-        self._show_tool_center_detail("安全软件检测")
+        self._show_tool_center_detail("安全软件检测", requires_cloud_download=False)
         self._set_tool_ready(True)
         self._append_tool_log(f"安全软件检测完成：发现 {len(products)} 个已登记产品")
         body = self.tool_center_detail_body
@@ -4152,7 +4157,12 @@ class DlcHubApplication:
             back_text = "← 回到一键排错"
             def back_command() -> None:
                 self._show_page("简单错误检测")
-        self._show_tool_center_detail("显卡驱动详情", back_text=back_text, back_command=back_command)
+        self._show_tool_center_detail(
+            "显卡驱动详情",
+            requires_cloud_download=False,
+            back_text=back_text,
+            back_command=back_command,
+        )
         body = self.tool_center_detail_body
         if infos:
             active = [info.name for info in infos if info.is_active]

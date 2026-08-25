@@ -128,6 +128,7 @@ class GuideTool:
     launch_action: str = "legacy"
     executable_name: str = ""
     run_as_admin: bool = False
+    requires_cloud_download: bool = True
     builtin: bool = False
     revision: str = ""
     detail_intro: str = ""
@@ -184,6 +185,9 @@ class GuideTool:
         raw_admin = value.get("run_as_admin", False)
         if not isinstance(raw_admin, bool):
             raise ValueError("guide tool run_as_admin must be a boolean")
+        requires_cloud_download = value.get("requires_cloud_download", True)
+        if not isinstance(requires_cloud_download, bool):
+            raise ValueError("guide tool requires_cloud_download must be a boolean")
         raw_detail = value.get("detail", {})
         if raw_detail is None:
             raw_detail = {}
@@ -214,6 +218,7 @@ class GuideTool:
             launch_action=launch_action,
             executable_name=executable_name,
             run_as_admin=raw_admin,
+            requires_cloud_download=requires_cloud_download,
             builtin=builtin,
             revision=str(value.get("revision") or "").strip(),
             detail_intro=str(raw_detail.get("intro") or "").strip(),

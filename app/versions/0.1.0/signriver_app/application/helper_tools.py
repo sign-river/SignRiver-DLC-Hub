@@ -67,7 +67,7 @@ class HelperToolsService:
         return self.tool_dir(tool.tool_id) / ".tool-meta.json"
 
     @staticmethod
-    def _signature(tool: GuideTool) -> dict[str, str]:
+    def _signature(tool: GuideTool) -> dict[str, object]:
         return {
             "tool_id": tool.tool_id,
             "revision": tool.revision,
@@ -77,6 +77,7 @@ class HelperToolsService:
             "package_kind": tool.package_kind,
             "launch_action": tool.launch_action,
             "executable_name": tool.executable_name,
+            "requires_cloud_download": tool.requires_cloud_download,
         }
 
     def resolve_url(self, tool: GuideTool) -> str:
