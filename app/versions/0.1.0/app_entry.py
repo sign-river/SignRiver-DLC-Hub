@@ -3820,7 +3820,8 @@ class DlcHubApplication:
     def _create_solution_textbox(self, text: str):
         textbox = ctk.CTkTextbox(
             self.solution_detail_body,
-            height=40,
+            height=64,
+            border_spacing=0,
             activate_scrollbars=False,
             wrap="char",
             fg_color="transparent",
@@ -3834,6 +3835,7 @@ class DlcHubApplication:
         textbox.pack(fill="x", pady=(0, 16))
         textbox.bind("<Configure>", lambda _event, widget=textbox: self._fit_solution_textbox(widget), add="+")
         self.window.after_idle(lambda widget=textbox: self._fit_solution_textbox(widget))
+        self.window.after(80, lambda widget=textbox: self._fit_solution_textbox(widget))
         self.solution_detail_textboxes.append(textbox)
         return textbox
 
