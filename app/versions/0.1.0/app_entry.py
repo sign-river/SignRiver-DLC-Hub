@@ -3811,21 +3811,24 @@ class DlcHubApplication:
         try:
             textbox._fitting_solution_text = True
             textbox.update_idletasks()
-            result = textbox._textbox.count("1.0", "end-1c", "-displaylines")
+            result = textbox._textbox.count("1.0", "end", "-displaylines")
             lines = int(result[0] if isinstance(result, tuple) else result)
             height = max(34, lines * 22 + 10)
             if int(textbox.cget("height")) != height:
                 textbox.configure(height=height)
                 self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)
         except (TclError, TypeError, ValueError):
-            pass
+            raw_text = getattr(textbox, "_solution_raw_text", "")
+            width = max(1, textbox.winfo_width() - 8)
+            lines = max(1, (len(raw_text) * 14 + width - 1) // width)
+            textbox.configure(height=max(34, lines * 22 + 10))
         finally:
             textbox._fitting_solution_text = False
 
     def _create_solution_textbox(self, text: str):
         textbox = ctk.CTkTextbox(
             self.solution_detail_body,
-            height=64,
+            height=34,
             border_spacing=0,
             activate_scrollbars=False,
             wrap="char",
@@ -3836,6 +3839,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=14),
         )
         textbox.insert("1.0", text)
+        textbox._solution_raw_text = text
         textbox.configure(state="disabled")
         textbox.pack(fill="x", pady=(0, 16))
         textbox.bind("<Configure>", lambda _event, widget=textbox: self._fit_solution_textbox(widget), add="+")
