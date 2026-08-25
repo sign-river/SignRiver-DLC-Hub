@@ -2995,7 +2995,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=15, weight="bold"),
             anchor="w",
         ).grid(row=0, column=0, padx=16, pady=(16, 6), sticky="ew")
-        ctk.CTkLabel(
+        description_label = ctk.CTkLabel(
             card,
             text=self._tool_center_card_description(description),
             text_color=UI["text_secondary"],
@@ -3003,7 +3003,19 @@ class DlcHubApplication:
             justify="left",
             anchor="nw",
             wraplength=236,
-        ).grid(row=1, column=0, padx=16, pady=(0, 10), sticky="new")
+        )
+        description_label.grid(row=1, column=0, padx=16, pady=(0, 10), sticky="new")
+
+        def update_description_wraplength(event, label=description_label) -> None:
+            try:
+                scaling = float(self.window._get_window_scaling())
+            except Exception:
+                scaling = 1.0
+            available_width = max(160, int(event.width / max(scaling, 1.0)) - 32)
+            if label.cget("wraplength") != available_width:
+                label.configure(wraplength=available_width)
+
+        card.bind("<Configure>", update_description_wraplength)
         ctk.CTkButton(
             card,
             text="查看详情 →",
@@ -3027,22 +3039,22 @@ class DlcHubApplication:
         if self.host_platform == "windows":
             cards.append((
                 "显卡驱动检查",
-                "读取当前显卡驱动日期并提示是否建议更新。",
+                "读取显卡驱动信息并提示是否需要更新；不自动安装。",
                 self._show_gpu_driver_detail,
             ))
             cards.append((
                 "安全软件检测",
-                "只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。",
+                "只读检查已登记的安全软件；不关闭防护或修改设置。",
                 self._show_security_products,
             ))
         cards.append((
             "补丁工具",
-            "查看当前游戏补丁状态、已下载文件和受控目录。",
+            "查看游戏补丁状态与下载文件；不直接修改游戏。",
             self._show_patch_tool,
         ))
         cards.append((
             "日志资料收集",
-            "整理游戏日志、配置、问题记录和 DxDiag 报告；不收集截图或大型转储。",
+            "收集游戏日志与配置用于排查；不收集截图和大型转储。",
             self._show_support_collection_tool,
         ))
         cards.extend(
