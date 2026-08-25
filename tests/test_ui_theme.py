@@ -166,6 +166,7 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'def _return_to_guide_from_solution_list' not in source
     assert 'self.solution_detail_back_button = ctk.CTkButton(' in source
     assert 'command=lambda: self._show_page("报错指南")' in source
+    assert 'self.solution_detail_back_button.configure(command=self._return_from_solution_detail)' in source
     assert 'text="← 回到一键排错"' in source
     assert 'text="← 返回解决方案"' in source
     assert 'text="可以关闭 Windows Defender"' in source

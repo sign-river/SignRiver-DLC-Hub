@@ -3485,6 +3485,7 @@ class DlcHubApplication:
             self.solution_detail_back_button.configure(text="← 返回工具详情")
         else:
             self.solution_detail_back_button.configure(text="← 返回解决方案")
+        self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
         self.solution_detail_page.update_idletasks()
         self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
