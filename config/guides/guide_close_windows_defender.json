@@ -2,6 +2,10 @@
   "guide_id": "close-windows-defender",
   "blocks": [
     {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
       "kind": "text",
       "text": "当需要临时排查 Windows Defender 是否拦截程序文件时，可以参考以下操作。请先确认问题确实与安全软件拦截有关。"
     },

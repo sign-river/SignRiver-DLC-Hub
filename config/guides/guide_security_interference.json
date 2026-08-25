@@ -2,6 +2,10 @@
   "guide_id": "security-interference",
   "blocks": [
     {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
       "kind": "text",
       "text": "请在安全软件或 Windows 安全中心中查看是否有与本程序、下载缓存或游戏目录有关的隔离、阻止或删除记录。客户端不会自动关闭防护、添加白名单或修改系统安全设置。"
     },

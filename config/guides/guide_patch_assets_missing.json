@@ -2,6 +2,10 @@
   "guide_id": "patch-assets-missing",
   "blocks": [
     {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
       "kind": "text",
       "text": "可能是当前下载源暂时无法读取资源、资源尚未发布到当前平台，或本地下载未完整完成。"
     },
