@@ -3440,12 +3440,13 @@ class DlcHubApplication:
                     width=86,
                     command=lambda item=path: self._open_path(item.parent),
                 ).pack(side="right", padx=(4, 10), pady=6)
-                ctk.CTkButton(
-                    row,
-                    text="打开文件",
-                    width=86,
-                    command=lambda item=path: self._open_file(item),
-                ).pack(side="right", padx=(10, 0), pady=6)
+                if self._is_file_openable(path):
+                    ctk.CTkButton(
+                        row,
+                        text="打开文件",
+                        width=86,
+                        command=lambda item=path: self._open_file(item),
+                    ).pack(side="right", padx=(10, 0), pady=6)
         else:
             ctk.CTkLabel(
                 body,
@@ -5735,6 +5736,13 @@ class DlcHubApplication:
                 subprocess.Popen(["xdg-open", str(path)])
         except Exception as error:
             self._notify(f"无法打开文件：{error}", error=True)
+
+    @staticmethod
+    def _is_file_openable(path: Path) -> bool:
+        """Return whether a downloaded patch file should expose an open action."""
+        name = path.name.casefold()
+        library_suffixes = (".dll", ".dylib", ".so", ".bundle", ".a", ".lib")
+        return not name.endswith(library_suffixes) and ".so." not in name
 
     def _open_path(self, path: Path) -> None:
         try:

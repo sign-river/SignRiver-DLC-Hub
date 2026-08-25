@@ -249,6 +249,9 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'text="打开游戏目录"' not in patch_tool
     assert 'resolve_game_directory(' in patch_tool
     assert 'self.download_manager.cache_root' in patch_tool
+    assert 'if self._is_file_openable(path):' in patch_tool
+    assert 'def _is_file_openable(path: Path) -> bool' in source
+    assert 'library_suffixes = (".dll", ".dylib", ".so", ".bundle", ".a", ".lib")' in source
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _show_patch_tool', 1)[1].split('def _redownload_patch_assets', 1)[0]
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _render_security_products', 1)[1].split('def _open_security_product', 1)[0]
 
