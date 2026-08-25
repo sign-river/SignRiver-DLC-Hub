@@ -3623,14 +3623,14 @@ class DlcHubApplication:
                 products = discover_security_products()
                 names = "、".join(product.name for product in products)
                 message = (
-                    f"安全软件：已检测到 {names}。可在“常用工具 → 安全软件检测”中打开已确认的产品。"
+                    f"安全软件：已检测到 {len(products)} 个产品。"
                     if names else
-                    "安全软件：未从 Windows 安全中心读取到已登记产品；这不代表系统未启用防护。"
+                    "安全软件：未读取到已登记产品。"
                 )
-            except Exception as error:
+            except Exception:
                 self.context.logger.exception("Security product quick check failed")
                 products = ()
-                message = f"安全软件：检测失败（{type(error).__name__}：{error}）。"
+                message = "安全软件：检测失败。"
 
             def finish() -> None:
                 if not self.quick_check_running:
