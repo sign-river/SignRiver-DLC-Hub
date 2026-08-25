@@ -118,6 +118,7 @@ UI = {
     "danger_hover": "#C62828",
     "danger_surface": "#FFF1F0",
     "danger_surface_hover": "#FFE1DE",
+    "warning_surface": "#FFF8E7",
 }
 
 BUTTON_SECONDARY = {
@@ -2764,12 +2765,12 @@ class DlcHubApplication:
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
         self.tool_center_console_panel = ctk.CTkFrame(
-            self.tool_center_detail_page, fg_color=UI["panel"],
+            self.tool_center_detail_page, fg_color=UI["card"],
             border_width=1, border_color=UI["border"], corner_radius=8,
         )
         self.tool_center_console_panel.pack(fill="x", padx=24, pady=(0, 18))
         self.tool_center_console_toolbar = ctk.CTkFrame(
-            self.tool_center_console_panel, fg_color=UI["panel"], height=42,
+            self.tool_center_console_panel, fg_color="transparent", height=42,
             corner_radius=0,
         )
         self.tool_center_console_toolbar.pack(fill="x", padx=0, pady=0)
@@ -2791,6 +2792,11 @@ class DlcHubApplication:
         )
         self.tool_center_console_lock.select()
         self.tool_center_console_lock.pack(side="left", padx=(6, 4))
+        self.tool_center_console_divider = ctk.CTkFrame(
+            self.tool_center_console_panel, fg_color=UI["border"], height=1,
+            corner_radius=0,
+        )
+        self.tool_center_console_divider.pack(fill="x", padx=8)
         self.tool_center_console = ctk.CTkTextbox(
             self.tool_center_console_panel, height=110, fg_color=UI["card"], text_color=UI["text"],
             border_width=0, corner_radius=0,
@@ -3010,6 +3016,15 @@ class DlcHubApplication:
         else:
             self._show_tool_center_detail(tool.title)
         body = self.tool_center_detail_body
+        if tool.detail_intro:
+            ctk.CTkLabel(
+                body,
+                text=tool.detail_intro,
+                text_color=UI["text"],
+                anchor="w",
+                justify="left",
+                wraplength=720,
+            ).pack(fill="x", padx=16, pady=(16, 6))
         ctk.CTkLabel(
             body,
             text=tool.description or "开发者提供的受控工具",
@@ -3017,13 +3032,28 @@ class DlcHubApplication:
             anchor="w",
             justify="left",
             wraplength=720,
-        ).pack(fill="x", padx=16, pady=(16, 12))
+        ).pack(fill="x", padx=16, pady=(6 if tool.detail_intro else 16, 12))
+        if tool.detail_warnings:
+            warning_text = "使用前请注意：\n" + "\n".join(
+                f"• {warning}" for warning in tool.detail_warnings
+            )
+            ctk.CTkLabel(
+                body,
+                text=warning_text,
+                text_color=UI["text"],
+                fg_color=UI["warning_surface"],
+                corner_radius=8,
+                anchor="w",
+                justify="left",
+                wraplength=688,
+            ).pack(fill="x", padx=16, pady=(0, 12))
         if tool.is_helper_tool():
             actions = ctk.CTkFrame(body, fg_color="transparent")
             actions.pack(fill="x", padx=16, pady=(0, 14))
             self._pack_helper_tool_actions(
                 actions, tool, origin=origin, article_id=article_id
             )
+            self._pack_declared_tool_detail_actions(body, tool)
             related = self._solution_id_for_tool(tool)
             if related:
                 ctk.CTkButton(
@@ -3070,6 +3100,7 @@ class DlcHubApplication:
             text_color=UI["danger"],
             command=lambda: self._remove_guide_tool(target),
         ).pack(side="left", padx=(8, 0))
+        self._pack_declared_tool_detail_actions(body, tool)
 
         if tool.quick_check:
             ctk.CTkLabel(
@@ -3082,6 +3113,43 @@ class DlcHubApplication:
                 justify="left",
                 wraplength=720,
             ).pack(fill="x", padx=16, pady=(0, 14))
+
+    def _pack_declared_tool_detail_actions(self, parent, tool: GuideTool) -> None:
+        """Render only the schema-approved, non-executable cloud detail actions."""
+        if not tool.detail_actions:
+            return
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(0, 14))
+        for index, action in enumerate(tool.detail_actions):
+            ctk.CTkButton(
+                row,
+                text=action.label,
+                width=144,
+                command=lambda declared=action, selected=tool: self._activate_tool_detail_action(
+                    selected, declared.action, declared.guide_id, declared.url
+                ),
+                **BUTTON_SECONDARY,
+            ).pack(side="left", padx=(0 if index == 0 else 8, 0))
+
+    def _activate_tool_detail_action(
+        self, tool: GuideTool, action: str, guide_id: str, url: str
+    ) -> None:
+        if action == "open_guide":
+            self._open_solution_article(guide_id, origin="tool_center", source_tool=tool)
+            return
+        if action == "open_url":
+            webbrowser.open(url)
+            return
+        if action == "open_folder":
+            folder = (
+                self.helper_tools.tool_dir(tool.tool_id)
+                if tool.is_helper_tool()
+                else self._guide_tool_cache_path(tool).parent
+            )
+            if not folder.is_dir():
+                self._notify("请先下载工具，下载完成后才能打开工具目录。", error=True)
+                return
+            self._open_path(folder)
 
     def _solution_id_for_tool(self, tool: GuideTool) -> str | None:
         for article_id, article in self.solution_articles.items():
