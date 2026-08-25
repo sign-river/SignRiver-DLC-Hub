@@ -31,7 +31,7 @@
     {
       "guide_id": "patch-state",
       "title": "补丁状态异常",
-      "summary": "使用补丁审计确认状态，并重新扫描或刷新游戏目录。",
+      "summary": "检查补丁状态，重新下载缺失补丁并刷新列表；仍异常时排查安全软件拦截。",
       "asset_name": "guide_patch_state.json",
       "platforms": [
         "all"
