@@ -2764,15 +2764,15 @@ class DlcHubApplication:
             self.tool_center_progress_frame, mode="determinate", progress_color=UI["primary"]
         )
         self.tool_center_console_panel = ctk.CTkFrame(
-            self.tool_center_detail_page, fg_color=UI["card"],
+            self.tool_center_detail_page, fg_color=UI["panel"],
             border_width=1, border_color=UI["border"], corner_radius=8,
         )
         self.tool_center_console_panel.pack(fill="x", padx=24, pady=(0, 18))
         self.tool_center_console_toolbar = ctk.CTkFrame(
             self.tool_center_console_panel, fg_color=UI["panel"], height=42,
-            corner_radius=7,
+            corner_radius=0,
         )
-        self.tool_center_console_toolbar.pack(fill="x", padx=1, pady=1)
+        self.tool_center_console_toolbar.pack(fill="x", padx=0, pady=0)
         self.tool_center_console_toolbar.pack_propagate(False)
         ctk.CTkLabel(
             self.tool_center_console_toolbar, text="运行日志", anchor="w",
@@ -2793,7 +2793,7 @@ class DlcHubApplication:
         self.tool_center_console_lock.pack(side="left", padx=(6, 4))
         self.tool_center_console = ctk.CTkTextbox(
             self.tool_center_console_panel, height=110, fg_color=UI["card"], text_color=UI["text"],
-            border_width=0, corner_radius=8,
+            border_width=0, corner_radius=0,
             font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
         )
         self.tool_center_console.pack(fill="x", padx=8, pady=(0, 8))
