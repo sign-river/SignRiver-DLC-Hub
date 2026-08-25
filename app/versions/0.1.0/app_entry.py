@@ -156,22 +156,75 @@ BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"],
 class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFrame(
     """仅在内容超出可视区域时显示垂直滚动条。"""
 
+    _SCROLLBAR_THUMB = "#CBD5E1"
+    _SCROLLBAR_THUMB_HOVER = "#94A3B8"
+    _SCROLLBAR_TRANSITION_MS = 200
+
     def __init__(self, *args, **kwargs):
-        # 细窄的胶囊滑块：轨道透明，避免在浅色页面右侧形成一条呆板灰栏。
+        # Fluent 风格：窄胶囊滑块、透明轨道；CTkScrollbar 本身没有步进按钮。
         kwargs.setdefault("scrollbar_fg_color", "transparent")
         super().__init__(*args, **kwargs)
         self._scrollbar.configure(
-            width=14,
-            corner_radius=7,
-            border_spacing=2,
-            button_color=UI["brand"],
-            button_hover_color=UI["primary"],
+            width=8,
+            corner_radius=4,
+            border_spacing=0,
+            button_color=self._SCROLLBAR_THUMB,
+            button_hover_color=self._SCROLLBAR_THUMB_HOVER,
         )
+        self._scrollbar_color = self._SCROLLBAR_THUMB
+        self._scrollbar_animation_id = None
+        self._scrollbar._canvas.bind("<Enter>", self._on_scrollbar_enter, add="+")
+        self._scrollbar._canvas.bind("<Leave>", self._on_scrollbar_leave, add="+")
         # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
         self._scrollbar_visible = None
         self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
         self.bind("<Configure>", self._schedule_scrollbar_update, add="+")
         self.after_idle(self._update_scrollbar_visibility)
+
+    @staticmethod
+    def _blend_scrollbar_color(start: str, end: str, fraction: float) -> str:
+        start_rgb = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
+        end_rgb = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
+        channels = [round(left + (right - left) * fraction) for left, right in zip(start_rgb, end_rgb)]
+        return "#" + "".join(f"{channel:02X}" for channel in channels)
+
+    def _on_scrollbar_enter(self, _event=None):
+        self._animate_scrollbar(self._SCROLLBAR_THUMB_HOVER)
+
+    def _on_scrollbar_leave(self, _event=None):
+        self._animate_scrollbar(self._SCROLLBAR_THUMB)
+
+    def _animate_scrollbar(self, target: str):
+        if self._scrollbar_animation_id is not None:
+            try:
+                self.after_cancel(self._scrollbar_animation_id)
+            except (TclError, RuntimeError):
+                pass
+            self._scrollbar_animation_id = None
+        start = self._scrollbar_color
+        if start == target:
+            return
+
+        steps = 10
+        interval = self._SCROLLBAR_TRANSITION_MS // steps
+
+        def step(index: int = 1):
+            try:
+                if not self.winfo_exists() or not self._scrollbar.winfo_exists():
+                    return
+                progress = index / steps
+                eased = progress * progress * (3 - 2 * progress)
+                color = self._blend_scrollbar_color(start, target, eased)
+                self._scrollbar.configure(button_color=color)
+                self._scrollbar_color = color
+                if index < steps:
+                    self._scrollbar_animation_id = self.after(interval, step, index + 1)
+                else:
+                    self._scrollbar_animation_id = None
+            except (TclError, RuntimeError):
+                self._scrollbar_animation_id = None
+
+        step()
 
     def _schedule_scrollbar_update(self, _event=None):
         self.after_idle(self._update_scrollbar_visibility)
