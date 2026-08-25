@@ -153,53 +153,6 @@ BUTTON_NEUTRAL = {
 BUTTON_DANGER = {"fg_color": "transparent", "hover_color": UI["danger_surface"], "text_color": UI["danger"], "border_width": 1, "border_color": "#F3BBB5"}
 
 
-class _GradientFrame(ctk.CTkFrame):
-    """绘制轻量横向渐变底色的容器，保持 CustomTkinter 子控件布局不变。"""
-
-    def __init__(self, *args, gradient_colors=None, **kwargs):
-        self._gradient_colors = gradient_colors or ("#EEF4F8", "#F7FAFC")
-        self._gradient_redraw_id = None
-        kwargs.setdefault("fg_color", "transparent")
-        super().__init__(*args, **kwargs)
-        self.bind("<Configure>", self._schedule_gradient_redraw, add="+")
-        self.after_idle(self._draw_gradient)
-
-    def _schedule_gradient_redraw(self, _event=None):
-        if self._gradient_redraw_id is not None:
-            try:
-                self.after_cancel(self._gradient_redraw_id)
-            except (TclError, RuntimeError):
-                pass
-        self._gradient_redraw_id = self.after_idle(self._draw_gradient)
-
-    @staticmethod
-    def _blend_color(start: str, end: str, fraction: float) -> str:
-        start_rgb = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
-        end_rgb = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
-        channels = [round(left + (right - left) * fraction) for left, right in zip(start_rgb, end_rgb)]
-        return "#" + "".join(f"{channel:02X}" for channel in channels)
-
-    def _draw_gradient(self):
-        self._gradient_redraw_id = None
-        if not getattr(self, "_canvas", None) or not self._canvas.winfo_exists():
-            return
-        width = self._canvas.winfo_width()
-        height = self._canvas.winfo_height()
-        if width <= 1 or height <= 1:
-            return
-        self._canvas.delete("gradient_background")
-        stripe_width = 4
-        start, end = self._gradient_colors
-        for left in range(0, width, stripe_width):
-            fraction = left / max(width - 1, 1)
-            color = self._blend_color(start, end, fraction)
-            self._canvas.create_rectangle(
-                left, 0, min(left + stripe_width, width), height,
-                fill=color, outline="", tags="gradient_background",
-            )
-        self._canvas.tag_raise("gradient_background")
-
-
 class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFrame(
     """仅在内容超出可视区域时显示垂直滚动条。"""
 
@@ -966,13 +919,11 @@ class DlcHubApplication:
         return max(180, int(usable / max(scaling, 1.0)) - 24)
 
     def _build_ui(self) -> None:
-        shell = _GradientFrame(
-            self.window, gradient_colors=("#E8F0F5", "#F7FAFC"),
-        )
+        shell = ctk.CTkFrame(self.window, fg_color=UI["page"])
         shell.pack(fill="both", expand=True)
-        sidebar = _GradientFrame(
-            shell, width=188, corner_radius=0,
-            gradient_colors=("#E5EEF4", "#F4F8FA"), border_width=0,
+        sidebar = ctk.CTkFrame(
+            shell, width=188, corner_radius=0, fg_color=UI["card"],
+            border_width=0,
         )
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -1016,11 +967,7 @@ class DlcHubApplication:
         )
         self.global_notice.pack(side="bottom", fill="x", padx=18, pady=4)
 
-        # container = ctk.CTkFrame(shell, ...): 保留原有内容容器语义，实际使用渐变实现。
-        container = _GradientFrame(
-            shell, corner_radius=0,
-            gradient_colors=("#F3F7FA", "#EAF3F8"),
-        )
+        container = ctk.CTkFrame(shell, fg_color=UI["page"], corner_radius=0)
         container.pack(side="right", fill="both", expand=True, padx=30, pady=24)
         self.content_container = container
 
@@ -1081,10 +1028,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=12, weight="bold"),
         ).grid(row=0, column=1, sticky="e", padx=(18, 12))
 
-        self.page_host = _GradientFrame(
-            container, corner_radius=0,
-            gradient_colors=("#F3F7FA", "#EAF3F8"),
-        )
+        self.page_host = ctk.CTkFrame(container, fg_color=UI["page"], corner_radius=0)
         self.page_host.pack(fill="both", expand=True)
 
         # Top-centered snackbar for task completion/error feedback: visible in
