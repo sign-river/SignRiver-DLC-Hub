@@ -2796,13 +2796,13 @@ class DlcHubApplication:
             self.tool_center_console_panel, fg_color=UI["border"], height=1,
             corner_radius=0,
         )
-        self.tool_center_console_divider.pack(fill="x", padx=8)
+        self.tool_center_console_divider.pack(fill="x", padx=0)
         self.tool_center_console = ctk.CTkTextbox(
             self.tool_center_console_panel, height=110, fg_color=UI["card"], text_color=UI["text"],
             border_width=0, corner_radius=0,
             font=ctk.CTkFont(family="Consolas", size=12), wrap="none"
         )
-        self.tool_center_console.pack(fill="x", padx=8, pady=(0, 8))
+        self.tool_center_console.pack(fill="x", padx=0, pady=(0, 8))
 
     def _append_tool_log(self, message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}"
