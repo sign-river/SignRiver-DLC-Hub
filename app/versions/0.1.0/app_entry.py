@@ -4137,19 +4137,14 @@ class DlcHubApplication:
                 self._show_page("简单错误检测")
         self._show_tool_center_detail("显卡驱动详情", back_text=back_text, back_command=back_command)
         body = self.tool_center_detail_body
-        ctk.CTkLabel(
-            body,
-            text="这里仅提供只读检查结果和官方更新入口，不会自动替换驱动或修改系统设置。",
-            text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
-        ).pack(fill="x", padx=16, pady=(16, 12))
         if infos:
             active = [info.name for info in infos if info.is_active]
             ctk.CTkLabel(
                 body,
                 text=(
-                    "系统报告当前显示输出：" + "、".join(active)
+                    "检测当前使用显卡为：" + "、".join(active)
                     if active else
-                    "系统未能确认当前显示输出显卡；混合显卡模式下请以游戏设置或任务管理器 GPU 引擎为准。"
+                    "暂未检测到当前使用显卡；混合显卡模式下请以游戏设置或任务管理器 GPU 引擎为准。"
                 ),
                 text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
             ).pack(fill="x", padx=16, pady=(0, 12))
