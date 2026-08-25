@@ -43,7 +43,7 @@
     {
       "tool_id": "dcontrol",
       "title": "关闭Windows Defender",
-      "description": "按教程临时关闭 Windows Defender；仅供排查使用。",
+      "description": "按教程临时关闭 Windows Defender。",
       "asset_name": "dControl.zip",
       "release_tag": "tools",
       "package_kind": "zip",

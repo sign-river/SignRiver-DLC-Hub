@@ -2941,10 +2941,7 @@ class DlcHubApplication:
             command=back_command or self._show_tool_center_list,
         )
         self.tool_center_detail_title.configure(text=title)
-        self.tool_center_detail_back_button.configure(
-            text=back_text,
-            command=back_command or self._show_tool_center_list,
-        )
+        self.tool_center_detail_back_button.configure(command=back_command or self._show_tool_center_list)
         self._set_tool_ready(not requires_cloud_download)
         self._set_tool_progress(False)
         self._clear_tool_logs()
@@ -3043,7 +3040,7 @@ class DlcHubApplication:
         if self.host_platform == "windows":
             cards.append((
                 "显卡驱动检查",
-                "读取显卡驱动信息并提示是否需要更新；不自动安装。",
+                "读取显卡驱动信息并提示是否需要更新。",
                 self._show_gpu_driver_detail,
             ))
             cards.append((
@@ -3053,12 +3050,12 @@ class DlcHubApplication:
             ))
         cards.append((
             "补丁工具",
-            "查看游戏补丁状态与下载文件；不直接修改游戏。",
+            "查看游戏补丁状态与下载文件。",
             self._show_patch_tool,
         ))
         cards.append((
             "日志资料收集",
-            "收集游戏日志与配置用于排查；不收集截图和大型转储。",
+            "收集游戏日志与配置用于排查。",
             self._show_support_collection_tool,
         ))
         cards.extend(
