@@ -85,7 +85,11 @@ from .signriver_app.infrastructure.security_software import (
     is_windows_security_product,
     preferred_security_product_executable,
 )
-from .signriver_app.infrastructure.gpu_driver import GpuDriverInfo, discover_gpu_drivers
+from .signriver_app.infrastructure.gpu_driver import (
+    GpuDriverInfo,
+    discover_gpu_drivers,
+    is_integrated_adapter,
+)
 from .signriver_app.infrastructure.persistence import (
     Database,
     DownloadTaskRepository,
@@ -4100,7 +4104,7 @@ class DlcHubApplication:
                 if outdated:
                     message = f"显卡驱动：发现 {len(outdated)} 个驱动可能偏旧，点击工具详情查看。"
                 elif active:
-                    message = f"显卡驱动：已读取 {len(infos)} 个适配器，当前显示输出为 {active[0]}。"
+                    message = f"显卡驱动：已读取 {len(infos)} 个适配器，当前使用显卡为 {active[0]}。"
                 else:
                     message = f"显卡驱动：已读取 {len(infos)} 个适配器，点击工具详情查看。"
                 warning = "update-module-basics" if outdated else None
@@ -4149,6 +4153,20 @@ class DlcHubApplication:
                 ),
                 text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
             ).pack(fill="x", padx=16, pady=(0, 12))
+            active_integrated = any(
+                info.is_active and is_integrated_adapter(info.name, info.vendor)
+                for info in infos
+            )
+            has_discrete = any(
+                not is_integrated_adapter(info.name, info.vendor) for info in infos
+            )
+            if active_integrated and has_discrete:
+                ctk.CTkLabel(
+                    body,
+                    text="当前显示输出使用的是集成显卡；如果游戏性能不足，建议在 Windows 图形设置中将游戏切换为高性能独立显卡。",
+                    text_color=UI["text"], fg_color=UI["warning_surface"],
+                    corner_radius=8, anchor="w", justify="left", wraplength=688,
+                ).pack(fill="x", padx=16, pady=(0, 14))
         if not infos:
             ctk.CTkLabel(body, text="正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。", anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
             if not probe_requested:
@@ -4168,6 +4186,11 @@ class DlcHubApplication:
             ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
             if info.vendor_url:
                 ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: webbrowser.open(url), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(
+            body,
+            text="提示：NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络才能正常访问；也可以优先尝试 Windows 更新。",
+            text_color=UI["muted"], anchor="w", justify="left", wraplength=720,
+        ).pack(fill="x", padx=16, pady=(4, 16))
         if probe_requested:
             def worker() -> None:
                 found = discover_gpu_drivers()

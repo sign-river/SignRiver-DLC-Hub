@@ -60,6 +60,22 @@ def _driver_year(value: str) -> int | None:
     return None
 
 
+def _driver_date_display(value: str) -> str:
+    match = re.search(r"/Date\(([-+]?\d+)", value)
+    if match:
+        try:
+            timestamp = int(match.group(1)) / 1000
+            return _datetime.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+        except (OverflowError, OSError, ValueError):
+            return value
+    return value
+
+
+def is_integrated_adapter(name: str, vendor: str) -> bool:
+    value = f"{name} {vendor}".casefold()
+    return any(token in value for token in ("intel", "uhd", "iris", "vega", "apu"))
+
+
 def _select_physical_adapters(items: list[dict]) -> list[dict]:
     """最多保留两个真实适配器：优先一块集显和一块独显。"""
     physical = [
@@ -72,8 +88,9 @@ def _select_physical_adapters(items: list[dict]) -> list[dict]:
         return physical
 
     def is_integrated(item: dict) -> bool:
-        value = f"{item.get('Name') or ''} {item.get('AdapterCompatibility') or ''}".casefold()
-        return any(token in value for token in ("intel", "uhd", "iris", "vega", "apu"))
+        return is_integrated_adapter(
+            str(item.get("Name") or ""), str(item.get("AdapterCompatibility") or "")
+        )
 
     integrated = next((item for item in physical if is_integrated(item)), None)
     discrete = next((item for item in physical if item is not integrated), None)
@@ -115,7 +132,7 @@ def discover_gpu_drivers(
         name = str(item.get("Name") or "未知显卡").strip()
         vendor = str(item.get("AdapterCompatibility") or "").strip()
         version = str(item.get("DriverVersion") or "未知").strip()
-        date_value = str(item.get("DriverDate") or "").strip()
+        date_value = _driver_date_display(str(item.get("DriverDate") or "").strip())
         is_active = any(
             int(item.get(key) or 0) > 0
             for key in ("CurrentHorizontalResolution", "CurrentVerticalResolution", "CurrentRefreshRate")
