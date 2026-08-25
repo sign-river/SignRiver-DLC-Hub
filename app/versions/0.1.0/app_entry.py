@@ -3385,6 +3385,8 @@ class DlcHubApplication:
             justify="left",
             anchor="w",
         ).pack(fill="x", padx=16, pady=(0, 12))
+        location_actions = ctk.CTkFrame(body, fg_color="transparent")
+        location_actions.pack(anchor="w", padx=16, pady=(0, 10))
         if game_root is not None:
             patch_directory = resolve_game_directory(
                 game_root,
@@ -3396,8 +3398,6 @@ class DlcHubApplication:
                 / "packages"
                 / self.cartridge.adapter.descriptor.game_id
             )
-            location_actions = ctk.CTkFrame(body, fg_color="transparent")
-            location_actions.pack(anchor="w", padx=16, pady=(0, 10))
             ctk.CTkButton(
                 location_actions,
                 text="打开游戏内补丁安装目录",
@@ -3411,11 +3411,11 @@ class DlcHubApplication:
                 command=lambda path=cache_directory: self._open_path(path),
             ).pack(side="left", padx=(10, 0))
         ctk.CTkButton(
-            body,
+            location_actions,
             text="刷新补丁列表",
             width=120,
             command=self._refresh_patch_tool,
-        ).pack(anchor="w", padx=16, pady=(0, 10))
+        ).pack(side="left", padx=(10, 0) if game_root is not None else 0)
         ready = self._patch_ready_paths() or {}
         if ready:
             ctk.CTkLabel(

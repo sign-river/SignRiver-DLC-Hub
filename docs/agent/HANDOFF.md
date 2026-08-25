@@ -6,6 +6,12 @@
 - 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_client_problem_center.py` 通过；基线与活动模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 - 下一步：如需确认视觉位置，重启当前客户端查看补丁工具页；正式发布时按版本发布流程构建并同步更新说明。
 
+## 2026-08-26：刷新补丁按钮调整到首行操作区
+
+- 根据截图反馈，将“刷新补丁列表”从独立行移入补丁工具详情页的目录操作行，紧跟两个目录按钮；无游戏目录时仍保留刷新按钮。
+- 基线与活动模块 `0.2.0` 已同步；未修改 `app/state.json`。客户端若已运行需完全退出并重启。
+- 验证：定向 UI/工具/问题中心测试、两个模块 `py_compile`、Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、构建、上传或推送。
+
 ## 2026-08-25：运行日志工具栏调整
 
 - 修改范围：Git 跟踪基线 `app/versions/0.1.0/app_entry.py`，并按功能范围定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`（`app/state.json` 的 `active_version` 仍为 `0.2.0`，未修改）；同步更新 `tests/test_ui_theme.py` 的工具栏布局断言。
