@@ -3795,9 +3795,47 @@ class DlcHubApplication:
         dialog.focus_set()
 
     def _update_solution_detail_wraplength(self, _event=None) -> None:
-        for label in getattr(self, "solution_detail_text_labels", ()):
-            if label.winfo_exists():
-                label.configure(wraplength=820)
+        for textbox in getattr(self, "solution_detail_textboxes", ()):
+            if textbox.winfo_exists():
+                self._fit_solution_textbox(textbox)
+
+    def _fit_solution_textbox(self, textbox) -> None:
+        if getattr(textbox, "_fitting_solution_text", False) or not textbox.winfo_exists():
+            return
+        try:
+            textbox._fitting_solution_text = True
+            textbox.update_idletasks()
+            result = textbox._textbox.count("1.0", "end-1c", "displaylines")
+            lines = int(result[0] if isinstance(result, tuple) else result)
+            font = textbox._textbox.cget("font")
+            line_height = max(16, int(textbox._textbox.tk.call("font", "metrics", font, "-linespace")))
+            height = max(34, lines * line_height + 10)
+            if int(textbox.cget("height")) != height:
+                textbox.configure(height=height)
+        except (TclError, TypeError, ValueError):
+            pass
+        finally:
+            textbox._fitting_solution_text = False
+
+    def _create_solution_textbox(self, text: str):
+        textbox = ctk.CTkTextbox(
+            self.solution_detail_body,
+            height=40,
+            activate_scrollbars=False,
+            wrap="char",
+            fg_color="transparent",
+            border_width=0,
+            corner_radius=0,
+            text_color=UI["text_secondary"],
+            font=ctk.CTkFont(size=14),
+        )
+        textbox.insert("1.0", text)
+        textbox.configure(state="disabled")
+        textbox.pack(fill="x", pady=(0, 16))
+        textbox.bind("<Configure>", lambda _event, widget=textbox: self._fit_solution_textbox(widget), add="+")
+        self.window.after_idle(lambda widget=textbox: self._fit_solution_textbox(widget))
+        self.solution_detail_textboxes.append(textbox)
+        return textbox
 
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
@@ -3809,7 +3847,7 @@ class DlcHubApplication:
             child.destroy()
         self.solution_detail_images = []
         self.solution_detail_image_sources = []
-        self.solution_detail_text_labels = []
+        self.solution_detail_textboxes = []
         self.solution_detail_title_label.configure(text=title)
         helper_tools = [
             values[0]
@@ -3823,12 +3861,8 @@ class DlcHubApplication:
                 self._pack_helper_tool_actions(
                     actions, tool, origin="solution", article_id=article_id
                 )
-        summary_label = ctk.CTkLabel(
-            self.solution_detail_body, text=summary, text_color=UI["text_secondary"],
-            anchor="w", wraplength=820,
-        )
-        summary_label.pack(fill="x", pady=(0, 18))
-        self.solution_detail_text_labels.append(summary_label)
+        summary_textbox = self._create_solution_textbox(summary)
+        summary_textbox.pack_configure(pady=(0, 18))
         action_row = None
         for kind, *values in blocks:
             if kind not in {"button", "tool", "action"}:
@@ -3836,12 +3870,7 @@ class DlcHubApplication:
             if kind == "heading":
                 ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
             elif kind == "text":
-                text_label = ctk.CTkLabel(
-                    self.solution_detail_body, text=values[0], text_color=UI["text_secondary"],
-                    justify="left", anchor="w", wraplength=820,
-                )
-                text_label.pack(fill="x", pady=(0, 16))
-                self.solution_detail_text_labels.append(text_label)
+                self._create_solution_textbox(values[0])
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["primary"],
