@@ -4067,10 +4067,10 @@ class DlcHubApplication:
                 if action_row is None:
                     action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
                     action_row.pack(fill="x", pady=(0, 14))
+                # 指南中的按钮只是页面导航，降低视觉权重，避免与“下载/启动”主操作争夺注意力。
                 ctk.CTkButton(
-                    action_row, text=values[0], width=156, height=36,
-                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
-                    text_color="white", corner_radius=8,
+                    action_row, text=values[0], width=196, height=34,
+                    corner_radius=8, **BUTTON_SECONDARY,
                     command=lambda target=values[1]: self._activate_solution_button(target),
                 ).pack(side="left", padx=(0, 8))
             elif kind == "tool":
