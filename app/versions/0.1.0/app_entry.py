@@ -2862,6 +2862,8 @@ class DlcHubApplication:
 
     def _append_tool_log(self, message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}"
+        if self.tool_center_log_lines and self.tool_center_log_lines[-1].split("] ", 1)[-1] == message:
+            return
         self.tool_center_log_lines.append(line)
         console = getattr(self, "tool_center_console", None)
         if console is not None and console.winfo_exists():
@@ -5433,6 +5435,8 @@ class DlcHubApplication:
             self.context.logger.warning("操作结果：%s", message)
         else:
             self.context.logger.info("操作结果：%s", message)
+        if getattr(self, "tool_center_detail_body", None) is not None:
+            self._append_tool_log(message)
         self.notice_serial += 1
         serial = self.notice_serial
         snackbar = getattr(self, "snackbar", None)
