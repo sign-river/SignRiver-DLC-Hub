@@ -2787,7 +2787,7 @@ class DlcHubApplication:
         )
         detail_header.pack(fill="x", padx=24, pady=(18, 8))
         self.tool_center_detail_back_button = ctk.CTkButton(
-            detail_header, text="←", width=34, height=30,
+            detail_header, text="← 返回常用工具", width=144, height=30,
             command=self._show_tool_center_list, **BUTTON_SECONDARY,
         )
         self.tool_center_detail_back_button.pack(side="right", padx=(10, 0))
