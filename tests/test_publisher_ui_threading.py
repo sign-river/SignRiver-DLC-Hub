@@ -13,6 +13,7 @@ import signriver_publisher.release_center as release_center_ui
 import signriver_publisher.ui as publisher_ui
 from signriver_publisher.release_center import ReleaseCenter
 from signriver_publisher.release_center_ui import ReleaseCenterUiMixin
+from signriver_publisher.cartridge_management_ui import CartridgeManagementUiMixin
 from signriver_publisher.publisher_targets_ui import PublisherTargetsUiMixin
 from signriver_publisher.release_models import CheckResult, ReleaseStatus
 from signriver_publisher.release_service import ReleaseService
@@ -1097,16 +1098,19 @@ def test_release_center_pause_marks_request_pending_until_safe_checkpoint() -> N
     assert {"state": "disabled", "text": "已请求安全暂停…"} in harness.pause_button.calls
 
 
-def test_extension_management_ui_exposes_unified_publish_flow() -> None:
-    source = _publisher_ui_sources()
+def test_resource_management_ui_splits_overview_and_operation_subpages() -> None:
+    source = inspect.getsource(CartridgeManagementUiMixin)
+    home_source = inspect.getsource(
+        CartridgeManagementUiMixin._build_cartridge_management_tab
+    )
 
     for text in (
         "发布资源统一管理",
         "卡带与公告",
         "扩展指南与工具",
-        "浏览与维护",
-        "生成与发布",
         "刷新资源概览",
+        "进入卡带与公告",
+        "进入指南与工具",
         "全部游戏卡带",
         "管理公告",
         "打开指南目录",
@@ -1115,3 +1119,19 @@ def test_extension_management_ui_exposes_unified_publish_flow() -> None:
         "publish_extensions_mirror",
     ):
         assert text in source
+
+    assert "self.extension_detail_page = ctk.CTkFrame" in source
+    assert "def _show_extension_detail" in source
+    assert "CTkScrollableFrame" not in home_source
+
+
+def test_extension_publish_scope_uses_its_own_progress_controls() -> None:
+    source = inspect.getsource(PublisherTargetsUiMixin._publish_scope_controls)
+
+    for control in (
+        "self.extensions_publish_button",
+        "self.extensions_publish_pause_button",
+        "self.extensions_upload_status",
+        "self.extensions_upload_progress",
+    ):
+        assert control in source

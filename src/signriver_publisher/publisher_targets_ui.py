@@ -76,15 +76,22 @@ class PublisherTargetsUiMixin:
         self._removed_single_source_action()
 
     def _publish_scope_controls(self):
-        """Return the common progress controls for modern mirror publishing."""
-        if self._active_publish_scope not in {"hub", "extensions"}:
-            raise RuntimeError("旧单源发布范围已移除")
-        return (
-            self.hub_publish_button,
-            self.hub_publish_pause_button,
-            self.hub_upload_status,
-            self.hub_upload_progress,
-        )
+        """Return progress controls for the active mirror-publish scope."""
+        if self._active_publish_scope == "hub":
+            return (
+                self.hub_publish_button,
+                self.hub_publish_pause_button,
+                self.hub_upload_status,
+                self.hub_upload_progress,
+            )
+        if self._active_publish_scope == "extensions":
+            return (
+                self.extensions_publish_button,
+                self.extensions_publish_pause_button,
+                self.extensions_upload_status,
+                self.extensions_upload_progress,
+            )
+        raise RuntimeError("旧单源发布范围已移除")
 
     def _build_publisher_targets_tab(self) -> None:
         for child in self.publisher_targets_tab.winfo_children():
