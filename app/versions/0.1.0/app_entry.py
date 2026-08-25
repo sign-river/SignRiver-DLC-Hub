@@ -1856,8 +1856,9 @@ class DlcHubApplication:
                 return
             else:
                 widget.configure(
-                    fg_color=UI["panel"], hover_color=UI["border"],
-                    text_color=UI["text_secondary"], border_width=0,
+                    fg_color=UI["primary_surface"], hover_color=UI["primary_surface_hover"],
+                    text_color=UI["primary"], border_width=1,
+                    border_color=UI["primary_border"],
                     corner_radius=8, height=34,
                 )
                 return
@@ -5857,7 +5858,7 @@ class DlcHubApplication:
         technical_header.pack(fill="x", padx=4, pady=(0, 4))
         ctk.CTkLabel(technical_header, text="技术详情 / Traceback", text_color=UI["text"], anchor="w",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkButton(technical_header, text="复制", width=64, height=28, fg_color=UI["panel"], hover_color=UI["border"], text_color=UI["text_secondary"],
+        ctk.CTkButton(technical_header, text="复制", width=64, height=28, **BUTTON_SECONDARY,
                       command=lambda: self._copy_problem_text(report.technical_details or self._problem_detail_text(report))).pack(side="right")
         technical = ctk.CTkTextbox(self.problem_detail_content, height=180, wrap="word", fg_color="#F3F4F6", text_color=UI["text_secondary"], border_width=0, corner_radius=8,
                                   font=ctk.CTkFont(family="Consolas", size=12))
