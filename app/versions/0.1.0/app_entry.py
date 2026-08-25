@@ -3812,6 +3812,7 @@ class DlcHubApplication:
             height = max(34, lines * line_height + 10)
             if int(textbox.cget("height")) != height:
                 textbox.configure(height=height)
+                self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)
         except (TclError, TypeError, ValueError):
             pass
         finally:
@@ -3942,6 +3943,8 @@ class DlcHubApplication:
         self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
         self.solution_detail_page.update_idletasks()
         self._update_solution_detail_wraplength()
+        self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)
+        self.window.after(120, self.solution_detail_body._update_scrollbar_visibility)
         self.solution_list_header.pack_forget()
         self.solution_search_bar.pack_forget()
         self.solution_list.pack_forget()
