@@ -158,7 +158,7 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     )[0]
     assert problem_layout.index('text="返回指南"') < problem_layout.index(
         'text="刷新"'
-    ) < problem_layout.index('text="清空全部"')
+    ) < problem_layout.index('text="清空全部记录"')
     assert 'guide_footer.pack(side="bottom", fill="x", padx=36, pady=(0, 24))' in source
     assert 'guide_actions = ctk.CTkScrollableFrame(' in source
     assert 'guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))' in source

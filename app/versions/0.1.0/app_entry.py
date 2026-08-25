@@ -1660,16 +1660,18 @@ class DlcHubApplication:
             problem_header, text="返回指南", width=92,
             command=lambda: self._show_page("报错指南"),
         )
-        self.problem_back_button.pack(side="right", padx=(0, 8))
+        self.problem_back_button.pack(side="right", padx=(0, 12))
         ctk.CTkButton(
             problem_header, text="刷新", width=72,
             command=self._refresh_problem_center,
-        ).pack(side="right", padx=(0, 8))
-        ctk.CTkButton(
-            problem_header, text="清空全部", width=88,
+        ).pack(side="right", padx=(0, 12))
+        self.problem_clear_button = ctk.CTkButton(
+            problem_header, text="清空全部记录", width=116, height=36,
             fg_color=UI["danger"], hover_color=UI["danger_hover"],
+            text_color="#FFFFFF",
             command=self._clear_problems,
-        ).pack(side="right")
+        )
+        self.problem_clear_button.pack(side="right", padx=(0, 16))
         problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
         problem_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.problem_list_panel = ctk.CTkFrame(problem_body, fg_color="transparent")
@@ -5596,6 +5598,9 @@ class DlcHubApplication:
         """Return from a record detail page to the parent record list."""
         if not hasattr(self, "problem_list_panel"):
             return
+        self.problem_clear_button.configure(
+            text="清空全部记录", width=116, command=self._clear_problems
+        )
         self.problem_back_button.configure(
             text="返回指南", command=lambda: self._show_page("报错指南")
         )
@@ -5703,6 +5708,10 @@ class DlcHubApplication:
         # Build and lay out the hidden detail view before removing the list.
         # Rebuilding the list first made the intermediate empty state visible.
         self._set_problem_detail(report)
+        self.problem_clear_button.configure(
+            text="删除当前问题记录", width=160,
+            command=lambda event_id=report.event_id: self._delete_current_problem(event_id),
+        )
         self.problem_back_button.configure(
             text="← 返回记录", command=self._show_problem_list
         )
@@ -5860,6 +5869,34 @@ class DlcHubApplication:
         except Exception as error:
             self.context.logger.exception("Unable to clear problem reports")
             messagebox.showerror("清空失败", str(error), parent=self.window)
+            return
+        self.selected_problem_event_id = None
+        self._show_problem_list()
+        self._refresh_problem_center()
+
+    def _delete_current_problem(self, event_id: str | None = None) -> None:
+        """Delete the record currently shown in the detail page."""
+        target_id = event_id or self.selected_problem_event_id
+        if not target_id:
+            self._show_problem_list()
+            return
+        report = self.problem_store.get(target_id)
+        if report is None:
+            self.selected_problem_event_id = None
+            self._show_problem_list()
+            self._refresh_problem_center()
+            return
+        if not messagebox.askyesno(
+            "删除问题记录",
+            "确定删除当前问题记录吗？此操作不会删除日志、缓存或下载文件。",
+            parent=self.window,
+        ):
+            return
+        try:
+            self.problem_store.delete(target_id)
+        except Exception as error:
+            self.context.logger.exception("Unable to delete current problem report")
+            messagebox.showerror("删除失败", str(error), parent=self.window)
             return
         self.selected_problem_event_id = None
         self._show_problem_list()
