@@ -3499,6 +3499,9 @@ class DlcHubApplication:
                 "操作：重新下载补丁资源；删除受控缓存并重新获取文件：%s",
                 filenames or "（无文件）",
             )
+            self._append_tool_log(
+                f"重新下载补丁：删除受控缓存并重新获取 {filenames or '（无文件）'}"
+            )
             self.download_queue.forget(task_ids, delete_cached_packages=True)
             for spec in specs:
                 future = self.download_queue.enqueue(spec)
@@ -3514,10 +3517,19 @@ class DlcHubApplication:
             result = future.result()
             failed = result.state is not DownloadState.READY
             message = f"补丁文件 {result.spec.filename}{'下载完成' if not failed else '下载失败：' + result.state.value}"
-            self._post_ui(lambda value=message, error=failed: self._notify(value, error=error))
+            self._post_ui(
+                lambda value=message, error=failed: (
+                    self._append_tool_log(value), self._notify(value, error=error)
+                )
+            )
         except Exception as error:
             self.context.logger.exception("Patch re-download task crashed")
-            self._post_ui(lambda value=str(error): self._notify(f"补丁重新下载异常：{value}", error=True))
+            self._post_ui(
+                lambda value=str(error): (
+                    self._append_tool_log(f"补丁重新下载异常：{value}"),
+                    self._notify(f"补丁重新下载异常：{value}", error=True),
+                )
+            )
 
     def _show_security_products(self) -> None:
         if self.host_platform != "windows":
@@ -5771,6 +5783,7 @@ class DlcHubApplication:
     def _open_path(self, path: Path) -> None:
         try:
             self.context.logger.info("操作：打开目录：%s", path)
+            self._append_tool_log(f"打开目录：{path}")
             path.mkdir(parents=True, exist_ok=True)
             open_directory(path)
         except Exception as error:
