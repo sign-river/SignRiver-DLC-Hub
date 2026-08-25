@@ -3483,6 +3483,11 @@ class DlcHubApplication:
         if not messagebox.askyesno("重新下载补丁", "将仅删除当前游戏补丁的已下载缓存并从云端重新获取。不会自动应用到游戏目录。是否继续？", parent=self.window):
             return
         try:
+            filenames = ", ".join(spec.filename for spec in specs)
+            self.context.logger.info(
+                "操作：重新下载补丁资源；删除受控缓存并重新获取文件：%s",
+                filenames or "（无文件）",
+            )
             self.download_queue.forget(task_ids, delete_cached_packages=True)
             for spec in specs:
                 future = self.download_queue.enqueue(spec)
@@ -4291,6 +4296,7 @@ class DlcHubApplication:
             self._open_path(folder)
             return
         try:
+            self.context.logger.info("操作：启动工具：%s", tool.title)
             self._start_helper_executable(executable, run_as_admin=tool.run_as_admin)
         except Exception as error:
             self.context.logger.exception("Helper tool launch failed: %s", tool.tool_id)
@@ -5398,6 +5404,12 @@ class DlcHubApplication:
             pass
 
     def _notify(self, message: str, *, error: bool = False) -> None:
+        # 顶部提示条是短时反馈；运行日志才是可追溯记录。统一在这里
+        # 落盘，确保下载、删除、安装和失败等操作不会只显示一闪而过的提示。
+        if error:
+            self.context.logger.warning("操作结果：%s", message)
+        else:
+            self.context.logger.info("操作结果：%s", message)
         self.notice_serial += 1
         serial = self.notice_serial
         snackbar = getattr(self, "snackbar", None)
@@ -5728,6 +5740,7 @@ class DlcHubApplication:
             self._notify(f"文件不存在或不可用：{path.name}", error=True)
             return
         try:
+            self.context.logger.info("操作：打开文件：%s", path)
             if os.name == "nt":
                 os.startfile(str(path))  # type: ignore[attr-defined]
             elif self.host_platform.startswith("macos"):
@@ -5746,6 +5759,7 @@ class DlcHubApplication:
 
     def _open_path(self, path: Path) -> None:
         try:
+            self.context.logger.info("操作：打开目录：%s", path)
             path.mkdir(parents=True, exist_ok=True)
             open_directory(path)
         except Exception as error:

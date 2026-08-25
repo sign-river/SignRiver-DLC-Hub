@@ -2432,3 +2432,87 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 用户反馈客户端多个页面在内容未超出时仍显示侧滚动条。基线 `app/versions/0.1.0/app_entry.py` 新增 `_AutoHideScrollableFrame`，监听内容/画布尺寸变化，仅当内容高度超过可视高度时显示垂直滚动条，否则隐藏并释放画布宽度。
 - 所有客户端滚动页面已按功能范围同步到活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`、未整目录覆盖活动模块其他文件。客户端若已运行需完全退出并重启。
 - 验证（2026-08-26）：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（全部通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：一键排错直达安全软件检测详情
+
+- 根因：一键排错的“查看工具详情”入口先切换到“常用工具”并触发列表刷新，再渲染安全软件详情，造成“更多工具”界面短暂闪现。
+- 基线与活动模块 `0.2.0` 的切页逻辑现会在该入口抑制工具列表刷新，直接展示安全软件检测详情；未修改 `app/state.json`，未整目录覆盖活动模块其他改动。
+- 验证：`python -m pytest -q tests/test_client_problem_center.py tests/test_helper_tools.py`（26 项通过）；两个模块 `py_compile`、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送；客户端若已运行需完全退出并重启。
+
+## 2026-08-26：解决方案详情标题与返回按钮对齐
+
+- 根因：解决方案详情标题原先放在可滚动正文中，返回按钮放在独立页头，导致截图中标题明显低于右侧按钮。
+- 基线 `app/versions/0.1.0/app_entry.py` 将详情标题移入页头并与返回按钮并排，正文不再重复渲染；已按功能范围同步到活动模块 `0.2.0/app_entry.py`，未修改 `app/state.json` 或覆盖活动模块其他改动。客户端若已运行需完全退出并重启。
+- 验证：`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`、`python -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`、`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py`（83 项通过）及 `git diff --check` 均通过。未执行 GUI 人工验收、构建、上传或推送。
+## 2026-08-26：教程与工具详情页增加页面边框
+
+- 解决方案详情和常用工具详情容器均补齐浅灰边框与圆角，避免详情态铺满父卡片后边界消失。
+- 基线及活动模块 `0.2.0` 已同步，未修改 `app/state.json`、未整目录覆盖活动模块其他改动。客户端若已运行需完全退出并重启。
+- 验证：两个模块 `py_compile`、Ruff、`pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_client_problem_center.py` 通过，`git diff --check` 通过；未执行 GUI 人工视觉验证、构建、上传或推送。
+
+## 2026-08-26：常用工具详情返回按钮补充文字
+
+- 修改基线 `app/versions/0.1.0/app_entry.py` 与活动模块 `0.2.0/app_entry.py`：详情页右上角返回按钮由仅显示箭头改为“← 返回常用工具”，保持原有返回常用工具列表的回调不变。
+- 未修改 `app/state.json`，未整目录覆盖活动模块；客户端若已运行需完全退出并重启后加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_client_problem_center.py`、两个模块 `py_compile`、基线 Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：网络下载指南文案调整
+
+- `config/guides/guide_network_basics.json` 的建议操作改为重启软件后重试，并说明 GitHub 源通常需要梯子、无梯子时使用 GitLink 源。
+- “仍无法下载时”改为联系开发者，附带问题记录/诊断信息，并复用主页 GitHub 链接 `https://github.com/sign-river/SignRiver-DLC-Hub`。
+- 验证：JSON 格式检查、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI、构建、上传或推送。
+
+## 2026-08-26：网络下载指南增加可点击联系入口
+
+- 指南内容新增受控 `link` 块，仅接受 HTTPS 地址；网络下载指南使用首页“资源有遗漏？反馈更新”复用的 QQ 群链接。
+- 基线 `app/versions/0.1.0/` 与当前活动模块 `app/versions/0.2.0/` 已定向同步指南解析和详情渲染；活动模块目录被 Git 忽略，未整目录覆盖。
+- 验证：JSON、两个模块 `py_compile`、Ruff、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI、构建、上传或推送。客户端需重启后加载活动模块改动。
+
+## 2026-08-26：网络下载指南增加设置截图预览
+
+- `config/guides/assets/network-download-settings.png` 使用用户提供的设置页截图；指南在建议操作后显示受页面宽高限制的预览图。
+- 点击预览图会打开独立图片窗口，支持鼠标滚轮 10% 步进缩放，并可拖拽查看放大后的图片。
+- 新增内置指南 `image` 块解析，仅接受 `config/guides/` 下的安全相对路径；基线与活动模块 `0.2.0` 已定向同步，客户端需重启加载。
+- 验证：JSON、两个模块 `py_compile`、Ruff、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：统一指南正文结构
+
+- 内置指南统一为“问题详细描述（无标题正文，可选）→ 建议操作（第一个正文大标题，固定名称）→ 后续补充内容”。
+- 已整理磁盘空间、游戏目录、补丁资源、补丁状态、安全软件、Windows Defender 和网络下载指南；图片与联系链接位置保持在网络指南的建议操作段落内。
+- 验证：指南 JSON 解析、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI、构建、上传或推送。
+
+## 2026-08-26：指南固定格式补充图片与开发者入口
+
+- 游戏目录指南改为实际原因说明：Steam 库位置变化、游戏目录移动/删除或磁盘断开导致旧记录失效；建议先重新扫描，失败后手动选择目录。
+- 新增 `config/guides/assets/game-directory-scan.png`，放在游戏目录指南建议操作之后，复用可点击预览与滚轮缩放能力。
+- 所有内置解决方案末尾统一增加“仍无法解决时”说明和 QQ 群联系链接；网络指南原“仍无法下载时”同步改名。
+- 验证：全部内置指南 JSON 解析、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI、构建、上传或推送。
+
+## 2026-08-26：指南格式规范扩展到内置与外置内容
+
+- `docs/error-guide-content-catalog.md` 新增“指南内容固定格式（内置与外置统一）”章节。
+- 明确所有内置指南与 `guides` Release 云端指南统一遵循“常见原因 → 建议操作 → 可选图片/补充 → 仍无法解决时 → 联系入口”顺序；以后格式调整需同步评估两类内容并记录在格式文档。
+
+## 2026-08-26：指南结构调整为常见原因在前
+
+- 所有内置指南统一为“常见原因（第一个大标题）→ 原因说明 → 建议操作（第二个大标题）→ 操作步骤”。
+- 网络下载指南的设置截图和联系开发者链接仍位于“建议操作”段落；程序更新指南补充了常见原因说明。
+- 验证：指南 JSON 解析、`python -m pytest -q tests/test_platform_content.py tests/test_ui_theme.py`（83 项）和 `git diff --check` 通过；未执行 GUI、构建、上传或推送。
+
+## 2026-08-26：补丁工具目录按钮文案调整
+
+- 基线 `app/versions/0.1.0/app_entry.py` 与活动模块 `app/versions/0.2.0/app_entry.py` 的两个目录按钮分别改为“打开游戏内补丁安装目录”和“打开软件内补丁缓存”，仅调整可见文案，不改变路径解析与打开行为。
+- 未修改 `app/state.json`；活动模块已按功能范围定向同步，客户端若已运行需完全退出并重启后加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_helper_tools.py tests/test_client_problem_center.py`（83 项通过）、两个模块 `py_compile`、Ruff 与 `git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。
+## 2026-08-26：补丁工具操作写入运行日志
+
+- 根因：`_notify()` 只更新顶部提示条，没有写入 `data/logs/launcher.log`，导致下载、删除、安装和失败结果无法在“运行日志”页追溯。
+- 基线 `app/versions/0.1.0/app_entry.py` 已让 `_notify()` 按成功/错误级别写入 logger；补丁重新下载额外记录删除缓存及重新获取的文件名，并记录打开文件/目录、启动工具等操作。
+- 已按功能范围同步活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`；活动客户端需完全退出并重启后加载。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_helper_tools.py tests/test_client_problem_center.py tests/test_ui_theme.py`（83 项通过）、两个模块 `py_compile`、基线 Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：库文件隐藏“打开文件”按钮
+
+- 补丁工具页对已下载文件增加库文件筛选：`.dll`、`.dylib`、`.so`、`.bundle`、`.a`、`.lib` 及版本化 `.so.*` 不显示“打开文件”，仍保留“打开位置”；JSON 等普通文件继续显示。
+- 基线 `app/versions/0.1.0/app_entry.py` 已修改，并将同一功能范围同步到活动模块 `app/versions/0.2.0/app_entry.py`；未修改 `app/state.json`，客户端需完全退出并重启后加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_client_problem_center.py tests/test_helper_tools.py`（83 项通过）、两个模块 `py_compile`、Ruff 与 `git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。
