@@ -1,5 +1,11 @@
 # SignRiver DLC Hub 决策记录
 
+## 2026-08-26：交接与操作记录分层管理
+
+- `HANDOFF.md` 只承担当前上下文摘要；已结束的逐次操作记录保存在 `docs/agent/archive/`，新任务不默认全文读取。
+- `DOCUMENT-MANAGEMENT.md` 作为文档生命周期、读取优先级和归档阈值的唯一规范；其余文档按职责维护，避免复制同一份实时状态。
+- 归档采用可追溯的保留策略，不删除历史内容；当 `HANDOFF.md` 超过约 300 行或 40 KB 时，在下一次交接中压缩并归档旧条目。
+
 ## 2026-08-25：指南从 hub Release 拆分到独立 guides Release
 
 - `hub` Release 只承载卡带主表、卡带详情和公告；报错指南索引、指南详情及普通指南附件改由独立 `guides` Release 承载；可下载工具继续使用独立 `tools` Release。此决策取代 2026-08-23 的“指南复用 hub Release”方案。

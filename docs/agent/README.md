@@ -2,6 +2,8 @@
 
 本目录是 SignRiver DLC Hub 的项目长期记忆入口。它只保存继续工作所需的有效信息，不保存完整聊天记录、重复日志或账号凭据。
 
+文档治理细则见 [`DOCUMENT-MANAGEMENT.md`](DOCUMENT-MANAGEMENT.md)。新 AI 默认只读取当前交接和按需专题文档；历史操作流水位于 `archive/`，不应在每次任务中全文加载。
+
 ## 新任务读取顺序
 
 开始新的 Codex 任务后，在修改文件前依次执行：
@@ -46,6 +48,7 @@
 | `PROJECT_CONTEXT.md` | 稳定 | 项目用途、架构、目录、常用验证方式 |
 | `DECISIONS.md` | 累积 | 关键方案、原因、放弃路线和代价 |
 | `HANDOFF.md` | 高频更新 | 当前工作区状态、进度、测试和下一步 |
+| `DOCUMENT-MANAGEMENT.md` | 长期 | 文档生命周期、归档阈值和 AI 读取规则 |
 | Git、代码、测试 | 实时 | 最终事实来源 |
 
 `HANDOFF.md` 可以频繁覆盖；`DECISIONS.md` 应追加或修订；不要让同一份临时状态同时散落在多处。
