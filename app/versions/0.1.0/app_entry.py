@@ -157,6 +157,10 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
     """仅在内容超出可视区域时显示垂直滚动条。"""
 
     def __init__(self, *args, **kwargs):
+        # 细窄的胶囊滑块：轨道透明，避免在浅色页面右侧形成一条呆板灰栏。
+        kwargs.setdefault("scrollbar_width", 8)
+        kwargs.setdefault("scrollbar_corner_radius", 4)
+        kwargs.setdefault("scrollbar_fg_color", "transparent")
         super().__init__(*args, **kwargs)
         # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
         self._scrollbar_visible = None
@@ -1253,8 +1257,8 @@ class DlcHubApplication:
             return _AutoHideScrollableFrame(
                 parent, height=250, fg_color=UI["panel"], corner_radius=10,
                 border_width=1, border_color=UI["border"],
-                scrollbar_button_color=UI["input_border"],
-                scrollbar_button_hover_color=UI["muted"],
+                scrollbar_button_color=UI["primary_border"],
+                scrollbar_button_hover_color=UI["primary"],
             )
 
         self.dlc_list_frame = create_catalog_list_frame()
@@ -1284,8 +1288,8 @@ class DlcHubApplication:
             self.page_host,
             fg_color=UI["page"],
             corner_radius=0,
-            scrollbar_button_color=UI["input_border"],
-            scrollbar_button_hover_color=UI["muted"],
+                scrollbar_button_color=UI["primary_border"],
+                scrollbar_button_hover_color=UI["primary"],
         )
         self.settings_list = settings_list
         self.settings_description_boxes = []
@@ -1625,8 +1629,8 @@ class DlcHubApplication:
             self.error_guide_card,
             fg_color="transparent",
             corner_radius=0,
-            scrollbar_button_color=UI["input_border"],
-            scrollbar_button_hover_color=UI["muted"],
+                scrollbar_button_color=UI["primary_border"],
+                scrollbar_button_hover_color=UI["primary"],
         )
         guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))
         for title, detail, target in (
@@ -1751,7 +1755,7 @@ class DlcHubApplication:
         self.problem_list_panel.pack(fill="both", expand=True)
         self.problem_list = _AutoHideScrollableFrame(
             self.problem_list_panel, fg_color="#F7F8FA", corner_radius=8,
-            border_width=0, scrollbar_button_color=UI["input_border"],
+            border_width=0, scrollbar_button_color=UI["primary_border"],
         )
         self.problem_list.pack(fill="both", expand=True)
         self.problem_detail_page = ctk.CTkFrame(
@@ -1759,7 +1763,7 @@ class DlcHubApplication:
         )
         self.problem_detail_content = _AutoHideScrollableFrame(
             self.problem_detail_page, fg_color=UI["card"], corner_radius=0,
-            border_width=0, scrollbar_button_color=UI["input_border"],
+            border_width=0, scrollbar_button_color=UI["primary_border"],
         )
         self.problem_detail_content.pack(fill="both", expand=True, padx=(16, 8), pady=(4, 8))
         self.problem_actions = ctk.CTkFrame(
@@ -3998,6 +4002,41 @@ class DlcHubApplication:
         self.window.after(80, lambda widget=textbox: self._fit_tool_detail_textbox(widget))
         return textbox
 
+    def _create_tool_emphasis_textbox(self, text: str, *, text_color=None, pady=(0, 10)):
+        """用带强调边框的信息块呈现结构化重点，同时保留正文自动换行。"""
+        frame = ctk.CTkFrame(
+            self.tool_center_detail_body,
+            fg_color=UI["card"],
+            border_color=UI["danger"],
+            border_width=3,
+            corner_radius=12,
+        )
+        frame.pack(fill="x", padx=16, pady=pady)
+        textbox = ctk.CTkTextbox(
+            frame,
+            height=34,
+            border_spacing=0,
+            activate_scrollbars=False,
+            wrap="char",
+            fg_color="transparent",
+            border_width=0,
+            corner_radius=0,
+            text_color=text_color or UI["text"],
+            font=ctk.CTkFont(size=14),
+        )
+        textbox.insert("1.0", text)
+        textbox._tool_detail_raw_text = text
+        textbox.configure(state="disabled")
+        textbox.pack(fill="x", padx=12, pady=8)
+        textbox.bind(
+            "<Configure>",
+            lambda _event, widget=textbox: self._fit_tool_detail_textbox(widget),
+            add="+",
+        )
+        self.window.after_idle(lambda widget=textbox: self._fit_tool_detail_textbox(widget))
+        self.window.after(80, lambda widget=textbox: self._fit_tool_detail_textbox(widget))
+        return frame
+
     def _show_solution_detail(self, article_id: str) -> None:
         article = self.solution_articles.get(article_id)
         if article is None:
@@ -4344,7 +4383,7 @@ class DlcHubApplication:
         for info in infos:
             active_text = " · 当前显示输出" if info.is_active else ""
             text = f"{info.name}{active_text}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
-            self._create_tool_detail_textbox(
+            self._create_tool_emphasis_textbox(
                 text,
                 text_color=UI["danger"] if info.warning else UI["text"],
                 pady=(0, 10),
