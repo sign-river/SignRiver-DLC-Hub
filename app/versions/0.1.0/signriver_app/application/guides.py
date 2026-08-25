@@ -26,6 +26,7 @@ TOOLS_INDEX_ASSET_NAME = "tools_index.json"
 TOOLS_RELEASE_TAG = "tools"
 _GUIDE_SCHEMA = 1
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_TOOL_DETAIL_ACTIONS = {"open_guide", "open_url", "open_folder"}
 
 
 class GuideCatalogError(RuntimeError):
@@ -73,6 +74,40 @@ class GuideIndexEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolDetailAction:
+    """A safe, declarative action rendered on a cloud tool's detail page."""
+
+    action: str
+    label: str
+    guide_id: str = ""
+    url: str = ""
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ToolDetailAction":
+        if not isinstance(value, dict):
+            raise ValueError("tool detail button must be an object")
+        action = str(value.get("action") or "").strip().lower()
+        if action not in _TOOL_DETAIL_ACTIONS:
+            raise ValueError("unsupported tool detail button action")
+        label = str(value.get("label") or "").strip()
+        if not label:
+            raise ValueError("tool detail button label is required")
+        guide_id = str(value.get("guide_id") or "").strip()
+        url = str(value.get("url") or "").strip()
+        if action == "open_guide":
+            guide_id = _id(guide_id, "tool detail button guide_id")
+        elif guide_id:
+            raise ValueError("tool detail button guide_id only applies to open_guide")
+        if action == "open_url":
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or not parsed.netloc:
+                raise ValueError("tool detail button url must be HTTPS")
+        elif url:
+            raise ValueError("tool detail button url only applies to open_url")
+        return cls(action=action, label=label, guide_id=guide_id, url=url)
+
+
+@dataclass(frozen=True, slots=True)
 class GuideTool:
     tool_id: str
     title: str
@@ -94,6 +129,9 @@ class GuideTool:
     run_as_admin: bool = False
     builtin: bool = False
     revision: str = ""
+    detail_intro: str = ""
+    detail_warnings: tuple[str, ...] = ()
+    detail_actions: tuple[ToolDetailAction, ...] = ()
 
     @classmethod
     def from_dict(cls, value: dict[str, object], *, builtin: bool = False) -> "GuideTool":
@@ -145,6 +183,17 @@ class GuideTool:
         raw_admin = value.get("run_as_admin", False)
         if not isinstance(raw_admin, bool):
             raise ValueError("guide tool run_as_admin must be a boolean")
+        raw_detail = value.get("detail", {})
+        if raw_detail is None:
+            raw_detail = {}
+        if not isinstance(raw_detail, dict):
+            raise ValueError("tool detail must be an object")
+        raw_warnings = raw_detail.get("warnings", [])
+        if not isinstance(raw_warnings, list) or not all(isinstance(item, str) for item in raw_warnings):
+            raise ValueError("tool detail warnings must be a list of strings")
+        raw_actions = raw_detail.get("buttons", [])
+        if not isinstance(raw_actions, list):
+            raise ValueError("tool detail buttons must be a list")
         return cls(
             tool_id=_id(value.get("tool_id"), "tool_id"),
             title=str(value.get("title") or "").strip(),
@@ -166,6 +215,9 @@ class GuideTool:
             run_as_admin=raw_admin,
             builtin=builtin,
             revision=str(value.get("revision") or "").strip(),
+            detail_intro=str(raw_detail.get("intro") or "").strip(),
+            detail_warnings=tuple(item.strip() for item in raw_warnings if item.strip()),
+            detail_actions=tuple(ToolDetailAction.from_dict(item) for item in raw_actions),
         )
 
     def is_helper_tool(self) -> bool:
@@ -589,4 +641,4 @@ class GuideCatalogService:
             raise GuideCatalogError(describe_network_error(error, url=url, action="下载报错指南资源")) from error
 
 
-__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool"]
+__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool", "ToolDetailAction"]

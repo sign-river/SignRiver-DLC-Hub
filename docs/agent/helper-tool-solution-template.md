@@ -79,6 +79,22 @@ GitHub 示例：
 
 工具的完整标题、说明、文件名、版本、平台与启动方式只在 `tools_index.json` 维护，避免两处元数据漂移。
 
+工具也可以在同一条 `tools_index.json` 记录中声明详情页内容和按钮：
+
+```json
+"detail": {
+  "intro": "仅处理用户主动选择的文件，不会修改游戏安装目录。",
+  "warnings": ["使用前请先备份文件。"],
+  "buttons": [
+    {"action": "open_guide", "label": "查看使用指南", "guide_id": "example-tool-guide"},
+    {"action": "open_url", "label": "项目主页", "url": "https://example.com/tool"},
+    {"action": "open_folder", "label": "打开工具目录"}
+  ]
+}
+```
+
+客户端只接受 `open_guide`、`open_url`、`open_folder` 三种白名单动作；不接受命令、脚本或任意回调。没有 `detail` 的旧工具继续使用默认详情页。`open_url` 必须使用 HTTPS，`open_guide` 的 `guide_id` 必须是稳定的小写 ID。
+
 ## 出厂指南 JSON
 
 1. 在 `guides_index.json` 增加稳定 `guide_id`、标题、摘要、`asset_name`、`platforms`。

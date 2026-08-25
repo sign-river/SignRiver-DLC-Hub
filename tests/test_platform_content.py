@@ -172,6 +172,42 @@ def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive
         })
 
 
+def test_guide_tool_detail_is_declarative_and_limits_buttons_to_safe_actions() -> None:
+    tool = GuideTool.from_dict({
+        "tool_id": "save-repair", "title": "存档修复", "description": "修复存档。",
+        "asset_name": "save-repair.zip", "platforms": ["windows"],
+        "package_kind": "zip", "launch_action": "open_folder", "release_tag": "tools",
+        "detail": {
+            "intro": "仅处理用户主动选择的存档。",
+            "warnings": ["先备份存档。", "不会上传文件。"],
+            "buttons": [
+                {"action": "open_guide", "label": "查看教程", "guide_id": "save-repair-guide"},
+                {"action": "open_url", "label": "项目主页", "url": "https://example.invalid/tool"},
+                {"action": "open_folder", "label": "打开工具目录"},
+            ],
+        },
+    })
+
+    assert tool.detail_intro == "仅处理用户主动选择的存档。"
+    assert tool.detail_warnings == ("先备份存档。", "不会上传文件。")
+    assert [item.action for item in tool.detail_actions] == [
+        "open_guide", "open_url", "open_folder",
+    ]
+
+    with pytest.raises(ValueError, match="unsupported tool detail button action"):
+        GuideTool.from_dict({
+            "tool_id": "unsafe-detail", "title": "不安全", "description": "",
+            "asset_name": "tool.zip", "platforms": ["windows"],
+            "detail": {"buttons": [{"action": "run_command", "label": "执行"}]},
+        })
+    with pytest.raises(ValueError, match="must be HTTPS"):
+        GuideTool.from_dict({
+            "tool_id": "http-detail", "title": "不安全", "description": "",
+            "asset_name": "tool.zip", "platforms": ["windows"],
+            "detail": {"buttons": [{"action": "open_url", "label": "打开", "url": "http://example.invalid"}]},
+        })
+
+
 def test_workspace_exports_only_cloud_confirmed_resources(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     profile = PublisherCartridge.from_dict({

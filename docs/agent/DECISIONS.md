@@ -23,6 +23,12 @@
 
 本文件只记录会影响后续任务的方案选择、原因和已放弃路线。临时进度写入 `HANDOFF.md`，操作细节写入对应专题文档。
 
+## 2026-08-26：工具详情页采用声明式元数据与动作白名单
+
+- `tools_index.json` 的工具条目可选增加 `detail.intro`、`detail.warnings` 和 `detail.buttons`，让“更多工具”详情页拥有工具特化介绍与按钮；没有该字段的旧工具继续走默认详情页。
+- 客户端只允许 `open_guide`、`open_url`、`open_folder` 三种动作，禁止云端声明命令、脚本或任意回调；外链必须为 HTTPS，指南引用使用稳定 `guide_id`。
+- 详情内容与工具基础元数据继续由同一工具索引维护，避免额外详情文件的版本漂移；后续若正文显著变长，再单独增加懒加载详情资产。
+
 ## 2026-08-24：解决方案辅助工具走独立 tools Release，不走 hub 附件
 
 - 教程需要的可执行辅助工具（如 dControl）存放在双源 `signriver-dlc-assets` 的 `tools` Release，本机解压到 `data/helper-tools/{tool_id}/`。
