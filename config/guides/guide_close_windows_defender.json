@@ -42,7 +42,7 @@
   "tools": [
     {
       "tool_id": "dcontrol",
-      "title": "dControl",
+      "title": "关闭Windows Defender",
       "description": "用于按教程临时关闭 Windows Defender 的辅助工具。",
       "asset_name": "dControl.zip",
       "release_tag": "tools",
