@@ -412,6 +412,9 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids: tuple[str, ...] = ()
         self.unlock_failed_dlc_ids: set[str] = set()
+        # Kept per workflow so the final dialog can distinguish a patch that
+        # was installed just now from one that was already healthy.
+        self.unlock_patch_applied_this_run = False
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
         # Filled after the current Release bundle is known.  Patch task IDs
         # include each GitLink attachment ID so stale generations cannot be
@@ -6704,6 +6707,7 @@ class DlcHubApplication:
             if entry.dlc_id in self.selected_dlc_ids
         ]
         self.unlock_workflow_active = True
+        self.unlock_patch_applied_this_run = False
         self.unlock_requested_dlc_ids = tuple(
             entry.dlc_id for entry in selected_entries
         )
@@ -7750,18 +7754,31 @@ class DlcHubApplication:
 
         installed_count = len(self.unlock_requested_dlc_ids)
         game_name = self.cartridge.adapter.descriptor.display_name
+        patch_applied_this_run = self.unlock_patch_applied_this_run
         self.unlock_workflow_active = False
+        self.unlock_patch_applied_this_run = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
         if self._uses_built_in_dlc_delivery():
             detail = (
-                f"{game_name} 的 DLC 已随游戏本体安装；补丁已经正确应用，"
+                f"{game_name} 的补丁已在本次操作中下载并安装；DLC 已随游戏本体提供，"
+                "无需额外下载。"
+                if patch_applied_this_run
+                else f"{game_name} 的 DLC 已随游戏本体安装；补丁已经正确应用，"
                 "无需下载额外 DLC。"
             )
         elif installed_count:
             detail = (
-                f"{game_name} 的补丁已经正确应用，选择的 "
+                f"{game_name} 的补丁已在本次操作中下载并安装，选择的 "
                 f"{installed_count} 个 DLC 均已安装完成。"
+                if patch_applied_this_run
+                else f"{game_name} 的补丁已经正确应用，选择的 "
+                f"{installed_count} 个 DLC 均已安装完成。"
+            )
+        elif patch_applied_this_run:
+            detail = (
+                f"{game_name} 的补丁已在本次操作中下载并安装。"
+                "当前未选择需要额外安装的 DLC。"
             )
         else:
             detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
@@ -8579,6 +8596,8 @@ class DlcHubApplication:
         self._update_problem_badge()
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
+        if getattr(self, "unlock_workflow_active", False) and not self.repair_workflow_active:
+            self.unlock_patch_applied_this_run = True
         detail_parts = []
         if result.backup_created:
             detail_parts.append("已建立原版备份")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -433,6 +434,22 @@ def test_builtin_guide_never_fetches_remote_detail(tmp_path: Path) -> None:
     document = service.load_guide(entry, allow_network=True)
 
     assert document.blocks == (("text", "内置正文"),)
+
+
+def test_missing_optional_tools_index_does_not_emit_terminal_warning(tmp_path: Path, caplog) -> None:
+    def opener(_url: str, _timeout: float) -> bytes:
+        raise GuideCatalogError("资源不存在；详情：HTTP Error 404: Not Found")
+
+    service = GuideCatalogService(tmp_path / "cache", opener=opener)
+    with caplog.at_level(logging.DEBUG, logger="signriver_app.application.guides"):
+        assert service.refresh_tools(allow_network=True) == ()
+
+    assert "Guide resource unavailable" in caplog.text
+    assert not [
+        record for record in caplog.records
+        if record.levelno >= logging.WARNING
+        and "Guide resource unavailable" in record.getMessage()
+    ]
 
 
 def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:

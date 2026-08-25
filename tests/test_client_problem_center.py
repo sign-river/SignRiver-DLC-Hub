@@ -380,6 +380,41 @@ def test_problem_store_failure_does_not_reverse_successful_patch_apply(
     )
 
 
+def test_unlock_success_explains_that_the_patch_was_installed_this_run(app_module, monkeypatch) -> None:
+    app = _app(app_module)
+    app.unlock_workflow_active = True
+    app.unlock_patch_applied_this_run = True
+    app.repair_workflow_active = False
+    app.patch_workflow_state = "idle"
+    app.batch_download_state = "idle"
+    app.auto_install_worker_running = False
+    app.current_installation = SimpleNamespace(root=Path("game"))
+    app.unlock_requested_dlc_ids = ()
+    app.unlock_failed_dlc_ids = set()
+    app.patch_engine = Mock()
+    app.patch_engine.audit_recorded.return_value = SimpleNamespace(
+        health=app_module.PatchHealth.HEALTHY
+    )
+    app._refresh_installed_dlc_paths = Mock()
+    app._uses_built_in_dlc_delivery = Mock(return_value=False)
+    app.cartridge = SimpleNamespace(
+        adapter=SimpleNamespace(descriptor=SimpleNamespace(display_name="群星 (Stellaris)"))
+    )
+    app.catalog_preview = Mock()
+    app._notify = Mock()
+    app.window = Mock()
+    showinfo = Mock()
+    monkeypatch.setattr(app_module.messagebox, "showinfo", showinfo)
+
+    app._maybe_finish_unlock_workflow()
+
+    assert showinfo.call_args.args[1] == (
+        "群星 (Stellaris) 的补丁已在本次操作中下载并安装。"
+        "当前未选择需要额外安装的 DLC。"
+    )
+    assert app.unlock_patch_applied_this_run is False
+
+
 def test_quick_check_replaces_a_tool_result_without_adding_a_second_row(app_module) -> None:
     app = _app(app_module)
     app.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]

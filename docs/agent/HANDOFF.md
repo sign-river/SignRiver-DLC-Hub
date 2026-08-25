@@ -2201,3 +2201,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 工具不再依赖指南正文才能出现在“常用工具”：客户端新增读取 `tools` Release 的 `tools_index.json`，独立工具和指南引用统一合并去重，下载/更新/启动仍共用 `HelperToolsService`。
 - 指南中的工具条目保留为关联入口；工具目录条目即使没有任何指南引用，也会在工具页显示并可直接下载。活动版本 `0.2.0` 已定向同步相关代码。
 - 新工具要同时发布工具文件和 `tools_index.json` 条目；仅上传文件不会出现在程序中。验证：平台内容、工具服务、UI 专项测试通过；未构建、未上传、未推送。
+
+## 2026-08-25：补丁完成提示与可选工具目录 404 降噪
+
+- 截图中的三个下载任务是补丁资源（`unlocker.dll`、原版 DLL、`stellaris_appinfo.json`），均显示“已完成”；成功弹窗里的“当前无需安装额外 DLC”原本只表示本次未选择 DLC，不表示补丁此前已存在。现改为在本次确实下载并应用补丁时明确显示“已在本次操作中下载并安装”，避免误解。
+- `tools` Release 缺少 `tools_index.json` 会返回 HTTP 404。该索引是可选的独立工具目录，缺失不影响补丁下载/安装；客户端现将此预期缺失降为 DEBUG，不再在启动终端输出 warning。工具目录仍为空，直到发布端上传该索引。
+- 修改范围：基线 `app/versions/0.1.0/app_entry.py`、`app/versions/0.1.0/signriver_app/application/guides.py`、专项测试；相关代码块已定向同步至实际活动模块 `app/versions/0.2.0/`，未整目录覆盖，也未修改 `app/state.json`。
+- 验证（2026-08-25）：`python -m pytest -q tests/test_platform_content.py tests/test_client_problem_center.py tests/test_ui_theme.py`（98 项通过）；两个版本模块的 `py_compile`、Ruff 与 `git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。客户端若已运行，需完全退出并重启后加载活动模块改动。
+- 风险/下一步：当前线上 `tools` Release 仍未发布 `tools_index.json`，因此“常用工具”不会出现独立工具条目；如要启用该功能，需由发布流程上传合法索引及工具附件。

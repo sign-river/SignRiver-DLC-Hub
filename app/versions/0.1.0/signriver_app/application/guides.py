@@ -290,7 +290,13 @@ class GuideCatalogService:
         remote_tools: tuple[GuideTool, ...] = ()
         if allow_network:
             try:
-                raw_payload = self._fetch(TOOLS_INDEX_ASSET_NAME, release_tag=TOOLS_RELEASE_TAG)
+                # The separate tools catalogue is optional. A freshly created
+                # deployment may not have uploaded tools_index.json yet; avoid
+                # presenting that expected absence as a startup warning.
+                raw_payload = self._fetch(
+                    TOOLS_INDEX_ASSET_NAME, release_tag=TOOLS_RELEASE_TAG,
+                    optional=True,
+                )
                 remote_tools = self._parse_tools_payload(raw_payload)
             except Exception as error:
                 LOGGER.debug("Ignoring invalid remote tools index: %s", error)
@@ -500,15 +506,21 @@ class GuideCatalogService:
         )
         return target
 
-    def _fetch(self, asset_name: str, *, release_tag: str = GUIDES_RELEASE_TAG) -> bytes:
+    def _fetch(
+        self, asset_name: str, *, release_tag: str = GUIDES_RELEASE_TAG,
+        optional: bool = False,
+    ) -> bytes:
         url = fixed_release_asset_url(self.download_source, release_tag, asset_name)
         LOGGER.info("Guide resource download started: release=%s asset=%s source=%s url=%s", release_tag, asset_name, self.download_source, url)
         try:
             payload = self._open(url, self.timeout)
         except GuideCatalogError as error:
-            # 指南是可选在线内容。404 通常表示云端已经下线旧拓展，
-            # 不应把可恢复的内容缺失打印成整段 traceback。
-            LOGGER.warning(
+            # Guides and the standalone tools index are optional online
+            # content. In particular, a tools Release without tools_index.json
+            # is a normal rollout state, so keep it out of the terminal's
+            # warning stream while preserving diagnostic detail at DEBUG level.
+            log = LOGGER.debug if optional else LOGGER.warning
+            log(
                 "Guide resource unavailable: release=%s asset=%s url=%s detail=%s",
                 release_tag,
                 asset_name,
