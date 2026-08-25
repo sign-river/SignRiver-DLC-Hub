@@ -48,6 +48,37 @@ GitHub 示例：
 
 工具目录约定：`tools_index.json` 是整个 `tools` Release 的唯一工具目录；每个条目必须包含稳定 `tool_id`、标题、说明、`asset_name`、`filename`、`revision`、`platforms`、`package_kind`、`launch_action` 和 `release_tag: "tools"`。工具文件即使尚未下载，也应凭索引在“常用工具”中显示。
 
+## 发布拓展指南和工具
+
+发布源严格分开：
+
+| 资源 | 发布器工作区 | Release | 索引 |
+| --- | --- | --- | --- |
+| 拓展指南 | `publisher-workspace/guides/` | `guides` | `guides_index.json` |
+| 工具包 | `publisher-workspace/tools/assets/` | `tools` | `publisher-workspace/tools/tools_index.json` |
+
+使用发布器“发布资源统一管理”页的“预检并双端发布扩展”，不要再分别手工上传。该按钮会先检查：
+
+- 每篇指南索引和正文是否齐全；
+- `tools_index.json` 的工具 ID、元数据和工具包是否齐全；
+- 每个 `release_tag: "tools"` 的指南引用是否指向已有 `tool_id`；
+- 如果指南重复填写了工具的文件名、版本、平台或启动字段，是否与工具索引一致。
+
+预检失败时不会开始上传。预检通过后，发布器会把指南和工具分别同步到 GitLink、GitHub 的 `guides` / `tools` Release；同名的已变更附件直接覆盖。
+
+发布器为 GitLink 与 GitHub 分别保存本地成功发布的 SHA-256 状态。下次发布时只上传本地内容发生变化的附件，未变化的附件跳过；此判断不下载云端文件作内容比较。若有人手动删除云端附件而本地文件和本地状态均未变化，发布器不会自动补回，需修改文件或清除对应本地发布状态后重新发布。
+
+指南正文里的 `tools` 条目推荐只保留：
+
+```json
+{
+  "tool_id": "example-tool",
+  "release_tag": "tools"
+}
+```
+
+工具的完整标题、说明、文件名、版本、平台与启动方式只在 `tools_index.json` 维护，避免两处元数据漂移。
+
 ## 出厂指南 JSON
 
 1. 在 `guides_index.json` 增加稳定 `guide_id`、标题、摘要、`asset_name`、`platforms`。

@@ -1095,3 +1095,16 @@ def test_release_center_pause_marks_request_pending_until_safe_checkpoint() -> N
     assert calls == ["batch"]
     assert harness._pause_requested is True
     assert {"state": "disabled", "text": "已请求安全暂停…"} in harness.pause_button.calls
+
+
+def test_extension_management_ui_exposes_unified_publish_flow() -> None:
+    source = _publisher_ui_sources()
+
+    for text in (
+        "发布资源统一管理",
+        "浏览与维护",
+        "生成与发布",
+        "预检并双端发布扩展",
+        "publish_extensions_mirror",
+    ):
+        assert text in source

@@ -42,16 +42,15 @@ class CartridgeManagementUiMixin:
         self.cartridge_detail_page.grid_columnconfigure(0, weight=1)
         self.cartridge_detail_page.grid_rowconfigure(1, weight=1)
         ctk.CTkButton(
-            self.cartridge_detail_page, text="← 返回卡带与公告", width=150,
+            self.cartridge_detail_page, text="← 返回发布资源管理", width=150,
             fg_color="transparent", text_color=BLUE, hover_color="#EAF4FD",
             command=self._show_cartridge_home,
         ).grid(row=0, column=0, padx=8, pady=(4, 0), sticky="w")
 
-        toolbar = self._card(self.cartridge_home_page, 0, "卡带统一管理")
+        toolbar = self._card(self.cartridge_home_page, 0, "发布资源统一管理")
         toolbar.grid_columnconfigure(0, weight=1)
         toolbar.grid_rowconfigure(2, weight=1)
         toolbar.grid_rowconfigure(3, weight=0)
-        toolbar.grid_rowconfigure(4, weight=0)
 
         overview = ctk.CTkFrame(
             toolbar, fg_color="#F7FAFE", border_width=1,
@@ -61,11 +60,8 @@ class CartridgeManagementUiMixin:
         overview.grid_columnconfigure(0, weight=1)
         overview.grid_columnconfigure(1, weight=1)
         self.hub_summary = ctk.CTkLabel(
-            overview,
-            text="正在读取卡带…",
-            text_color=TEXT,
-            anchor="w",
-            justify="left",
+            overview, text="正在读取卡带…", text_color=TEXT,
+            anchor="w", justify="left",
         )
         self.hub_summary.grid(row=0, column=0, padx=14, pady=12, sticky="ew")
         self.hub_target_summary = ctk.CTkLabel(
@@ -74,81 +70,82 @@ class CartridgeManagementUiMixin:
         )
         self.hub_target_summary.grid(row=0, column=1, padx=14, pady=12, sticky="ew")
         self.hub_status_summary = ctk.CTkLabel(
-            overview, text="公告与指南：正在读取…", text_color=MUTED,
+            overview, text="公告、指南与工具：正在读取…", text_color=MUTED,
             anchor="w", justify="left",
         )
         self.hub_status_summary.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 12), sticky="ew")
 
         operations = ctk.CTkFrame(toolbar, fg_color="transparent")
-        operations.grid(row=2, column=0, padx=18, pady=(0, 10), sticky="ew")
-        operations.grid_columnconfigure(0, weight=1)
-        operations.grid_rowconfigure((0, 1), weight=0)
+        operations.grid(row=2, column=0, padx=18, pady=(0, 10), sticky="nsew")
+        operations.grid_columnconfigure((0, 1), weight=1, uniform="resource_operations")
 
-        cartridge_group = ctk.CTkFrame(
+        browse_group = ctk.CTkFrame(
             operations, fg_color="#F7FAFE", border_width=1,
             border_color="#D8E6F4", corner_radius=10,
         )
-        cartridge_group.grid(row=0, column=0, pady=(0, 5), sticky="ew")
-        cartridge_group.grid_columnconfigure((0, 1), weight=0, uniform="cartridge_actions")
+        browse_group.grid(row=0, column=0, padx=(0, 6), sticky="nsew")
+        browse_group.grid_columnconfigure((0, 1), weight=1, uniform="browse_actions")
         ctk.CTkLabel(
-            cartridge_group, text="卡带与公告", text_color=BLUE,
+            browse_group, text="浏览与维护", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
-        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
+        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 4), sticky="w")
+        ctk.CTkLabel(
+            browse_group, text="打开或维护已有资源，不会生成或上传文件。",
+            text_color=MUTED, anchor="w", justify="left",
+        ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
 
-        guide_group = ctk.CTkFrame(
+        publish_group = ctk.CTkFrame(
             operations, fg_color="#F7FAFE", border_width=1,
             border_color="#D8E6F4", corner_radius=10,
         )
-        guide_group.grid(row=1, column=0, pady=(5, 0), sticky="ew")
-        guide_group.grid_columnconfigure((0, 1), weight=0, uniform="guide_actions")
+        publish_group.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
+        publish_group.grid_columnconfigure((0, 1), weight=1, uniform="publish_actions")
         ctk.CTkLabel(
-            guide_group, text="指南发布", text_color=BLUE,
+            publish_group, text="生成与发布", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
-        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 6), sticky="w")
+        ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 4), sticky="w")
+        ctk.CTkLabel(
+            publish_group, text="先生成卡带；扩展发布会在上传前统一校验指南和工具引用。",
+            text_color=MUTED, anchor="w", justify="left",
+        ).grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
 
-        def secondary_button(parent, text, command, row, column, columnspan=1):
+        def action_button(parent, text, command, row, column, *, primary=False):
             button = ctk.CTkButton(
-                parent, text=text, fg_color=LIGHT_BLUE,
-                width=190, command=command,
+                parent, text=text, width=190, height=36,
+                fg_color=BLUE if primary else LIGHT_BLUE,
+                command=command,
             )
-            button.grid(row=row, column=column, columnspan=columnspan,
-                        padx=6, pady=3, sticky="w")
+            button.grid(row=row, column=column, padx=6, pady=4, sticky="ew")
             return button
 
-        self.hub_refresh_button = secondary_button(
-            cartridge_group, "刷新卡带", self.refresh_cartridge_management, 1, 0
+        self.hub_refresh_button = action_button(
+            browse_group, "刷新资源概览", self.refresh_cartridge_management, 2, 0
         )
-        self.hub_generate_button = secondary_button(
-            cartridge_group, "重新生成全部", self.generate_client_hub, 1, 1
+        action_button(browse_group, "全部游戏卡带", self._show_cartridge_detail, 2, 1)
+        self.announcement_manage_button = action_button(
+            browse_group, "管理公告", self.open_announcement_manager, 3, 0
         )
-        secondary_button(
-            cartridge_group, "全部游戏卡带", self._show_cartridge_detail, 2, 0
+        action_button(browse_group, "打开 hub 目录", self.open_hub_output_folder, 3, 1)
+        action_button(browse_group, "打开指南目录", self.open_guides_source_folder, 4, 0)
+        action_button(browse_group, "打开工具目录", self.open_tools_source_folder, 4, 1)
+
+        self.hub_generate_button = action_button(
+            publish_group, "重新生成全部卡带", self.generate_client_hub, 2, 0
         )
-        secondary_button(
-            cartridge_group, "打开 hub 目录", self.open_hub_output_folder, 2, 1
+        self.hub_publish_button = action_button(
+            publish_group, "一键双端发布卡带", self.publish_cartridge_hub_mirror, 2, 1,
+            primary=True,
         )
-        self.announcement_manage_button = secondary_button(
-            cartridge_group, "管理公告", self.open_announcement_manager, 3, 0,
+        self.extensions_publish_button = action_button(
+            publish_group, "预检并双端发布扩展", self.publish_extensions_mirror, 3, 0,
+            primary=True,
         )
+        self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
-            cartridge_group,
-            text=(
-                "完整主表会统一生成；GitLink 发布时按卡带逐项比较，"
-                "只上传新增或发生变化的文档。"
-            ),
-            text_color=MUTED, anchor="w", justify="left",
-        ).grid(row=4, column=0, columnspan=2, padx=14, pady=(12, 8), sticky="ew")
-        self.hub_publish_button = ctk.CTkButton(
-            cartridge_group, text="一键双端发布卡带", fg_color=BLUE,
-            width=230, height=38, command=self.publish_cartridge_hub_mirror,
-        )
-        self.hub_publish_button.grid(row=5, column=0, padx=14, pady=(0, 8), sticky="w")
-        self.guides_publish_button = secondary_button(
-            guide_group, "双端发布指南", self.publish_guides_mirror, 1, 0,
-        )
-        secondary_button(
-            guide_group, "打开指南目录", self.open_guides_source_folder, 1, 1,
-        )
+            publish_group,
+            text="未修改的扩展文件会由本地成功发布记录中的 SHA-256 跳过；同名新文件直接替换。",
+            text_color=MUTED, anchor="w", justify="left", wraplength=430,
+        ).grid(row=4, column=0, columnspan=2, padx=14, pady=(8, 12), sticky="ew")
 
         transfer = ctk.CTkFrame(
             toolbar, fg_color="#F7FAFE", border_width=1,
@@ -251,7 +248,7 @@ class CartridgeManagementUiMixin:
                 self.cartridge_list, text="尚未配置游戏卡带", text_color=MUTED
             ).pack(pady=24)
         target = f"{self.settings.owner}/{self.settings.repository}"
-        guide_status = self.workspace.guide_resource_summary().status_text
+        extension_status = self.workspace.extension_resource_summary().status_text
         self.hub_summary.configure(
             text=f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张"
         )
@@ -259,7 +256,7 @@ class CartridgeManagementUiMixin:
         self.hub_status_summary.configure(
             text=(
                 f"公告 {self.workspace.announcement_status()} · "
-                f"报错指南 {guide_status}"
+                f"扩展资源 {extension_status}"
             )
         )
         self._schedule_scrollable_reset(self.cartridge_list)
@@ -528,9 +525,18 @@ class CartridgeManagementUiMixin:
             messagebox.showerror("卡带中心双端发布失败", message)
 
     def publish_guides_mirror(self) -> None:
-        """Publish only the optional guide assets to the dedicated guides Release."""
-        if not self.workspace.guide_resource_summary().configured:
-            messagebox.showinfo("没有可发布的指南", "请先在指南目录配置 guides_index.json。")
+        """Keep compatibility with old callers while publishing all extensions."""
+        self.publish_extensions_mirror()
+
+    def publish_extensions_mirror(self) -> None:
+        """Preflight and publish the linked guide and tool Releases together."""
+        summary = self.workspace.extension_resource_summary()
+        if not summary.guides.configured or summary.guides.error or summary.tools.error:
+            messagebox.showerror(
+                "扩展预检失败",
+                "指南、工具包和相互引用必须完整后才能发布：\n\n"
+                f"{summary.status_text}",
+            )
             return
         if not self._save_active_settings():
             return
@@ -539,93 +545,143 @@ class CartridgeManagementUiMixin:
             ("GitHub", self.settings.github_owner, self.settings.github_repository, self.settings.github_token),
         )
         if not all(owner and repository and token for _, owner, repository, token in targets):
-            messagebox.showerror("无法双端发布指南", "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。")
+            messagebox.showerror(
+                "无法双端发布扩展",
+                "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。",
+            )
             return
         if not messagebox.askyesno(
-            "确认双端发布指南",
-            f"将指南索引、详情和 hub 普通附件同步到：\n\n"
+            "确认双端发布扩展",
+            "将先校验指南索引、指南正文、工具索引、工具包及 tool_id 引用，再依次同步到：\n\n"
             f"GitLink · {targets[0][1]}/{targets[0][2]} · guides\n"
-            f"GitHub · {targets[1][1]}/{targets[1][2]} · guides\n\n是否继续？",
+            f"GitLink · {targets[0][1]}/{targets[0][2]} · tools\n"
+            f"GitHub · {targets[1][1]}/{targets[1][2]} · guides\n"
+            f"GitHub · {targets[1][1]}/{targets[1][2]} · tools\n\n"
+            "本地成功发布记录中 SHA-256 未变化的文件将跳过；变更文件按同名覆盖。是否继续？",
         ):
             return
-        if not self._begin_background_mutation("publish", "正在双端发布报错指南"):
+        if not self._begin_background_mutation("publish", "正在预检并双端发布扩展"):
             return
-        self._active_publish_scope = "guides"
+        self._active_publish_scope = "extensions"
         self._set_publish_buttons_available(False)
         self.hub_generate_button.configure(state="disabled")
-        self.hub_publish_button.configure(state="disabled")
-        self.guides_publish_button.configure(state="disabled", text="正在发布指南…")
-        self.hub_upload_status.configure(text="正在生成指南 Release…")
+        self.extensions_publish_button.configure(state="disabled", text="正在预检并发布扩展…")
+        self.hub_upload_status.configure(text="正在校验并生成扩展 Release…")
         self.hub_upload_progress.set(0)
         self._upload_control = UploadControl()
 
         def worker() -> None:
-            stage = "GitLink"
+            stage = "预检"
             try:
-                assets = self.workspace.guides_publish_assets()
-                if not assets:
-                    raise RuntimeError("指南目录未生成任何可发布文件")
-                total = len(assets) * 2
-                profile = self.workspace.guides_release_profile()
-                repo = GitLinkRepository(targets[0][1], targets[0][2])
-                manager = RemoteResourceManager(GitLinkAttachmentClient(targets[0][3]), repo)
-                previous = self.workspace.load_publish_state(profile, repo.owner, repo.name)
-                result = manager.sync_release(
-                    profile, assets, previous,
-                    upload_control=self._upload_control,
-                    progress=lambda index, count, name, action: self._post_ui(
-                        lambda value=name, step=action: self._log(f"[GitLink guides] {step} {value}")
-                    ),
-                    upload_progress=lambda index, count, name, sent, size: self._queue_upload_progress(index, total, name, sent, size),
-                    checkpoint=lambda state: self.workspace.save_publish_state(profile, state),
+                plan = self.workspace.extension_publish_assets()
+                release_sets = (
+                    (self.workspace.guides_release_profile(), plan.guides, "SignRiver Guides"),
+                    (self.workspace.tools_release_profile(), plan.tools, "SignRiver Tools"),
                 )
-                self.workspace.save_publish_state(profile, result.state)
-                stage = "GitHub"
-                github = GitHubReleaseClient(
-                    GitHubRepository(targets[1][1], targets[1][2]), targets[1][3]
-                )
-                release = github.ensure_release(profile.release_tag, name="SignRiver Guides")
-                for index, asset in enumerate(assets, start=1):
-                    overall = len(assets) + index
-                    github.upload_asset(
-                        release, asset.path, replace_existing=True,
-                        progress=lambda sent, size, i=overall, value=asset.name: self._queue_upload_progress(i, total, value, sent, size),
-                        should_pause=lambda: bool(self._upload_control and self._upload_control.pause_requested),
+                one_host_total = sum(len(assets) for _, assets, _ in release_sets)
+                total = one_host_total * 2
+                if not one_host_total:
+                    raise RuntimeError("扩展目录未生成任何可发布文件")
+
+                stage = "GitLink"
+                gitlink_repo = GitLinkRepository(targets[0][1], targets[0][2])
+                manager = RemoteResourceManager(GitLinkAttachmentClient(targets[0][3]), gitlink_repo)
+                completed = 0
+                for profile, assets, _ in release_sets:
+                    previous = self.workspace.load_publish_state(profile, gitlink_repo.owner, gitlink_repo.name)
+                    result = manager.sync_release(
+                        profile, assets, previous,
+                        upload_control=self._upload_control,
+                        progress=lambda index, count, name, action, tag=profile.release_tag: self._post_ui(
+                            lambda value=name, step=action, release_tag=tag: self._log(f"[GitLink {release_tag}] {step} {value}")
+                        ),
+                        upload_progress=lambda index, count, name, sent, size, offset=completed: self._queue_upload_progress(
+                            offset + index, total, name, sent, size
+                        ),
+                        checkpoint=lambda state, current=profile: self.workspace.save_publish_state(current, state),
                     )
-                self._post_ui(lambda count=len(assets): self._guides_mirror_publish_done(count))
+                    self.workspace.save_publish_state(profile, result.state)
+                    completed += len(assets)
+
+                stage = "GitHub"
+                github_repo = GitHubRepository(targets[1][1], targets[1][2])
+                github = GitHubReleaseClient(github_repo, targets[1][3])
+                completed = one_host_total
+                uploaded = 0
+                skipped = 0
+                for profile, assets, release_name in release_sets:
+                    changed = self.workspace.changed_publish_assets(
+                        profile, github_repo.owner, github_repo.name, assets,
+                        state_channel="github",
+                    )
+                    skipped += len(assets) - len(changed)
+                    if not changed:
+                        self._post_ui(lambda tag=profile.release_tag, count=len(assets): self._log(
+                            f"[GitHub {tag}] 本地哈希未变化，跳过 {count} 个附件"
+                        ))
+                    else:
+                        release = github.ensure_release(profile.release_tag, name=release_name)
+                        positions = {asset.name: index for index, asset in enumerate(assets, start=1)}
+                        for asset in changed:
+                            position = completed + positions[asset.name]
+                            self._post_ui(lambda tag=profile.release_tag, name=asset.name: self._log(
+                                f"[GitHub {tag}] 上传并覆盖 {name}"
+                            ))
+                            github.upload_asset(
+                                release, asset.path, replace_existing=True,
+                                progress=lambda sent, size, index=position, name=asset.name: self._queue_upload_progress(
+                                    index, total, name, sent, size
+                                ),
+                                should_pause=lambda: bool(self._upload_control and self._upload_control.pause_requested),
+                            )
+                            uploaded += 1
+                    self.workspace.save_publish_state(
+                        profile, self.workspace.publish_state_for_assets(
+                            profile, github_repo.owner, github_repo.name, assets
+                        ),
+                        state_channel="github",
+                    )
+                    completed += len(assets)
+                self._post_ui(lambda guide_count=len(plan.guides), tool_count=len(plan.tools),
+                              uploaded_count=uploaded, skipped_count=skipped: self._extensions_mirror_publish_done(
+                                  guide_count, tool_count, uploaded_count, skipped_count
+                              ))
             except (UploadPaused, GitHubUploadPaused) as error:
-                self._post_ui(lambda value=f"{stage}：{error}": self._guides_mirror_publish_failed(value, paused=True))
+                self._post_ui(lambda value=f"{stage}：{error}": self._extensions_mirror_publish_failed(value, paused=True))
             except Exception as error:
-                self._post_ui(lambda value=f"{stage}：{error}": self._guides_mirror_publish_failed(value))
+                self._post_ui(lambda value=f"{stage}：{error}": self._extensions_mirror_publish_failed(value))
 
-        threading.Thread(target=worker, daemon=True, name="guides-mirror-publish").start()
+        threading.Thread(target=worker, daemon=True, name="extensions-mirror-publish").start()
 
-    def _guides_mirror_publish_done(self, count: int) -> None:
+    def _extensions_mirror_publish_done(
+        self, guide_count: int, tool_count: int, uploaded: int, skipped: int
+    ) -> None:
         self._end_background_mutation("publish")
         self._upload_control = None
         self._set_publish_buttons_available(True)
         self.hub_generate_button.configure(state="normal")
-        self.hub_publish_button.configure(state="normal")
-        self.guides_publish_button.configure(state="normal", text="双端发布指南")
         self.hub_upload_progress.set(1)
-        self.hub_upload_status.configure(text="指南双端发布完成")
-        self._log(f"报错指南双端发布完成：每端 {count} 个附件。")
-        messagebox.showinfo("指南发布完成", "guides Release 已同步到 GitLink 和 GitHub。")
+        self.hub_upload_status.configure(text="指南与工具扩展双端发布完成")
+        self._log(
+            "指南与工具扩展双端发布完成："
+            f"guides 每端 {guide_count} 个附件，tools 每端 {tool_count} 个附件；"
+            f"GitHub 上传 {uploaded} 个，按本地哈希跳过 {skipped} 个。"
+        )
+        self.refresh_cartridge_management()
+        messagebox.showinfo("扩展发布完成", "guides 与 tools Release 已同步到 GitLink 和 GitHub。")
 
-    def _guides_mirror_publish_failed(self, message: str, *, paused: bool = False) -> None:
+    def _extensions_mirror_publish_failed(self, message: str, *, paused: bool = False) -> None:
         self._end_background_mutation("publish")
         self._upload_control = None
         self._set_publish_buttons_available(True)
         self.hub_generate_button.configure(state="normal")
-        self.hub_publish_button.configure(state="normal")
-        self.guides_publish_button.configure(state="normal", text="双端发布指南")
         self.hub_publish_pause_button.configure(state="disabled", text="暂停发布")
-        self.hub_upload_status.configure(text="指南发布已暂停" if paused else "指南发布失败")
-        self._log(f"报错指南双端发布未完成：{message}")
+        self.hub_upload_status.configure(text="扩展发布已暂停" if paused else "扩展发布失败")
+        self._log(f"指南与工具扩展双端发布未完成：{message}")
         if paused:
-            messagebox.showinfo("指南发布已暂停", message)
+            messagebox.showinfo("扩展发布已暂停", message)
         else:
-            messagebox.showerror("指南双端发布失败", message)
+            messagebox.showerror("扩展双端发布失败", message)
 
     def publish_cartridge_hub(self) -> None:
         profiles = self.workspace.list_games()
@@ -737,5 +793,10 @@ class CartridgeManagementUiMixin:
 
     def open_guides_source_folder(self) -> None:
         path = self.workspace.guides_source_dir
+        path.mkdir(parents=True, exist_ok=True)
+        self._open(path)
+
+    def open_tools_source_folder(self) -> None:
+        path = self.workspace.tools_source_dir
         path.mkdir(parents=True, exist_ok=True)
         self._open(path)

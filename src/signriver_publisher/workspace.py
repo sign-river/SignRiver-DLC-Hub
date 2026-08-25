@@ -30,6 +30,13 @@ from .dlc_naming import (
 )
 from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
 from .client_guides import GuideResourceSummary, clear_exported_guides, export_guides, inspect_hub_guides
+from .extension_assets import (
+    ExtensionPublishAssets,
+    ExtensionResourceSummary,
+    TOOLS_INDEX_ASSET_NAME,
+    export_extension_assets,
+    inspect_extension_resources,
+)
 from .freshness import (
     DlcFreshnessReport,
     build_resource_freshness,
@@ -224,8 +231,17 @@ class PublisherWorkspace:
         """Local publisher content source for optional troubleshooting guides."""
         return self.root / "guides"
 
+    @property
+    def tools_source_dir(self) -> Path:
+        """Local publisher content source for independently listed helper tools."""
+        return self.root / "tools"
+
     def guide_resource_summary(self) -> GuideResourceSummary:
         return inspect_hub_guides(self.guides_source_dir)
+
+    def extension_resource_summary(self) -> ExtensionResourceSummary:
+        """Return the preflight state of the guide and tool extension sources."""
+        return inspect_extension_resources(self.guides_source_dir, self.tools_source_dir)
 
     @property
     def announcement_draft_path(self) -> Path:
@@ -1316,6 +1332,70 @@ class PublisherWorkspace:
             )
         return tuple(assets)
 
+    @staticmethod
+    def tools_release_profile() -> GameProfile:
+        """Return the synthetic profile used for the dedicated tools Release."""
+        return GameProfile(
+            game_id="tools",
+            display_name="辅助工具扩展",
+            release_tag="tools",
+            appinfo_name=TOOLS_INDEX_ASSET_NAME,
+        )
+
+    def extension_publish_assets(self) -> ExtensionPublishAssets:
+        """Validate cross references and snapshot both independent Releases."""
+        guide_files, tool_files, summary = export_extension_assets(
+            self.guides_source_dir, self.tools_source_dir,
+            self.output_dir / "guides", self.output_dir / "tools",
+        )
+
+        def make_assets(files: tuple[Path, ...]) -> tuple[PublishAsset, ...]:
+            return tuple(
+                PublishAsset(
+                    path=path, name=path.name, size_bytes=path.stat().st_size,
+                    sha256=self._verified_file_sha256(path),
+                )
+                for path in sorted(files, key=lambda item: item.name.casefold())
+            )
+
+        return ExtensionPublishAssets(
+            guides=make_assets(guide_files),
+            tools=make_assets(tool_files),
+            summary=summary,
+        )
+
+    def changed_publish_assets(
+        self, profile: GameProfile, owner: str, repository: str, assets: tuple[PublishAsset, ...],
+        *, state_channel: str | None = None,
+    ) -> tuple[PublishAsset, ...]:
+        """Use local hashes for one publishing target as the sole change detector."""
+        state = self.load_publish_state(
+            profile, owner, repository, state_channel=state_channel
+        )
+        previous = state.get("assets") if isinstance(state.get("assets"), dict) else {}
+        return tuple(
+            asset for asset in assets
+            if not isinstance(previous.get(asset.name), dict)
+            or previous[asset.name].get("sha256") != asset.sha256
+            or previous[asset.name].get("size_bytes") != asset.size_bytes
+        )
+
+    def publish_state_for_assets(
+        self, profile: GameProfile, owner: str, repository: str, assets: tuple[PublishAsset, ...]
+    ) -> dict[str, object]:
+        """Persist local hashes after a confirmed Release upload succeeds."""
+        return {
+            "version": 1, "owner": owner, "repository": repository,
+            "release_tag": profile.release_tag,
+            "assets": {
+                asset.name: {
+                    "sha256": asset.sha256, "size_bytes": asset.size_bytes,
+                    "attachment_id": asset.name,
+                }
+                for asset in assets
+            },
+        }
+
     def _unvalidated_publish_files(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id
         appinfo = target / profile.appinfo_name
@@ -1451,20 +1531,32 @@ class PublisherWorkspace:
             ):
                 raise WorkspaceError(f"DLC 分卷不完整：{base}")
 
-    def load_publish_state(self, profile: GameProfile, owner: str, repository: str) -> dict[str, object]:
-        path = self._publish_state_path(profile)
+    def load_publish_state(
+        self, profile: GameProfile, owner: str, repository: str,
+        *, state_channel: str | None = None,
+    ) -> dict[str, object]:
+        path = self._publish_state_path(profile, state_channel=state_channel)
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             return {}
         if not isinstance(value, dict) or value.get("version") != 1:
             return {}
-        if value.get("owner") != owner or value.get("repository") != repository or value.get("release_tag") != profile.release_tag:
+        if (
+            value.get("owner") != owner
+            or value.get("repository") != repository
+            or value.get("release_tag") != profile.release_tag
+        ):
             return {}
         return value
 
-    def save_publish_state(self, profile: GameProfile, state: dict[str, object]) -> None:
-        self._atomic_json(self._publish_state_path(profile), state)
+    def save_publish_state(
+        self, profile: GameProfile, state: dict[str, object],
+        *, state_channel: str | None = None,
+    ) -> None:
+        self._atomic_json(
+            self._publish_state_path(profile, state_channel=state_channel), state
+        )
 
     def load_content_reuse_cache(self, profile: GameProfile) -> dict[str, object]:
         """Load explicit DLC reuse trust, independent from mutable release batches."""
@@ -1859,8 +1951,14 @@ class PublisherWorkspace:
         self._build_complete_path(profile).unlink(missing_ok=True)
         self._verified_digest_cache.clear()
 
-    def _publish_state_path(self, profile: GameProfile) -> Path:
-        return self.game_dir(profile.game_id) / ".publish-state.json"
+    def _publish_state_path(
+        self, profile: GameProfile, *, state_channel: str | None = None
+    ) -> Path:
+        if state_channel is None:
+            return self.game_dir(profile.game_id) / ".publish-state.json"
+        if not _SAFE_ID.fullmatch(state_channel):
+            raise WorkspaceError("发布状态通道只能包含小写字母、数字、下划线和短横线")
+        return self.game_dir(profile.game_id) / f".publish-state-{state_channel}.json"
 
     def _content_reuse_cache_path(self, profile: GameProfile) -> Path:
         return self.game_dir(profile.game_id) / ".content-reuse-cache.json"

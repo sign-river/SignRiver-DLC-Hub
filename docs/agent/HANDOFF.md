@@ -2209,3 +2209,11 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 修改范围：基线 `app/versions/0.1.0/app_entry.py`、`app/versions/0.1.0/signriver_app/application/guides.py`、专项测试；相关代码块已定向同步至实际活动模块 `app/versions/0.2.0/`，未整目录覆盖，也未修改 `app/state.json`。
 - 验证（2026-08-25）：`python -m pytest -q tests/test_platform_content.py tests/test_client_problem_center.py tests/test_ui_theme.py`（98 项通过）；两个版本模块的 `py_compile`、Ruff 与 `git diff --check` 通过。未启动 GUI、未构建、未上传、未推送。客户端若已运行，需完全退出并重启后加载活动模块改动。
 - 风险/下一步：当前线上 `tools` Release 仍未发布 `tools_index.json`，因此“常用工具”不会出现独立工具条目；如要启用该功能，需由发布流程上传合法索引及工具附件。
+
+## 2026-08-25：发布器统一管理拓展指南与工具
+
+- 修改范围：发布器主页改名为“发布资源统一管理”，将“浏览与维护”入口与“生成与发布”操作分为左右两栏；增加工具目录入口和一个统一的“预检并双端发布扩展”按钮。
+- 发布流程：指南与工具分别生成并同步到 `guides` / `tools` Release。上传前校验工具索引、工具包和指南的 `tool_id` 引用；GitLink 继续使用完整资产同步，GitHub 仅上传本地 SHA-256 记录中发生变化的文件并按同名覆盖。两端哈希状态隔离，避免一端发布影响另一端的增量判断。
+- 本地样例已从 `publisher-workspace/guides/assets/` 移至 `publisher-workspace/tools/assets/`，并新建 `tools_index.json`；两篇样例指南仅保留 `tool_id` 关联。该工作区被 Git 忽略，未作为提交内容。
+- 验证：`.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\extension_assets.py src\signriver_publisher\workspace.py src\signriver_publisher\cartridge_management_ui.py src\signriver_publisher\publisher_targets_ui.py`；`.\.venv\Scripts\python.exe -m ruff check ...`；`.\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_extension_assets.py tests\test_publisher_guides.py tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py`（163 项通过）。未启动 GUI、未实际上传、未构建、未推送。
+- 本次不涉及客户端活动模块；活动版本仍为 `0.2.0`。如要实际发布，启动发布器后在该页面确认双端目标并点击统一发布按钮。

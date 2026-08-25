@@ -46,6 +46,12 @@ class PublisherTargetsUiMixin:
                 state="normal" if available else "disabled",
                 text="一键双端发布卡带",
             )
+        extensions_button = getattr(self, "extensions_publish_button", None)
+        if extensions_button is not None:
+            extensions_button.configure(
+                state="normal" if available else "disabled",
+                text="预检并双端发布扩展",
+            )
 
     def _removed_single_source_action(self) -> None:
         """Prevent a retained legacy method from reviving a removed workflow."""
@@ -70,8 +76,8 @@ class PublisherTargetsUiMixin:
         self._removed_single_source_action()
 
     def _publish_scope_controls(self):
-        """The modern publisher only exposes the Hub mirror publish scope."""
-        if self._active_publish_scope != "hub":
+        """Return the common progress controls for modern mirror publishing."""
+        if self._active_publish_scope not in {"hub", "extensions"}:
             raise RuntimeError("旧单源发布范围已移除")
         return (
             self.hub_publish_button,
