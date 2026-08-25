@@ -3066,9 +3066,15 @@ class DlcHubApplication:
         if origin == "solution" and article_id:
             self._solution_tool_origin = tool
             self._tool_detail_solution_return = (article_id, self.solution_detail_origin)
+            article = self.solution_articles.get(article_id)
+            back_text = (
+                f"← 返回{article[0]}"
+                if article and article[0]
+                else "← 返回解决方案"
+            )
             self._show_tool_center_detail(
                 tool.title,
-                back_text="← 返回解决方案",
+                back_text=back_text,
                 back_command=self._return_from_tool_to_solution,
             )
         else:
@@ -3358,9 +3364,15 @@ class DlcHubApplication:
 
     def _show_patch_tool(self, *, return_to_solution=None) -> None:
         if return_to_solution:
+            article = self.solution_articles.get(return_to_solution[0])
+            back_text = (
+                f"← 返回{article[0]}"
+                if article and article[0]
+                else "← 返回解决方案"
+            )
             self._show_tool_center_detail(
                 "补丁工具",
-                back_text="← 返回解决方案",
+                back_text=back_text,
                 back_command=self._return_to_solution_from_tool,
             )
         else:
