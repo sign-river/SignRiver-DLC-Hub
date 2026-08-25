@@ -2217,3 +2217,19 @@ python tools/build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 - 本地样例已从 `publisher-workspace/guides/assets/` 移至 `publisher-workspace/tools/assets/`，并新建 `tools_index.json`；两篇样例指南仅保留 `tool_id` 关联。该工作区被 Git 忽略，未作为提交内容。
 - 验证：`.\.venv\Scripts\python.exe -m py_compile src\signriver_publisher\extension_assets.py src\signriver_publisher\workspace.py src\signriver_publisher\cartridge_management_ui.py src\signriver_publisher\publisher_targets_ui.py`；`.\.venv\Scripts\python.exe -m ruff check ...`；`.\.venv\Scripts\python.exe -m pytest -q tests\test_publisher_extension_assets.py tests\test_publisher_guides.py tests\test_publisher_ui_threading.py tests\test_publisher_workspace.py`（163 项通过）。已实际启动发布器并确认“发布资源统一管理”标题、左右分区、工具目录入口和统一扩展发布按钮均可见。未实际上传、未构建、未推送。
 - 本次不涉及客户端活动模块；活动版本仍为 `0.2.0`。如要实际发布，启动发布器后在该页面确认双端目标并点击统一发布按钮。
+
+## 2026-08-25：内置日志资料收集工具
+
+- 新增 `SupportBundleCollector`：将当前选中游戏的明确登记日志、配置与文本崩溃报告，以及 DLC Hub 的脱敏 `launcher.log`、问题记录和基础版本信息，整理到 `data/helper-tools/support-collections/<时间戳>/system`、`signriver`、`game`。不生成 ZIP、不扫描截图、不复制 `.dmp`；发现 `.dmp` 时只在完成提示中保留原路径计数。
+- Windows 后台执行 `dxdiag /t` 写入 `system/DxDiag.txt`；非 Windows 明确标为当前平台不适用。任一来源缺失、不可读或命令失败不会阻断其他资料；所有文本复用既有脱敏逻辑。当前 10 个受支持游戏均有内置路径配置；新游戏加入时必须同步扩展 `GAME_SUPPORT_PROFILES`。
+- “常用工具”固定显示“日志资料收集”，支持后台“一键收集资料”和“打开收集文件夹”；后者会恢复已存在的最近一次结果目录。既有运行日志页和 ZIP 诊断导出不受影响。
+- 实际活动模块为 `0.2.0`：已只定向同步 `app_entry.py` 的本功能代码块及 diagnostics 包，不修改 `app/state.json`，也未整目录覆盖。客户端若已运行，需完全退出并重启后才能看到该工具。
+- 验证（2026-08-25）：`python -m pytest -q tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_diagnostics.py tests/test_helper_tools.py tests/test_client_problem_center.py tests/test_ui_theme.py`（94 项通过）；基线与活动模块 `py_compile`、Ruff、`git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
+
+## 2026-08-25：常用工具改为自适应卡片网格
+
+- 修改基线 `app/versions/0.1.0/app_entry.py`：常用工具统一使用紧凑卡片网格，按可用宽度自适应 1～4 列；卡片保留标题和“查看详情”按钮，完整描述改为 300ms 延迟的非抢焦点悬浮气泡。
+- 已将本任务相关代码块定向同步到实际活动模块 `app/versions/0.2.0/app_entry.py`，未修改 `app/state.json`，未整目录覆盖；活动客户端若已运行需完全退出并重启。
+- 新增 UI 回归断言，验证网格布局、悬浮描述、详情入口和旧单列渲染移除。
+- 验证（2026-08-25）：`pytest -q tests\test_ui_theme.py tests\test_client_problem_center.py tests\test_platform_content.py tests\test_helper_tools.py`（104 项通过）；两个版本模块 `py_compile`、Ruff、`git diff --check` 均通过。未启动 GUI、未构建、未上传、未推送。
+- 当前工作区仍有本任务之外的诊断资料收集、发布器和文档未提交改动，提交时必须保持隔离。

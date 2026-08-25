@@ -62,7 +62,11 @@ from .signriver_app.infrastructure.catalog import (
     speed_test_url,
 )
 from .signriver_app.infrastructure.downloads import DownloadManager
-from .signriver_app.infrastructure.diagnostics import DiagnosticExporter
+from .signriver_app.infrastructure.diagnostics import (
+    DiagnosticExporter,
+    SupportBundleCollector,
+    SupportCollectionResult,
+)
 from .signriver_app.infrastructure.installs import (
     InstallAccessError,
     InstallConflictError,
@@ -426,6 +430,9 @@ class DlcHubApplication:
         self.diagnostic_exporter = DiagnosticExporter(
             self.context.paths.root, self.context.paths.data
         )
+        self.support_bundle_collector = SupportBundleCollector(
+            self.context.paths.root, self.context.paths.data
+        )
         self.problem_store = ProblemStore(self.context.paths.data / "problems")
         self.recorded_download_failures: set[tuple[object, ...]] = set()
         self.transient_network_failures: dict[str, int] = {}
@@ -504,6 +511,8 @@ class DlcHubApplication:
         self.catalog_search_after_id = None
         self.log_search_after_id = None
         self.diagnostics_export_running = False
+        self.support_collection_running = False
+        self.last_support_collection_output = self.support_bundle_collector.latest_output_dir()
         self.cache_usage_bytes: int | None = None
         self.cache_usage_scan_running = False
         self.cache_usage_last_scan = 0.0
@@ -2744,6 +2753,37 @@ class DlcHubApplication:
         ctk.CTkButton(
             patch_tool, text="查看详情", width=104, command=self._show_patch_tool
         ).pack(anchor="w", padx=14, pady=(0, 10))
+        support_tool = ctk.CTkFrame(
+            self.tool_center_list,
+            fg_color=UI["card"],
+            border_width=1,
+            border_color=UI["border"],
+            corner_radius=8,
+        )
+        support_tool.pack(fill="x", padx=8, pady=6)
+        ctk.CTkLabel(
+            support_tool,
+            text="日志资料收集",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(10, 0))
+        ctk.CTkLabel(
+            support_tool,
+            text=(
+                "整理当前游戏日志、配置、程序问题记录和 Windows DxDiag 报告；"
+                "不会自动收集截图或大型崩溃转储。"
+            ),
+            text_color=UI["text_secondary"],
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=14, pady=(2, 10))
+        ctk.CTkButton(
+            support_tool,
+            text="查看详情",
+            width=104,
+            command=self._show_support_collection_tool,
+        ).pack(anchor="w", padx=14, pady=(0, 10))
         if not tools:
             ctk.CTkLabel(
                 self.tool_center_list,
@@ -2881,6 +2921,137 @@ class DlcHubApplication:
             ):
                 return article_id
         return None
+
+    def _show_support_collection_tool(self) -> None:
+        """Render the built-in support-folder collector in the tool center."""
+        self._show_tool_center_detail("日志资料收集")
+        body = self.tool_center_detail_body
+        ctk.CTkLabel(
+            body,
+            text=(
+                "一键整理当前选中游戏的已知日志和配置文件，同时包含本程序运行日志、"
+                "问题记录与 Windows DxDiag.txt。资料保存在程序数据目录的工具文件夹中，"
+                "不压缩、不上传，也不会自动收集截图或 .dmp 崩溃转储。"
+            ),
+            text_color=UI["text_secondary"],
+            anchor="w",
+            justify="left",
+            wraplength=720,
+        ).pack(fill="x", padx=16, pady=(16, 12))
+        self.support_collection_status_label = ctk.CTkLabel(
+            body,
+            text=self._support_collection_status_text(),
+            text_color=UI["text_secondary"],
+            anchor="w",
+            justify="left",
+            wraplength=720,
+        )
+        self.support_collection_status_label.pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 16))
+        self.support_collection_start_button = ctk.CTkButton(
+            actions,
+            text="正在收集……" if self.support_collection_running else "一键收集资料",
+            width=132,
+            state="disabled" if self.support_collection_running else "normal",
+            command=self._start_support_collection,
+        )
+        self.support_collection_start_button.pack(side="left")
+        self.support_collection_open_button = ctk.CTkButton(
+            actions,
+            text="打开收集文件夹",
+            width=136,
+            command=self._open_support_collection_folder,
+        )
+        self.support_collection_open_button.pack(side="left", padx=(10, 0))
+
+    def _support_collection_status_text(self) -> str:
+        if self.support_collection_running:
+            return "正在后台整理资料；完成后可直接打开本次收集文件夹。"
+        if self.last_support_collection_output is not None:
+            return f"最近一次收集：{self.last_support_collection_output.name}"
+        return "尚未收集资料。请选择游戏后开始；未找到的文件会安全跳过。"
+
+    def _start_support_collection(self) -> None:
+        if self.support_collection_running:
+            return
+        self.support_collection_running = True
+        button = getattr(self, "support_collection_start_button", None)
+        if button is not None:
+            button.configure(state="disabled", text="正在收集……")
+        status = getattr(self, "support_collection_status_label", None)
+        if status is not None:
+            status.configure(text=self._support_collection_status_text())
+        cartridge = getattr(self, "cartridge", None)
+        descriptor = getattr(getattr(cartridge, "adapter", None), "descriptor", None)
+        game_id = getattr(descriptor, "game_id", None)
+        installation = self.current_installation
+        game_root = installation.root if installation is not None else None
+
+        def worker() -> None:
+            try:
+                result = self.support_bundle_collector.collect(
+                    app_version=self.context.app_version,
+                    launcher_version=self.context.launcher_version,
+                    game_id=game_id,
+                    game_root=game_root,
+                    problems=self.problem_store.list_reports(),
+                    host_platform=self.host_platform,
+                )
+                self._post_ui(
+                    lambda result=result: self._finish_support_collection(result)
+                )
+            except Exception as error:
+                self.context.logger.exception("Support collection failed")
+                self._post_ui(
+                    lambda message=str(error): self._finish_support_collection_error(
+                        message
+                    )
+                )
+
+        threading.Thread(
+            target=worker, daemon=True, name="support-collection"
+        ).start()
+
+    def _finish_support_collection(self, result: SupportCollectionResult) -> None:
+        self.support_collection_running = False
+        self.last_support_collection_output = result.output_dir
+        button = getattr(self, "support_collection_start_button", None)
+        if button is not None:
+            button.configure(state="normal", text="一键收集资料")
+        status = getattr(self, "support_collection_status_label", None)
+        if status is not None:
+            status.configure(text=self._support_collection_status_text())
+        details = [result.summary]
+        if result.skipped_dumps:
+            details.append(
+                f"发现并跳过 {len(result.skipped_dumps)} 个 .dmp 崩溃转储；"
+                "如论坛管理员需要，请按原路径自行补传。"
+            )
+        if result.failed:
+            details.append("部分资料未能读取，详情请查看运行日志。")
+        messagebox.showinfo(
+            "资料收集完成",
+            "\n\n".join(details) + f"\n\n已保存到：\n{result.output_dir}",
+            parent=self.window,
+        )
+
+    def _finish_support_collection_error(self, message: str) -> None:
+        self.support_collection_running = False
+        button = getattr(self, "support_collection_start_button", None)
+        if button is not None:
+            button.configure(state="normal", text="一键收集资料")
+        status = getattr(self, "support_collection_status_label", None)
+        if status is not None:
+            status.configure(text=self._support_collection_status_text())
+        messagebox.showerror("资料收集失败", message, parent=self.window)
+
+    def _open_support_collection_folder(self) -> None:
+        output = self.last_support_collection_output
+        if output is None or not output.is_dir():
+            self._notify("尚未找到本次会话生成的资料收集文件夹。", error=True)
+            return
+        self._open_path(output)
 
     def _show_patch_tool(self) -> None:
         self._show_tool_center_detail("补丁工具")
