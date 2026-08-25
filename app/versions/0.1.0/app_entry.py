@@ -3400,13 +3400,13 @@ class DlcHubApplication:
             location_actions.pack(anchor="w", padx=16, pady=(0, 10))
             ctk.CTkButton(
                 location_actions,
-                text="打开补丁安装目录",
+                text="打开游戏内补丁安装目录",
                 width=150,
                 command=lambda path=patch_directory: self._open_path(path),
             ).pack(side="left")
             ctk.CTkButton(
                 location_actions,
-                text="打开补丁下载缓存",
+                text="打开软件内补丁缓存",
                 width=150,
                 command=lambda path=cache_directory: self._open_path(path),
             ).pack(side="left", padx=(10, 0))
