@@ -3160,22 +3160,12 @@ class DlcHubApplication:
             )
         body = self.tool_center_detail_body
         if tool.detail_intro:
-            ctk.CTkLabel(
-                body,
-                text=tool.detail_intro,
-                text_color=UI["text"],
-                anchor="w",
-                justify="left",
-                wraplength=720,
-            ).pack(fill="x", padx=16, pady=(16, 6))
-        ctk.CTkLabel(
-            body,
-            text=tool.description or "开发者提供的受控工具",
+            self._create_tool_detail_textbox(tool.detail_intro, pady=(16, 6))
+        self._create_tool_detail_textbox(
+            tool.description or "开发者提供的受控工具",
             text_color=UI["text_secondary"],
-            anchor="w",
-            justify="left",
-            wraplength=720,
-        ).pack(fill="x", padx=16, pady=(6 if tool.detail_intro else 16, 12))
+            pady=(6 if tool.detail_intro else 16, 12),
+        )
         if tool.detail_warnings:
             warning_text = "使用前请注意：\n" + "\n".join(
                 f"• {warning}" for warning in tool.detail_warnings
@@ -3968,6 +3958,54 @@ class DlcHubApplication:
         self.window.after_idle(lambda widget=textbox: self._fit_solution_textbox(widget))
         self.window.after(80, lambda widget=textbox: self._fit_solution_textbox(widget))
         self.solution_detail_textboxes.append(textbox)
+        return textbox
+
+    def _fit_tool_detail_textbox(self, textbox) -> None:
+        """让工具详情正文文本框按实际显示行数展开，由外层滚动容器统一滚动。"""
+        if getattr(textbox, "_fitting_tool_detail_text", False) or not textbox.winfo_exists():
+            return
+        try:
+            textbox._fitting_tool_detail_text = True
+            textbox.update_idletasks()
+            result = textbox._textbox.count("1.0", "end", "-displaylines")
+            lines = int(result[0] if isinstance(result, tuple) else result)
+            height = max(34, lines * 22 + 10)
+            if int(textbox.cget("height")) != height:
+                textbox.configure(height=height)
+                self.window.after_idle(self.tool_center_detail_body._update_scrollbar_visibility)
+        except (TclError, TypeError, ValueError):
+            raw_text = getattr(textbox, "_tool_detail_raw_text", "")
+            width = max(1, textbox.winfo_width() - 8)
+            lines = max(1, (len(raw_text) * 14 + width - 1) // width)
+            textbox.configure(height=max(34, lines * 22 + 10))
+        finally:
+            textbox._fitting_tool_detail_text = False
+
+    def _create_tool_detail_textbox(self, text: str, *, text_color=None, pady=(0, 12)):
+        """以解决方案详情页相同的只读文本框呈现工具说明正文。"""
+        textbox = ctk.CTkTextbox(
+            self.tool_center_detail_body,
+            height=34,
+            border_spacing=0,
+            activate_scrollbars=False,
+            wrap="char",
+            fg_color="transparent",
+            border_width=0,
+            corner_radius=0,
+            text_color=text_color or UI["text"],
+            font=ctk.CTkFont(size=14),
+        )
+        textbox.insert("1.0", text)
+        textbox._tool_detail_raw_text = text
+        textbox.configure(state="disabled")
+        textbox.pack(fill="x", padx=16, pady=pady)
+        textbox.bind(
+            "<Configure>",
+            lambda _event, widget=textbox: self._fit_tool_detail_textbox(widget),
+            add="+",
+        )
+        self.window.after_idle(lambda widget=textbox: self._fit_tool_detail_textbox(widget))
+        self.window.after(80, lambda widget=textbox: self._fit_tool_detail_textbox(widget))
         return textbox
 
     def _show_solution_detail(self, article_id: str) -> None:
