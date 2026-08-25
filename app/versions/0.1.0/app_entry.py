@@ -160,7 +160,13 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
         # 细窄的胶囊滑块：轨道透明，避免在浅色页面右侧形成一条呆板灰栏。
         kwargs.setdefault("scrollbar_fg_color", "transparent")
         super().__init__(*args, **kwargs)
-        self._scrollbar.configure(width=8, corner_radius=4)
+        self._scrollbar.configure(
+            width=14,
+            corner_radius=7,
+            border_spacing=2,
+            button_color=UI["brand"],
+            button_hover_color=UI["primary"],
+        )
         # 首次布局前不假设滚动条当前状态，避免实际已隐藏但状态值为 True 时跳过显示。
         self._scrollbar_visible = None
         self._parent_canvas.bind("<Configure>", self._schedule_scrollbar_update, add="+")
@@ -1256,7 +1262,7 @@ class DlcHubApplication:
             return _AutoHideScrollableFrame(
                 parent, height=250, fg_color=UI["panel"], corner_radius=10,
                 border_width=1, border_color=UI["border"],
-                scrollbar_button_color=UI["primary_border"],
+                scrollbar_button_color=UI["brand"],
                 scrollbar_button_hover_color=UI["primary"],
             )
 
@@ -1287,7 +1293,7 @@ class DlcHubApplication:
             self.page_host,
             fg_color=UI["page"],
             corner_radius=0,
-                scrollbar_button_color=UI["primary_border"],
+            scrollbar_button_color=UI["brand"],
                 scrollbar_button_hover_color=UI["primary"],
         )
         self.settings_list = settings_list
@@ -1628,7 +1634,7 @@ class DlcHubApplication:
             self.error_guide_card,
             fg_color="transparent",
             corner_radius=0,
-                scrollbar_button_color=UI["primary_border"],
+            scrollbar_button_color=UI["brand"],
                 scrollbar_button_hover_color=UI["primary"],
         )
         guide_actions.pack(fill="both", expand=True, padx=36, pady=(0, 12))
@@ -1754,7 +1760,7 @@ class DlcHubApplication:
         self.problem_list_panel.pack(fill="both", expand=True)
         self.problem_list = _AutoHideScrollableFrame(
             self.problem_list_panel, fg_color="#F7F8FA", corner_radius=8,
-            border_width=0, scrollbar_button_color=UI["primary_border"],
+            border_width=0, scrollbar_button_color=UI["brand"],
         )
         self.problem_list.pack(fill="both", expand=True)
         self.problem_detail_page = ctk.CTkFrame(
@@ -1762,7 +1768,7 @@ class DlcHubApplication:
         )
         self.problem_detail_content = _AutoHideScrollableFrame(
             self.problem_detail_page, fg_color=UI["card"], corner_radius=0,
-            border_width=0, scrollbar_button_color=UI["primary_border"],
+            border_width=0, scrollbar_button_color=UI["brand"],
         )
         self.problem_detail_content.pack(fill="both", expand=True, padx=(16, 8), pady=(4, 8))
         self.problem_actions = ctk.CTkFrame(
@@ -2108,7 +2114,7 @@ class DlcHubApplication:
         self.game_picker_results = _AutoHideScrollableFrame(
             shell,
             fg_color="transparent",
-            scrollbar_button_color=UI["primary_border"],
+            scrollbar_button_color=UI["brand"],
             scrollbar_button_hover_color=UI["primary"],
             corner_radius=0,
         )
