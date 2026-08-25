@@ -24,6 +24,19 @@
     {
       "kind": "text",
       "text": "本程序不会自动关闭 Windows Defender。请仅在理解风险后，按教程自行操作，或使用标题下方按钮下载/启动辅助工具。"
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "如果确认安全软件拦截仍无法解决，请联系开发者，并附上问题记录中的错误详情或诊断信息。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
     }
   ],
   "tools": [
