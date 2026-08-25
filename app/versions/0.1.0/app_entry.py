@@ -3315,18 +3315,15 @@ class DlcHubApplication:
         self._show_tool_center_detail("日志资料收集", requires_cloud_download=False)
         self._set_tool_ready(True)
         body = self.tool_center_detail_body
-        ctk.CTkLabel(
-            body,
-            text=(
+        self._create_tool_detail_textbox(
+            (
                 "一键整理当前选中游戏的已知日志和配置文件，同时包含本程序运行日志、"
                 "问题记录与 Windows DxDiag.txt。资料保存在程序数据目录的工具文件夹中，"
                 "不压缩、不上传，也不会自动收集截图或 .dmp 崩溃转储。"
             ),
             text_color=UI["text_secondary"],
-            anchor="w",
-            justify="left",
-            wraplength=720,
-        ).pack(fill="x", padx=16, pady=(16, 12))
+            pady=(16, 12),
+        )
         self.support_collection_status_label = ctk.CTkLabel(
             body,
             text=self._support_collection_status_text(),
@@ -3497,13 +3494,11 @@ class DlcHubApplication:
             )
         )
         details = [f"游戏目录：{game_root if game_root else '未检测到'}", f"状态：{status}"]
-        ctk.CTkLabel(
-            body,
-            text="\n".join(details),
+        self._create_tool_detail_textbox(
+            "\n".join(details),
             text_color=UI["text_secondary"],
-            justify="left",
-            anchor="w",
-        ).pack(fill="x", padx=16, pady=(0, 12))
+            pady=(0, 12),
+        )
         if not return_to_solution:
             ctk.CTkButton(
                 body,
@@ -3597,14 +3592,11 @@ class DlcHubApplication:
             width=170,
             command=self._redownload_patch_assets,
         ).pack(anchor="w", padx=16, pady=(16, 4))
-        ctk.CTkLabel(
-            body,
-            text="此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。",
+        self._create_tool_detail_textbox(
+            "此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。",
             text_color=UI["muted"],
-            wraplength=720,
-            justify="left",
-            anchor="w",
-        ).pack(fill="x", padx=16, pady=(0, 16))
+            pady=(0, 16),
+        )
 
     def _refresh_patch_tool(self) -> None:
         """Re-read patch state and redraw the detail page without leaving it."""
@@ -3689,19 +3681,17 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=18, weight="bold"),
             anchor="w",
         ).pack(fill="x", padx=16, pady=(16, 4))
-        ctk.CTkLabel(
-            body,
-            text="仅列举和打开系统已登记的产品；不会关闭防护或修改设置。",
+        self._create_tool_detail_textbox(
+            "仅列举和打开系统已登记的产品；不会关闭防护或修改设置。",
             text_color=UI["text_secondary"],
-            anchor="w",
-        ).pack(fill="x", padx=16, pady=(0, 12))
+            pady=(0, 12),
+        )
         if not products:
-            ctk.CTkLabel(
-                body,
-                text="未从 Windows 安全中心读取到已登记的安全软件。",
+            self._create_tool_detail_textbox(
+                "未从 Windows 安全中心读取到已登记的安全软件。",
                 text_color=UI["text_secondary"],
-                anchor="w",
-            ).pack(fill="x", padx=16, pady=14)
+                pady=14,
+            )
         for product in products:
             row = ctk.CTkFrame(
                 body,
@@ -3982,7 +3972,7 @@ class DlcHubApplication:
             textbox._fitting_tool_detail_text = False
 
     def _create_tool_detail_textbox(self, text: str, *, text_color=None, pady=(0, 12)):
-        """以解决方案详情页相同的只读文本框呈现工具说明正文。"""
+        """复用解决方案详情页的只读文本框换行与自动高度逻辑。"""
         textbox = ctk.CTkTextbox(
             self.tool_center_detail_body,
             height=34,
@@ -4319,15 +4309,14 @@ class DlcHubApplication:
         body = self.tool_center_detail_body
         if infos:
             active = [info.name for info in infos if info.is_active]
-            ctk.CTkLabel(
-                body,
-                text=(
+            self._create_tool_detail_textbox(
+                (
                     "检测当前使用显卡为：" + "、".join(active)
                     if active else
                     "暂未检测到当前使用显卡；混合显卡模式下请以游戏设置或任务管理器 GPU 引擎为准。"
                 ),
-                text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
-            ).pack(fill="x", padx=16, pady=(0, 12))
+                text_color=UI["text_secondary"], pady=(0, 12),
+            )
             active_integrated = any(
                 info.is_active and is_integrated_adapter(info.name, info.vendor)
                 for info in infos
@@ -4343,7 +4332,10 @@ class DlcHubApplication:
                     corner_radius=8, anchor="w", justify="left", wraplength=688,
                 ).pack(fill="x", padx=16, pady=(0, 14))
         if not infos:
-            ctk.CTkLabel(body, text="正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。", anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
+            self._create_tool_detail_textbox(
+                "正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。",
+                pady=(0, 14),
+            )
             if not probe_requested:
                 actions = ctk.CTkFrame(body, fg_color="transparent")
                 actions.pack(fill="x", padx=16, pady=(0, 14))
@@ -4352,7 +4344,11 @@ class DlcHubApplication:
         for info in infos:
             active_text = " · 当前显示输出" if info.is_active else ""
             text = f"{info.name}{active_text}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
-            ctk.CTkLabel(body, text=text, text_color=UI["danger"] if info.warning else UI["text"], fg_color=UI["warning_surface"] if info.warning else UI["panel"], corner_radius=8, anchor="w", justify="left", wraplength=688).pack(fill="x", padx=16, pady=(0, 10))
+            self._create_tool_detail_textbox(
+                text,
+                text_color=UI["danger"] if info.warning else UI["text"],
+                pady=(0, 10),
+            )
             if info.warning:
                 ctk.CTkLabel(body, text=info.warning, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 10))
             actions = ctk.CTkFrame(body, fg_color="transparent")
@@ -4361,11 +4357,10 @@ class DlcHubApplication:
             ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
             if info.vendor_url:
                 ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: self._open_tool_url(url, "厂商官网", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(
-            body,
-            text="提示：NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络才能正常访问；也可以优先尝试 Windows 更新。",
-            text_color=UI["muted"], anchor="w", justify="left", wraplength=720,
-        ).pack(fill="x", padx=16, pady=(4, 16))
+        self._create_tool_detail_textbox(
+            "提示：NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络才能正常访问；也可以优先尝试 Windows 更新。",
+            text_color=UI["muted"], pady=(4, 16),
+        )
         if probe_requested:
             def worker() -> None:
                 found = discover_gpu_drivers()
