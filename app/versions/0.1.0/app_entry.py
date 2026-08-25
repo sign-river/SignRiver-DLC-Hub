@@ -4095,7 +4095,7 @@ class DlcHubApplication:
                 warning = "update-module-basics"
             else:
                 summary = "；".join(
-                    f"{info.name} {info.version}（{info.driver_year or '日期未知'}）"
+                    f"{info.name}{'（当前显示输出）' if info.is_active else ''} {info.version}（{info.driver_year or '日期未知'}）"
                     for info in infos
                 )
                 outdated = [info for info in infos if info.status == "建议更新"]
@@ -4140,21 +4140,33 @@ class DlcHubApplication:
             text="这里仅提供只读检查结果和官方更新入口，不会自动替换驱动或修改系统设置。",
             text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
         ).pack(fill="x", padx=16, pady=(16, 12))
+        if infos:
+            active = [info.name for info in infos if info.is_active]
+            ctk.CTkLabel(
+                body,
+                text=(
+                    "系统报告当前显示输出：" + "、".join(active)
+                    if active else
+                    "系统未能确认当前显示输出显卡；混合显卡模式下请以游戏设置或任务管理器 GPU 引擎为准。"
+                ),
+                text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
+            ).pack(fill="x", padx=16, pady=(0, 12))
         if not infos:
             ctk.CTkLabel(body, text="正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。", anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
             if not probe_requested:
                 actions = ctk.CTkFrame(body, fg_color="transparent")
                 actions.pack(fill="x", padx=16, pady=(0, 14))
-                ctk.CTkButton(actions, text="打开设备管理器", width=140, command=lambda: subprocess.Popen(["devmgmt.msc"]), **BUTTON_SECONDARY).pack(side="left")
+                ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
                 ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
         for info in infos:
-            text = f"{info.name}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
+            active_text = " · 当前显示输出" if info.is_active else ""
+            text = f"{info.name}{active_text}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
             ctk.CTkLabel(body, text=text, text_color=UI["danger"] if info.warning else UI["text"], fg_color=UI["warning_surface"] if info.warning else UI["panel"], corner_radius=8, anchor="w", justify="left", wraplength=688).pack(fill="x", padx=16, pady=(0, 10))
             if info.warning:
                 ctk.CTkLabel(body, text=info.warning, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 10))
             actions = ctk.CTkFrame(body, fg_color="transparent")
             actions.pack(fill="x", padx=16, pady=(0, 14))
-            ctk.CTkButton(actions, text="打开设备管理器", width=140, command=lambda: subprocess.Popen(["devmgmt.msc"]), **BUTTON_SECONDARY).pack(side="left")
+            ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
             ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
             if info.vendor_url:
                 ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: webbrowser.open(url), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
@@ -4163,6 +4175,12 @@ class DlcHubApplication:
                 found = discover_gpu_drivers()
                 self._post_ui(lambda value=found: self._show_gpu_driver_detail(value, origin=origin))
             threading.Thread(target=worker, daemon=True).start()
+
+    def _open_gpu_device_manager(self) -> None:
+        try:
+            subprocess.Popen(["mmc.exe", "devmgmt.msc"])
+        except OSError as error:
+            self._notify(f"无法打开设备管理器：{error}", error=True)
 
     def _quick_check_security_products(self) -> None:
         """List Windows Security Center products without blocking the UI thread."""

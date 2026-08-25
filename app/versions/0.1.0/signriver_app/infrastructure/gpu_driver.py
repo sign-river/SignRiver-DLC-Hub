@@ -21,6 +21,7 @@ class GpuDriverInfo:
     status: str
     warning: str | None
     vendor_url: str | None
+    is_active: bool
 
 
 def _vendor_url(vendor: str, name: str) -> str | None:
@@ -90,7 +91,8 @@ def discover_gpu_drivers(
     run = runner or subprocess.run
     script = (
         "Get-CimInstance Win32_VideoController | "
-        "Select-Object Name,AdapterCompatibility,DriverVersion,DriverDate | "
+        "Select-Object Name,AdapterCompatibility,DriverVersion,DriverDate,"
+        "CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate | "
         "ConvertTo-Json -Compress"
     )
     try:
@@ -114,6 +116,11 @@ def discover_gpu_drivers(
         vendor = str(item.get("AdapterCompatibility") or "").strip()
         version = str(item.get("DriverVersion") or "未知").strip()
         date_value = str(item.get("DriverDate") or "").strip()
+        is_active = any(
+            int(item.get(key) or 0) > 0
+            for key in ("CurrentHorizontalResolution", "CurrentVerticalResolution", "CurrentRefreshRate")
+            if str(item.get(key) or "0").isdigit()
+        )
         year = None
         year = _driver_year(date_value)
         warning = None
@@ -127,6 +134,6 @@ def discover_gpu_drivers(
         result.append(GpuDriverInfo(
             name=name, vendor=vendor, version=version, driver_date=date_value,
             driver_year=year, status=status, warning=warning,
-            vendor_url=_vendor_url(vendor, name),
+            vendor_url=_vendor_url(vendor, name), is_active=is_active,
         ))
     return tuple(result)
