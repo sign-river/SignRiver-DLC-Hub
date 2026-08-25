@@ -452,6 +452,55 @@ def test_missing_optional_tools_index_does_not_emit_terminal_warning(tmp_path: P
     ]
 
 
+def test_remote_empty_tools_index_removes_downloaded_tool_cache(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "tools_index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "tools": [{
+            "tool_id": "old-tool", "title": "旧工具", "description": "",
+            "asset_name": "old-tool.zip", "filename": "old-tool.zip",
+            "platforms": ["all"], "package_kind": "zip",
+            "launch_action": "open_folder", "release_tag": "tools",
+        }],
+    }), encoding="utf-8")
+    old_tool = cache / "tools" / "old-tool"
+    old_tool.mkdir(parents=True)
+    (old_tool / "old-tool.zip").write_bytes(b"cached")
+
+    service = GuideCatalogService(
+        cache, opener=lambda _url, _timeout: json.dumps({
+            "schema_version": 1, "tools": [],
+        }).encode(),
+    )
+
+    assert service.refresh_tools(allow_network=True) == ()
+    assert not old_tool.exists()
+
+
+def test_remote_empty_guide_index_removes_cached_guide_detail(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "guides_index.json").write_text(json.dumps({
+        "schema_version": 1,
+        "guides": [{
+            "guide_id": "old-guide", "title": "旧指南", "summary": "",
+            "asset_name": "old-guide.json", "platforms": ["all"],
+        }],
+    }), encoding="utf-8")
+    detail = cache / "old-guide.json"
+    detail.write_text("{}", encoding="utf-8")
+
+    service = GuideCatalogService(
+        cache, opener=lambda _url, _timeout: json.dumps({
+            "schema_version": 1, "guides": [],
+        }).encode(),
+    )
+
+    assert service.refresh_index(allow_network=True) == ()
+    assert not detail.exists()
+
+
 def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:
     payload = json.dumps({
         "schema_version": 1,

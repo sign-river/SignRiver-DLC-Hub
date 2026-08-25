@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
@@ -281,13 +282,37 @@ class GuideCatalogService:
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError):
             return ()
 
+    @staticmethod
+    def _remote_resource_missing(error: Exception) -> bool:
+        detail = str(error).casefold()
+        return any(marker in detail for marker in ("404", "not found", "资源不存在", "不存在"))
+
+    def _remove_cached_tool_dirs(self, keep_ids: set[str]) -> None:
+        tools_dir = self.cache_dir / "tools"
+        if not tools_dir.is_dir():
+            return
+        keep = {str(tool_id).casefold() for tool_id in keep_ids}
+        for child in tools_dir.iterdir():
+            if child.is_dir() and child.name.casefold() not in keep:
+                shutil.rmtree(child, ignore_errors=True)
+
+    def _remove_cached_guides(
+        self, previous_entries: tuple[GuideIndexEntry, ...], keep_entries: tuple[GuideIndexEntry, ...]
+    ) -> None:
+        keep = {entry.asset_name.casefold() for entry in keep_entries}
+        for entry in previous_entries:
+            if entry.asset_name.casefold() not in keep:
+                (self.cache_dir / entry.asset_name).unlink(missing_ok=True)
+
     def refresh_tools(self, *, allow_network: bool = True) -> tuple[GuideTool, ...]:
         """Refresh the independent tools catalogue; failure never hides guides."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path = self.cache_dir / TOOLS_INDEX_ASSET_NAME
         builtin_tools = self._load_bootstrap_tools()
         builtin_ids = {tool.tool_id for tool in builtin_tools}
+        self._guide_tools = {}
         remote_tools: tuple[GuideTool, ...] = ()
+        remote_authoritative = False
         if allow_network:
             try:
                 # The separate tools catalogue is optional. A freshly created
@@ -299,14 +324,20 @@ class GuideCatalogService:
                 )
                 remote_tools = self._parse_tools_payload(raw_payload)
             except Exception as error:
+                if self._remote_resource_missing(error):
+                    cache_path.unlink(missing_ok=True)
+                    self._remove_cached_tool_dirs(builtin_ids)
                 LOGGER.debug("Ignoring invalid remote tools index: %s", error)
             else:
+                remote_authoritative = True
                 cache_path.write_bytes(raw_payload)
-        if not remote_tools and cache_path.is_file():
+        if not remote_authoritative and cache_path.is_file():
             try:
                 remote_tools = self._parse_tools_payload(cache_path.read_bytes())
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError):
                 cache_path.unlink(missing_ok=True)
+        if remote_authoritative:
+            self._remove_cached_tool_dirs(builtin_ids | {tool.tool_id for tool in remote_tools})
         self._indexed_tools = {tool.tool_id: tool for tool in builtin_tools}
         self._indexed_tools.update(
             (tool.tool_id, tool) for tool in remote_tools if tool.tool_id not in builtin_ids
@@ -316,6 +347,12 @@ class GuideCatalogService:
     def refresh_index(self, *, allow_network: bool = True) -> tuple[GuideIndexEntry, ...]:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path = self.cache_dir / GUIDES_INDEX_ASSET_NAME
+        previous_entries: tuple[GuideIndexEntry, ...] = ()
+        if cache_path.is_file():
+            try:
+                previous_entries = self._parse_index_payload(cache_path.read_bytes())
+            except Exception:
+                pass
         if allow_network:
             try:
                 raw_payload = self._fetch(GUIDES_INDEX_ASSET_NAME)
@@ -325,6 +362,13 @@ class GuideCatalogService:
                 # persist it as a cache entry or turn an optional guide refresh
                 # into recurring startup warning noise.
                 LOGGER.debug("Ignoring invalid remote guide index: %s", error)
+                if self._remote_resource_missing(error):
+                    cache_path.unlink(missing_ok=True)
+                    builtin_entries = self._load_bootstrap_entries()
+                    self._remove_cached_guides(previous_entries, ())
+                    self.entries = builtin_entries
+                    self._guide_tools = {}
+                    return builtin_entries
             else:
                 builtin_entries = self._load_bootstrap_entries()
                 builtin_ids = {entry.guide_id for entry in builtin_entries}
@@ -332,6 +376,7 @@ class GuideCatalogService:
                     entry for entry in remote_entries if entry.guide_id not in builtin_ids
                 )
                 cache_path.write_bytes(raw_payload)
+                self._remove_cached_guides(previous_entries, remote_entries)
                 self.entries = entries
                 return entries
         candidates = (
