@@ -84,6 +84,7 @@ from .signriver_app.infrastructure.security_software import (
     is_windows_security_product,
     preferred_security_product_executable,
 )
+from .signriver_app.infrastructure.gpu_driver import GpuDriverInfo, discover_gpu_drivers
 from .signriver_app.infrastructure.persistence import (
     Database,
     DownloadTaskRepository,
@@ -3020,6 +3021,11 @@ class DlcHubApplication:
         cards: list[tuple[str, str, object]] = []
         if self.host_platform == "windows":
             cards.append((
+                "显卡驱动检查",
+                "读取当前显卡驱动日期并提示是否建议更新。",
+                self._show_gpu_driver_detail,
+            ))
+            cards.append((
                 "安全软件检测",
                 "只读列出 Windows 安全中心已登记的防护软件；不会关闭防护或修改设置。",
                 self._show_security_products,
@@ -4022,6 +4028,7 @@ class DlcHubApplication:
             else:
                 self.quick_check_steps.append(self._quick_check_patch_state)
         if self.host_platform == "windows":
+            self.quick_check_steps.append(self._quick_check_gpu_driver)
             self.quick_check_steps.append(self._quick_check_security_products)
         # Only tools explicitly marked by a developer are admitted here.  The
         # user cannot supply a command, path, or opt-in flag through the UI.
@@ -4070,6 +4077,88 @@ class DlcHubApplication:
             self._add_quick_check_result(f"补丁状态：{health}", None if health == "healthy" else "patch-state")
         except Exception:
             self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch-state")
+
+    def _quick_check_gpu_driver(self) -> None:
+        """异步读取显卡驱动，避免 PowerShell 查询阻塞界面。"""
+        self.quick_check_waiting = True
+        result_index = self._add_quick_check_result("显卡驱动：正在读取当前版本……")
+        self._render_quick_check_output()
+
+        def worker() -> None:
+            infos = discover_gpu_drivers()
+            if not infos:
+                message = "显卡驱动：未读取到显示适配器信息，请打开详情页手动检查。"
+                warning = "update-module-basics"
+            else:
+                summary = "；".join(
+                    f"{info.name} {info.version}（{info.driver_year or '日期未知'}）"
+                    for info in infos
+                )
+                outdated = [info for info in infos if info.status == "建议更新"]
+                message = f"显卡驱动：{'建议更新' if outdated else '已读取'} · {summary}"
+                warning = "update-module-basics" if outdated else None
+
+            def finish() -> None:
+                if not self.quick_check_running:
+                    return
+                self._replace_quick_check_result(
+                    result_index, message, warning,
+                    tool_detail_action=lambda value=infos: self._show_gpu_driver_detail(
+                        value, origin="quick_check"
+                    ),
+                )
+                self.quick_check_waiting = False
+                self._render_quick_check_output()
+                if not self.quick_check_paused:
+                    self.window.after(0, self._advance_quick_check)
+
+            self._post_ui(finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_gpu_driver_detail(
+        self, infos: tuple[GpuDriverInfo, ...] | None = None, *, origin: str = "tool_center"
+    ) -> None:
+        """在现有工具详情容器中展示显卡驱动操作，不执行自动更新。"""
+        probe_requested = infos is None
+        infos = infos or ()
+        self._show_page("常用工具")
+        back_command = self._show_tool_center_list
+        back_text = "← 返回常用工具"
+        if origin == "quick_check":
+            back_text = "← 回到一键排错"
+            def back_command() -> None:
+                self._show_page("简单错误检测")
+        self._show_tool_center_detail("显卡驱动详情", back_text=back_text, back_command=back_command)
+        body = self.tool_center_detail_body
+        ctk.CTkLabel(
+            body,
+            text="这里仅提供只读检查结果和官方更新入口，不会自动替换驱动或修改系统设置。",
+            text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
+        ).pack(fill="x", padx=16, pady=(16, 12))
+        if not infos:
+            ctk.CTkLabel(body, text="正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。", anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 14))
+            if not probe_requested:
+                actions = ctk.CTkFrame(body, fg_color="transparent")
+                actions.pack(fill="x", padx=16, pady=(0, 14))
+                ctk.CTkButton(actions, text="打开设备管理器", width=140, command=lambda: subprocess.Popen(["devmgmt.msc"]), **BUTTON_SECONDARY).pack(side="left")
+                ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+        for info in infos:
+            text = f"{info.name}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
+            ctk.CTkLabel(body, text=text, text_color=UI["danger"] if info.warning else UI["text"], fg_color=UI["warning_surface"] if info.warning else UI["panel"], corner_radius=8, anchor="w", justify="left", wraplength=688).pack(fill="x", padx=16, pady=(0, 10))
+            if info.warning:
+                ctk.CTkLabel(body, text=info.warning, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 10))
+            actions = ctk.CTkFrame(body, fg_color="transparent")
+            actions.pack(fill="x", padx=16, pady=(0, 14))
+            ctk.CTkButton(actions, text="打开设备管理器", width=140, command=lambda: subprocess.Popen(["devmgmt.msc"]), **BUTTON_SECONDARY).pack(side="left")
+            ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: webbrowser.open("ms-settings:windowsupdate-optionalupdates"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+            if info.vendor_url:
+                ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: webbrowser.open(url), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+        if probe_requested:
+            def worker() -> None:
+                found = discover_gpu_drivers()
+                self._post_ui(lambda value=found: self._show_gpu_driver_detail(value, origin=origin))
+            threading.Thread(target=worker, daemon=True).start()
 
     def _quick_check_security_products(self) -> None:
         """List Windows Security Center products without blocking the UI thread."""

@@ -740,3 +740,8 @@ Windows 构建环境安装了可选的 NumPy/MKL，`PyInstaller --collect-all PI
 
 - CustomTkinter `CTkScrollableFrame` 默认始终布局垂直滚动条，导致短页面出现空滚动条。客户端统一使用 `_AutoHideScrollableFrame`，根据 canvas 的 scrollregion 与可视高度动态隐藏/显示滚动条；隐藏时画布横向扩展，避免右侧留下空白栏。
 - 保持现有滚轮事件和滚动容器 API 不变，不引入页面级特殊判断；后续新增客户端垂直滚动页面应优先复用该容器。
+
+## 2026-08-26：显卡驱动检查采用只读系统查询与用户确认更新
+
+- Windows 一键排错通过 PowerShell `Win32_VideoController`/CIM 读取显卡名称、版本和驱动日期；按当前年份前 3 年提示可能偏旧，避免依赖厂商私有版本号规则。
+- 详情页复用常用工具详情容器，提供设备管理器、Windows 更新和识别到的厂商官网入口；不自动下载、安装、替换驱动，也不执行任意云端命令。
