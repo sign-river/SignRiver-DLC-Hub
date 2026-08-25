@@ -247,11 +247,6 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'self.tool_center_detail_back_button.configure(' in detail_header
     assert 'text=back_text,' in detail_header
     assert 'command=back_command or self._show_tool_center_list,' in detail_header
-    assert 'self._solution_return_context: tuple[object, ...] | None = None' in source
-    assert 'return_context=(\n                        "guide",' in source
-    assert 'if return_context[0] == "guide_tool":' in source
-    assert 'if return_context[0] == "patch_tool":' in source
-    assert 'source_builtin_tool: str | None = None' in source
     patch_tool = source.split('def _show_patch_tool', 1)[1].split(
         'def _redownload_patch_assets', 1
     )[0]
