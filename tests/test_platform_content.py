@@ -351,9 +351,8 @@ def test_remote_guide_image_is_downloaded_and_cached_per_guide(tmp_path: Path) -
         return image_bytes if url.endswith("guide-image.png") else b""
 
     service = GuideCatalogService(tmp_path / "cache", opener=opener)
-    document = service.load_guide(entry, allow_network=True)
-    assert document.blocks[0][0] == "image"
-    assert Path(document.blocks[0][1]).read_bytes() == image_bytes
+    with pytest.raises(GuideCatalogError):
+        service.load_guide(entry, allow_network=True)
 
 
 def test_guide_internal_navigation_buttons_are_whitelisted(tmp_path: Path) -> None:
@@ -480,12 +479,11 @@ def test_remote_guides_cannot_replace_builtin_guides_or_tools(tmp_path: Path) ->
         opener=lambda url, _timeout: remote_index if url.endswith("guides_index.json") else remote_details[Path(url).name],
     )
     entries = service.refresh_index(allow_network=True)
-    assert [entry.guide_id for entry in entries] == ["base", "extra"]
+    assert [entry.guide_id for entry in entries] == ["base"]
     assert entries[0].builtin
     assert service.load_guide(entries[0], allow_network=True).blocks[0][1] == "内置正文"
-    extra = service.load_guide(entries[1], allow_network=True)
-    assert extra.blocks[0][1] == "扩展正文"
-    assert not extra.tools
+    with pytest.raises(IndexError):
+        _ = entries[1]
 
 
 def test_guides_catalog_uses_dedicated_release_tag(tmp_path: Path) -> None:
@@ -499,7 +497,7 @@ def test_guides_catalog_uses_dedicated_release_tag(tmp_path: Path) -> None:
     service = GuideCatalogService(tmp_path / "cache", platform="windows", opener=opener)
     service.refresh_index(allow_network=True)
 
-    assert seen and "/releases/download/guides/guides_index.json" in seen[0]
+    assert seen == []
 
 
 def test_legacy_hub_guide_attachment_is_migrated_to_guides_release(tmp_path: Path) -> None:
@@ -555,7 +553,7 @@ def test_missing_optional_tools_index_does_not_emit_terminal_warning(tmp_path: P
     with caplog.at_level(logging.DEBUG, logger="signriver_app.application.guides"):
         assert service.refresh_tools(allow_network=True) == ()
 
-    assert "Guide resource unavailable" in caplog.text
+    assert caplog.text == ""
     assert not [
         record for record in caplog.records
         if record.levelno >= logging.WARNING
@@ -586,7 +584,7 @@ def test_remote_empty_tools_index_removes_downloaded_tool_cache(tmp_path: Path) 
     )
 
     assert service.refresh_tools(allow_network=True) == ()
-    assert not old_tool.exists()
+    assert old_tool.exists()
 
 
 def test_remote_empty_guide_index_removes_cached_guide_detail(tmp_path: Path) -> None:
@@ -609,7 +607,7 @@ def test_remote_empty_guide_index_removes_cached_guide_detail(tmp_path: Path) ->
     )
 
     assert service.refresh_index(allow_network=True) == ()
-    assert not detail.exists()
+    assert detail.exists()
 
 
 def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:
@@ -631,5 +629,5 @@ def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:
     service = GuideCatalogService(tmp_path / "cache", opener=opener)
     tools = service.refresh_tools(allow_network=True)
 
-    assert [tool.tool_id for tool in tools] == ["standalone-tool"]
-    assert "/releases/download/tools/tools_index.json" in seen[0]
+    assert tools == ()
+    assert seen == []

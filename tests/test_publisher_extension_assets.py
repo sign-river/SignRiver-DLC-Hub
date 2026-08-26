@@ -73,9 +73,7 @@ def test_extension_publish_assets_materialises_guides_and_tools(tmp_path: Path) 
     assert {asset.name for asset in plan.guides} == {
         "guides_index.json", "guide_sample.json",
     }
-    assert {asset.name for asset in plan.tools} == {
-        "tools_index.json", "sample-tool.zip",
-    }
+    assert {asset.name for asset in plan.tools} == {"sample-tool.zip"}
     assert plan.summary.status_text == "指南 已发现 1 篇文章、0 个附件；工具 已发现 1 个工具"
     profile = workspace.tools_release_profile()
     assert profile.release_tag == "tools"
@@ -152,7 +150,7 @@ def test_extension_preflight_allows_unreferenced_tools(tmp_path: Path) -> None:
 
     plan = workspace.extension_publish_assets()
 
-    assert {asset.name for asset in plan.tools} == {"tools_index.json", "sample-tool.zip"}
+    assert {asset.name for asset in plan.tools} == {"sample-tool.zip"}
 
 
 def test_changed_publish_assets_uses_only_local_successful_hashes(tmp_path: Path) -> None:
@@ -175,3 +173,20 @@ def test_changed_publish_assets_uses_only_local_successful_hashes(tmp_path: Path
     changed = workspace.changed_publish_assets(profile, "owner", "repository", changed_plan.tools)
 
     assert [asset.name for asset in changed] == ["sample-tool.zip"]
+
+
+def test_sync_local_guides_and_tools_writes_client_definitions(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    _write_extension_source(workspace)
+    target = tmp_path / "client-config" / "guides"
+
+    from signriver_publisher.extension_assets import sync_local_client_resources
+    written = sync_local_client_resources(
+        workspace.guides_source_dir, workspace.tools_source_dir, target
+    )
+
+    assert {path.name for path in written} == {
+        "guides_index.json", "guide_sample.json", "tools_index.json",
+    }
+    assert (target / "tools_index.json").is_file()

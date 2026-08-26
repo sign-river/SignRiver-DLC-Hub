@@ -24,6 +24,7 @@ from .models import PublishAsset
 TOOLS_INDEX_ASSET_NAME = "tools_index.json"
 TOOLS_RELEASE_TAG = "tools"
 _TOOLS_MANIFEST_NAME = ".tools-manifest.json"
+_LOCAL_MANIFEST_NAME = ".local-guides-tools-manifest.json"
 _SAFE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 
 
@@ -269,8 +270,50 @@ def export_extension_assets(
     return guide_files, tuple(written_tools), summary
 
 
+def sync_local_client_resources(
+    guides_source_dir: Path, tools_source_dir: Path, target_dir: Path
+) -> tuple[Path, ...]:
+    """Validate and atomically refresh the built-in guide/tool definitions."""
+    summary = inspect_extension_resources(guides_source_dir, tools_source_dir)
+    if not summary.guides.configured or summary.guides.error:
+        raise ExtensionExportError(summary.guides.error or "指南目录缺少 guides_index.json")
+    if summary.tools.error:
+        raise ExtensionExportError(summary.tools.error)
+    _tool_records(tools_source_dir)
+    staging = target_dir.parent / f".{target_dir.name}.staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+    try:
+        guide_files = export_guides(guides_source_dir, staging)
+        shutil.copy2(tools_source_dir / TOOLS_INDEX_ASSET_NAME, staging / TOOLS_INDEX_ASSET_NAME)
+        names = {path.name for path in guide_files} | {TOOLS_INDEX_ASSET_NAME}
+        old_names: set[str] = set()
+        manifest = target_dir / _LOCAL_MANIFEST_NAME
+        try:
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            old_names = {Path(str(item)).name for item in value.get("files", [])}
+        except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+            pass
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for name in old_names - names:
+            (target_dir / name).unlink(missing_ok=True)
+        written: list[Path] = []
+        for name in names:
+            source = staging / name
+            target = target_dir / name
+            shutil.copy2(source, target)
+            written.append(target)
+        manifest.write_text(json.dumps({"files": sorted(names)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return tuple(sorted(written, key=lambda path: path.name.casefold()))
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+
 __all__ = [
     "ExtensionExportError", "ExtensionPublishAssets", "ExtensionResourceSummary",
     "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "ToolResourceSummary",
     "export_extension_assets", "inspect_extension_resources",
+    "sync_local_client_resources",
 ]

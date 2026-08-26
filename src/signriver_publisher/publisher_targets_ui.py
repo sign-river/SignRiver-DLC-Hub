@@ -50,7 +50,13 @@ class PublisherTargetsUiMixin:
         if extensions_button is not None:
             extensions_button.configure(
                 state="normal" if available else "disabled",
-                text="预检并双端发布扩展",
+                text="双端上传工具文件",
+            )
+        local_button = getattr(self, "extensions_local_publish_button", None)
+        if local_button is not None:
+            local_button.configure(
+                state="normal" if available else "disabled",
+                text="本地发布指南与工具项",
             )
 
     def _removed_single_source_action(self) -> None:

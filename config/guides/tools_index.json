@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "tool_id": "sample-tool-20260824",
+      "title": "样例跨平台工具",
+      "description": "一个安全的样例压缩包，下载后仅打开工具目录。",
+      "asset_name": "sample-tool-20260824.zip",
+      "filename": "sample-tool-20260824.zip",
+      "revision": "2026.08.25.1",
+      "platforms": ["all"],
+      "package_kind": "zip",
+      "launch_action": "open_folder",
+      "release_tag": "tools"
+    }
+  ]
+}

@@ -36,6 +36,7 @@ from .extension_assets import (
     TOOLS_INDEX_ASSET_NAME,
     export_extension_assets,
     inspect_extension_resources,
+    sync_local_client_resources,
 )
 from .freshness import (
     DlcFreshnessReport,
@@ -1332,6 +1333,13 @@ class PublisherWorkspace:
             )
         return tuple(assets)
 
+    def sync_local_guides_and_tools(self) -> tuple[Path, ...]:
+        """Publish guide and tool definitions into the tracked client config."""
+        return sync_local_client_resources(
+            self.guides_source_dir, self.tools_source_dir,
+            self.root.parent.parent / "config" / "guides",
+        )
+
     @staticmethod
     def tools_release_profile() -> GameProfile:
         """Return the synthetic profile used for the dedicated tools Release."""
@@ -1358,6 +1366,7 @@ class PublisherWorkspace:
                 for path in sorted(files, key=lambda item: item.name.casefold())
             )
 
+        tool_files = tuple(path for path in tool_files if path.name != TOOLS_INDEX_ASSET_NAME)
         return ExtensionPublishAssets(
             guides=make_assets(guide_files),
             tools=make_assets(tool_files),

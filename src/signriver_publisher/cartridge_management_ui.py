@@ -208,11 +208,16 @@ class CartridgeManagementUiMixin:
             actions, text="打开工具目录", height=36, fg_color=LIGHT_BLUE,
             command=self.open_tools_source_folder,
         ).grid(row=1, column=1, padx=(6, 14), pady=4, sticky="ew")
+        self.extensions_local_publish_button = ctk.CTkButton(
+            actions, text="本地发布指南与工具项", height=36, fg_color=LIGHT_BLUE,
+            command=self.publish_local_guides_and_tools,
+        )
+        self.extensions_local_publish_button.grid(row=2, column=0, padx=(14, 6), pady=(4, 8), sticky="ew")
         self.extensions_publish_button = ctk.CTkButton(
-            actions, text="预检并双端发布扩展", height=36, fg_color=BLUE,
+            actions, text="双端上传工具文件", height=36, fg_color=BLUE,
             command=self.publish_extensions_mirror,
         )
-        self.extensions_publish_button.grid(row=2, column=0, columnspan=2, padx=14, pady=(4, 8), sticky="ew")
+        self.extensions_publish_button.grid(row=2, column=1, padx=(6, 14), pady=(4, 8), sticky="ew")
         self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
             actions,
@@ -590,8 +595,23 @@ class CartridgeManagementUiMixin:
         """Keep compatibility with old callers while publishing all extensions."""
         self.publish_extensions_mirror()
 
+    def publish_local_guides_and_tools(self) -> None:
+        """Validate and copy fixed guide/tool definitions into client config."""
+        if not messagebox.askyesno(
+            "确认本地发布",
+            "将把指南内容和常用工具项同步到客户端 config/guides，随下次程序更新生效。是否继续？",
+        ):
+            return
+        try:
+            written = self.workspace.sync_local_guides_and_tools()
+        except Exception as error:
+            messagebox.showerror("本地发布失败", str(error))
+            return
+        self._log(f"本地指南与工具项发布完成：{len(written)} 个文件")
+        messagebox.showinfo("本地发布完成", f"已同步 {len(written)} 个文件；请构建并发布客户端更新后生效。")
+
     def publish_extensions_mirror(self) -> None:
-        """Preflight and publish the linked guide and tool Releases together."""
+        """Preflight and publish downloadable tool payloads only."""
         summary = self.workspace.extension_resource_summary()
         if not summary.guides.configured or summary.guides.error or summary.tools.error:
             messagebox.showerror(
@@ -614,13 +634,8 @@ class CartridgeManagementUiMixin:
             return
         if not messagebox.askyesno(
             "确认双端发布扩展",
-            "将先校验指南索引、指南正文、工具索引、工具包及 tool_id 引用，再依次同步到：\n\n"
-            f"GitLink · {targets[0][1]}/{targets[0][2]} · guides\n"
-            f"GitLink · {targets[0][1]}/{targets[0][2]} · tools\n"
-            f"GitHub · {targets[1][1]}/{targets[1][2]} · guides\n"
-            f"GitHub · {targets[1][1]}/{targets[1][2]} · tools\n\n"
-            "本地成功发布记录中 SHA-256 未变化的文件将跳过；变更文件按同名覆盖；"
-            "云端仅有的旧指南或工具将被移除。是否继续？",
+            "将校验本地指南与工具项，但仅上传工具下载文件到两端 tools Release。\n\n"
+            "不会上传指南、指南附件或 tools_index.json。是否继续？",
         ):
             return
         if not self._begin_background_mutation("publish", "正在预检并双端发布扩展"):
@@ -638,10 +653,7 @@ class CartridgeManagementUiMixin:
             stage = "预检"
             try:
                 plan = self.workspace.extension_publish_assets()
-                release_sets = (
-                    (self.workspace.guides_release_profile(), plan.guides, "SignRiver Guides"),
-                    (self.workspace.tools_release_profile(), plan.tools, "SignRiver Tools"),
-                )
+                release_sets = ((self.workspace.tools_release_profile(), plan.tools, "SignRiver Tools"),)
                 one_host_total = sum(len(assets) for _, assets, _ in release_sets)
                 total = one_host_total * 2
                 if not one_host_total:
@@ -743,15 +755,15 @@ class CartridgeManagementUiMixin:
         progress_bar.set(1)
         status_label.configure(text="指南与工具扩展双端发布完成")
         self._log(
-            "指南与工具扩展双端发布完成："
-            f"guides 每端 {guide_count} 个附件，tools 每端 {tool_count} 个附件；"
+            "工具下载文件双端发布完成："
+            f"本地指南/工具项 {guide_count + 1} 个定义未上传，tools 每端 {tool_count} 个文件；"
             f"GitHub 上传 {uploaded} 个，按本地哈希跳过 {skipped} 个，"
             f"移除云端旧附件 {removed} 个。"
         )
         self.refresh_cartridge_management()
         messagebox.showinfo(
             "扩展发布完成",
-            "guides 与 tools Release 已按本地清单同步到 GitLink 和 GitHub。\n"
+            "工具下载文件已同步到 GitLink 和 GitHub 的 tools Release；指南和工具项仍以本地配置为准。\n"
             f"本次移除云端旧附件：{removed} 个。",
         )
 

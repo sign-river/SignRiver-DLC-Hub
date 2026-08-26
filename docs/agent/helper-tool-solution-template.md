@@ -42,11 +42,11 @@ GitHub 示例：
 - GitLink：`https://gitlink.org.cn/signriver/signriver-dlc-assets/tree/tools`
 - GitHub：`https://github.com/sign-river/signriver-dlc-assets/releases/download/tools`
 
-发布新工具时，先为整个 `tools` Release 更新统一的 `tools_index.json`，再把工具附件和索引上传到两个源；指南详情 JSON 只按 `tool_id` 做可选关联引用。不要为单个工具另建 Release，也不要把工具附件复制到 `publisher-workspace/guides/assets/`。
+发布新工具时，先更新本地 `tools_index.json` 并随客户端版本发布，再把工具附件上传到两个源的 `tools` Release。指南详情 JSON 只按 `tool_id` 做可选关联引用。不要为单个工具另建 Release，也不要把工具附件复制到 `publisher-workspace/guides/assets/`。
 
 由 `fixed_release_asset_url(download_source, "tools", asset_name)` 生成，禁止把源写死在按钮回调里。
 
-工具目录约定：`tools_index.json` 是整个 `tools` Release 的唯一工具目录；每个条目必须包含稳定 `tool_id`、标题、说明、`asset_name`、`filename`、`revision`、`platforms`、`package_kind`、`launch_action` 和 `release_tag: "tools"`。工具文件即使尚未下载，也应凭索引在“常用工具”中显示。
+工具目录约定：客户端 `config/guides/tools_index.json` 是工具项唯一目录；每个条目必须包含稳定 `tool_id`、标题、说明、`asset_name`、`filename`、`revision`、`platforms`、`package_kind`、`launch_action` 和 `release_tag: "tools"`。工具文件即使尚未下载，也应凭本地索引在“常用工具”中显示。
 
 ## 发布拓展指南和工具
 
@@ -54,17 +54,17 @@ GitHub 示例：
 
 | 资源 | 发布器工作区 | Release | 索引 |
 | --- | --- | --- | --- |
-| 拓展指南 | `publisher-workspace/guides/` | `guides` | `guides_index.json` |
-| 工具包 | `publisher-workspace/tools/assets/` | `tools` | `publisher-workspace/tools/tools_index.json` |
+| 指南与工具项定义 | `publisher-workspace/guides/`、`publisher-workspace/tools/tools_index.json` | 客户端 `config/guides/` | 本地版本发布 |
+| 工具包 | `publisher-workspace/tools/assets/` | `tools` | 本地 `tools_index.json` 中的 `asset_name` |
 
-使用发布器“发布资源统一管理”页的“预检并双端发布扩展”，不要再分别手工上传。该按钮会先检查：
+使用发布器“发布资源统一管理”页的“本地发布指南与工具项”和“上传工具文件”。该流程会先检查：
 
 - 每篇指南索引和正文是否齐全；
 - `tools_index.json` 的工具 ID、元数据和工具包是否齐全；
 - 每个 `release_tag: "tools"` 的指南引用是否指向已有 `tool_id`；
 - 如果指南重复填写了工具的文件名、版本、平台或启动字段，是否与工具索引一致。
 
-预检失败时不会开始上传。预检通过后，发布器会把指南和工具分别同步到 GitLink、GitHub 的 `guides` / `tools` Release；同名的已变更附件直接覆盖。
+预检失败时不会开始上传。预检通过后，发布器先把指南与工具项同步到本地客户端配置，再将工具文件同步到 GitLink、GitHub 的 `tools` Release；不会上传指南或工具索引。
 
 发布器为 GitLink 与 GitHub 分别保存本地成功发布的 SHA-256 状态。下次发布时只上传本地内容发生变化的附件，未变化的附件跳过；此判断不下载云端文件作内容比较。若有人手动删除云端附件而本地文件和本地状态均未变化，发布器不会自动补回，需修改文件或清除对应本地发布状态后重新发布。
 

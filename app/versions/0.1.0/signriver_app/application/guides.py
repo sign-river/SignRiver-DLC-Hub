@@ -364,111 +364,18 @@ class GuideCatalogService:
                 shutil.rmtree(self.cache_dir / "assets" / entry.guide_id, ignore_errors=True)
 
     def refresh_tools(self, *, allow_network: bool = True) -> tuple[GuideTool, ...]:
-        """Refresh the independent tools catalogue; failure never hides guides."""
+        """Load the built-in tools catalogue; only tool payloads are remote."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = self.cache_dir / TOOLS_INDEX_ASSET_NAME
         builtin_tools = self._load_bootstrap_tools()
-        builtin_ids = {tool.tool_id for tool in builtin_tools}
         self._guide_tools = {}
-        remote_tools: tuple[GuideTool, ...] = ()
-        remote_authoritative = False
-        if allow_network:
-            try:
-                # The separate tools catalogue is optional. A freshly created
-                # deployment may not have uploaded tools_index.json yet; avoid
-                # presenting that expected absence as a startup warning.
-                raw_payload = self._fetch(
-                    TOOLS_INDEX_ASSET_NAME, release_tag=TOOLS_RELEASE_TAG,
-                    optional=True,
-                )
-                remote_tools = self._parse_tools_payload(raw_payload)
-            except Exception as error:
-                if self._remote_resource_missing(error):
-                    cache_path.unlink(missing_ok=True)
-                    self._remove_cached_tool_dirs(builtin_ids)
-                LOGGER.debug("Ignoring invalid remote tools index: %s", error)
-            else:
-                remote_authoritative = True
-                cache_path.write_bytes(raw_payload)
-        if not remote_authoritative and cache_path.is_file():
-            try:
-                remote_tools = self._parse_tools_payload(cache_path.read_bytes())
-            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, GuideCatalogError):
-                cache_path.unlink(missing_ok=True)
-        if remote_authoritative:
-            self._remove_cached_tool_dirs(builtin_ids | {tool.tool_id for tool in remote_tools})
         self._indexed_tools = {tool.tool_id: tool for tool in builtin_tools}
-        self._indexed_tools.update(
-            (tool.tool_id, tool) for tool in remote_tools if tool.tool_id not in builtin_ids
-        )
         return self.tools
 
     def refresh_index(self, *, allow_network: bool = True) -> tuple[GuideIndexEntry, ...]:
+        """Load the fixed local guide catalogue; guides are not cloud content."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = self.cache_dir / GUIDES_INDEX_ASSET_NAME
-        previous_entries: tuple[GuideIndexEntry, ...] = ()
-        if cache_path.is_file():
-            try:
-                previous_entries = self._parse_index_payload(cache_path.read_bytes())
-            except Exception:
-                pass
-        if allow_network:
-            try:
-                raw_payload = self._fetch(GUIDES_INDEX_ASSET_NAME)
-                remote_entries = self._parse_index_payload(raw_payload)
-            except Exception as error:
-                # A reverse proxy may return a JSON/HTML 404 response.  Never
-                # persist it as a cache entry or turn an optional guide refresh
-                # into recurring startup warning noise.
-                LOGGER.debug("Ignoring invalid remote guide index: %s", error)
-                if self._remote_resource_missing(error):
-                    cache_path.unlink(missing_ok=True)
-                    builtin_entries = self._load_bootstrap_entries()
-                    self._remove_cached_guides(previous_entries, ())
-                    self.entries = builtin_entries
-                    self._guide_tools = {}
-                    return builtin_entries
-            else:
-                builtin_entries = self._load_bootstrap_entries()
-                builtin_ids = {entry.guide_id for entry in builtin_entries}
-                entries = builtin_entries + tuple(
-                    entry for entry in remote_entries if entry.guide_id not in builtin_ids
-                )
-                cache_path.write_bytes(raw_payload)
-                self._remove_cached_guides(previous_entries, remote_entries)
-                self.entries = entries
-                return entries
-        candidates = (
-            ("cache", cache_path),
-            (
-                "bootstrap",
-                None if self.bootstrap_dir is None
-                else self.bootstrap_dir / GUIDES_INDEX_ASSET_NAME,
-            ),
-        )
-        for label, path in candidates:
-            if path is None or not path.is_file():
-                continue
-            try:
-                entries = self._parse_index_payload(
-                    path.read_text(encoding="utf-8"), builtin=label == "bootstrap"
-                )
-            except Exception as error:
-                if label == "cache":
-                    path.unlink(missing_ok=True)
-                LOGGER.debug("Ignoring invalid %s guide index: %s", label, error)
-                continue
-            if label == "bootstrap":
-                self.entries = entries
-                return entries
-            builtin_entries = self._load_bootstrap_entries()
-            builtin_ids = {entry.guide_id for entry in builtin_entries}
-            self.entries = builtin_entries + tuple(
-                entry for entry in entries if entry.guide_id not in builtin_ids
-            )
-            return self.entries
-        self.entries = ()
-        return ()
+        self.entries = self._load_bootstrap_entries()
+        return self.entries
 
     def _parse_guide_payload(
         self, entry: GuideIndexEntry, raw_payload: bytes | str, *, builtin: bool = False,
@@ -551,33 +458,14 @@ class GuideCatalogService:
     def load_guide(
         self, entry: GuideIndexEntry, *, allow_network: bool = True
     ) -> GuideDocument:
-        path = self.cache_dir / entry.asset_name
         # 内置指南正文随客户端发布，云端只负责拓展指南；不要为内置项
         # 发起一次必然被拒绝的远程请求。旧版本这里会在启动时把内置
         # asset_name 请求到 guides Release，资源不存在时刷出 404 traceback。
-        if allow_network and not entry.builtin:
-            try:
-                raw_payload = self._fetch(entry.asset_name)
-                self._cache_guide_images(entry.guide_id, raw_payload)
-                document = self._parse_guide_payload(
-                    entry, raw_payload, builtin=False,
-                    image_root=self.cache_dir / "assets" / entry.guide_id,
-                )
-            except Exception as error:
-                LOGGER.debug(
-                    "Ignoring invalid remote guide detail %s: %s",
-                    entry.guide_id,
-                    error,
-                )
-            else:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(raw_payload)
-                return document
         bootstrap_path = (
             None if self.bootstrap_dir is None
             else self.bootstrap_dir / entry.asset_name
         )
-        candidates = (("bootstrap", bootstrap_path),) if entry.builtin else (("cache", path), ("bootstrap", bootstrap_path))
+        candidates = (("bootstrap", bootstrap_path),)
         for label, candidate in candidates:
             if candidate is None or not candidate.is_file():
                 continue
@@ -593,8 +481,6 @@ class GuideCatalogService:
                 ValueError,
                 GuideCatalogError,
             ) as error:
-                if label == "cache":
-                    candidate.unlink(missing_ok=True)
                 LOGGER.debug(
                     "Ignoring invalid optional %s guide detail %s at %s: %s",
                     label,
