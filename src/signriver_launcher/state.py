@@ -14,6 +14,7 @@ class InstallState:
     previous_version: str | None = None
     pending_version: str | None = None
     bad_versions: list[str] = field(default_factory=list)
+    prevent_module_fallback: bool = False
 
     @classmethod
     def from_dict(cls, value: dict) -> "InstallState":
@@ -34,7 +35,10 @@ class InstallState:
             Version.parse(pending)
         if not isinstance(bad, list) or not all(isinstance(item, str) for item in bad):
             raise ConfigurationError("bad_versions must be a string array")
-        return cls(active, previous, pending, list(dict.fromkeys(bad)))
+        prevent_fallback = value.get("prevent_module_fallback", False)
+        if not isinstance(prevent_fallback, bool):
+            raise ConfigurationError("prevent_module_fallback must be boolean")
+        return cls(active, previous, pending, list(dict.fromkeys(bad)), prevent_fallback)
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +47,7 @@ class InstallState:
             "previous_version": self.previous_version,
             "pending_version": self.pending_version,
             "bad_versions": self.bad_versions,
+            "prevent_module_fallback": self.prevent_module_fallback,
         }
 
 
@@ -60,6 +65,14 @@ class StateStore:
 
     def save(self, state: InstallState) -> None:
         atomic_write_json(self.path, state.to_dict())
+
+    def set_prevent_module_fallback(self, enabled: bool) -> InstallState:
+        if not isinstance(enabled, bool):
+            raise ConfigurationError("prevent_module_fallback must be boolean")
+        state = self.load()
+        state.prevent_module_fallback = enabled
+        self.save(state)
+        return state
 
     def bootstrap(self, version: str) -> InstallState:
         Version.parse(version)

@@ -51,6 +51,13 @@ class UpdateService:
     def set_download_source(self, source: str) -> None:
         self._client.set_download_source(source)
 
+    @property
+    def prevent_module_fallback(self) -> bool:
+        return self._client.state_store.load().prevent_module_fallback
+
+    def set_prevent_module_fallback(self, enabled: bool) -> None:
+        self._client.state_store.set_prevent_module_fallback(enabled)
+
     def check(self) -> ReleaseInfo | None:
         return self._client.check(self.current_version)
 

@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 新增启动器开发保护设置：设置页可勾选“启动失败时保留当前模块”，值写入 `app/state.json`；开启后模块导入失败会停止并显示错误，不自动切换旧版本，便于发现当前开发模块问题。默认关闭以保持普通用户自动回退行为。基线与活动模块 `0.2.0` 已同步。
+- 验证：`tests/test_state.py tests/test_api.py tests/test_loader.py tests/test_main.py tests/test_ui_theme.py tests/test_support_collection_ui.py`（80 项通过）；启动器与两个模块编译、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次修复启动失败：`CONSOLE_GHOST_BUTTON` 不再在模块导入阶段创建 `ctk.CTkFont`，改用字体元组，解决“Too early to use font: no default root window”。已验证 0.2.0 模块可由 `ModuleLoader` 成功导入；当前 `app/state.json` 活动版本为 `0.2.0` 且 `bad_versions` 为空。
 - 验证：`python -m pytest -q tests/test_loader.py tests/test_state.py tests/test_launcher_problem_reporting.py tests/test_ui_theme.py tests/test_support_collection_ui.py`（79 项通过）；模块编译、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 

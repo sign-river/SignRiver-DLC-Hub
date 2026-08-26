@@ -1615,7 +1615,6 @@ class DlcHubApplication:
             general_body,
             "公告提醒",
             "启动时会显示最新公告。关闭后，同一条公告不会重复弹出；有新公告时仍会显示。",
-            last=True,
         )
         self.settings_description_boxes.append(announcement_description)
         self.announcement_mute_var = BooleanVar(
@@ -1629,6 +1628,25 @@ class DlcHubApplication:
             command=self._toggle_announcement_mute,
         )
         self.announcement_mute_switch.pack(anchor="e")
+
+        fallback_row, fallback_action, fallback_description = _settings_row(
+            general_body,
+            "启动失败时保留当前模块",
+            "开发调试时可开启；当前模块启动失败将停止并显示错误，不会悄悄回退到旧版本。",
+            last=True,
+        )
+        self.settings_description_boxes.append(fallback_description)
+        self.prevent_module_fallback_var = BooleanVar(
+            value=self.context.updates.prevent_module_fallback
+        )
+        self.prevent_module_fallback_switch = _blue_switch(
+            fallback_action,
+            text="",
+            width=54,
+            variable=self.prevent_module_fallback_var,
+            command=self._toggle_prevent_module_fallback,
+        )
+        self.prevent_module_fallback_switch.pack(anchor="e")
 
         for index, card in enumerate((network_card, program_card, general_card)):
             card.pack(
@@ -5719,6 +5737,20 @@ class DlcHubApplication:
             return
         self.user_settings = updated
         self._notify("下载永不超时已开启" if enabled else "已恢复默认下载超时")
+
+    def _toggle_prevent_module_fallback(self) -> None:
+        enabled = bool(self.prevent_module_fallback_var.get())
+        try:
+            self.context.updates.set_prevent_module_fallback(enabled)
+        except Exception as error:
+            self.context.logger.exception("Unable to save module fallback setting")
+            self.prevent_module_fallback_var.set(not enabled)
+            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            return
+        self._notify(
+            "已开启：模块启动失败时不自动回退"
+            if enabled else "已恢复：模块启动失败时自动回退"
+        )
 
     def _toggle_announcement_mute(self) -> None:
         enabled = bool(self.announcement_mute_var.get())

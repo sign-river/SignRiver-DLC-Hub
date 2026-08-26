@@ -445,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
                     logger=logger,
                 )
             failed_version = state.active_version
+            if updater.prevent_module_fallback:
+                raise ModuleLoadError(
+                    f"{error}\n\n已按设置保留当前模块 v{failed_version}，未自动回退到旧版本。"
+                    "请查看启动日志并修复当前模块后重试。"
+                ) from error
             logger.exception("New module failed during initialization; rolling back")
             excluded = {failed_version, *state.bad_versions}
             fallback = _find_usable_module(paths.versions_dir, excluded)

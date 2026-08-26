@@ -60,3 +60,13 @@ def test_fallback_to_activates_older_version_and_marks_failed(tmp_path) -> None:
     assert state.previous_version is None
     assert state.pending_version is None
     assert state.bad_versions == ["0.1.2"]
+
+
+def test_module_fallback_preference_round_trips(tmp_path) -> None:
+    store = StateStore(tmp_path / "state.json")
+    store.bootstrap("0.2.0")
+
+    updated = store.set_prevent_module_fallback(True)
+
+    assert updated.prevent_module_fallback is True
+    assert store.load().prevent_module_fallback is True
