@@ -271,3 +271,6 @@
 - 报错指南的一键排错卡片改为左右两列：左侧标题与说明，右侧保留 `190×42` 主按钮并在该列垂直居中，符合截图标注布局。
 - 基线与活动模块 `0.2.0` 已同步；未修改 `app/state.json`，需重启客户端加载。
 - 验证：两个模块 `py_compile`、`tests/test_ui_theme.py`（62 项通过）、基线 Ruff、`git diff --check` 均通过。未执行 GUI 人工验收、构建、上传或推送。
+
+- 已确认旧的在线/缓存卡带可能没有 `interference_files` 字段：这会让补丁健康快速路径得到空列表而跳过残留清理。本次仅在字段**缺失**时，从客户端内置 bootstrap 卡带补齐当前平台的清理名单；线上卡带若显式声明空列表仍保持为空。基线 `0.1.0` 已定向同步到活动模块 `0.2.0`（活动模块为本地忽略目录），需要完全退出并重启客户端；此前构建的 EXE/模块需要更新后才会包含此兼容逻辑。一键修复继续复用 `PatchEngine.apply()` 的同一清理事务，不会二次扫描或恢复已删除文件。
+- 验证（2026-08-26）：`python -m pytest -q tests/test_cartridge_catalog.py tests/test_patch_engine.py tests/test_ui_theme.py`（119 项通过）、两版 `cartridge_catalog.py` 编译、定向 Ruff、`git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。

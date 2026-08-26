@@ -159,6 +159,95 @@ def test_catalog_uses_platform_compatible_bootstrap_when_cache_lags(
     assert loaded.cartridge.executable_name == "stellaris.app/Contents/MacOS/stellaris"
 
 
+def test_catalog_backfills_omitted_interference_files_from_bootstrap(
+    tmp_path: Path,
+) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    for source in BOOTSTRAP.glob("*.json"):
+        (bootstrap / source.name).write_bytes(source.read_bytes())
+
+    stale_document = json.loads(
+        (bootstrap / "cartridge_stellaris.json").read_text(encoding="utf-8")
+    )
+    stale_document["patch"].pop("interference_files")
+    stale_payload = (
+        json.dumps(stale_document, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "cartridge_stellaris.json").write_bytes(stale_payload)
+
+    stale_index = json.loads((bootstrap / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    entry = next(
+        item for item in stale_index["cartridges"] if item["game_id"] == "stellaris"
+    )
+    entry["sha256"] = hashlib.sha256(stale_payload).hexdigest()
+    entry["size_bytes"] = len(stale_payload)
+    (cache / INDEX_ASSET_NAME).write_text(
+        json.dumps(stale_index, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    service = CartridgeCatalogService(
+        cache,
+        bootstrap_dir=bootstrap,
+        source=object(),
+        platform="windows",
+    )
+    service.refresh_index(allow_network=False)
+    loaded = service.load_default_cartridge(allow_network=False)
+
+    assert loaded.cartridge.patch_profile.interference_files == (
+        "Juuj_Steam.json",
+        "Juuj_更新发布地址.html",
+        "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+        "Juuj_制作_请勿转载_免费声明.txt",
+        "steam_api64_org_game.dll",
+        "steam_api64_org_launcher.dll",
+        "LinkNeverDie_Com_64.dll",
+        "Emulator64.dll",
+        "SWConfig.ini",
+        "SWLoader.txt",
+    )
+
+
+def test_catalog_preserves_explicit_empty_interference_file_list(tmp_path: Path) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    for source in BOOTSTRAP.glob("*.json"):
+        (bootstrap / source.name).write_bytes(source.read_bytes())
+
+    document = json.loads(
+        (bootstrap / "cartridge_stellaris.json").read_text(encoding="utf-8")
+    )
+    document["patch"]["interference_files"] = []
+    payload = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "cartridge_stellaris.json").write_bytes(payload)
+
+    index = json.loads((bootstrap / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    entry = next(item for item in index["cartridges"] if item["game_id"] == "stellaris")
+    entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    entry["size_bytes"] = len(payload)
+    (cache / INDEX_ASSET_NAME).write_text(
+        json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    service = CartridgeCatalogService(
+        cache,
+        bootstrap_dir=bootstrap,
+        source=object(),
+        platform="windows",
+    )
+    service.refresh_index(allow_network=False)
+
+    assert service.load_default_cartridge(
+        allow_network=False
+    ).cartridge.patch_profile.interference_files == ()
+
+
 def test_catalog_rejects_tampered_remote_cartridge(tmp_path: Path) -> None:
     index_payload = json.loads(
         (BOOTSTRAP / INDEX_ASSET_NAME).read_text(encoding="utf-8")

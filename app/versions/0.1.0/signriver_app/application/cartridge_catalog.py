@@ -165,8 +165,8 @@ class CartridgeCatalogService:
                         f"期望 {entry.sha256}，实际 {digest}"
                     )
                 cache_path.write_bytes(payload)
-                document = CartridgeDocument.from_dict(
-                    json.loads(payload.decode("utf-8"))
+                document = self._document_from_payload(
+                    payload, entry, bootstrap_path
                 )
                 source = "remote"
             except Exception as error:
@@ -296,8 +296,8 @@ class CartridgeCatalogService:
                 if digest != entry.sha256 and path == cache_path:
                     # Stale cache from an older index revision.
                     continue
-                document = CartridgeDocument.from_dict(
-                    json.loads(payload.decode("utf-8"))
+                document = self._document_from_payload(
+                    payload, entry, bootstrap_path
                 )
                 if document.game_id == entry.game_id:
                     if path == bootstrap_path and digest != entry.sha256:
@@ -310,6 +310,81 @@ class CartridgeCatalogService:
             except Exception as error:
                 LOGGER.warning("Ignoring unusable cartridge file %s: %s", path, error)
         return None
+
+    def _document_from_payload(
+        self,
+        payload: bytes,
+        entry: CartridgeIndexEntry,
+        bootstrap_path: Path | None,
+    ) -> CartridgeDocument:
+        """Parse one cartridge and backfill only absent cleanup declarations.
+
+        Old hub cartridges predate ``interference_files``. A new client must
+        still remove stale files declared by its bundled cartridge, while an
+        explicit remote empty list remains authoritative.
+        """
+        value = json.loads(payload.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("cartridge JSON root must be an object")
+        self._backfill_missing_interference_files(value, entry, bootstrap_path)
+        return CartridgeDocument.from_dict(value)
+
+    def _backfill_missing_interference_files(
+        self,
+        value: dict[str, object],
+        entry: CartridgeIndexEntry,
+        bootstrap_path: Path | None,
+    ) -> None:
+        """Use bundled cleanup entries only when an older document omits them."""
+        if bootstrap_path is None or not bootstrap_path.is_file():
+            return
+        patch = value.get("patch")
+        if not isinstance(patch, dict):
+            return
+        try:
+            bootstrap = self._read_json(bootstrap_path)
+        except Exception as error:
+            LOGGER.warning(
+                "Ignoring bootstrap cleanup fallback for %s: %s",
+                entry.game_id,
+                error,
+            )
+            return
+        if str(bootstrap.get("game_id") or "") != entry.game_id:
+            return
+        bootstrap_patch = bootstrap.get("patch")
+        if not isinstance(bootstrap_patch, dict):
+            return
+
+        platform = self._current_platform_name()
+        fallback: object | None = None
+        target: dict[str, object] | None = None
+        if platform == "windows":
+            if "interference_files" in patch:
+                return
+            fallback = bootstrap_patch.get("interference_files")
+            target = patch
+        else:
+            platforms = patch.get("platforms")
+            if not isinstance(platforms, dict):
+                return
+            target = platforms.get(platform)
+            if not isinstance(target, dict) or "interference_files" in target:
+                return
+            bootstrap_platforms = bootstrap_patch.get("platforms")
+            if isinstance(bootstrap_platforms, dict):
+                bootstrap_variant = bootstrap_platforms.get(platform)
+                if isinstance(bootstrap_variant, dict):
+                    fallback = bootstrap_variant.get("interference_files")
+            if fallback is None:
+                fallback = bootstrap_patch.get("interference_files")
+        if not isinstance(fallback, list):
+            return
+        target["interference_files"] = list(fallback)
+        LOGGER.warning(
+            "Backfilled missing interference_files for %s from the bundled cartridge",
+            entry.game_id,
+        )
 
     def _supports_current_platform(self, document: CartridgeDocument) -> bool:
         try:
