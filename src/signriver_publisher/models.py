@@ -2,6 +2,28 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from pathlib import PurePosixPath
+
+
+def _validate_interference_files(value: object, *, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field_name} 必须是数组")
+    result: list[str] = []
+    for item in value:
+        raw = str(item).strip().replace("\\", "/")
+        path = PurePosixPath(raw)
+        if (
+            not raw or "\x00" in raw or path.is_absolute() or ".." in path.parts
+            or any(char in raw for char in "*?[]")
+            or any(":" in part or part in {"", "."} for part in path.parts)
+        ):
+            raise ValueError(f"{field_name} 包含不安全的显式相对文件路径：{item!r}")
+        result.append(path.as_posix())
+    if len({item.casefold() for item in result}) != len(result):
+        raise ValueError(f"{field_name} 不得包含重复路径")
+    return tuple(result)
 
 
 BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
@@ -126,8 +148,17 @@ class PublisherCartridge:
     # Additional game-relative directories that require the same complete
     # proxy-library patch transaction as ``patch_relative_dir``.
     patch_additional_relative_dirs: tuple[str, ...] = ()
+    patch_interference_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "patch_interference_files",
+            _validate_interference_files(
+                self.patch_interference_files,
+                field_name="patch_interference_files",
+            ),
+        )
         if not self.patch_platforms and self.game_id in BUILTIN_PATCH_PLATFORMS:
             object.__setattr__(
                 self,
@@ -175,6 +206,12 @@ class PublisherCartridge:
         for spec in patch_platforms.values():
             if "runtime_original_library_name" not in spec and spec.get("original_backup_dll_name"):
                 spec["runtime_original_library_name"] = spec.pop("original_backup_dll_name")
+            spec["interference_files"] = list(
+                _validate_interference_files(
+                    spec.get("interference_files"),
+                    field_name="patch_platforms.interference_files",
+                )
+            )
 
         raw_resources = value.get("published_platform_resources")
         published_platform_resources: dict[str, dict[str, bool]] | None = None
@@ -289,6 +326,10 @@ class PublisherCartridge:
                 item.strip()
                 for item in str(value.get("patch_additional_relative_dirs") or "").split(";")
                 if item.strip()
+            ),
+            patch_interference_files=_validate_interference_files(
+                value.get("patch_interference_files"),
+                field_name="patch_interference_files",
             ),
             dlc_archive_root_mode=str(
                 value.get("dlc_archive_root_mode")

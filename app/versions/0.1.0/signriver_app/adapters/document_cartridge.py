@@ -61,6 +61,9 @@ def build_cartridge_from_document(
                 str(item)
                 for item in fields.get("additional_install_relative_dirs", ())
             ),
+            interference_files=tuple(
+                str(item) for item in fields.get("interference_files", ())
+            ),
             template=PatchTemplate(
                 ini_target_name=str(fields["ini_target_name"]),
                 language=str(fields["language"]),

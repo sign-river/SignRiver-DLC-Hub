@@ -47,6 +47,9 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 - `unlocker_dll_name`
 - `runtime_original_library_name`
 - 配置文件名和 `config_format`
+- `interference_files`：安装补丁前需要清理的显式游戏相对文件路径列表。Windows 使用 `patch.interference_files`，SteamOS/macOS 在各自 `patch.platforms.<platform>` 中独立声明；禁止绝对路径、`..`、目录、符号链接目标和通配符。
+
+补丁安装会在写入代理库、原生库和配置文件前清理这些干扰文件。清理动作属于同一事务：任一删除、写入或最终校验失败都会回滚已删除文件；安装成功后清理结果不会在移除补丁时恢复。未配置该字段时按空列表处理。
 
 `runtime_original_library_name` 只定义代理库运行时需要的同目录文件名，不代表发布资源。解析器暂时接受 `original_backup_dll_name` 和 `patch_original_backup_name` 作为兼容别名，受跟踪卡带应统一写新字段。
 

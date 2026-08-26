@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -55,6 +56,29 @@ def _relative_directories(value: object) -> tuple[str, ...]:
     else:
         values = str(value).split(";")
     return tuple(str(item).strip() for item in values if str(item).strip())
+
+
+def _relative_files(value: object, *, field: str) -> tuple[str, ...]:
+    if value is None:
+        values = ()
+    elif isinstance(value, (list, tuple)):
+        values = value
+    else:
+        raise ValueError(f"{field} must be an array")
+    result: list[str] = []
+    for item in values:
+        raw = str(item).strip().replace("\\", "/")
+        path = PurePosixPath(raw)
+        if not raw or "\x00" in raw or path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"{field} contains an unsafe path")
+        if any(char in raw for char in "*?[]") or any(
+            ":" in part or part in {"", "."} for part in path.parts
+        ):
+            raise ValueError(f"{field} contains an invalid explicit file path")
+        result.append(path.as_posix())
+    if len({item.casefold() for item in result}) != len(result):
+        raise ValueError(f"{field} must not contain duplicates")
+    return tuple(result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +302,7 @@ class CartridgePatchVariant:
     executable_relative_path: str | None = None
     dlc_relative_dir: str | None = None
     additional_install_relative_dirs: tuple[str, ...] = ()
+    interference_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         platform = str(self.platform or "").strip().lower()
@@ -302,6 +327,7 @@ class CartridgePatchVariant:
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.install_relative_dir,
             "additional_install_relative_dirs": list(self.additional_install_relative_dirs),
+            "interference_files": list(self.interference_files),
             "ini_target_name": self.ini_target_name,
             "config_format": self.config_format,
             "language": self.language,
@@ -341,6 +367,7 @@ class CartridgeDocument:
     unlock_all: bool = True
     extra_protection: bool = False
     force_offline: bool = False
+    patch_interference_files: tuple[str, ...] = ()
     patch_variants: tuple[CartridgePatchVariant, ...] = ()
     install_directory_from_slug: bool = False
     dlc_group_search_roots: tuple[str, ...] = ()
@@ -389,6 +416,7 @@ class CartridgeDocument:
             "appinfo_asset_name": self.appinfo_asset_name,
             "install_relative_dir": self.patch_install_relative_dir,
             "additional_install_relative_dirs": list(self.patch_additional_install_relative_dirs),
+            "interference_files": list(self.patch_interference_files),
             "ini_target_name": self.ini_target_name,
             "config_format": self.config_format,
             "language": self.language,
@@ -468,6 +496,10 @@ class CartridgeDocument:
                     additional_install_relative_dirs=_relative_directories(
                         merged.get("additional_install_relative_dirs")
                     ),
+                    interference_files=_relative_files(
+                        spec.get("interference_files", ()),
+                        field=f"patch.platforms[{platform}].interference_files",
+                    ),
                     ini_target_name=str(
                         merged.get("ini_target_name") or "cream_api.ini"
                     ),
@@ -534,6 +566,9 @@ class CartridgeDocument:
             patch_additional_install_relative_dirs=_relative_directories(
                 patch.get("additional_install_relative_dirs")
             ),
+            patch_interference_files=_relative_files(
+                patch.get("interference_files"), field="patch.interference_files"
+            ),
             ini_target_name=str(patch.get("ini_target_name") or "cream_api.ini"),
             config_format=str(patch.get("config_format") or "cream_ini"),
             language=str(patch.get("language") or "schinese"),
@@ -581,6 +616,7 @@ class CartridgeDocument:
                 "additional_install_relative_dirs": list(
                     self.patch_additional_install_relative_dirs
                 ),
+                "interference_files": list(self.patch_interference_files),
                 "ini_target_name": self.ini_target_name,
                 "config_format": self.config_format,
                 "language": self.language,
@@ -596,6 +632,7 @@ class CartridgeDocument:
                         "additional_install_relative_dirs": list(
                             variant.additional_install_relative_dirs
                         ),
+                        "interference_files": list(variant.interference_files),
                         "ini_target_name": variant.ini_target_name,
                         "config_format": variant.config_format,
                         "language": variant.language,

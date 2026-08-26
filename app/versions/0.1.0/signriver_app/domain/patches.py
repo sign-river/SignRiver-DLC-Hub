@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .catalog import ReleaseAsset
-from .paths import normalize_game_relative_directory
+from .paths import normalize_game_relative_directory, normalize_game_relative_file
 
 
 class PatchAssetRole(StrEnum):
@@ -88,6 +88,7 @@ class PatchProfile:
     install_relative_dir: str = "."
     platform: PatchPlatform = PatchPlatform.WINDOWS
     additional_install_relative_dirs: tuple[str, ...] = ()
+    interference_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.unlocker_dll_name or "/" in self.unlocker_dll_name or "\\" in self.unlocker_dll_name:
@@ -123,6 +124,13 @@ class PatchProfile:
         if len({directory.casefold() for directory in all_dirs}) != len(all_dirs):
             raise ValueError("patch install directories must not repeat")
         object.__setattr__(self, "additional_install_relative_dirs", additional_dirs)
+        interference = tuple(
+            normalize_game_relative_file(path, field_name="patch interference file")
+            for path in self.interference_files
+        )
+        if len({path.casefold() for path in interference}) != len(interference):
+            raise ValueError("patch interference files must not repeat")
+        object.__setattr__(self, "interference_files", interference)
 
     @property
     def install_relative_dirs(self) -> tuple[str, ...]:

@@ -29,6 +29,12 @@
 
 本文件只记录会影响后续任务的方案选择、原因和已放弃路线。临时进度写入 `HANDOFF.md`，操作细节写入对应专题文档。
 
+## 2026-08-26：补丁安装前清理三平台干扰文件
+
+- 卡带 `patch.interference_files`（Windows）及 `patch.platforms.<platform>.interference_files`（SteamOS/macOS）使用显式游戏相对文件路径；平台变体缺省为空，不继承 Windows 清单，避免跨平台误删。
+- 清理在 `PatchEngine.apply()` 同一事务中进行：先备份并删除，再写入补丁；任一步骤失败回滚删除和写入。成功提交后备份销毁，移除补丁不恢复干扰文件。
+- 拒绝绝对路径、越界路径、通配符、重复项、目录和符号链接；不采用整目录白名单化或通配符清理。
+
 ## 2026-08-26：指南与常用工具项固定随客户端发布
 
 - `config/guides/` 是指南索引、正文、图片和 `tools_index.json` 的唯一运行时来源；客户端不再联网读取 `guides` Release 或云端工具索引。

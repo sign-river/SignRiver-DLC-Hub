@@ -63,6 +63,7 @@ def build_client_cartridge_document(
             "additional_install_relative_dirs": list(
                 profile.patch_additional_relative_dirs
             ),
+            "interference_files": list(profile.patch_interference_files),
             "ini_target_name": profile.ini_target_name,
             "language": profile.patch_language,
             "unlock_all": bool(profile.patch_unlock_all),

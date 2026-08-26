@@ -18,6 +18,24 @@ def normalize_game_relative_directory(value: str, *, field_name: str) -> str:
     return path.as_posix()
 
 
+def normalize_game_relative_file(value: str, *, field_name: str) -> str:
+    """Normalize one explicit game-relative file path.
+
+    Wildcards and directory-like values are rejected at the configuration
+    boundary; the engine additionally verifies the on-disk object is a
+    regular file before deleting it.
+    """
+    raw = str(value).strip().replace("\\", "/")
+    if not raw or "\x00" in raw or any(char in raw for char in "*?[]"):
+        raise ValueError(f"{field_name} must be an explicit relative file path")
+    path = PurePosixPath(raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"{field_name} must stay below the game root")
+    if any(":" in part or part in {"", "."} for part in path.parts):
+        raise ValueError(f"{field_name} is not a safe relative file path")
+    return path.as_posix()
+
+
 def game_relative_path(value: str, *, field_name: str) -> Path:
     normalized = normalize_game_relative_directory(value, field_name=field_name)
     if normalized == ".":
@@ -43,6 +61,7 @@ def resolve_game_directory(
 
 __all__ = [
     "game_relative_path",
+    "normalize_game_relative_file",
     "normalize_game_relative_directory",
     "resolve_game_directory",
 ]

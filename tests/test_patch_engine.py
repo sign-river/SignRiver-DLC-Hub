@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,49 @@ def test_apply_deterministically_replaces_unknown_legacy_layout(tmp_path: Path) 
     assert (game / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
     assert (game / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
     assert result.receipt.original_library_source == "published_original"
+
+
+def test_apply_deletes_declared_interference_files_and_reports_them(tmp_path: Path) -> None:
+    profile = replace(STELLARIS_PATCH_PROFILE, interference_files=("bin/old_proxy.dll",))
+    engine = PatchEngine(profile, tmp_path / "data")
+    game = tmp_path / "game"
+    (game / "bin").mkdir(parents=True)
+    (game / "bin" / "old_proxy.dll").write_bytes(b"stale")
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="stellaris",
+    )
+
+    assert not (game / "bin" / "old_proxy.dll").exists()
+    assert result.interference_files_deleted == ("bin/old_proxy.dll",)
+
+
+def test_apply_rolls_back_deleted_interference_file_when_patch_fails(tmp_path: Path) -> None:
+    profile = replace(STELLARIS_PATCH_PROFILE, interference_files=("old_proxy.dll",))
+    engine = PatchEngine(profile, tmp_path / "data")
+    game = tmp_path / "game"
+    game.mkdir()
+    stale = game / "old_proxy.dll"
+    stale.write_bytes(b"stale")
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    appinfo.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(PatchError):
+        engine.apply(
+            game,
+            unlocker_dll_source=unlocker,
+            original_dll_source=original,
+            appinfo_json_source=appinfo,
+            game_id="stellaris",
+        )
+
+    assert stale.read_bytes() == b"stale"
+    assert not (game / "steam_api64.dll").exists()
 
 
 def make_engine(tmp_path: Path) -> PatchEngine:

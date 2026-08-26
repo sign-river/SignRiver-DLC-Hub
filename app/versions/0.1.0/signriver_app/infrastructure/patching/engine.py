@@ -85,6 +85,7 @@ class PatchApplyResult:
     backup_created: bool
     backup_replaced: bool
     ini_written: bool
+    interference_files_deleted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -600,10 +601,36 @@ class PatchEngine:
         actions: list[_Action] = []
         transaction_root = self._make_transaction_root("apply")
         replaced_paths: list[str] = []
+        deleted_interference: list[str] = []
         runtime_changed = False
         unlocker_changed = False
         ini_written = False
         try:
+            managed_paths = {
+                path.casefold()
+                for path in self.profile.patch_file_paths
+            }
+            for relative in self.profile.interference_files:
+                if relative.casefold() in managed_paths:
+                    raise PatchError(
+                        f"干扰文件列表不能包含受控补丁文件：{relative}"
+                    )
+                target = resolve_game_directory(
+                    game_root,
+                    relative,
+                    field_name="patch interference file",
+                    strict_root=True,
+                )
+                if not target.exists():
+                    continue
+                if target.is_symlink() or not target.is_file():
+                    raise PatchError(
+                        f"干扰文件不是普通文件，拒绝清理：{relative}"
+                    )
+                self._backup_file(target, transaction_root, actions)
+                target.unlink()
+                actions.append(_DeletedFile(target, actions[-1].backup_path))
+                deleted_interference.append(relative)
             for directory, patch_root in zip(
                 self.profile.install_relative_dirs, self._patch_roots(game_root)
             ):
@@ -680,6 +707,7 @@ class PatchEngine:
             backup_replaced=runtime_changed
             and any(path.endswith(f"/{runtime_name}") or path == runtime_name for path in replaced_paths),
             ini_written=ini_written,
+            interference_files_deleted=tuple(deleted_interference),
         )
 
     def repair_patch(self, game_root: Path, **sources) -> PatchApplyResult:

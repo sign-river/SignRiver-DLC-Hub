@@ -163,6 +163,31 @@ def test_cartridge_document_parses_platform_variants() -> None:
     assert macos["ini_target_name"] == "icecream.ini"
 
 
+def test_cartridge_document_keeps_interference_lists_per_platform() -> None:
+    document = CartridgeDocument.from_dict({
+        **_hoi4_document().to_dict(),
+        "patch": {
+            **_hoi4_document().to_dict()["patch"],
+            "interference_files": ["steam_api.dll"],
+            "platforms": {
+                "steamos": {"interference_files": ["libsteam_api.so.old"]},
+                "macos": {"interference_files": ["libsteam_api.dylib.old"]},
+            },
+        },
+    })
+    assert document.patch_fields_for("windows")["interference_files"] == ["steam_api.dll"]
+    assert document.patch_fields_for("steamos")["interference_files"] == ["libsteam_api.so.old"]
+    assert document.patch_fields_for("macos")["interference_files"] == ["libsteam_api.dylib.old"]
+
+
+@pytest.mark.parametrize("bad", ["../x.dll", "/x.dll", "x/*.dll", "x.dll?", ""])
+def test_cartridge_document_rejects_unsafe_interference_paths(bad: str) -> None:
+    payload = _hoi4_document().to_dict()
+    payload["patch"]["interference_files"] = [bad]
+    with pytest.raises(ValueError):
+        CartridgeDocument.from_dict(payload)
+
+
 def test_cartridge_document_rejects_unknown_platform() -> None:
     with pytest.raises(ValueError):
         CartridgeDocument.from_dict(
