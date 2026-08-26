@@ -145,7 +145,7 @@ CONSOLE_GHOST_BUTTON = {
     "hover_color": "#E9EEF3",
     "text_color": "#7A8793",
     "corner_radius": 4,
-    "font": ("Segoe UI", 10),
+    "font": ("Segoe UI", 11),
     # 使用字体元组，避免模块导入阶段创建 Tk font（根窗口尚未建立）。
 }
 
@@ -2974,7 +2974,7 @@ class DlcHubApplication:
         console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
         console_actions.pack(side="right", padx=4)
         for text, command in (("复制", self._copy_tool_logs), ("清空", self._clear_tool_logs)):
-            ctk.CTkButton(console_actions, text=text, width=42, height=20,
+            ctk.CTkButton(console_actions, text=text, width=48, height=24,
                           command=command, **CONSOLE_GHOST_BUTTON).pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
             console_actions, text="锁定滚屏", width=76, height=22,

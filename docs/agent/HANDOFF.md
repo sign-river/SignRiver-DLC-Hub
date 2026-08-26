@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次根据反馈保留运行日志按钮正常字号（11px）和点击尺寸，仅通过无边框、灰蓝文字与轻微悬停底色降低视觉强调；锁定滚屏继续使用中性灰蓝色。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`。其他未提交改动未触碰。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（65 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次统一现有 7 篇指南索引摘要：全部改为问题细节/可观察现象，不再写处理步骤；新增 `summary_type: "problem_detail"` 内容契约。指南规范已明确该要求，发布器预检会拒绝缺失或错误类型，后续新增指南必须遵守。活动版本为 `0.2.0`，共享 `config/guides/` 无需模块同步，重启客户端后查看。
 - 验证：7 篇摘要字段检查、`tests/test_platform_content.py tests/test_publisher_extension_assets.py`（35 项）、两个模块与发布器编译、Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、构建、上传或推送。
 
