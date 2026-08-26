@@ -3419,20 +3419,6 @@ class DlcHubApplication:
         self._show_tool_center_detail("日志资料收集", requires_cloud_download=False)
         self._set_tool_ready(True)
         body = self.tool_center_detail_body
-        intro = ctk.CTkFrame(
-            body, fg_color=UI["primary_surface"], border_color=UI["primary_border"],
-            border_width=1, corner_radius=10,
-        )
-        intro.pack(fill="x", padx=16, pady=(8, 12))
-        ctk.CTkLabel(
-            intro, text="本地采集 · 安全可控", text_color=UI["primary"], anchor="w",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(fill="x", padx=14, pady=(10, 2))
-        ctk.CTkLabel(
-            intro, text="资料仅保存到本机工具文件夹，不压缩、不上传，不会自动收集截图或 .dmp 崩溃转储。",
-            text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
-        ).pack(fill="x", padx=14, pady=(0, 10))
-
         ctk.CTkLabel(
             body, text="本次将采集", text_color=UI["text"], anchor="w",
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -3442,7 +3428,6 @@ class DlcHubApplication:
         collection_items = (
             ("游戏资料", "当前选中游戏的已知日志和配置文件"),
             ("程序日志", "SignRiver-DLC-Hub 运行日志"),
-            ("问题记录", "本次会话与历史问题记录"),
             ("系统信息", "Windows DxDiag.txt（仅 Windows）"),
         )
         for index, (title, detail) in enumerate(collection_items):

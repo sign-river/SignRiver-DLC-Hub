@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次按截图精简“日志资料收集”详情页：移除顶部“本地采集 · 安全可控”说明卡和“问题记录”采集卡；保留后台问题记录收集逻辑，系统信息卡前移填补网格空位，AI 说明区随之上移。基线与活动模块 `0.2.0` 已同步，未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m pytest -q tests/test_support_collection_ui.py`（3 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次轻量化“运行日志”右上角工具栏：复制/清空改为 24px 高幽灵按钮，默认透明、悬停浅灰；锁定滚屏复选框缩小并统一为紧凑行内布局。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 
