@@ -599,7 +599,6 @@ class DlcHubApplication:
         # Kept per workflow so the final dialog can distinguish a patch that
         # was installed just now from one that was already healthy.
         self.unlock_patch_applied_this_run = False
-        self.unlock_interference_files_deleted: tuple[str, ...] = ()
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
         # Filled after the current Release bundle is known.  Patch task IDs
         # include each GitLink attachment ID so stale generations cannot be
@@ -8136,7 +8135,6 @@ class DlcHubApplication:
         ]
         self.unlock_workflow_active = True
         self.unlock_patch_applied_this_run = False
-        self.unlock_interference_files_deleted = ()
         self.unlock_requested_dlc_ids = tuple(
             entry.dlc_id for entry in selected_entries
         )
@@ -8166,7 +8164,6 @@ class DlcHubApplication:
                 )
                 return
             if deleted:
-                self.unlock_interference_files_deleted = deleted
                 self.context.logger.info(
                     "Cleaned %d interference file(s) for healthy patch: %s",
                     len(deleted),
@@ -9225,10 +9222,8 @@ class DlcHubApplication:
         installed_count = len(self.unlock_requested_dlc_ids)
         game_name = self.cartridge.adapter.descriptor.display_name
         patch_applied_this_run = self.unlock_patch_applied_this_run
-        interference_files_deleted = self.unlock_interference_files_deleted
         self.unlock_workflow_active = False
         self.unlock_patch_applied_this_run = False
-        self.unlock_interference_files_deleted = ()
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
         if self._uses_built_in_dlc_delivery():
@@ -9254,10 +9249,6 @@ class DlcHubApplication:
             )
         else:
             detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
-        if interference_files_deleted:
-            detail += "\n\n已清理旧版残留干扰文件：\n" + "\n".join(
-                interference_files_deleted
-            )
         self.catalog_preview.configure(text=f"一键解锁工具执行成功：{detail}")
         self._notify("一键解锁工具执行成功")
         messagebox.showinfo("一键解锁工具执行成功", detail, parent=self.window)
@@ -10086,8 +10077,10 @@ class DlcHubApplication:
                 f"已生成 {self.patch_profile.template.ini_target_name}"
             )
         if result.interference_files_deleted:
-            detail_parts.append(
-                "已清理干扰文件：" + ", ".join(result.interference_files_deleted)
+            self.context.logger.info(
+                "Cleaned %d interference file(s) while applying patch: %s",
+                len(result.interference_files_deleted),
+                ", ".join(result.interference_files_deleted),
             )
         summary = "补丁已应用；" + ("；".join(detail_parts) or "文件与目标一致，无需变更")
         self.catalog_preview.configure(text=summary)
@@ -10119,7 +10112,6 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
-        self.unlock_interference_files_deleted = ()
         self.catalog_preview.configure(text=f"一键解锁工具执行失败：{message}")
         self._notify(f"一键解锁工具执行失败：{message}", error=True)
         messagebox.showerror("一键解锁工具执行失败", message, parent=self.window)

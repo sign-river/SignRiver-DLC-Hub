@@ -1235,7 +1235,13 @@ def test_healthy_patch_fast_path_cleans_legacy_interference_files() -> None:
     finish_method = source.split("def _maybe_finish_unlock_workflow", 1)[1].split(
         "def _show_install_state", 1
     )[0]
-    assert "已清理旧版残留干扰文件" in finish_method
+    assert "已清理旧版残留干扰文件" not in finish_method
+    assert "Cleaned %d interference file(s) for healthy patch" in start_method
+
+    patch_applied_method = source.split("def _on_patch_applied", 1)[1].split(
+        "def _on_patch_workflow_failed", 1
+    )[0]
+    assert "Cleaned %d interference file(s) while applying patch" in patch_applied_method
 
 
 def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
