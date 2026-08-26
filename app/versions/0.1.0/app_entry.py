@@ -3419,7 +3419,7 @@ class DlcHubApplication:
                 "• SignRiver-DLC-Hub 程序运行日志\n"
                 "• 问题记录\n"
                 "• Windows DxDiag.txt（仅 Windows）\n\n"
-                "资料保存在程序数据目录的工具文件夹中，不压缩、不上传，也不会自动收集截图或 .dmp 崩溃转储。\n\n"
+                "资料保存在程序数据目录的工具文件夹中，可点击“打开收集文件夹”按钮查看；不压缩、不上传，也不会自动收集截图或 .dmp 崩溃转储。\n\n"
                 "收集完成后，可直接将生成的日志资料文件夹或其中的日志文件发送给 AI，并附上遇到的问题，以获取参考解决方案。"
             ),
             text_color=UI["text_secondary"],
