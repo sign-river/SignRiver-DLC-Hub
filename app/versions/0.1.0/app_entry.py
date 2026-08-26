@@ -585,6 +585,7 @@ class DlcHubApplication:
         # Kept per workflow so the final dialog can distinguish a patch that
         # was installed just now from one that was already healthy.
         self.unlock_patch_applied_this_run = False
+        self.unlock_interference_files_deleted: tuple[str, ...] = ()
         self.catalog_missing_patch_assets: tuple[str, ...] = ()
         # Filled after the current Release bundle is known.  Patch task IDs
         # include each GitLink attachment ID so stale generations cannot be
@@ -8095,6 +8096,7 @@ class DlcHubApplication:
         ]
         self.unlock_workflow_active = True
         self.unlock_patch_applied_this_run = False
+        self.unlock_interference_files_deleted = ()
         self.unlock_requested_dlc_ids = tuple(
             entry.dlc_id for entry in selected_entries
         )
@@ -8110,6 +8112,26 @@ class DlcHubApplication:
             self._dlc_task_id(entry.dlc_id) for entry in selected_entries
         )
         if self._patch_is_healthy():
+            try:
+                deleted = self.patch_engine.clean_interference_files(
+                    self.current_installation.root
+                )
+            except Exception as error:
+                self.context.logger.exception(
+                    "Unable to clean interference files for healthy patch"
+                )
+                self._on_patch_workflow_failed(
+                    "补丁已经正确应用，但清理旧版残留干扰文件失败："
+                    f"{str(error) or type(error).__name__}"
+                )
+                return
+            if deleted:
+                self.unlock_interference_files_deleted = deleted
+                self.context.logger.info(
+                    "Cleaned %d interference file(s) for healthy patch: %s",
+                    len(deleted),
+                    ", ".join(deleted),
+                )
             # Nothing to download or apply for the patch itself.  Fall through
             # to the DLC batch (or just tell the user the patch is already good
             # if they did not select any DLC).
@@ -9163,8 +9185,10 @@ class DlcHubApplication:
         installed_count = len(self.unlock_requested_dlc_ids)
         game_name = self.cartridge.adapter.descriptor.display_name
         patch_applied_this_run = self.unlock_patch_applied_this_run
+        interference_files_deleted = self.unlock_interference_files_deleted
         self.unlock_workflow_active = False
         self.unlock_patch_applied_this_run = False
+        self.unlock_interference_files_deleted = ()
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
         if self._uses_built_in_dlc_delivery():
@@ -9190,6 +9214,10 @@ class DlcHubApplication:
             )
         else:
             detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
+        if interference_files_deleted:
+            detail += "\n\n已清理旧版残留干扰文件：\n" + "\n".join(
+                interference_files_deleted
+            )
         self.catalog_preview.configure(text=f"一键解锁工具执行成功：{detail}")
         self._notify("一键解锁工具执行成功")
         messagebox.showinfo("一键解锁工具执行成功", detail, parent=self.window)
@@ -10051,6 +10079,7 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
+        self.unlock_interference_files_deleted = ()
         self.catalog_preview.configure(text=f"一键解锁工具执行失败：{message}")
         self._notify(f"一键解锁工具执行失败：{message}", error=True)
         messagebox.showerror("一键解锁工具执行失败", message, parent=self.window)

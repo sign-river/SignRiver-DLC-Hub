@@ -606,41 +606,10 @@ class PatchEngine:
         unlocker_changed = False
         ini_written = False
         try:
+            deleted_interference = self._delete_declared_interference_files(
+                game_root, transaction_root, actions
+            )
             patch_roots = self._patch_roots(game_root)
-            managed_names = {
-                name.casefold() for name in self.profile.patch_file_names
-            }
-            seen_interference_targets: set[Path] = set()
-            for directory, patch_root in zip(
-                self.profile.install_relative_dirs, patch_roots
-            ):
-                for relative in self.profile.interference_files:
-                    if relative.casefold() in managed_names:
-                        raise PatchError(
-                            f"干扰文件列表不能包含受控补丁文件：{relative}"
-                        )
-                    target = resolve_game_directory(
-                        patch_root,
-                        relative,
-                        field_name="patch interference file",
-                        strict_root=True,
-                    )
-                    if target in seen_interference_targets:
-                        continue
-                    seen_interference_targets.add(target)
-                    if not target.exists():
-                        continue
-                    if target.is_symlink() or not target.is_file():
-                        raise PatchError(
-                            "干扰文件不是普通文件，拒绝清理："
-                            f"{self._relative_file_path(directory, relative)}"
-                        )
-                    self._backup_file(target, transaction_root, actions)
-                    target.unlink()
-                    actions.append(_DeletedFile(target, actions[-1].backup_path))
-                    deleted_interference.append(
-                        self._relative_file_path(directory, relative)
-                    )
             for directory, patch_root in zip(
                 self.profile.install_relative_dirs, patch_roots
             ):
@@ -723,6 +692,30 @@ class PatchEngine:
     def repair_patch(self, game_root: Path, **sources) -> PatchApplyResult:
         """Idempotently repair managed files without clearing the game directory."""
         return self.apply(game_root, **sources)
+
+    @_with_installation_lock
+    def clean_interference_files(self, game_root: Path) -> tuple[str, ...]:
+        """Delete configured stale files without rewriting an already healthy patch.
+
+        This gives users of an older client the current cleanup behavior
+        without an unnecessary patch download or replacement.
+        """
+        game_root = Path(game_root).resolve(strict=True)
+        if not game_root.is_dir():
+            raise PatchError("目标游戏目录不存在")
+        actions: list[_Action] = []
+        transaction_root = self._make_transaction_root("interference-cleanup")
+        try:
+            deleted = self._delete_declared_interference_files(
+                game_root, transaction_root, actions
+            )
+        except Exception:
+            self._rollback(actions)
+            self._cleanup_transaction(transaction_root)
+            raise
+        else:
+            self._cleanup_transaction(transaction_root)
+            return tuple(deleted)
 
     # ---- remove -------------------------------------------------------------
 
@@ -876,6 +869,48 @@ class PatchEngine:
             )
         except (OSError, ValueError) as error:
             raise PatchError(str(error)) from error
+
+    def _delete_declared_interference_files(
+        self,
+        game_root: Path,
+        transaction_root: Path,
+        actions: list[_Action],
+    ) -> list[str]:
+        """Preflight and transactionally remove stale files in every patch root."""
+        patch_roots = self._patch_roots(game_root)
+        managed_names = {name.casefold() for name in self.profile.patch_file_names}
+        seen_targets: set[Path] = set()
+        targets: list[tuple[Path, str]] = []
+        for directory, patch_root in zip(
+            self.profile.install_relative_dirs, patch_roots
+        ):
+            for relative in self.profile.interference_files:
+                if relative.casefold() in managed_names:
+                    raise PatchError(f"干扰文件列表不能包含受控补丁文件：{relative}")
+                target = resolve_game_directory(
+                    patch_root,
+                    relative,
+                    field_name="patch interference file",
+                    strict_root=True,
+                )
+                if target in seen_targets:
+                    continue
+                seen_targets.add(target)
+                display_path = self._relative_file_path(directory, relative)
+                if target.is_symlink() or (target.exists() and not target.is_file()):
+                    raise PatchError(
+                        "干扰文件不是普通文件，拒绝清理：" + display_path
+                    )
+                if target.exists():
+                    targets.append((target, display_path))
+
+        deleted: list[str] = []
+        for target, display_path in targets:
+            self._backup_file(target, transaction_root, actions)
+            target.unlink()
+            actions.append(_DeletedFile(target, actions[-1].backup_path))
+            deleted.append(display_path)
+        return deleted
 
     @staticmethod
     def _relative_file_path(directory: str, filename: str) -> str:

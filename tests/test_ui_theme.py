@@ -1166,6 +1166,19 @@ def test_one_click_unlock_flow_is_wired_to_patch_engine() -> None:
     assert 'messagebox.showwarning(' in finish_method
 
 
+def test_healthy_patch_fast_path_cleans_legacy_interference_files() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    start_method = source.split("def _start_unlock_workflow", 1)[1].split(
+        "def _notify_patch_healthy_and_continue", 1
+    )[0]
+    assert "self.patch_engine.clean_interference_files" in start_method
+    assert "补丁已经正确应用，但清理旧版残留干扰文件失败" in start_method
+    finish_method = source.split("def _maybe_finish_unlock_workflow", 1)[1].split(
+        "def _show_install_state", 1
+    )[0]
+    assert "已清理旧版残留干扰文件" in finish_method
+
+
 def test_patch_download_does_not_treat_gitlink_display_size_as_exact() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     method = source.split("def _download_spec_for_patch", 1)[1].split(

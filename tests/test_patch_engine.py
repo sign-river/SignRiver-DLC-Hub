@@ -110,6 +110,41 @@ def test_apply_deletes_declared_interference_files_and_reports_them(tmp_path: Pa
     assert result.interference_files_deleted == ("bin/old_proxy.dll",)
 
 
+def test_clean_interference_files_preserves_healthy_patch_files(tmp_path: Path) -> None:
+    profile = replace(STELLARIS_PATCH_PROFILE, interference_files=("old_proxy.dll",))
+    engine = PatchEngine(profile, tmp_path / "data")
+    game = tmp_path / "game"
+    game.mkdir()
+    managed_proxy = game / "steam_api64.dll"
+    managed_proxy.write_bytes(UNLOCKER_BODY)
+    stale = game / "old_proxy.dll"
+    stale.write_bytes(b"stale")
+
+    deleted = engine.clean_interference_files(game)
+
+    assert deleted == ("old_proxy.dll",)
+    assert not stale.exists()
+    assert managed_proxy.read_bytes() == UNLOCKER_BODY
+
+
+def test_clean_interference_files_preflights_every_target(tmp_path: Path) -> None:
+    profile = replace(
+        STELLARIS_PATCH_PROFILE,
+        interference_files=("old_proxy.dll", "legacy-directory"),
+    )
+    engine = PatchEngine(profile, tmp_path / "data")
+    game = tmp_path / "game"
+    game.mkdir()
+    stale = game / "old_proxy.dll"
+    stale.write_bytes(b"stale")
+    (game / "legacy-directory").mkdir()
+
+    with pytest.raises(PatchError, match="不是普通文件"):
+        engine.clean_interference_files(game)
+
+    assert stale.read_bytes() == b"stale"
+
+
 def test_apply_rolls_back_deleted_interference_file_when_patch_fails(tmp_path: Path) -> None:
     profile = replace(STELLARIS_PATCH_PROFILE, interference_files=("old_proxy.dll",))
     engine = PatchEngine(profile, tmp_path / "data")
