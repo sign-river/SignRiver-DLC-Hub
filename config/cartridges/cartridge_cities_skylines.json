@@ -43,7 +43,13 @@
         "unlocker_dll_name": "libsteam_api.so",
         "runtime_original_library_name": "libsteam_api_o.so",
         "ini_target_name": "SmokeAPI.config.json",
-        "config_format": "smokeapi_json"
+        "config_format": "smokeapi_json",
+        "interference_files": [
+          "Juuj_Steam.json",
+          "Juuj_更新发布地址.html",
+          "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+          "Juuj_制作_请勿转载_免费声明.txt"
+        ]
       },
       "macos": {
         "executable_relative_path": "Cities.app/Contents/MacOS/Cities",
@@ -52,9 +58,22 @@
         "unlocker_dll_name": "libsteam_api.dylib",
         "runtime_original_library_name": "libsteam_api_o.dylib",
         "ini_target_name": "icecream.ini",
-        "config_format": "cream_ini"
+        "config_format": "cream_ini",
+        "interference_files": [
+          "Juuj_Steam.json",
+          "Juuj_更新发布地址.html",
+          "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+          "Juuj_制作_请勿转载_免费声明.txt",
+          "macOS 无法解锁时尝试操作方法.txt"
+        ]
       }
     },
-    "original_backup_dll_name": "steam_api64_o.dll"
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "interference_files": [
+      "Juuj_Steam.json",
+      "Juuj_更新发布地址.html",
+      "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+      "Juuj_制作_请勿转载_免费声明.txt"
+    ]
   }
 }

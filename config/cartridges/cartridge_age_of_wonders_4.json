@@ -39,6 +39,12 @@
     "unlock_all": true,
     "extra_protection": false,
     "force_offline": false,
-    "original_backup_dll_name": "steam_api64_o.dll"
+    "original_backup_dll_name": "steam_api64_o.dll",
+    "interference_files": [
+      "Juuj_Steam.json",
+      "Juuj_更新发布地址.html",
+      "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+      "Juuj_制作_请勿转载_免费声明.txt"
+    ]
   }
 }

@@ -87,7 +87,11 @@ def test_apply_deterministically_replaces_unknown_legacy_layout(tmp_path: Path) 
 
 
 def test_apply_deletes_declared_interference_files_and_reports_them(tmp_path: Path) -> None:
-    profile = replace(STELLARIS_PATCH_PROFILE, interference_files=("bin/old_proxy.dll",))
+    profile = replace(
+        STELLARIS_PATCH_PROFILE,
+        install_relative_dir="bin",
+        interference_files=("old_proxy.dll",),
+    )
     engine = PatchEngine(profile, tmp_path / "data")
     game = tmp_path / "game"
     (game / "bin").mkdir(parents=True)
@@ -371,6 +375,49 @@ def test_patch_operations_replace_and_restore_every_declared_target(
         "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib/steam_api64.dll"
         in touched
     )
+
+
+def test_apply_cleans_interference_in_every_declared_patch_directory(
+    tmp_path: Path,
+) -> None:
+    secondary_relative = "launcher-se/resources/app.asar.unpacked/node_modules/greenworks/lib"
+    profile = PatchProfile(
+        unlocker_dll_name="steam_api64.dll",
+        runtime_original_library_name="steam_api64_o.dll",
+        appinfo_asset_name="other_appinfo.json",
+        template=PatchTemplate(ini_target_name="cream_api.ini"),
+        additional_install_relative_dirs=(secondary_relative,),
+        interference_files=("Juuj_Steam.json",),
+    )
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    engine = PatchEngine(profile, data_root)
+    game = tmp_path / "game"
+    secondary = game / secondary_relative
+    secondary.mkdir(parents=True)
+    (game / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
+    (secondary / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
+    (game / "Juuj_Steam.json").write_text("stale", encoding="utf-8")
+    (secondary / "Juuj_Steam.json").write_text("stale", encoding="utf-8")
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="age_of_wonders_4",
+    )
+
+    assert not (game / "Juuj_Steam.json").exists()
+    assert not (secondary / "Juuj_Steam.json").exists()
+    assert result.interference_files_deleted == (
+        "Juuj_Steam.json",
+        f"{secondary_relative}/Juuj_Steam.json",
+    )
+    engine.remove(game)
+    assert not (game / "Juuj_Steam.json").exists()
+    assert not (secondary / "Juuj_Steam.json").exists()
 
 
 def test_patch_profile_rejects_unsafe_install_directory() -> None:
