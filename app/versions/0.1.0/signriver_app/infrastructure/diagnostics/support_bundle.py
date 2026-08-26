@@ -184,9 +184,6 @@ class SupportBundleCollector:
         timestamp = self._now().strftime("%Y%m%d-%H%M%S")
         output_dir = self._unique_output_dir(f"日志资料收集-{timestamp}")
         report("已创建收集目录")
-        for name in ("system", "SignRiver-DLC-Hub-程序日志", "game"):
-            (output_dir / name).mkdir(parents=True, exist_ok=True)
-
         copied: list[str] = []
         skipped: list[str] = []
         failed: list[str] = []
@@ -194,18 +191,18 @@ class SupportBundleCollector:
         detected_platform = (host_platform or platform_module.system()).casefold()
 
         report("正在收集系统信息（DxDiag）")
-        self._collect_dxdiag(output_dir / "system", detected_platform, copied, skipped, failed)
+        self._collect_dxdiag(output_dir, detected_platform, copied, skipped, failed)
         report("系统信息收集完成")
         report("正在收集程序运行日志和问题记录")
         self._collect_signriver(
-            output_dir / "SignRiver-DLC-Hub-程序日志",
+            output_dir,
             app_version, launcher_version, problems,
             copied, skipped, failed,
         )
         report("程序运行日志和问题记录收集完成")
         report("正在收集当前游戏日志与配置")
         self._collect_game(
-            output_dir / "game", game_id, game_root, copied, skipped, failed,
+            output_dir, game_id, game_root, copied, skipped, failed,
             skipped_dumps,
         )
         report("当前游戏日志与配置收集完成")
@@ -258,7 +255,7 @@ class SupportBundleCollector:
         if host_platform not in {"windows", "win32"}:
             skipped.append("DxDiag.txt（当前平台不适用）")
             return
-        target = destination / "DxDiag.txt"
+        target = self._available_target(destination, "系统-DxDiag.txt")
         failure_detail = ""
         for attempt in range(2):
             try:
@@ -273,7 +270,7 @@ class SupportBundleCollector:
                 )
                 return_code = getattr(completed, "returncode", 0)
                 if not return_code and target.is_file():
-                    copied.append("system/DxDiag.txt")
+                    copied.append(target.name)
                     return
                 failure_detail = f"dxdiag 返回 {return_code}"
             except (OSError, subprocess.SubprocessError) as error:
@@ -296,7 +293,7 @@ class SupportBundleCollector:
     ) -> None:
         log_path = self.data_root / "logs" / "launcher.log"
         self._copy_sanitized_text(
-            log_path, destination / "launcher.log", "signriver/launcher.log",
+            log_path, self._available_target(destination, "程序-launcher.log"), "程序-launcher.log",
             copied, skipped, failed,
         )
         runtime = {
@@ -305,13 +302,14 @@ class SupportBundleCollector:
             "platform": platform_module.system(),
         }
         try:
-            (destination / "runtime.json").write_text(
+            runtime_target = self._available_target(destination, "程序-runtime.json")
+            runtime_target.write_text(
                 json.dumps(runtime, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            copied.append("signriver/runtime.json")
+            copied.append(runtime_target.name)
         except OSError as error:
-            failed.append(f"signriver/runtime.json（{error}）")
+            failed.append(f"程序-runtime.json（{error}）")
 
         serialized_problems = []
         for problem in problems:
@@ -322,13 +320,14 @@ class SupportBundleCollector:
             )
             serialized_problems.append(payload)
         try:
-            (destination / "problems.json").write_text(
+            problems_target = self._available_target(destination, "程序-problems.json")
+            problems_target.write_text(
                 json.dumps(serialized_problems, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            copied.append("signriver/problems.json")
+            copied.append(problems_target.name)
         except (OSError, TypeError, ValueError) as error:
-            failed.append(f"signriver/problems.json（{error}）")
+            failed.append(f"程序-problems.json（{error}）")
 
     def _collect_game(
         self,
@@ -354,8 +353,8 @@ class SupportBundleCollector:
                 skipped.append(spec.label)
                 continue
             for source in matches:
-                label = f"game/{source.name}"
-                target = self._available_target(destination, source.name)
+                label = f"游戏-{game_id}-{source.name}"
+                target = self._available_target(destination, label)
                 self._copy_sanitized_text(source, target, label, copied, skipped, failed)
         for spec in profile.dump_patterns:
             for source in self._expand_pattern(spec.pattern, values):

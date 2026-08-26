@@ -67,22 +67,23 @@ def test_support_collection_copies_redacted_files_and_skips_dumps(
 
     assert result.output_dir.parent == data_root / "helper-tools" / "support-collections"
     assert result.output_dir.name.startswith("日志资料收集-")
-    assert (result.output_dir / "system" / "DxDiag.txt").is_file()
-    assert (result.output_dir / "SignRiver-DLC-Hub-程序日志" / "runtime.json").is_file()
-    assert (result.output_dir / "game" / "system.log").is_file()
-    assert (result.output_dir / "game" / "error.log").is_file()
-    assert (result.output_dir / "game" / "settings.txt").is_file()
-    assert (result.output_dir / "game" / "crash-report.txt").is_file()
+    assert (result.output_dir / "系统-DxDiag.txt").is_file()
+    assert (result.output_dir / "程序-runtime.json").is_file()
+    assert (result.output_dir / "游戏-stellaris-system.log").is_file()
+    assert (result.output_dir / "游戏-stellaris-error.log").is_file()
+    assert (result.output_dir / "游戏-stellaris-settings.txt").is_file()
+    assert (result.output_dir / "游戏-stellaris-crash-report.txt").is_file()
+    assert not [path for path in result.output_dir.iterdir() if path.is_dir()]
     assert not list(result.output_dir.rglob("*.dmp"))
     assert result.skipped_dumps == (str(dump),)
-    copied_log = (result.output_dir / "SignRiver-DLC-Hub-程序日志" / "launcher.log").read_text(encoding="utf-8")
-    copied_game_log = (result.output_dir / "game" / "system.log").read_text(encoding="utf-8")
-    problems = json.loads((result.output_dir / "SignRiver-DLC-Hub-程序日志" / "problems.json").read_text(encoding="utf-8"))
+    copied_log = (result.output_dir / "程序-launcher.log").read_text(encoding="utf-8")
+    copied_game_log = (result.output_dir / "游戏-stellaris-system.log").read_text(encoding="utf-8")
+    problems = json.loads((result.output_dir / "程序-problems.json").read_text(encoding="utf-8"))
     assert "launcher-secret" not in copied_log
     assert "id=private" not in copied_log
     assert str(app_root) not in copied_log
     assert "game-secret" not in copied_game_log
-    assert "crash-secret" not in (result.output_dir / "game" / "crash-report.txt").read_text(
+    assert "crash-secret" not in (result.output_dir / "游戏-stellaris-crash-report.txt").read_text(
         encoding="utf-8"
     )
     assert problems[0]["technical_details"] == "token=<REDACTED>"
@@ -148,7 +149,7 @@ def test_support_collection_retries_dxdiag_once_after_initial_failure(
     assert len(calls) == 2
     assert calls[0][-1] == calls[1][-1]
     assert delays == [1.0]
-    assert "system/DxDiag.txt" in result.copied
+    assert "系统-DxDiag.txt" in result.copied
     assert not result.failed
 
 
@@ -176,9 +177,9 @@ def test_support_collection_keeps_output_contained_and_avoids_name_collisions(
         host_platform="linux",
     )
 
-    game_files = sorted(path.name for path in (result.output_dir / "game").iterdir())
-    assert game_files.count("system.log") == 1
-    assert "system-2.log" in game_files
+    game_files = sorted(path.name for path in result.output_dir.iterdir() if path.is_file())
+    assert game_files.count("游戏-test_game-system.log") == 1
+    assert "游戏-test_game-system-2.log" in game_files
     assert all(
         path.resolve().is_relative_to(result.output_dir.resolve())
         for path in result.output_dir.rglob("*")
@@ -217,8 +218,8 @@ def test_support_collection_keeps_going_when_a_registered_file_is_unreadable(
         host_platform="linux",
     )
 
-    assert (result.output_dir / "game" / "system.log").is_file()
-    assert any("game/error.log" in item and "access denied" in item for item in result.failed)
+    assert (result.output_dir / "游戏-civilization_6-system.log").is_file()
+    assert any("游戏-civilization_6-error.log" in item and "access denied" in item for item in result.failed)
 
 
 def test_all_bootstrap_games_have_support_collection_profiles() -> None:
