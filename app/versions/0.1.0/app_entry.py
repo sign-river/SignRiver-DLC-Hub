@@ -3451,7 +3451,7 @@ class DlcHubApplication:
         collection_grid.pack(fill="x", padx=16, pady=(0, 12))
         collection_items = (
             ("游戏资料", "当前选中游戏的已知日志和配置文件"),
-            ("程序日志", "解锁工具日志"),
+            ("程序日志", "唏嘘南溪一键解锁工具日志"),
             ("系统信息", "Windows DxDiag.txt"),
         )
         for index, (title, detail) in enumerate(collection_items):
