@@ -318,7 +318,7 @@ def test_tool_item_ui_spec_documents_the_card_description_limit() -> None:
     text = spec.read_text(encoding="utf-8")
 
     assert "不超过 **45 个字符**" in text
-    assert "其他指标后续补充" in text
+    assert "## 后续待补充指标" in text
 
 
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
