@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次根据反馈将运行日志“复制/清空”辅助按钮字号调整为 12px（运行日志标题为 13px），保持无边框灰蓝低强调风格和原有按钮尺寸。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`；其他未提交改动未触碰。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（65 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次将 `security-interference` 指南标题统一改为“杀毒软件隔离、拦截或删除文件问题”，并同步修改补丁状态指南中的跳转按钮文案；稳定 `guide_id` 保持不变，代码映射和导航引用无需改 ID。活动版本为 `0.2.0`，共享 `config/guides/` 无需模块同步，重启客户端后查看。
 - 验证：指南索引/正文 JSON、`tests/test_platform_content.py`、编译、Ruff、`git diff --check` 通过；未执行 GUI 人工验收、构建、上传或推送。
 

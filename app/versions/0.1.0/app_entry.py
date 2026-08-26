@@ -145,7 +145,7 @@ CONSOLE_GHOST_BUTTON = {
     "hover_color": "#E9EEF3",
     "text_color": "#7A8793",
     "corner_radius": 4,
-    "font": ("Segoe UI", 11),
+    "font": ("Segoe UI", 12),
     # 使用字体元组，避免模块导入阶段创建 Tk font（根窗口尚未建立）。
 }
 
