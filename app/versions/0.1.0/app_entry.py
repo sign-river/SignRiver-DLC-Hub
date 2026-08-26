@@ -6799,7 +6799,8 @@ class DlcHubApplication:
         if not hasattr(self, "problem_list_panel"):
             return
         self.problem_clear_button.configure(
-            text="清空全部记录", width=116, command=self._clear_problems
+            text="清空全部记录", width=116, command=self._clear_problems,
+            **BUTTON_DANGER,
         )
         self.problem_back_button.configure(
             text="返回指南", command=lambda: self._show_page("报错指南")
@@ -6911,6 +6912,7 @@ class DlcHubApplication:
         self.problem_clear_button.configure(
             text="删除当前问题记录", width=160,
             command=lambda event_id=report.event_id: self._delete_current_problem(event_id),
+            **BUTTON_DANGER,
         )
         self.problem_back_button.configure(
             text="← 返回记录", command=self._show_problem_list

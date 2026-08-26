@@ -335,12 +335,17 @@ def test_error_guide_button_hierarchy_uses_primary_secondary_and_danger_styles()
     tutorial = _app_method_source("_build_error_tutorial_page")
     tools = _app_method_source("_build_tool_center_page")
     quick_check = _app_method_source("_build_quick_check_page")
+    problem_list = _app_method_source("_show_problem_list")
+    problem_detail = _app_method_source("_select_problem")
 
     assert 'text="导出诊断 →"' in guide
     assert 'command=self._export_diagnostics, **BUTTON_SECONDARY' in guide
     assert 'self.problem_back_button' in guide
     assert 'text="清空全部记录"' in guide
     assert 'command=self._clear_problems, **BUTTON_DANGER' in guide
+    assert 'command=self._clear_problems,\n            **BUTTON_DANGER' in problem_list
+    assert 'text="删除当前问题记录"' in problem_detail
+    assert 'self._delete_current_problem(event_id),\n            **BUTTON_DANGER' in problem_detail
     assert 'self.solution_list_back_button' in tutorial
     assert '**BUTTON_SECONDARY' in tutorial
     assert 'self.tool_center_back_button' in tools
