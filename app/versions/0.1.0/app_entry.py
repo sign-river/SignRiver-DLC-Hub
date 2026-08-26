@@ -134,6 +134,13 @@ BUTTON_SECONDARY = {
     "border_width": 1,
     "border_color": UI["primary_border"],
 }
+BUTTON_PRIMARY = {
+    "fg_color": UI["primary"],
+    "hover_color": UI["primary_hover"],
+    "text_color": UI["on_blue"],
+    "border_width": 0,
+    "border_color": UI["primary"],
+}
 BUTTON_GHOST = {
     "fg_color": "transparent",
     "hover_color": UI["primary_surface"],
@@ -1732,7 +1739,10 @@ class DlcHubApplication:
         guide_footer.pack_propagate(False)
         ctk.CTkLabel(guide_footer, text="仍然无法解决？", text_color=UI["text"], font=ctk.CTkFont(size=13, weight="bold"), anchor="w").pack(side="left", padx=(16, 0), pady=16)
         ctk.CTkLabel(guide_footer, text="导出诊断信息并发送给开发者，可以帮助快速定位问题。", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left", padx=(14, 8), pady=16)
-        ctk.CTkButton(guide_footer, text="导出诊断 →", width=104, height=32, command=self._export_diagnostics).pack(side="right", padx=14, pady=14)
+        ctk.CTkButton(
+            guide_footer, text="导出诊断 →", width=104, height=32,
+            command=self._export_diagnostics, **BUTTON_SECONDARY,
+        ).pack(side="right", padx=14, pady=14)
 
         # guide_actions = ctk.CTkScrollableFrame(
         guide_actions = _AutoHideScrollableFrame(
@@ -1845,18 +1855,16 @@ class DlcHubApplication:
         ).pack(side="left")
         self.problem_back_button = ctk.CTkButton(
             problem_header, text="返回指南", width=92,
-            command=lambda: self._show_page("报错指南"),
+            command=lambda: self._show_page("报错指南"), **BUTTON_SECONDARY,
         )
         self.problem_back_button.pack(side="right", padx=(0, 12))
         ctk.CTkButton(
             problem_header, text="刷新", width=72,
-            command=self._refresh_problem_center,
+            command=self._refresh_problem_center, **BUTTON_SECONDARY,
         ).pack(side="right", padx=(0, 12))
         self.problem_clear_button = ctk.CTkButton(
             problem_header, text="清空全部记录", width=116, height=36,
-            fg_color=UI["danger"], hover_color=UI["danger_hover"],
-            text_color="#FFFFFF",
-            command=self._clear_problems,
+            command=self._clear_problems, **BUTTON_DANGER,
         )
         self.problem_clear_button.pack(side="right", padx=(0, 16))
         problem_body = ctk.CTkFrame(self.problem_card, fg_color="transparent")
@@ -2647,7 +2655,7 @@ class DlcHubApplication:
         ).pack(side="left")
         self.solution_list_back_button = ctk.CTkButton(
             header, text="返回指南", width=92,
-            command=lambda: self._show_page("报错指南"),
+            command=lambda: self._show_page("报错指南"), **BUTTON_SECONDARY,
         )
         self.solution_list_back_button.pack(side="right")
         self.solution_detail_origin = "list"
@@ -2898,6 +2906,7 @@ class DlcHubApplication:
             text="返回指南",
             width=92,
             command=lambda: self._show_page("报错指南"),
+            **BUTTON_SECONDARY,
         )
         self.tool_center_back_button.pack(side="right")
         self.tool_center_list = _AutoHideScrollableFrame(
@@ -3354,15 +3363,13 @@ class DlcHubApplication:
                 self._open_downloaded_guide_tool(target, tool)
                 if target.is_file()
                 else self._download_guide_tool(tool)
-            ),
+            ), **BUTTON_PRIMARY,
         ).pack(side="left")
         ctk.CTkButton(
             actions,
             text="卸载",
             width=82,
-            fg_color="transparent",
-            text_color=UI["danger"],
-            command=lambda: self._remove_guide_tool(target),
+            command=lambda: self._remove_guide_tool(target), **BUTTON_DANGER,
         ).pack(side="left", padx=(8, 0))
         self._pack_declared_tool_detail_actions(body, tool)
 
@@ -3495,14 +3502,14 @@ class DlcHubApplication:
             text="正在收集……" if self.support_collection_running else "一键收集资料",
             width=144,
             state="disabled" if self.support_collection_running else "normal",
-            command=self._start_support_collection,
+            command=self._start_support_collection, **BUTTON_PRIMARY,
         )
         self.support_collection_start_button.pack(side="left")
         self.support_collection_open_button = ctk.CTkButton(
             actions,
             text="打开收集文件夹",
             width=144,
-            command=self._open_support_collection_folder,
+            command=self._open_support_collection_folder, **BUTTON_SECONDARY,
         )
         self.support_collection_open_button.pack(side="left", padx=(10, 0))
 
@@ -3675,18 +3682,20 @@ class DlcHubApplication:
                 text="打开游戏内补丁安装目录",
                 width=150,
                 command=lambda path=patch_directory: self._open_path(path),
+                **BUTTON_SECONDARY,
             ).pack(side="left")
             ctk.CTkButton(
                 location_actions,
                 text="打开软件内补丁缓存",
                 width=150,
                 command=lambda path=cache_directory: self._open_path(path),
+                **BUTTON_SECONDARY,
             ).pack(side="left", padx=(10, 0))
         ctk.CTkButton(
             location_actions,
             text="刷新补丁列表",
             width=120,
-            command=self._refresh_patch_tool,
+            command=self._refresh_patch_tool, **BUTTON_SECONDARY,
         ).pack(side="left", padx=(10, 0) if game_root is not None else 0)
         ctk.CTkLabel(
             body,
@@ -3739,6 +3748,7 @@ class DlcHubApplication:
                     text="打开位置",
                     width=86,
                     command=lambda item=path: self._open_path(item.parent),
+                    **BUTTON_SECONDARY,
                 ).pack(side="right", padx=(4, 10), pady=6)
                 if self._is_file_openable(path):
                     ctk.CTkButton(
@@ -3746,6 +3756,7 @@ class DlcHubApplication:
                         text="打开文件",
                         width=86,
                         command=lambda item=path: self._open_file(item),
+                        **BUTTON_SECONDARY,
                     ).pack(side="right", padx=(10, 0), pady=6)
                 ctk.CTkLabel(
                     row,
@@ -3776,7 +3787,7 @@ class DlcHubApplication:
             body,
             text="从云端重新下载补丁",
             width=170,
-            command=self._redownload_patch_assets,
+            command=self._redownload_patch_assets, **BUTTON_PRIMARY,
         ).pack(anchor="w", padx=16, pady=(16, 4))
 
     def _refresh_patch_tool(self) -> None:
@@ -3899,6 +3910,7 @@ class DlcHubApplication:
                 width=76,
                 state="normal" if can_open else "disabled",
                 command=lambda item=product: self._open_security_product(item),
+                **BUTTON_SECONDARY,
             ).pack(side="right", padx=12, pady=8)
         self._pack_close_windows_defender_banner(body)
 
@@ -3935,6 +3947,7 @@ class DlcHubApplication:
             command=lambda: self._open_solution_article(
                 "close-windows-defender", origin="security_products"
             ),
+            **BUTTON_SECONDARY,
         ).pack(side="right", padx=12, pady=10)
 
     def _open_security_product(self, product) -> None:
@@ -4335,7 +4348,10 @@ class DlcHubApplication:
         header = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(18, 8))
         ctk.CTkLabel(header, text="一键排错", text_color=UI["primary"], font=ctk.CTkFont(size=20, weight="bold")).pack(side="left")
-        ctk.CTkButton(header, text="返回指南", width=92, command=lambda: self._show_page("报错指南")).pack(side="right")
+        ctk.CTkButton(
+            header, text="返回指南", width=92,
+            command=lambda: self._show_page("报错指南"), **BUTTON_SECONDARY,
+        ).pack(side="right")
         ctk.CTkLabel(
             self.quick_check_card,
             text="仅进行检测，不会修改游戏文件、设置或网络配置。未发现异常不代表问题已全部排除。",
@@ -4345,10 +4361,10 @@ class DlcHubApplication:
         self.quick_check_output.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         controls = ctk.CTkFrame(self.quick_check_card, fg_color="transparent")
         controls.pack(fill="x", padx=24, pady=(0, 18))
-        self.quick_check_start_button = ctk.CTkButton(controls, text="开始排错", width=96, command=self._run_quick_check)
-        self.quick_check_pause_button = ctk.CTkButton(controls, text="暂停检测", width=96, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._toggle_quick_check_pause)
-        self.quick_check_stop_button = ctk.CTkButton(controls, text="终止检测", width=96, fg_color="transparent", hover_color="#FDECEC", text_color=UI["danger"], command=self._terminate_quick_check)
-        self.quick_check_copy_button = ctk.CTkButton(controls, text="复制检测结果", width=112, fg_color="transparent", hover_color=UI["primary_surface"], text_color=UI["primary"], command=self._copy_quick_check_result)
+        self.quick_check_start_button = ctk.CTkButton(controls, text="开始排错", width=96, command=self._run_quick_check, **BUTTON_PRIMARY)
+        self.quick_check_pause_button = ctk.CTkButton(controls, text="暂停检测", width=96, command=self._toggle_quick_check_pause, **BUTTON_SECONDARY)
+        self.quick_check_stop_button = ctk.CTkButton(controls, text="终止检测", width=96, command=self._terminate_quick_check, **BUTTON_DANGER)
+        self.quick_check_copy_button = ctk.CTkButton(controls, text="复制检测结果", width=112, command=self._copy_quick_check_result, **BUTTON_SECONDARY)
         controls.grid_columnconfigure(0, weight=1)
         self.quick_check_start_button.grid(row=0, column=1, padx=(0, 8))
         self.quick_check_pause_button.grid(row=0, column=2, padx=(0, 8))
@@ -4767,9 +4783,9 @@ class DlcHubApplication:
             row.pack(fill="x", padx=6, pady=(6, 0))
             ctk.CTkLabel(row, text=f"{index}. {text}", text_color=UI["danger"] if solution_id else UI["text_secondary"], anchor="w", justify="left", wraplength=760).pack(side="left", fill="x", expand=True, padx=12, pady=10)
             if solution_id:
-                ctk.CTkButton(row, text="查看解决方案 →", width=128, height=28, command=lambda article_id=solution_id: self._open_solution_article(article_id)).pack(side="right", padx=(0, 10))
+                ctk.CTkButton(row, text="查看解决方案 →", width=128, height=28, command=lambda article_id=solution_id: self._open_solution_article(article_id), **BUTTON_SECONDARY).pack(side="right", padx=(0, 10))
             if tool_detail_action is not None:
-                ctk.CTkButton(row, text="查看工具详情 →", width=128, height=28, command=tool_detail_action).pack(side="right", padx=10)
+                ctk.CTkButton(row, text="查看工具详情 →", width=128, height=28, command=tool_detail_action, **BUTTON_SECONDARY).pack(side="right", padx=10)
 
     def _add_quick_check_result(
         self,
@@ -4816,6 +4832,14 @@ class DlcHubApplication:
             return "删除下载"
         return "下载工具"
 
+    def _helper_download_button_style(self, tool: GuideTool) -> dict[str, object]:
+        """Return the visual hierarchy matching the helper download state."""
+        if tool.tool_id in self._helper_download_cancels:
+            return BUTTON_SECONDARY
+        if self.helper_tools.is_installed(tool):
+            return BUTTON_DANGER
+        return BUTTON_PRIMARY
+
     def _pack_helper_tool_actions(
         self,
         parent,
@@ -4835,6 +4859,7 @@ class DlcHubApplication:
             command=lambda selected=tool: self._on_helper_tool_download_clicked(
                 selected, origin=origin, article_id=article_id
             ),
+            **self._helper_download_button_style(tool),
         )
         download_button.pack(side="left")
         launch_text = "打开工具文件夹" if tool.launch_action == "open_folder" else "启动工具"
@@ -4844,6 +4869,7 @@ class DlcHubApplication:
             width=128,
             state="normal" if installed and not downloading else "disabled",
             command=lambda selected=tool: self._launch_helper_tool(selected),
+            **BUTTON_SECONDARY,
         )
         launch_button.pack(side="left", padx=(8, 0))
         if origin == "solution" and article_id:
@@ -4851,14 +4877,10 @@ class DlcHubApplication:
                 row,
                 text="查看工具详情",
                 width=128,
-                fg_color="transparent",
-                hover_color=UI["primary_surface"],
-                text_color=UI["primary"],
-                border_width=1,
-                border_color=UI["primary_border"],
                 command=lambda selected=tool, selected_article=article_id: self._show_guide_tool_detail(
                     selected, origin="solution", article_id=selected_article
                 ),
+                **BUTTON_SECONDARY,
             ).pack(side="left", padx=(8, 0))
 
     def _refresh_helper_tool_view(
@@ -6853,7 +6875,7 @@ class DlcHubApplication:
         ctk.CTkLabel(suggestion, text="处理建议", text_color=UI["primary"], anchor="w",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", padx=14, pady=(12, 4))
         ctk.CTkButton(suggestion, text="查看对应解决方案  →", width=156,
-                      command=lambda report=report: self._open_problem_solution(report)).pack(anchor="w", padx=14, pady=(0, 12))
+                      command=lambda report=report: self._open_problem_solution(report), **BUTTON_SECONDARY).pack(anchor="w", padx=14, pady=(0, 12))
         technical_header = ctk.CTkFrame(self.problem_detail_content, fg_color="transparent")
         technical_header.pack(fill="x", padx=4, pady=(0, 4))
         ctk.CTkLabel(technical_header, text="技术详情 / Traceback", text_color=UI["text"], anchor="w",
@@ -6923,6 +6945,13 @@ class DlcHubApplication:
                 and self.context.paths.platform != "windows"
             ):
                 continue
+            button_style = (
+                BUTTON_PRIMARY
+                if action is ProblemAction.RETRY_TASK
+                else BUTTON_DANGER
+                if action is ProblemAction.DELETE
+                else BUTTON_SECONDARY
+            )
             ctk.CTkButton(
                 self.problem_actions,
                 text=labels[action],
@@ -6930,6 +6959,7 @@ class DlcHubApplication:
                 command=lambda action=action, report=report: (
                     self._execute_problem_action(report, action)
                 ),
+                **button_style,
             ).pack(side="left", padx=(0, 6), pady=3)
 
     def _copy_problem_text(self, text: str) -> None:

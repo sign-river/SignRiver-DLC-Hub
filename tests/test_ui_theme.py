@@ -327,6 +327,61 @@ def test_tool_item_ui_spec_documents_the_card_description_limit() -> None:
     assert "## 后续待补充指标" in text
 
 
+def test_error_guide_button_hierarchy_uses_primary_secondary_and_danger_styles() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    guide = source.split('self.error_guide_card = _card', 1)[1].split(
+        'def _build_log_page', 1
+    )[0]
+    tutorial = _app_method_source("_build_error_tutorial_page")
+    tools = _app_method_source("_build_tool_center_page")
+    quick_check = _app_method_source("_build_quick_check_page")
+
+    assert 'text="导出诊断 →"' in guide
+    assert 'command=self._export_diagnostics, **BUTTON_SECONDARY' in guide
+    assert 'self.problem_back_button' in guide
+    assert 'text="清空全部记录"' in guide
+    assert 'command=self._clear_problems, **BUTTON_DANGER' in guide
+    assert 'self.solution_list_back_button' in tutorial
+    assert '**BUTTON_SECONDARY' in tutorial
+    assert 'self.tool_center_back_button' in tools
+    assert 'self.tool_center_detail_related_button' in tools
+    assert quick_check.count('**BUTTON_SECONDARY') >= 3
+    assert 'command=self._run_quick_check, **BUTTON_PRIMARY' in quick_check
+    assert 'command=self._terminate_quick_check, **BUTTON_DANGER' in quick_check
+
+
+def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> None:
+    patch_tool = _app_method_source("_show_patch_tool")
+    helper_actions = _app_method_source("_pack_helper_tool_actions")
+    helper_style = _app_method_source("_helper_download_button_style")
+    problem_actions = _app_method_source("_render_problem_actions")
+    quick_results = _app_method_source("_render_quick_check_output")
+    tool_detail = _app_method_source("_show_guide_tool_detail")
+    security_products = _app_method_source("_render_security_products")
+    defender_banner = _app_method_source("_pack_close_windows_defender_banner")
+
+    assert 'text="从云端重新下载补丁"' in patch_tool
+    assert 'command=self._redownload_patch_assets, **BUTTON_PRIMARY' in patch_tool
+    assert patch_tool.count('**BUTTON_SECONDARY') >= 5
+    assert 'return BUTTON_PRIMARY' in helper_style
+    assert 'return BUTTON_SECONDARY' in helper_style
+    assert 'return BUTTON_DANGER' in helper_style
+    assert '**self._helper_download_button_style(tool)' in helper_actions
+    assert 'command=lambda selected=tool: self._launch_helper_tool(selected),' in helper_actions
+    assert '**BUTTON_SECONDARY' in helper_actions
+    assert 'command=lambda: self._remove_guide_tool(target), **BUTTON_DANGER' in tool_detail
+    assert 'command=lambda item=product: self._open_security_product(item),' in security_products
+    assert '**BUTTON_SECONDARY' in security_products
+    assert 'text="查看教程"' in defender_banner
+    assert '**BUTTON_SECONDARY' in defender_banner
+    assert 'ProblemAction.RETRY_TASK' in problem_actions
+    assert 'ProblemAction.DELETE' in problem_actions
+    assert 'BUTTON_PRIMARY' in problem_actions
+    assert 'BUTTON_DANGER' in problem_actions
+    assert 'BUTTON_SECONDARY' in problem_actions
+    assert quick_results.count('**BUTTON_SECONDARY') == 2
+
+
 def test_top_brand_actions_keep_their_width_when_game_names_are_long() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 
