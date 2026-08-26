@@ -4,6 +4,8 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次将“程序日志”说明进一步改为“唏嘘南溪一键解锁工具日志”，基线与活动模块 `0.2.0` 已同步；需重启客户端加载。提交：`edab2ce`。验证：`tests/test_support_collection_ui.py` 3 项通过，两个模块编译、Ruff、`git diff --check` 通过。
+
 - 本次根据反馈保留运行日志按钮正常字号（11px）和点击尺寸，仅通过无边框、灰蓝文字与轻微悬停底色降低视觉强调；锁定滚屏继续使用中性灰蓝色。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`。其他未提交改动未触碰。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（65 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 
@@ -257,3 +259,9 @@
 - 报错指南页的“开始一键排错”按钮改为 `190×42`，置于说明文字下方并在卡片中水平居中；标题和说明仍保持左对齐。
 - 已修改 Git 跟踪基线 `0.1.0`，并定向同步到活动模块 `0.2.0`；未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`、`python -m pytest -q tests/test_ui_theme.py`（62 项通过）、`python -m ruff check app/versions/0.1.0/app_entry.py`、`git diff --check` 均通过。未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：修正一键排错按钮为右侧列垂直居中
+
+- 报错指南的一键排错卡片改为左右两列：左侧标题与说明，右侧保留 `190×42` 主按钮并在该列垂直居中，符合截图标注布局。
+- 基线与活动模块 `0.2.0` 已同步；未修改 `app/state.json`，需重启客户端加载。
+- 验证：两个模块 `py_compile`、`tests/test_ui_theme.py`（62 项通过）、基线 Ruff、`git diff --check` 均通过。未执行 GUI 人工验收、构建、上传或推送。
