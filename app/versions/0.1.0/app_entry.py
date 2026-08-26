@@ -4422,35 +4422,83 @@ class DlcHubApplication:
                     corner_radius=8, anchor="w", justify="left", wraplength=688,
                 ).pack(fill="x", padx=16, pady=(0, 14))
         if not infos:
-            self._create_tool_detail_textbox(
-                "正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。",
-                pady=(0, 14),
+            empty_text = "正在读取显卡信息……" if probe_requested else "未读取到显卡信息。请在 Windows 设备管理器中展开“显示适配器”检查。"
+            empty = ctk.CTkFrame(body, fg_color=UI["panel"], border_color=UI["border"], border_width=1, corner_radius=10)
+            empty.pack(fill="x", padx=16, pady=(0, 16))
+            ctk.CTkLabel(empty, text="显卡信息", text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=16, pady=(14, 2))
+            ctk.CTkLabel(empty, text=empty_text, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=680).pack(fill="x", padx=16, pady=(0, 14))
+
+        def brand_style(info: GpuDriverInfo) -> tuple[str, str]:
+            value = f"{info.vendor} {info.name}".casefold()
+            if "nvidia" in value:
+                return "NVIDIA", "#76B900"
+            if "intel" in value:
+                return "Intel", "#0071C5"
+            if "amd" in value or "radeon" in value:
+                return "AMD", "#ED1C24"
+            return (info.vendor or "显卡"), UI["primary"]
+
+        def pill(parent, text: str, *, fg_color: str, text_color: str) -> None:
+            label = ctk.CTkLabel(
+                parent, text=text, fg_color=fg_color, text_color=text_color,
+                corner_radius=999, font=ctk.CTkFont(size=12, weight="bold"),
             )
-            if not probe_requested:
-                actions = ctk.CTkFrame(body, fg_color="transparent")
-                actions.pack(fill="x", padx=16, pady=(0, 14))
-                ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
-                ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+            label.pack(side="left", padx=(0, 6), pady=2)
+
         for info in infos:
-            active_text = " · 当前显示输出" if info.is_active else ""
-            text = f"{info.name}{active_text}\n厂商：{info.vendor or '未知'}    驱动版本：{info.version}\n驱动日期：{info.driver_date or '未知'}    状态：{info.status}"
-            self._create_tool_emphasis_textbox(
-                text,
-                text_color=UI["danger"] if info.warning else UI["text"],
-                pady=(0, 10),
+            brand, brand_color = brand_style(info)
+            card = ctk.CTkFrame(
+                body,
+                fg_color="#F8FAFC" if info.is_active else UI["card"],
+                border_color=UI["primary_border"] if info.is_active else UI["border"],
+                border_width=1,
+                corner_radius=10,
             )
+            card.pack(fill="x", padx=16, pady=(0, 14))
+            header = ctk.CTkFrame(card, fg_color="transparent")
+            header.pack(fill="x", padx=16, pady=(14, 10))
+            ctk.CTkLabel(header, text="●", text_color=brand_color, font=ctk.CTkFont(size=18), width=20).pack(side="left")
+            ctk.CTkLabel(header, text=info.name, text_color=UI["text"], font=ctk.CTkFont(size=16, weight="bold"), anchor="w").pack(side="left", fill="x", expand=True)
+            badges = ctk.CTkFrame(header, fg_color="transparent")
+            badges.pack(side="right")
+            if info.is_active:
+                pill(badges, "当前显示输出", fg_color=UI["primary"], text_color="white")
+            status_color = UI["warning_surface"] if info.warning else "#EAF7EF"
+            status_text_color = "#B7791F" if info.warning else UI["success"]
+            pill(badges, f"● {info.status}", fg_color=status_color, text_color=status_text_color)
+
+            grid = ctk.CTkFrame(card, fg_color="transparent")
+            grid.pack(fill="x", padx=16, pady=(0, 10))
+            values = (
+                ("厂商", info.vendor or "未知"),
+                ("驱动版本", info.version or "未知"),
+                ("驱动日期", info.driver_date or "未知"),
+            )
+            for index, (label, value) in enumerate(values):
+                cell = ctk.CTkFrame(grid, fg_color="transparent")
+                cell.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 16 if index % 2 == 0 else 0), pady=(0, 8))
+                ctk.CTkLabel(cell, text=label, text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(fill="x")
+                ctk.CTkLabel(cell, text=value, text_color=UI["text"], font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 0))
+            grid.grid_columnconfigure(0, weight=1)
+            grid.grid_columnconfigure(1, weight=1)
             if info.warning:
-                ctk.CTkLabel(body, text=info.warning, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720).pack(fill="x", padx=16, pady=(0, 10))
-            actions = ctk.CTkFrame(body, fg_color="transparent")
-            actions.pack(fill="x", padx=16, pady=(0, 14))
-            ctk.CTkButton(actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="left")
-            ctk.CTkButton(actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
+                ctk.CTkLabel(card, text=info.warning, text_color="#B7791F", fg_color=UI["warning_surface"], corner_radius=7, anchor="w", justify="left", wraplength=680).pack(fill="x", padx=16, pady=(0, 10))
             if info.vendor_url:
-                ctk.CTkButton(actions, text="打开厂商官网", width=128, command=lambda url=info.vendor_url: self._open_tool_url(url, "厂商官网", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="left", padx=(8, 0))
-        self._create_tool_detail_textbox(
-            "提示：NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络才能正常访问；也可以优先尝试 Windows 更新。",
-            text_color=UI["muted"], pady=(4, 16),
-        )
+                ctk.CTkButton(
+                    card, text=f"前往 {brand} 官网", width=132, height=30,
+                    command=lambda url=info.vendor_url: self._open_tool_url(url, "厂商官网", tool_key="builtin:gpu-driver"),
+                    **BUTTON_SECONDARY,
+                ).pack(anchor="w", padx=16, pady=(0, 14))
+
+        global_actions = ctk.CTkFrame(body, fg_color="transparent")
+        global_actions.pack(fill="x", padx=16, pady=(2, 16))
+        ctk.CTkLabel(global_actions, text="系统工具", text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(side="left")
+        ctk.CTkButton(global_actions, text="打开设备管理器", width=140, command=self._open_gpu_device_manager, **BUTTON_SECONDARY).pack(side="right")
+        ctk.CTkButton(global_actions, text="打开 Windows 更新", width=140, command=lambda: self._open_tool_url("ms-settings:windowsupdate-optionalupdates", "Windows 更新", tool_key="builtin:gpu-driver"), **BUTTON_SECONDARY).pack(side="right", padx=(0, 8))
+        notice = ctk.CTkFrame(body, fg_color=UI["primary_surface"], corner_radius=8)
+        notice.pack(fill="x", padx=16, pady=(0, 18))
+        ctk.CTkLabel(notice, text="ⓘ", text_color=UI["primary"], font=ctk.CTkFont(size=16, weight="bold"), width=24).pack(side="left", padx=(12, 0), pady=10)
+        ctk.CTkLabel(notice, text="NVIDIA、AMD 等显卡厂商官网可能需要代理或国际网络；也可以优先尝试 Windows 更新。", text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=650).pack(side="left", fill="x", expand=True, padx=8, pady=10)
         if probe_requested:
             def worker() -> None:
                 found = discover_gpu_drivers()
