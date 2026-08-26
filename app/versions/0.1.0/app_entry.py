@@ -2893,6 +2893,10 @@ class DlcHubApplication:
             command=self._show_tool_center_list, **BUTTON_SECONDARY,
         )
         self.tool_center_detail_back_button.pack(side="right", padx=(10, 0))
+        self.tool_center_detail_related_button = ctk.CTkButton(
+            detail_header, text="查看关联指南 →", width=144, height=30,
+            command=lambda: None, **BUTTON_SECONDARY,
+        )
         self.tool_center_detail_title = ctk.CTkLabel(
             detail_header,
             text="",
@@ -3072,6 +3076,7 @@ class DlcHubApplication:
             text=back_text,
             command=back_command or self._show_tool_center_list,
         )
+        self.tool_center_detail_related_button.pack_forget()
         self._set_tool_ready(not requires_cloud_download)
         self._set_tool_progress(False)
         self._set_active_tool_log(tool_key or self._tool_key_for_title(title))
@@ -3081,6 +3086,28 @@ class DlcHubApplication:
         self.tool_center_list.pack_forget()
         self.tool_center_list_header.pack_forget()
         self.tool_center_detail_page.pack(fill="both", expand=True)
+
+    def _set_tool_related_solution(
+        self, article_id: str | None, *, source_tool: GuideTool | None = None,
+        source_builtin_tool: str | None = None,
+    ) -> None:
+        """Show a fixed guide association in the detail header when available."""
+        button = getattr(self, "tool_center_detail_related_button", None)
+        if button is None:
+            return
+        button.pack_forget()
+        if not article_id:
+            return
+        button.configure(
+            text="查看关联指南 →",
+            command=lambda selected=article_id, tool=source_tool, builtin=source_builtin_tool: self._open_solution_article(
+                selected,
+                origin="tool_center",
+                source_tool=tool,
+                source_builtin_tool=builtin,
+            ),
+        )
+        button.pack(side="right", padx=(0, 10))
 
     def _tool_center_column_count(self, width: int | None = None) -> int:
         if width is None:
@@ -3271,19 +3298,7 @@ class DlcHubApplication:
             self._pack_declared_tool_detail_actions(body, tool)
             related = self._solution_id_for_tool(tool)
             if related:
-                ctk.CTkButton(
-                    body,
-                    text="查看关联解决方案 →",
-                    width=176,
-                    fg_color="transparent",
-                    hover_color=UI["primary_surface"],
-                    text_color=UI["primary"],
-                    border_width=1,
-                    border_color=UI["primary_border"],
-                    command=lambda selected=related, selected_tool=tool: self._open_solution_article(
-                        selected, origin="tool_center", source_tool=selected_tool
-                    ),
-                ).pack(anchor="w", padx=16, pady=(0, 14))
+                self._set_tool_related_solution(related, source_tool=tool)
             return
         target = self._guide_tool_cache_path(tool)
         self._set_tool_ready(target.is_file())
@@ -3554,6 +3569,9 @@ class DlcHubApplication:
             )
         else:
             self._show_tool_center_detail("补丁工具", requires_cloud_download=True)
+            self._set_tool_related_solution(
+                "patch-state", source_builtin_tool="patch-tool",
+            )
         self._set_tool_ready(self.patch_bundle is not None)
         body = self.tool_center_detail_body
         ctk.CTkLabel(
@@ -3581,18 +3599,6 @@ class DlcHubApplication:
             text_color=UI["text_secondary"],
             pady=(0, 12),
         )
-        if not return_to_solution:
-            ctk.CTkButton(
-                body,
-                text="查看补丁状态解决方案 →",
-                width=190,
-                command=lambda: self._open_solution_article(
-                    "patch-state",
-                    origin="tool_center",
-                    source_builtin_tool="patch-tool",
-                ),
-                **BUTTON_SECONDARY,
-            ).pack(anchor="w", padx=16, pady=(0, 12))
         location_actions = ctk.CTkFrame(body, fg_color="transparent")
         location_actions.pack(anchor="w", padx=16, pady=(0, 10))
         if game_root is not None:
@@ -4127,18 +4133,6 @@ class DlcHubApplication:
         self.solution_detail_image_sources = []
         self.solution_detail_textboxes = []
         self.solution_detail_title_label.configure(text=title)
-        helper_tools = [
-            values[0]
-            for kind, *values in blocks
-            if kind == "tool" and isinstance(values[0], GuideTool) and values[0].is_helper_tool()
-        ]
-        if helper_tools:
-            actions = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
-            actions.pack(fill="x", pady=(0, 14))
-            for tool in helper_tools:
-                self._pack_helper_tool_actions(
-                    actions, tool, origin="solution", article_id=article_id
-                )
         summary_textbox = self._create_solution_textbox(summary)
         summary_textbox.pack_configure(pady=(0, 18))
         action_row = None
@@ -4181,20 +4175,8 @@ class DlcHubApplication:
                     command=lambda target=values[1]: self._activate_solution_button(target),
                 ).pack(side="left", padx=(0, 8))
             elif kind == "tool":
-                tool = values[0]
-                if isinstance(tool, GuideTool) and tool.is_helper_tool():
-                    continue
-                if action_row is None:
-                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
-                    action_row.pack(fill="x", pady=(0, 14))
-                ctk.CTkButton(
-                    action_row,
-                    text=f"下载附件：{tool.title}",
-                    width=190, height=36,
-                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
-                    text_color="white", corner_radius=8,
-                    command=lambda selected_tool=tool: self._download_guide_tool(selected_tool),
-                ).pack(side="left", padx=(0, 8))
+                # 指南中的工具声明仅用于工具目录关联；工具管理统一在工具详情页完成。
+                continue
             elif kind == "action":
                 if action_row is None:
                     action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
@@ -4924,6 +4906,21 @@ class DlcHubApplication:
                         self._solution_return_context,
                     ),
                 )
+            return
+        if target.startswith("tool:"):
+            tool_id = target.removeprefix("tool:").strip()
+            current_id = self._current_solution_article_id
+            tool = next(
+                (item for item in self._guide_tools_for_current_platform() if item.tool_id == tool_id),
+                None,
+            )
+            if tool is not None and current_id:
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_guide_tool_detail(tool, origin="solution", article_id=current_id)
 
     def _return_to_solution_from_tool(self) -> None:
         target = getattr(self, "_tool_solution_return", None)
