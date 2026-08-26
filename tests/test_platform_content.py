@@ -118,6 +118,11 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
         "network-basics", "game-directory-missing", "disk-space", "patch-state",
         "update-module-basics",
     ]
+    windows_entries = GuideCatalogService(
+        tmp_path / "windows-cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    ).refresh_index(allow_network=False)
+    security_entry = next(entry for entry in windows_entries if entry.guide_id == "security-interference")
+    assert security_entry.title == "杀毒软件隔离、拦截或删除文件问题"
     document = service.load_guide(entries[0], allow_network=False)
     assert document.blocks
     windows_tool = GuideTool.from_dict({
@@ -193,7 +198,6 @@ def test_guide_tool_detail_is_declarative_and_limits_buttons_to_safe_actions() -
     assert [item.action for item in tool.detail_actions] == [
         "open_guide", "open_url", "open_folder",
     ]
-
     with pytest.raises(ValueError, match="unsupported tool detail button action"):
         GuideTool.from_dict({
             "tool_id": "unsafe-detail", "title": "不安全", "description": "",

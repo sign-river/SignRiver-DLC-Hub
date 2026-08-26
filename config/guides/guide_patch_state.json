@@ -41,7 +41,7 @@
     },
     {
       "kind": "button",
-      "text": "查看安全软件疑似干扰 →",
+      "text": "查看杀毒软件文件处理问题 →",
       "target": "guide:security-interference"
     },
     {

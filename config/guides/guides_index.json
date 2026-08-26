@@ -43,7 +43,7 @@
     },
     {
       "guide_id": "security-interference",
-      "title": "安全软件疑似干扰",
+      "title": "杀毒软件隔离、拦截或删除文件问题",
       "summary": "本程序、下载缓存或游戏目录中的文件可能被安全软件隔离、阻止或删除。",
       "summary_type": "problem_detail",
       "asset_name": "guide_security_interference.json",
