@@ -2991,12 +2991,23 @@ class DlcHubApplication:
         ).pack(side="left", padx=12)
         console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
         console_actions.pack(side="right", padx=4)
-        for text, command, style in (
-            ("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON),
-            ("清空", self._clear_tool_logs, BUTTON_DANGER),
-        ):
-            ctk.CTkButton(console_actions, text=text, width=48, height=24,
-                          command=command, **style).pack(side="left", padx=1)
+        ctk.CTkButton(
+            console_actions, text="复制", width=48, height=24,
+            command=self._copy_tool_logs, **CONSOLE_GHOST_BUTTON,
+        ).pack(side="left", padx=1)
+        self.tool_center_console_clear_button = ctk.CTkButton(
+            console_actions,
+            text="清空",
+            width=48,
+            height=24,
+            command=self._clear_tool_logs,
+            fg_color=UI["danger_surface"],
+            hover_color=UI["danger_surface_hover"],
+            text_color=UI["danger"],
+            border_width=1,
+            border_color=UI["danger"],
+        )
+        self.tool_center_console_clear_button.pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
             console_actions, text="锁定滚屏", width=76, height=22,
             checkbox_width=15, checkbox_height=15,

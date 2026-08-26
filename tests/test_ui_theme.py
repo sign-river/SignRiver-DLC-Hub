@@ -387,8 +387,11 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert 'fg_color=UI["card"]' in defender_banner
     assert 'border_color=UI["border"]' in defender_banner
     assert '**BUTTON_PRIMARY' in defender_banner
-    assert '("清空", self._clear_tool_logs, BUTTON_DANGER)' in tool_center
-    assert '("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON)' in tool_center
+    assert 'command=self._copy_tool_logs, **CONSOLE_GHOST_BUTTON' in tool_center
+    assert 'self.tool_center_console_clear_button = ctk.CTkButton(' in tool_center
+    assert 'command=self._clear_tool_logs,' in tool_center
+    assert 'fg_color=UI["danger_surface"]' in tool_center
+    assert 'border_color=UI["danger"]' in tool_center
     assert 'ProblemAction.RETRY_TASK' in problem_actions
     assert 'ProblemAction.COPY_DETAILS' in problem_actions
     assert 'if action in {' in problem_actions
