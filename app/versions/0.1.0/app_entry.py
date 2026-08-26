@@ -3412,20 +3412,54 @@ class DlcHubApplication:
         self._show_tool_center_detail("日志资料收集", requires_cloud_download=False)
         self._set_tool_ready(True)
         body = self.tool_center_detail_body
-        self._create_tool_detail_textbox(
-            (
-                "本工具将收集：\n"
-                "• 当前选中游戏的已知日志和配置文件\n"
-                "• SignRiver-DLC-Hub 程序运行日志\n"
-                "• 问题记录\n"
-                "• Windows DxDiag.txt（仅 Windows）\n\n"
-                "资料保存在程序数据目录的工具文件夹中，可点击“打开收集文件夹”按钮查看；不压缩、不上传，也不会自动收集截图或 .dmp 崩溃转储。\n\n"
-                "收集完成后，可直接将生成的日志资料文件夹或其中的日志文件发送给 AI，并附上遇到的问题，以获取参考解决方案。"
-            ),
-            text_color=UI["text_secondary"],
-            min_height=190,
-            pady=(10, 8),
+        intro = ctk.CTkFrame(
+            body, fg_color=UI["primary_surface"], border_color=UI["primary_border"],
+            border_width=1, corner_radius=10,
         )
+        intro.pack(fill="x", padx=16, pady=(8, 12))
+        ctk.CTkLabel(
+            intro, text="本地采集 · 安全可控", text_color=UI["primary"], anchor="w",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(fill="x", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            intro, text="资料仅保存到本机工具文件夹，不压缩、不上传，不会自动收集截图或 .dmp 崩溃转储。",
+            text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
+        ).pack(fill="x", padx=14, pady=(0, 10))
+
+        ctk.CTkLabel(
+            body, text="本次将采集", text_color=UI["text"], anchor="w",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(fill="x", padx=16, pady=(0, 6))
+        collection_grid = ctk.CTkFrame(body, fg_color="transparent")
+        collection_grid.pack(fill="x", padx=16, pady=(0, 12))
+        collection_items = (
+            ("游戏资料", "当前选中游戏的已知日志和配置文件"),
+            ("程序日志", "SignRiver-DLC-Hub 运行日志"),
+            ("问题记录", "本次会话与历史问题记录"),
+            ("系统信息", "Windows DxDiag.txt（仅 Windows）"),
+        )
+        for index, (title, detail) in enumerate(collection_items):
+            item = ctk.CTkFrame(
+                collection_grid, fg_color=UI["card"], border_color=UI["border"],
+                border_width=1, corner_radius=8,
+            )
+            item.grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 8 if index % 2 == 0 else 0), pady=(0, 8 if index < 2 else 0))
+            ctk.CTkLabel(item, text=f"● {title}", text_color=UI["primary"], anchor="w", font=ctk.CTkFont(size=13, weight="bold")).pack(fill="x", padx=12, pady=(9, 2))
+            ctk.CTkLabel(item, text=detail, text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=320).pack(fill="x", padx=12, pady=(0, 9))
+        collection_grid.grid_columnconfigure((0, 1), weight=1, uniform="support-item")
+
+        ai_callout = ctk.CTkFrame(
+            body, fg_color=UI["panel"], border_color=UI["border"], border_width=1, corner_radius=10,
+        )
+        ai_callout.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkLabel(
+            ai_callout, text="AI 辅助诊断", text_color=UI["text"], anchor="w",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(fill="x", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            ai_callout, text="收集完成后，点击下方按钮打开文件夹。将日志文件与遇到的问题一起发送给 AI，可获得更有针对性的参考方案。",
+            text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
+        ).pack(fill="x", padx=14, pady=(0, 10))
         self.support_collection_status_label = ctk.CTkLabel(
             body,
             text=self._support_collection_status_text(),
@@ -3434,13 +3468,13 @@ class DlcHubApplication:
             justify="left",
             wraplength=720,
         )
-        self.support_collection_status_label.pack(fill="x", padx=16, pady=(4, 10))
+        self.support_collection_status_label.pack(fill="x", padx=16, pady=(0, 8))
         actions = ctk.CTkFrame(body, fg_color="transparent")
-        actions.pack(fill="x", padx=16, pady=(2, 16))
+        actions.pack(fill="x", padx=16, pady=(0, 16))
         self.support_collection_start_button = ctk.CTkButton(
             actions,
             text="正在收集……" if self.support_collection_running else "一键收集资料",
-            width=132,
+            width=144,
             state="disabled" if self.support_collection_running else "normal",
             command=self._start_support_collection,
         )
@@ -3448,7 +3482,7 @@ class DlcHubApplication:
         self.support_collection_open_button = ctk.CTkButton(
             actions,
             text="打开收集文件夹",
-            width=136,
+            width=144,
             command=self._open_support_collection_folder,
         )
         self.support_collection_open_button.pack(side="left", padx=(10, 0))
