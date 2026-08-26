@@ -3927,9 +3927,9 @@ class DlcHubApplication:
     def _pack_close_windows_defender_banner(self, body) -> None:
         banner = ctk.CTkFrame(
             body,
-            fg_color=UI["primary_surface"],
+            fg_color=UI["card"],
             border_width=1,
-            border_color=UI["primary_border"],
+            border_color=UI["border"],
             corner_radius=8,
         )
         banner.pack(fill="x", padx=16, pady=(12, 16))
@@ -3957,7 +3957,7 @@ class DlcHubApplication:
             command=lambda: self._open_solution_article(
                 "close-windows-defender", origin="security_products"
             ),
-            **BUTTON_ON_PRIMARY_SURFACE,
+            **BUTTON_PRIMARY,
         ).pack(side="right", padx=12, pady=10)
 
     def _open_security_product(self, product) -> None:

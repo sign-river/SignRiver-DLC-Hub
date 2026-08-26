@@ -384,8 +384,9 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert 'command=lambda item=product: self._open_security_product(item),' in security_products
     assert '**BUTTON_SECONDARY' in security_products
     assert 'text="查看教程"' in defender_banner
-    assert '**BUTTON_ON_PRIMARY_SURFACE' in defender_banner
-    assert 'BUTTON_ON_PRIMARY_SURFACE = {' in APP_ENTRY.read_text(encoding="utf-8")
+    assert 'fg_color=UI["card"]' in defender_banner
+    assert 'border_color=UI["border"]' in defender_banner
+    assert '**BUTTON_PRIMARY' in defender_banner
     assert '("清空", self._clear_tool_logs, BUTTON_DANGER)' in tool_center
     assert '("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON)' in tool_center
     assert 'ProblemAction.RETRY_TASK' in problem_actions
