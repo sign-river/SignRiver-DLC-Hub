@@ -140,6 +140,13 @@ BUTTON_GHOST = {
     "text_color": UI["text_secondary"],
     "border_width": 0,
 }
+CONSOLE_GHOST_BUTTON = {
+    **BUTTON_GHOST,
+    "hover_color": "#EEF2F6",
+    "text_color": "#666666",
+    "corner_radius": 5,
+    "font": ctk.CTkFont(size=11),
+}
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
 TOOL_CARD_DESCRIPTION_MAX_LENGTH = 45
@@ -2942,18 +2949,18 @@ class DlcHubApplication:
             text_color=UI["text_secondary"], font=ctk.CTkFont(size=13, weight="bold"),
         ).pack(side="left", padx=12)
         console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
-        console_actions.pack(side="right", padx=6)
+        console_actions.pack(side="right", padx=4)
         for text, command in (("⧉ 复制", self._copy_tool_logs), ("⌫ 清空", self._clear_tool_logs)):
-            ctk.CTkButton(console_actions, text=text, width=68, height=26,
-                          command=command, **BUTTON_GHOST).pack(side="left", padx=1)
+            ctk.CTkButton(console_actions, text=text, width=50, height=24,
+                          command=command, **CONSOLE_GHOST_BUTTON).pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
-            console_actions, text="锁定滚屏", width=18, height=18,
-            checkbox_width=18, checkbox_height=18,
-            command=self._toggle_tool_autoscroll, font=ctk.CTkFont(size=12),
+            console_actions, text="锁定滚屏", width=76, height=22,
+            checkbox_width=15, checkbox_height=15,
+            command=self._toggle_tool_autoscroll, font=ctk.CTkFont(size=11),
             text_color=UI["text_secondary"],
         )
         self.tool_center_console_lock.select()
-        self.tool_center_console_lock.pack(side="left", padx=(6, 4))
+        self.tool_center_console_lock.pack(side="left", padx=(5, 2))
         self.tool_center_console_divider = ctk.CTkFrame(
             self.tool_center_console_panel, fg_color=UI["border"], height=1,
             corner_radius=0,

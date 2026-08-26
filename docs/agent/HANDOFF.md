@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次轻量化“运行日志”右上角工具栏：复制/清空改为 24px 高幽灵按钮，默认透明、悬停浅灰；锁定滚屏复选框缩小并统一为紧凑行内布局。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次重构“日志资料收集”界面：采集内容改为 2×2 卡片，新增“本地采集 · 安全可控”和“AI 辅助诊断”Callout，优化主次按钮与组件间距；保留原有后台收集、打开目录和运行日志逻辑。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m pytest -q tests/test_support_collection_ui.py tests/test_ui_theme.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 
