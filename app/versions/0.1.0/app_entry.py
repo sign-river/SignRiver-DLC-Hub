@@ -5141,15 +5141,15 @@ class DlcHubApplication:
 
     def _show_page(self, page_name: str) -> None:
         self.current_page = page_name
-        # A page can contain dynamically rebuilt scrollable content.  Hide every
-        # top-level page with all geometry managers before exposing the target,
-        # otherwise a previous guide card may briefly remain above the detail page.
+        # Keep the whole switch inside one Tk event-loop turn.  Calling
+        # update_idletasks() after forgetting every section flushes an empty
+        # page_host to the screen, making the next page appear in fragments.
+        # Geometry changes are committed together when this callback returns.
         for sections in self.page_sections.values():
             for section in sections:
                 section.pack_forget()
                 section.grid_forget()
                 section.place_forget()
-        self.page_host.update_idletasks()
         sections = self.page_sections[page_name]
         for index, section in enumerate(sections):
             if page_name == "DLC 库" and section is self.catalog_card:

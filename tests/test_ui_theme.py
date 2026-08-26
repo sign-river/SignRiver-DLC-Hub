@@ -569,6 +569,14 @@ def test_switch_and_empty_release_clear_both_persistent_catalog_views() -> None:
         )
 
 
+def test_page_switch_commits_hidden_and_visible_sections_in_one_draw_pass() -> None:
+    source = _app_method_source("_show_page")
+
+    assert "self.page_host.update_idletasks()" not in source
+    assert "Geometry changes are committed together" in source
+    assert source.index("section.place_forget()") < source.index("sections = self.page_sections[page_name]")
+
+
 def test_all_rebuilt_client_scroll_lists_reset_after_geometry_propagation() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
     task_method = source.split("def _refresh_task_page", 1)[1].split(
