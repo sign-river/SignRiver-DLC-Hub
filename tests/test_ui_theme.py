@@ -359,6 +359,7 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     tool_detail = _app_method_source("_show_guide_tool_detail")
     security_products = _app_method_source("_render_security_products")
     defender_banner = _app_method_source("_pack_close_windows_defender_banner")
+    tool_center = _app_method_source("_build_tool_center_page")
 
     assert 'text="从云端重新下载补丁"' in patch_tool
     assert 'command=self._redownload_patch_assets, **BUTTON_PRIMARY' in patch_tool
@@ -373,7 +374,10 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert 'command=lambda item=product: self._open_security_product(item),' in security_products
     assert '**BUTTON_SECONDARY' in security_products
     assert 'text="查看教程"' in defender_banner
-    assert '**BUTTON_SECONDARY' in defender_banner
+    assert '**BUTTON_ON_PRIMARY_SURFACE' in defender_banner
+    assert 'BUTTON_ON_PRIMARY_SURFACE = {' in APP_ENTRY.read_text(encoding="utf-8")
+    assert '("清空", self._clear_tool_logs, BUTTON_DANGER)' in tool_center
+    assert '("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON)' in tool_center
     assert 'ProblemAction.RETRY_TASK' in problem_actions
     assert 'ProblemAction.DELETE' in problem_actions
     assert 'BUTTON_PRIMARY' in problem_actions

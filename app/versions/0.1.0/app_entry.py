@@ -134,6 +134,13 @@ BUTTON_SECONDARY = {
     "border_width": 1,
     "border_color": UI["primary_border"],
 }
+BUTTON_ON_PRIMARY_SURFACE = {
+    "fg_color": UI["card"],
+    "hover_color": "#F7FBFF",
+    "text_color": UI["primary"],
+    "border_width": 1,
+    "border_color": UI["primary_border"],
+}
 BUTTON_PRIMARY = {
     "fg_color": UI["primary"],
     "hover_color": UI["primary_hover"],
@@ -2984,9 +2991,12 @@ class DlcHubApplication:
         ).pack(side="left", padx=12)
         console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
         console_actions.pack(side="right", padx=4)
-        for text, command in (("复制", self._copy_tool_logs), ("清空", self._clear_tool_logs)):
+        for text, command, style in (
+            ("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON),
+            ("清空", self._clear_tool_logs, BUTTON_DANGER),
+        ):
             ctk.CTkButton(console_actions, text=text, width=48, height=24,
-                          command=command, **CONSOLE_GHOST_BUTTON).pack(side="left", padx=1)
+                          command=command, **style).pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
             console_actions, text="锁定滚屏", width=76, height=22,
             checkbox_width=15, checkbox_height=15,
@@ -3947,7 +3957,7 @@ class DlcHubApplication:
             command=lambda: self._open_solution_article(
                 "close-windows-defender", origin="security_products"
             ),
-            **BUTTON_SECONDARY,
+            **BUTTON_ON_PRIMARY_SURFACE,
         ).pack(side="right", padx=12, pady=10)
 
     def _open_security_product(self, product) -> None:
