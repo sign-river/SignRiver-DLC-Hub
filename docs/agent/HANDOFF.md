@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次按截图删除补丁详情页“从云端重新下载补丁”按钮下方的说明行；下载逻辑、按钮和运行日志保持不变。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`。工作区其余补丁领域改动属于用户已有改动，未触碰。
+- 验证：`python -m pytest -q tests/test_ui_theme.py`（62 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 新增启动器开发保护设置：设置页可勾选“启动失败时保留当前模块”，值写入 `app/state.json`；开启后模块导入失败会停止并显示错误，不自动切换旧版本，便于发现当前开发模块问题。默认关闭以保持普通用户自动回退行为。基线与活动模块 `0.2.0` 已同步。
 - 验证：`tests/test_state.py tests/test_api.py tests/test_loader.py tests/test_main.py tests/test_ui_theme.py tests/test_support_collection_ui.py`（80 项通过）；启动器与两个模块编译、Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 

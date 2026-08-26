@@ -3730,11 +3730,6 @@ class DlcHubApplication:
             width=170,
             command=self._redownload_patch_assets,
         ).pack(anchor="w", padx=16, pady=(16, 4))
-        self._create_tool_detail_textbox(
-            "此操作只删除当前补丁的受控下载缓存并重新校验下载；不会自动应用补丁或改动游戏目录。",
-            text_color=UI["muted"],
-            pady=(0, 16),
-        )
 
     def _refresh_patch_tool(self) -> None:
         """Re-read patch state and redraw the detail page without leaving it."""
@@ -9974,6 +9969,10 @@ class DlcHubApplication:
         if result.ini_written:
             detail_parts.append(
                 f"已生成 {self.patch_profile.template.ini_target_name}"
+            )
+        if result.interference_files_deleted:
+            detail_parts.append(
+                "已清理干扰文件：" + ", ".join(result.interference_files_deleted)
             )
         summary = "补丁已应用；" + ("；".join(detail_parts) or "文件与目标一致，无需变更")
         self.catalog_preview.configure(text=summary)
