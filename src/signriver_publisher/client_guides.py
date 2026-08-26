@@ -134,6 +134,13 @@ def _collect(source_dir: Path) -> tuple[GuideResourceSummary, tuple[Path, ...]]:
     for item in raw_entries:
         if not isinstance(item, dict):
             raise GuideExportError("guides_index.json 的 guides 条目必须是对象")
+        guide_id = str(item.get("guide_id") or "").strip()
+        if str(item.get("summary_type") or "").strip() != "problem_detail":
+            raise GuideExportError(
+                f"指南 {guide_id or '（未命名）'} 的 summary_type 必须为 problem_detail"
+            )
+        if not str(item.get("summary") or "").strip():
+            raise GuideExportError(f"指南 {guide_id or '（未命名）'} 缺少问题细节摘要")
         detail_name = _flat_name(item.get("asset_name"), "指南详情 asset_name")
         if detail_name.casefold() in output_names:
             raise GuideExportError(f"指南资源文件名重复：{detail_name}")

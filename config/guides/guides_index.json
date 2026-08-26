@@ -4,7 +4,8 @@
     {
       "guide_id": "network-basics",
       "title": "网络、下载与 TLS/DNS",
-      "summary": "检查下载源、网络连接、TLS/DNS 与重试方式。",
+      "summary": "下载列表或资源时连接失败、超时，或出现 TLS、DNS 相关错误。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_network_basics.json",
       "platforms": [
         "all"
@@ -13,7 +14,8 @@
     {
       "guide_id": "game-directory-missing",
       "title": "游戏目录不存在或未选择",
-      "summary": "重新扫描 Steam 游戏目录，或手动选择当前游戏安装位置。",
+      "summary": "未检测到游戏安装目录，或当前选择的目录不是该游戏的有效安装位置。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_game_directory_missing.json",
       "platforms": [
         "all"
@@ -22,7 +24,8 @@
     {
       "guide_id": "disk-space",
       "title": "游戏所在磁盘空间不足",
-      "summary": "确认游戏所在磁盘有足够空间完成下载、解压和补丁操作。",
+      "summary": "游戏所在磁盘可用空间不足，导致 DLC 下载、解压或补丁写入无法完成。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_disk_space.json",
       "platforms": [
         "all"
@@ -32,6 +35,7 @@
       "guide_id": "patch-state",
       "title": "补丁状态异常",
       "summary": "补丁状态未通过、缺少 unlock.dll，或补丁文件下载后消失、无法读取。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_patch_state.json",
       "platforms": [
         "all"
@@ -40,7 +44,8 @@
     {
       "guide_id": "security-interference",
       "title": "安全软件疑似干扰",
-      "summary": "仅人工核对安全软件记录和已发布资源，不自动更改防护设置。",
+      "summary": "本程序、下载缓存或游戏目录中的文件可能被安全软件隔离、阻止或删除。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_security_interference.json",
       "platforms": [
         "windows"
@@ -49,7 +54,8 @@
     {
       "guide_id": "close-windows-defender",
       "title": "关闭 Windows Defender 教程",
-      "summary": "按步骤临时关闭 Windows Defender；本程序不会自动关闭防护。",
+      "summary": "Windows Defender 可能阻止、隔离或删除本程序下载或写入的文件。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_close_windows_defender.json",
       "platforms": [
         "windows"
@@ -58,7 +64,8 @@
     {
       "guide_id": "update-module-basics",
       "title": "程序更新或模块加载异常",
-      "summary": "重试更新、检查下载源，并查看问题记录中的具体阶段。",
+      "summary": "程序更新下载失败、更新后模块无法加载，或启动时提示模块异常。",
+      "summary_type": "problem_detail",
       "asset_name": "guide_update_module_basics.json",
       "platforms": [
         "all"

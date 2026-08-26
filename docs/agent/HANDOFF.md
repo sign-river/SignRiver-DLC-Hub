@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次统一现有 7 篇指南索引摘要：全部改为问题细节/可观察现象，不再写处理步骤；新增 `summary_type: "problem_detail"` 内容契约。指南规范已明确该要求，发布器预检会拒绝缺失或错误类型，后续新增指南必须遵守。活动版本为 `0.2.0`，共享 `config/guides/` 无需模块同步，重启客户端后查看。
+- 验证：7 篇摘要字段检查、`tests/test_platform_content.py tests/test_publisher_extension_assets.py`（35 项）、两个模块与发布器编译、Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次按截图调整“日志资料收集”采集卡片文案：程序日志说明改为“解锁工具日志”，系统信息改为“Windows DxDiag.txt”，不再显示“仅 Windows”。基线 `0.1.0` 已定向同步到活动模块 `0.2.0`，未修改 `app/state.json`；需重启客户端加载。提交：`b2feb3c`。
 - 验证：`python -m pytest -q tests/test_support_collection_ui.py`（3 项通过）、两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 

@@ -25,6 +25,7 @@ def _write_extension_source(
                 "guide_id": "sample-guide",
                 "title": "样例指南",
                 "summary": "说明",
+                "summary_type": "problem_detail",
                 "asset_name": "guide_sample.json",
                 "platforms": ["all"],
             }],
@@ -78,6 +79,19 @@ def test_extension_publish_assets_materialises_guides_and_tools(tmp_path: Path) 
     profile = workspace.tools_release_profile()
     assert profile.release_tag == "tools"
     assert profile.appinfo_name == "tools_index.json"
+
+
+def test_extension_preflight_requires_problem_detail_summary_type(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    _write_extension_source(workspace)
+    index_path = workspace.guides_source_dir / "guides_index.json"
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    payload["guides"][0].pop("summary_type")
+    index_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(ExtensionExportError, match="summary_type 必须为 problem_detail"):
+        workspace.extension_publish_assets()
 
 
 def test_extension_preflight_rejects_missing_tool_reference(tmp_path: Path) -> None:
