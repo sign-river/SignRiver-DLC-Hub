@@ -38,7 +38,13 @@
       "Juuj_Steam.json",
       "Juuj_更新发布地址.html",
       "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
-      "Juuj_制作_请勿转载_免费声明.txt"
+      "Juuj_制作_请勿转载_免费声明.txt",
+      "steam_api64_org_game.dll",
+      "steam_api64_org_launcher.dll",
+      "LinkNeverDie_Com_64.dll",
+      "Emulator64.dll",
+      "SWConfig.ini",
+      "SWLoader.txt"
     ]
   }
 }
