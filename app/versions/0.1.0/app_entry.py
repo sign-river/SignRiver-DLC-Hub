@@ -3746,6 +3746,12 @@ class DlcHubApplication:
                         width=86,
                         command=lambda item=path: self._open_file(item),
                     ).pack(side="right", padx=(10, 0), pady=6)
+                ctk.CTkLabel(
+                    row,
+                    text="补丁正常",
+                    text_color=UI["success"],
+                    anchor="e",
+                ).pack(side="right", padx=(12, 8), pady=9)
                 continue
             if snapshot is None:
                 issue = "补丁缺失：尚未下载"
