@@ -337,6 +337,9 @@ def test_error_guide_button_hierarchy_uses_primary_secondary_and_danger_styles()
     quick_check = _app_method_source("_build_quick_check_page")
     problem_list = _app_method_source("_show_problem_list")
     problem_detail = _app_method_source("_select_problem")
+    log_layout = source.split('self.log_card = _card(self.page_host)', 1)[1].split(
+        'self.log_preview = ctk.CTkTextbox(', 1
+    )[0]
 
     assert 'text="导出诊断 →"' in guide
     assert 'command=self._export_diagnostics, **BUTTON_SECONDARY' in guide
@@ -353,6 +356,8 @@ def test_error_guide_button_hierarchy_uses_primary_secondary_and_danger_styles()
     assert quick_check.count('**BUTTON_SECONDARY') >= 3
     assert 'command=self._run_quick_check, **BUTTON_PRIMARY' in quick_check
     assert 'command=self._terminate_quick_check, **BUTTON_DANGER' in quick_check
+    assert 'text="复制当前日志"' in log_layout
+    assert 'command=self._copy_log, width=116,\n            **BUTTON_PRIMARY' in log_layout
 
 
 def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> None:
@@ -384,6 +389,8 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert '("清空", self._clear_tool_logs, BUTTON_DANGER)' in tool_center
     assert '("复制", self._copy_tool_logs, CONSOLE_GHOST_BUTTON)' in tool_center
     assert 'ProblemAction.RETRY_TASK' in problem_actions
+    assert 'ProblemAction.COPY_DETAILS' in problem_actions
+    assert 'if action in {' in problem_actions
     assert 'ProblemAction.DELETE' in problem_actions
     assert 'BUTTON_PRIMARY' in problem_actions
     assert 'BUTTON_DANGER' in problem_actions

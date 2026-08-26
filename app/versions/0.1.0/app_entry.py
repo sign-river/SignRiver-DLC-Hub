@@ -1842,6 +1842,7 @@ class DlcHubApplication:
         ctk.CTkButton(
             log_action_grid, text="复制当前日志",
             command=self._copy_log, width=116,
+            **BUTTON_PRIMARY,
         ).grid(row=0, column=3, sticky="ew", padx=(4, 0))
         self.log_preview = ctk.CTkTextbox(
             self.log_card, height=520, wrap="word", fg_color=UI["panel"],
@@ -6958,7 +6959,10 @@ class DlcHubApplication:
                 continue
             button_style = (
                 BUTTON_PRIMARY
-                if action is ProblemAction.RETRY_TASK
+                if action in {
+                    ProblemAction.RETRY_TASK,
+                    ProblemAction.COPY_DETAILS,
+                }
                 else BUTTON_DANGER
                 if action is ProblemAction.DELETE
                 else BUTTON_SECONDARY
