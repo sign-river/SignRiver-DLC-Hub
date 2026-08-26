@@ -447,6 +447,53 @@ def test_patch_directory_rejects_escape_and_names_active_cartridge(
         manager.patch_directory(unsafe, root)
 
 
+def test_acceptance_creates_configured_interference_samples_without_overwrite(
+    tmp_path: Path,
+) -> None:
+    workspace, manager = manager_for(tmp_path)
+    profile = profile_by_id(workspace, "stellaris")
+    game = tmp_path / "Stellaris"
+    game.mkdir()
+
+    created = manager.create_interference_file_samples(profile, game)
+
+    assert tuple(path.name for path in created) == (
+        "Juuj_Steam.json",
+        "Juuj_更新发布地址.html",
+        "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+        "Juuj_制作_请勿转载_免费声明.txt",
+        "steam_api64_org_game.dll",
+        "steam_api64_org_launcher.dll",
+        "LinkNeverDie_Com_64.dll",
+        "Emulator64.dll",
+        "SWConfig.ini",
+        "SWLoader.txt",
+    )
+    assert len(created) == 10
+    assert all(path.is_file() and path.stat().st_size == 0 for path in created)
+
+    with pytest.raises(AcceptanceError, match="拒绝覆盖"):
+        manager.create_interference_file_samples(profile, game)
+
+
+def test_acceptance_interference_samples_stay_in_active_patch_directory(
+    tmp_path: Path,
+) -> None:
+    workspace, manager = manager_for(tmp_path)
+    profile = profile_by_id(workspace, "civilization_6")
+    game = tmp_path / "CivilizationVI"
+    patch_dir = game / profile.patch_relative_dir
+    patch_dir.mkdir(parents=True)
+    decoy = game / "Juuj_Steam.json"
+    decoy.write_bytes(b"do not touch")
+
+    created = manager.create_interference_file_samples(profile, game)
+
+    assert created
+    assert all(path.is_relative_to(patch_dir) for path in created)
+    assert decoy.read_bytes() == b"do not touch"
+
+
 def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     package = Path(__file__).parents[1] / "src" / "signriver_publisher"
     ui_source = (package / "ui.py").read_text(encoding="utf-8")
@@ -459,6 +506,8 @@ def test_publisher_ui_exposes_manual_acceptance_controls() -> None:
     assert "检查并记录" in source
     assert "标记通过" in source
     assert "启动客户端" in source
+    assert "添加干扰文件" in source
+    assert "create_acceptance_interference_files" in source
     assert "记录补丁基线" in source
     assert "构建该环境" in source
     assert 'environment = ctk.CTkFrame(detail, fg_color="#F7FAFD"' in source

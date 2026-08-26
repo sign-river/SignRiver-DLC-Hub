@@ -16,6 +16,7 @@ from .acceptance import (
     AcceptanceFingerprint,
     AcceptancePaths,
     AcceptanceSession,
+    INTERFERENCE_FILE_SAMPLE_NAMES,
     PreparationPreview,
 )
 
@@ -147,6 +148,22 @@ class AcceptanceUiMixin:
             fg_color=LIGHT_BLUE,
             command=self.open_acceptance_patch,
         ).grid(row=1, column=5, padx=4, pady=3, sticky="ew")
+
+        ctk.CTkLabel(path_area, text="补丁测试", width=80, anchor="w").grid(
+            row=2, column=0, padx=(0, 8), pady=(4, 0), sticky="w"
+        )
+        ctk.CTkLabel(
+            path_area,
+            text="在当前卡带的补丁目录创建干扰文件样例，供客户端清理流程验收",
+            text_color=MUTED,
+            anchor="w",
+        ).grid(row=2, column=1, pady=(4, 0), sticky="ew")
+        ctk.CTkButton(
+            path_area,
+            text="添加干扰文件",
+            fg_color=LIGHT_BLUE,
+            command=self.create_acceptance_interference_files,
+        ).grid(row=2, column=2, padx=4, pady=(4, 0), sticky="ew")
 
         body = ctk.CTkFrame(
             self.acceptance_tab,
@@ -993,6 +1010,39 @@ class AcceptanceUiMixin:
             messagebox.showwarning("补丁目录不存在", str(error))
             return
         self._open(path)
+
+    def create_acceptance_interference_files(self) -> None:
+        game_root = self._acceptance_paths.game_path
+        if game_root is None or not game_root.is_dir():
+            messagebox.showinfo("未选择游戏目录", "请先选择当前游戏的实际安装目录")
+            return
+        count = len(INTERFERENCE_FILE_SAMPLE_NAMES)
+        try:
+            patch_dir = self.acceptance.patch_directory(
+                self.profile, game_root, require_exists=True
+            )
+        except AcceptanceError as error:
+            messagebox.showwarning("补丁目录不存在", str(error))
+            return
+        if not messagebox.askyesno(
+            "添加干扰文件样例",
+            f"将在以下补丁目录创建 {count} 个空文件，用于验收客户端的清理流程：\n"
+            f"{patch_dir}\n\n"
+            "同名文件绝不会被覆盖；如发现同名文件，操作会取消。是否继续？",
+        ):
+            return
+        try:
+            created = self.acceptance.create_interference_file_samples(
+                self.profile, game_root
+            )
+        except AcceptanceError as error:
+            messagebox.showerror("添加干扰文件失败", str(error))
+            return
+        messagebox.showinfo(
+            "干扰文件样例已添加",
+            f"已在当前补丁目录创建 {len(created)} 个干扰文件样例。\n\n"
+            "现在可在客户端执行一键解锁或一键修复，验收清理流程。",
+        )
 
     def inspect_acceptance_environment(self) -> None:
         fingerprint = self._acceptance_fingerprint

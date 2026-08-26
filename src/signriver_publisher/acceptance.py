@@ -24,6 +24,23 @@ FAILED = "failed"
 SKIPPED = "skipped"
 VALID_RESULTS = {PASSED, FAILED, SKIPPED}
 
+# Publisher-side manual acceptance fixture. This intentionally mirrors the
+# ten Windows leftovers used to verify the client cleanup transaction, without
+# depending on whether an existing local publisher workspace has refreshed its
+# cartridge fields yet.
+INTERFERENCE_FILE_SAMPLE_NAMES = (
+    "Juuj_Steam.json",
+    "Juuj_更新发布地址.html",
+    "Juuj_免费分享_请勿在任何渠道受骗付费购买.txt",
+    "Juuj_制作_请勿转载_免费声明.txt",
+    "steam_api64_org_game.dll",
+    "steam_api64_org_launcher.dll",
+    "LinkNeverDie_Com_64.dll",
+    "Emulator64.dll",
+    "SWConfig.ini",
+    "SWLoader.txt",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class AcceptanceCase:
@@ -245,6 +262,44 @@ class AcceptanceManager:
                 "请先在“卡带配置”中更新补丁安装目录。"
             )
         return patch_dir
+
+    def create_interference_file_samples(
+        self, profile: GameProfile, game_root: Path
+    ) -> tuple[Path, ...]:
+        """Create the active cartridge's cleanup fixtures for manual testing.
+
+        The operation is intentionally limited to the configured patch
+        directory. It never overwrites an existing file, so a stale fixture or
+        a real file with the same name must be reviewed manually first.
+        """
+        fixtures = INTERFERENCE_FILE_SAMPLE_NAMES
+        patch_dir = self.patch_directory(profile, game_root, require_exists=True)
+        resolved_patch_dir = patch_dir.resolve()
+        targets: list[Path] = []
+        for relative in fixtures:
+            target = (patch_dir / relative).resolve(strict=False)
+            if not target.is_relative_to(resolved_patch_dir):
+                raise AcceptanceError(
+                    f"干扰文件样例超出了补丁目录：{relative}"
+                )
+            if target.exists() or target.is_symlink():
+                raise AcceptanceError(
+                    "拒绝覆盖补丁目录中已存在的同名文件：\n"
+                    f"{target}\n\n请先确认并手动移除该文件后再创建验收样例。"
+                )
+            targets.append(target)
+
+        created: list[Path] = []
+        try:
+            for target in targets:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch(exist_ok=False)
+                created.append(target)
+        except OSError as error:
+            for target in reversed(created):
+                target.unlink(missing_ok=True)
+            raise AcceptanceError(f"创建干扰文件样例失败：{error}") from error
+        return tuple(created)
 
     def find_default_client(self) -> Path | None:
         from signriver_launcher.product import (
