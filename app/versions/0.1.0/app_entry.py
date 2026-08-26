@@ -3160,6 +3160,7 @@ class DlcHubApplication:
     def _tool_center_card_description(self, description: str) -> str:
         """Keep the fixed-height card summary readable without changing detail content."""
         description = " ".join(str(description or "").split())
+        description = description.rstrip("。！？；：，、,.!?;:")
         if len(description) <= TOOL_CARD_DESCRIPTION_MAX_LENGTH:
             return description
         return description[: TOOL_CARD_DESCRIPTION_MAX_LENGTH - 1].rstrip() + "…"
