@@ -4462,7 +4462,7 @@ class DlcHubApplication:
             badges = ctk.CTkFrame(header, fg_color="transparent")
             badges.pack(side="right")
             if info.is_active:
-                pill(badges, "当前显示输出", fg_color=UI["primary"], text_color="white")
+                pill(badges, "当前使用显卡", fg_color=UI["primary"], text_color="white")
             status_color = UI["warning_surface"] if info.warning else "#EAF7EF"
             status_text_color = "#B7791F" if info.warning else UI["success"]
             pill(badges, f"● {info.status}", fg_color=status_color, text_color=status_text_color)
