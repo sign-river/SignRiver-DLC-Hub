@@ -2925,7 +2925,7 @@ class DlcHubApplication:
         )
         self.tool_center_detail_back_button.pack(side="right", padx=(10, 0))
         self.tool_center_detail_related_button = ctk.CTkButton(
-            detail_header, text="查看关联指南 →", width=144, height=30,
+            detail_header, text="查看使用教程 →", width=144, height=30,
             command=lambda: None, **BUTTON_SECONDARY,
         )
         self.tool_center_detail_title = ctk.CTkLabel(
@@ -3131,7 +3131,7 @@ class DlcHubApplication:
         if not article_id:
             return
         button.configure(
-            text="查看关联指南 →",
+            text="查看使用教程 →",
             command=lambda selected=article_id, tool=source_tool, builtin=source_builtin_tool: self._open_solution_article(
                 selected,
                 origin="tool_center",
