@@ -3469,7 +3469,7 @@ class DlcHubApplication:
         )
         ai_callout.pack(fill="x", padx=16, pady=(0, 12))
         ctk.CTkLabel(
-            ai_callout, text="AI 辅助诊断", text_color=UI["text"], anchor="w",
+            ai_callout, text="可将日志交由 AI 辅助诊断", text_color=UI["text"], anchor="w",
             font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(fill="x", padx=14, pady=(10, 2))
         ctk.CTkLabel(
