@@ -239,3 +239,9 @@
 - “日志资料收集”详情页的 AI 提示改为明确说明：收集完成后可将日志文件与问题一起交由 AI 辅助诊断，以获取参考方案。
 - 基线 `app/versions/0.1.0/app_entry.py` 已修改，并定向同步到当前活动版本 `0.2.0`；未修改 `app/state.json`，活动客户端需重启后加载。
 - 验证：`python -m pytest -q tests/test_support_collection_ui.py`（3 项通过）；基线与活动模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
+## 2026-08-26：一键排错入口按钮布局
+
+- 报错指南页的“开始一键排错”按钮改为 `190×42`，置于说明文字下方并在卡片中水平居中；标题和说明仍保持左对齐。
+- 已修改 Git 跟踪基线 `0.1.0`，并定向同步到活动模块 `0.2.0`；未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m py_compile app/versions/0.1.0/app_entry.py app/versions/0.2.0/app_entry.py`、`python -m pytest -q tests/test_ui_theme.py`（62 项通过）、`python -m ruff check app/versions/0.1.0/app_entry.py`、`git diff --check` 均通过。未执行 GUI 人工验收、构建、上传或推送。

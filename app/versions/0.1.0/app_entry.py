@@ -1700,10 +1700,10 @@ class DlcHubApplication:
         # Keep the title anchored near the top while giving the primary action
         # a deliberate, but not visually detached, breathing space below it.
         guide_tips.pack(fill="x", padx=36, pady=(8, 26))
-        guide_tips_header = ctk.CTkFrame(guide_tips, fg_color="transparent")
-        guide_tips_header.pack(fill="x", padx=16, pady=(11, 2))
-        ctk.CTkLabel(guide_tips_header, text="一键排错", text_color=UI["primary"], font=ctk.CTkFont(size=16, weight="bold"), anchor="w").pack(side="left")
-        ctk.CTkButton(guide_tips_header, text="开始一键排错  →", width=142, height=30, command=lambda: self._show_page("简单错误检测")).pack(side="right")
+        ctk.CTkLabel(
+            guide_tips, text="一键排错", text_color=UI["primary"],
+            font=ctk.CTkFont(size=16, weight="bold"), anchor="w",
+        ).pack(fill="x", padx=16, pady=(11, 2))
         ctk.CTkLabel(
             guide_tips,
             text=(
@@ -1711,7 +1711,11 @@ class DlcHubApplication:
             ),
             text_color=UI["text_secondary"], justify="left", anchor="w",
             font=ctk.CTkFont(size=13),
-        ).pack(fill="x", padx=16, pady=(0, 11))
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkButton(
+            guide_tips, text="开始一键排错  →", width=190, height=42,
+            command=lambda: self._show_page("简单错误检测"),
+        ).pack(pady=(0, 14))
         ctk.CTkLabel(self.error_guide_card, text="其他工具", text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=36, pady=(0, 12))
         # Reserve the diagnostic action at the bottom first.  The guide links can
         # then scroll in the remaining area on compact or high-DPI windows instead
