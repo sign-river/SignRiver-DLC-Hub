@@ -31,7 +31,8 @@ def test_support_collection_detail_has_safe_background_actions_and_open_state() 
         )[0]
 
         assert 'text="一键收集资料"' in detail
-        assert 'text="打开收集文件夹"' in detail
+        assert 'text="打开日志收集文件夹"' in detail
+        assert '点击下方按钮打开日志收集文件夹' in detail
         assert 'state="disabled" if self.support_collection_running else "normal"' in detail
         assert 'name="support-collection"' in detail
         assert "self.last_support_collection_output = result.output_dir" in detail

@@ -3493,7 +3493,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(fill="x", padx=14, pady=(10, 2))
         ctk.CTkLabel(
-            ai_callout, text="收集完成后，点击下方按钮打开文件夹，可将日志文件与遇到的问题一起交由 AI 辅助诊断，获取更有针对性的参考方案。",
+            ai_callout, text="收集完成后，点击下方按钮打开日志收集文件夹，可将日志文件与遇到的问题一起交由 AI 辅助诊断，获取更有针对性的参考方案。",
             text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
         ).pack(fill="x", padx=14, pady=(0, 10))
         self.support_collection_status_label = ctk.CTkLabel(
@@ -3517,7 +3517,7 @@ class DlcHubApplication:
         self.support_collection_start_button.pack(side="left")
         self.support_collection_open_button = ctk.CTkButton(
             actions,
-            text="打开收集文件夹",
+            text="打开日志收集文件夹",
             width=144,
             command=self._open_support_collection_folder, **BUTTON_SECONDARY,
         )
