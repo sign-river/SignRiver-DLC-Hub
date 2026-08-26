@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次压缩显卡驱动详情卡片布局：减少卡片间距、标题区和信息网格的上下留白，缩小字段字号与官网按钮底部间距；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次优化日志资料收集说明：明确提示用户点击“打开收集文件夹”按钮查看收集结果；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m pytest -q tests/test_support_collection_ui.py`（2 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 

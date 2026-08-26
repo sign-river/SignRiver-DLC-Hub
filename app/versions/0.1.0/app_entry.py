@@ -4464,9 +4464,9 @@ class DlcHubApplication:
                 border_width=1,
                 corner_radius=10,
             )
-            card.pack(fill="x", padx=16, pady=(0, 14))
+            card.pack(fill="x", padx=16, pady=(0, 8))
             header = ctk.CTkFrame(card, fg_color="transparent")
-            header.pack(fill="x", padx=16, pady=(14, 10))
+            header.pack(fill="x", padx=16, pady=(10, 6))
             ctk.CTkLabel(header, text="●", text_color=brand_color, font=ctk.CTkFont(size=18), width=20).pack(side="left")
             ctk.CTkLabel(header, text=info.name, text_color=UI["text"], font=ctk.CTkFont(size=16, weight="bold"), anchor="w").pack(side="left", fill="x", expand=True)
             badges = ctk.CTkFrame(header, fg_color="transparent")
@@ -4478,7 +4478,7 @@ class DlcHubApplication:
             pill(badges, f"● {info.status}", fg_color=status_color, text_color=status_text_color)
 
             grid = ctk.CTkFrame(card, fg_color="transparent")
-            grid.pack(fill="x", padx=16, pady=(0, 10))
+            grid.pack(fill="x", padx=16, pady=(0, 6))
             values = (
                 ("厂商", info.vendor or "未知"),
                 ("驱动版本", info.version or "未知"),
@@ -4486,9 +4486,9 @@ class DlcHubApplication:
             )
             for index, (label, value) in enumerate(values):
                 cell = ctk.CTkFrame(grid, fg_color="transparent")
-                cell.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 16 if index % 2 == 0 else 0), pady=(0, 8))
-                ctk.CTkLabel(cell, text=label, text_color=UI["muted"], font=ctk.CTkFont(size=12), anchor="w").pack(fill="x")
-                ctk.CTkLabel(cell, text=value, text_color=UI["text"], font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 0))
+                cell.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 16 if index % 2 == 0 else 0), pady=(0, 4))
+                ctk.CTkLabel(cell, text=label, text_color=UI["muted"], font=ctk.CTkFont(size=11), anchor="w").pack(fill="x")
+                ctk.CTkLabel(cell, text=value, text_color=UI["text"], font=ctk.CTkFont(size=12), anchor="w").pack(fill="x", pady=(1, 0))
             grid.grid_columnconfigure(0, weight=1)
             grid.grid_columnconfigure(1, weight=1)
             if info.warning:
@@ -4498,7 +4498,7 @@ class DlcHubApplication:
                     card, text=f"前往 {brand} 官网", width=132, height=30,
                     command=lambda url=info.vendor_url: self._open_tool_url(url, "厂商官网", tool_key="builtin:gpu-driver"),
                     **BUTTON_SECONDARY,
-                ).pack(anchor="w", padx=16, pady=(0, 14))
+                ).pack(anchor="w", padx=16, pady=(0, 8))
 
         global_actions = ctk.CTkFrame(body, fg_color="transparent")
         global_actions.pack(fill="x", padx=16, pady=(2, 16))
