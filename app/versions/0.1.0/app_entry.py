@@ -2966,7 +2966,7 @@ class DlcHubApplication:
         return {
             "补丁工具": "builtin:patch-tool",
             "日志资料收集": "builtin:support-collection",
-            "安全软件检测": "builtin:security-products",
+            "杀毒软件检测": "builtin:security-products",
             "显卡驱动详情": "builtin:gpu-driver",
         }.get(title, f"builtin:{title}")
 
@@ -3174,8 +3174,8 @@ class DlcHubApplication:
                 self._show_gpu_driver_detail,
             ))
             cards.append((
-                "安全软件检测",
-                "只读检查已登记的安全软件；不关闭防护或修改设置。",
+                "杀毒软件检测",
+                "只读检查已登记的杀毒软件；不关闭防护或修改设置。",
                 self._show_security_products,
             ))
         cards.append((
@@ -3744,7 +3744,7 @@ class DlcHubApplication:
 
     def _show_security_products(self) -> None:
         if self.host_platform != "windows":
-            self._notify("安全软件检测当前仅支持 Windows。")
+            self._notify("杀毒软件检测当前仅支持 Windows。")
             return
         def worker() -> None:
             products = discover_security_products()
@@ -3752,13 +3752,13 @@ class DlcHubApplication:
         threading.Thread(target=worker, daemon=True).start()
 
     def _render_security_products(self, products) -> None:
-        self._show_tool_center_detail("安全软件检测", requires_cloud_download=False)
+        self._show_tool_center_detail("杀毒软件检测", requires_cloud_download=False)
         self._set_tool_ready(True)
-        self._append_tool_log(f"安全软件检测完成：发现 {len(products)} 个已登记产品", tool_key="builtin:security-products")
+        self._append_tool_log(f"杀毒软件检测完成：发现 {len(products)} 个已登记产品", tool_key="builtin:security-products")
         body = self.tool_center_detail_body
         ctk.CTkLabel(
             body,
-            text="已检测到的安全软件",
+            text="已检测到的杀毒软件",
             text_color=UI["primary"],
             font=ctk.CTkFont(size=18, weight="bold"),
             anchor="w",
@@ -3770,7 +3770,7 @@ class DlcHubApplication:
         )
         if not products:
             self._create_tool_detail_textbox(
-                "未从 Windows 安全中心读取到已登记的安全软件。",
+                "未从 Windows 安全中心读取到已登记的杀毒软件。",
                 text_color=UI["text_secondary"],
                 pady=14,
             )
@@ -3840,7 +3840,7 @@ class DlcHubApplication:
 
     def _open_security_product(self, product) -> None:
         key = "builtin:security-products"
-        self._append_tool_log(f"点击操作：打开安全软件 {product.name}", tool_key=key)
+        self._append_tool_log(f"点击操作：打开杀毒软件 {product.name}", tool_key=key)
         if is_windows_security_product(product):
             try:
                 if not webbrowser.open(WINDOWS_SECURITY_URI):
@@ -3855,10 +3855,10 @@ class DlcHubApplication:
         if target is not None and target.suffix.casefold() == ".exe" and target.is_file():
             try:
                 os.startfile(str(target))  # type: ignore[attr-defined]
-                self._append_tool_log(f"已启动安全软件：{product.name}", tool_key=key)
+                self._append_tool_log(f"已启动杀毒软件：{product.name}", tool_key=key)
                 return
             except OSError as error:
-                self._append_tool_log(f"启动安全软件失败：{error}", tool_key=key)
+                self._append_tool_log(f"启动杀毒软件失败：{error}", tool_key=key)
                 self._notify(f"无法打开 {product.name}：{error}", error=True)
                 return
         if is_lenovo_security_product(product):
@@ -4209,7 +4209,7 @@ class DlcHubApplication:
                 ).pack(side="left", padx=(0, 8))
         # Keep the established labels discoverable for static UI regression
         # checks while deriving the displayed text from the return context.
-        # text="← 回到一键排错" / text="← 返回安全软件检测" /
+        # text="← 回到一键排错" / text="← 返回杀毒软件检测" /
         # text="← 返回工具详情" / text="← 返回解决方案"
         return_context = getattr(self, "_solution_return_context", None)
         if return_context and return_context[0] == "guide":
@@ -4224,7 +4224,7 @@ class DlcHubApplication:
         elif self.solution_detail_origin == "quick_check":
             back_text = "← 回到一键排错"
         elif self.solution_detail_origin == "security_products":
-            back_text = "← 返回安全软件检测"
+            back_text = "← 返回杀毒软件检测"
         elif self.solution_detail_origin == "tool_center":
             back_text = "← 返回工具详情"
         else:
@@ -4495,7 +4495,7 @@ class DlcHubApplication:
         """List Windows Security Center products without blocking the UI thread."""
         self.quick_check_waiting = True
         result_index = self._add_quick_check_result(
-            "安全软件：正在从 Windows 安全中心读取已登记产品……"
+            "杀毒软件：正在从 Windows 安全中心读取已登记产品……"
         )
         self._render_quick_check_output()
 
@@ -4504,14 +4504,14 @@ class DlcHubApplication:
                 products = discover_security_products()
                 names = "、".join(product.name for product in products)
                 message = (
-                    f"安全软件：已检测到 {len(products)} 个产品。"
+                    f"杀毒软件：已检测到 {len(products)} 个产品。"
                     if names else
-                    "安全软件：未读取到已登记产品。"
+                    "杀毒软件：未读取到已登记产品。"
                 )
             except Exception:
                 self.context.logger.exception("Security product quick check failed")
                 products = ()
-                message = "安全软件：检测失败。"
+                message = "杀毒软件：检测失败。"
 
             def finish() -> None:
                 if not self.quick_check_running:
@@ -4668,7 +4668,7 @@ class DlcHubApplication:
 
     def _open_security_products_from_quick_check(self, products) -> None:
         # 切换到工具页时不要先刷新并展示工具列表；否则用户会看到
-        # “更多工具”页面一闪而过，随后才进入安全软件检测详情。
+        # “更多工具”页面一闪而过，随后才进入杀毒软件检测详情。
         self._skip_tool_center_refresh = True
         try:
             self._show_page("常用工具")

@@ -429,17 +429,17 @@ def test_quick_check_replaces_a_tool_result_without_adding_a_second_row(app_modu
     app.quick_check_lines = ["一键排错结果", "", "正在检查常见环境问题……", ""]
     app.quick_check_results = []
 
-    result_index = app._add_quick_check_result("安全软件：正在检查……")
+    result_index = app._add_quick_check_result("杀毒软件：正在检查……")
     app._replace_quick_check_result(
         result_index,
-        "安全软件：已检测到 Windows Defender。",
+        "杀毒软件：已检测到 Windows Defender。",
         tool_detail_action=lambda: None,
     )
 
     assert len(app.quick_check_results) == 1
-    assert app.quick_check_results[0][0] == "安全软件：已检测到 Windows Defender。"
+    assert app.quick_check_results[0][0] == "杀毒软件：已检测到 Windows Defender。"
     assert callable(app.quick_check_results[0][2])
-    assert app.quick_check_lines[-1] == "1. 安全软件：已检测到 Windows Defender。"
+    assert app.quick_check_lines[-1] == "1. 杀毒软件：已检测到 Windows Defender。"
 
 
 def test_security_quick_check_updates_one_row_and_opens_cached_tool_detail(
@@ -472,7 +472,7 @@ def test_security_quick_check_updates_one_row_and_opens_cached_tool_detail(
 
     assert len(app.quick_check_results) == 1
     text, solution_id, detail_action = app.quick_check_results[0]
-    assert text == "安全软件：已检测到 1 个产品。"
+    assert text == "杀毒软件：已检测到 1 个产品。"
     assert solution_id is None
     assert callable(detail_action)
     detail_action()

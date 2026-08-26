@@ -129,7 +129,7 @@ GitHub 示例：
 ## 界面约定
 
 - 入口若在常用工具/安全检测等子页，用横条 +「查看教程」，调用 `_open_solution_article(guide_id, origin=...)`。
-- 从安全软件检测进入时 `origin="security_products"`，返回必须回到「常用工具 → 安全软件检测」，不得跨层回到报错指南。
+- 从杀毒软件检测进入时 `origin="security_products"`，返回必须回到「常用工具 → 杀毒软件检测」，不得跨层回到报错指南。
 - 解决方案详情：标题下先放 helper 按钮，再放摘要和正文。
 - 下载按钮三态：
   - 未下载：`下载工具`
@@ -161,4 +161,4 @@ GitHub 示例：
 
 ## 参考实现
 
-当前样例：`close-windows-defender`。安全软件检测列表下方横条跳转到该教程；标题下下载/启动 `dControl`。后续同类教程复制该指南 JSON 和 helper 字段即可，不要复制一套新的下载器。
+当前样例：`close-windows-defender`。杀毒软件检测列表下方横条跳转到该教程；标题下下载/启动 `dControl`。后续同类教程复制该指南 JSON 和 helper 字段即可，不要复制一套新的下载器。

@@ -175,7 +175,7 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'return "暂停下载"' in source
     assert 'return "删除下载"' in source
     assert 'else "启动工具"' in source
-    assert 'text="← 返回安全软件检测"' in source
+    assert 'text="← 返回杀毒软件检测"' in source
     assert 'origin="security_products"' in source
     log_layout = source.split('self.log_card = _card(self.page_host)', 1)[1].split(
         'self.log_preview = ctk.CTkTextbox(', 1
