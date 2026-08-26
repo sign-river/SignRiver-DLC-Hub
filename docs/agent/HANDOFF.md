@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次继续压缩显卡详情卡片：厂商、驱动版本、驱动日期改为三列同排显示，减少每张卡片的垂直占用，使默认窗口可同时容纳两张显卡信息；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次压缩显卡驱动详情卡片布局：减少卡片间距、标题区和信息网格的上下留白，缩小字段字号与官网按钮底部间距；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m pytest -q tests/test_ui_theme.py tests/test_support_collection_ui.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 

@@ -4486,11 +4486,11 @@ class DlcHubApplication:
             )
             for index, (label, value) in enumerate(values):
                 cell = ctk.CTkFrame(grid, fg_color="transparent")
-                cell.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 16 if index % 2 == 0 else 0), pady=(0, 4))
+                cell.grid(row=0, column=index, sticky="ew", padx=(0, 12 if index < len(values) - 1 else 0), pady=(0, 2))
                 ctk.CTkLabel(cell, text=label, text_color=UI["muted"], font=ctk.CTkFont(size=11), anchor="w").pack(fill="x")
                 ctk.CTkLabel(cell, text=value, text_color=UI["text"], font=ctk.CTkFont(size=12), anchor="w").pack(fill="x", pady=(1, 0))
-            grid.grid_columnconfigure(0, weight=1)
-            grid.grid_columnconfigure(1, weight=1)
+            for column in range(len(values)):
+                grid.grid_columnconfigure(column, weight=1)
             if info.warning:
                 ctk.CTkLabel(card, text=info.warning, text_color="#B7791F", fg_color=UI["warning_surface"], corner_radius=7, anchor="w", justify="left", wraplength=680).pack(fill="x", padx=16, pady=(0, 10))
             if info.vendor_url:
