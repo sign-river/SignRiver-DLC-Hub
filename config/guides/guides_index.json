@@ -31,7 +31,7 @@
     {
       "guide_id": "patch-state",
       "title": "补丁状态异常",
-      "summary": "检查补丁状态，重新下载缺失补丁并刷新列表；仍异常时排查安全软件拦截。",
+      "summary": "补丁状态未通过、缺少 unlock.dll，或补丁文件下载后消失、无法读取。",
       "asset_name": "guide_patch_state.json",
       "platforms": [
         "all"
