@@ -3687,30 +3687,52 @@ class DlcHubApplication:
             width=120,
             command=self._refresh_patch_tool,
         ).pack(side="left", padx=(10, 0) if game_root is not None else 0)
-        ready = self._patch_ready_paths() or {}
-        if ready:
+        ctk.CTkLabel(
+            body,
+            text="补丁文件",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=16, pady=(4, 6))
+        patch_specs = {
+            spec.task_id: spec for spec in self._patch_download_specs()
+        }
+        patch_snapshots = self._patch_snapshots_by_task()
+        if not patch_specs:
             ctk.CTkLabel(
                 body,
-                text="已下载补丁文件",
-                text_color=UI["text"],
-                font=ctk.CTkFont(size=14, weight="bold"),
+                text="当前游戏未提供补丁文件。",
+                text_color=UI["muted"],
                 anchor="w",
-            ).pack(fill="x", padx=16, pady=(4, 6))
-            for role, path in ready.items():
-                row = ctk.CTkFrame(
-                    body,
-                    fg_color=UI["card"],
-                    border_width=1,
-                    border_color=UI["border"],
-                    corner_radius=8,
-                )
-                row.pack(fill="x", padx=16, pady=4)
-                ctk.CTkLabel(
-                    row,
-                    text=f"{role}：{path.name}",
-                    text_color=UI["text"],
-                    anchor="w",
-                ).pack(side="left", padx=12, pady=9)
+            ).pack(fill="x", padx=16, pady=(4, 8))
+        for task_id, role in self.patch_task_roles.items():
+            spec = patch_specs.get(task_id)
+            if spec is None:
+                continue
+            snapshot = patch_snapshots.get(task_id)
+            path = snapshot.result_path if snapshot is not None else None
+            is_ready = (
+                snapshot is not None
+                and snapshot.state is DownloadState.READY
+                and snapshot.spec.filename == spec.filename
+                and path is not None
+                and path.is_file()
+            )
+            row = ctk.CTkFrame(
+                body,
+                fg_color=UI["card"],
+                border_width=1,
+                border_color=UI["border"],
+                corner_radius=8,
+            )
+            row.pack(fill="x", padx=16, pady=4)
+            ctk.CTkLabel(
+                row,
+                text=f"{self._canonical_patch_role(role)}：{spec.filename}",
+                text_color=UI["text"],
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True, padx=12, pady=9)
+            if is_ready:
                 ctk.CTkButton(
                     row,
                     text="打开位置",
@@ -3724,13 +3746,25 @@ class DlcHubApplication:
                         width=86,
                         command=lambda item=path: self._open_file(item),
                     ).pack(side="right", padx=(10, 0), pady=6)
-        else:
+                continue
+            if snapshot is None:
+                issue = "补丁缺失：尚未下载"
+            elif snapshot.state is DownloadState.READY:
+                issue = "补丁缺失：缓存文件不可用"
+            elif snapshot.state is DownloadState.CORRUPT:
+                issue = "补丁异常：校验未通过"
+            elif snapshot.state is DownloadState.FAILED:
+                issue = "补丁下载失败"
+            elif snapshot.state is DownloadState.CANCELLED:
+                issue = "补丁下载已取消"
+            else:
+                issue = "补丁下载中"
             ctk.CTkLabel(
-                body,
-                text="尚无已验证的补丁下载文件。",
-                text_color=UI["muted"],
-                anchor="w",
-            ).pack(fill="x", padx=16, pady=(4, 8))
+                row,
+                text=issue,
+                text_color=UI["danger"] if "异常" in issue or "失败" in issue or "缺失" in issue else UI["muted"],
+                anchor="e",
+            ).pack(side="right", padx=12, pady=9)
         ctk.CTkButton(
             body,
             text="从云端重新下载补丁",

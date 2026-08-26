@@ -266,6 +266,10 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'text="打开游戏目录"' not in patch_tool
     assert 'resolve_game_directory(' in patch_tool
     assert 'self.download_manager.cache_root' in patch_tool
+    assert 'text="' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x6587, 0x4ef6)) + '"' in patch_tool
+    assert 'issue = "' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x7f3a, 0x5931, 0xff1a, 0x5c1a, 0x672a, 0x4e0b, 0x8f7d)) + '"' in patch_tool
+    assert 'issue = "' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x7f3a, 0x5931, 0xff1a, 0x7f13, 0x5b58, 0x6587, 0x4ef6, 0x4e0d, 0x53ef, 0x7528)) + '"' in patch_tool
+    assert 'if is_ready:' in patch_tool
     assert 'if self._is_file_openable(path):' in patch_tool
     assert 'def _is_file_openable(path: Path) -> bool' in source
     assert 'library_suffixes = (".dll", ".dylib", ".so", ".bundle", ".a", ".lib")' in source
