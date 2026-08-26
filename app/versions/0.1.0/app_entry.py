@@ -145,7 +145,8 @@ CONSOLE_GHOST_BUTTON = {
     "hover_color": "#EEF2F6",
     "text_color": "#666666",
     "corner_radius": 5,
-    "font": ctk.CTkFont(size=11),
+    # 使用字体元组，避免模块导入阶段创建 Tk font（根窗口尚未建立）。
+    "font": ("Segoe UI", 11),
 }
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
