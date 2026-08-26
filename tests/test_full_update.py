@@ -23,6 +23,7 @@ from signriver_launcher.main import (
     _defer_windows_full_update_rollback,
 )
 from signriver_launcher.models import ReleaseInfo
+from signriver_launcher.models import FullReleaseManifest, ReleaseFile
 from signriver_launcher.paths import RuntimePaths
 from signriver_launcher.state import StateStore
 from signriver_common.platforms import HostPlatform
@@ -132,6 +133,34 @@ def test_full_update_refuses_a_second_pending_transaction(tmp_path: Path) -> Non
 
     with pytest.raises(FullUpdateError, match="already pending"):
         manager.prepare(package, release)
+
+
+def test_windows_full_update_uses_compact_same_volume_paths(tmp_path: Path) -> None:
+    paths = RuntimePaths(tmp_path, host_platform=HostPlatform.WINDOWS)
+
+    assert paths.full_update_staging_dir == tmp_path / ".su"
+    assert paths.full_update_backup_dir == tmp_path / ".ub"
+    assert paths.full_update_staging_dir.anchor == paths.root.anchor
+    assert paths.full_update_backup_dir.anchor == paths.root.anchor
+
+
+def test_windows_full_update_rejects_excessive_staged_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import signriver_launcher.full_update as full_update_module
+
+    manifest = FullReleaseManifest(
+        "0.2.0",
+        (ReleaseFile("a" * 250 + ".dll", 1, "a" * 64),),
+    )
+    monkeypatch.setattr(full_update_module.os, "name", "nt")
+
+    with pytest.raises(FullUpdateError, match="路径过深"):
+        FullUpdateManager._validate_windows_paths(
+            tmp_path / ".su" / ("x" * 32),
+            tmp_path / ".ub" / ("x" * 32),
+            manifest,
+        )
 
 
 def test_full_update_recovers_when_helper_exits_before_apply(tmp_path: Path) -> None:

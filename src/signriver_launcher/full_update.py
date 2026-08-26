@@ -18,7 +18,10 @@ from .models import FullReleaseManifest, ReleaseInfo
 from .paths import RuntimePaths
 from .state import StateStore
 
-_PROTECTED_ROOTS = {"data", "cache", ".update-staging", ".update-backup"}
+_PROTECTED_ROOTS = {
+    "data", "cache", ".update-staging", ".update-backup", ".su", ".ub"
+}
+_WINDOWS_SAFE_PATH_LENGTH = 240
 
 
 @dataclass
@@ -113,6 +116,7 @@ class FullUpdateManager:
             manifest = self._read_manifest(staging, release.version)
             self._validate_staged_files(staging, manifest)
             activate_version = self._activation_version(staging, manifest)
+            self._validate_windows_paths(staging, backup, manifest)
             self._check_disk_space(manifest)
             files = [entry.path for entry in manifest.files]
             transaction = FullUpdateTransaction(
@@ -367,6 +371,23 @@ class FullUpdateManager:
         )
         if shutil.disk_usage(disk_target).free < required:
             raise FullUpdateError("insufficient disk space for full update staging and backup")
+
+    @staticmethod
+    def _validate_windows_paths(
+        staging: Path, backup: Path, manifest: FullReleaseManifest
+    ) -> None:
+        if os.name != "nt":
+            return
+        paths = [staging / "full-update-helper.exe"]
+        for entry in manifest.files:
+            relative = PurePosixPath(entry.path)
+            paths.extend((staging / Path(*relative.parts), backup / Path(*relative.parts)))
+        longest = max(paths, key=lambda path: len(str(path.resolve())))
+        if len(str(longest.resolve())) > _WINDOWS_SAFE_PATH_LENGTH:
+            raise FullUpdateError(
+                "Windows 安装路径过深，无法安全执行全量更新；"
+                "请将程序移动到更短的目录后重试"
+            )
 
     def _owned_target(self, relative: str) -> Path:
         parts = PurePosixPath(relative).parts

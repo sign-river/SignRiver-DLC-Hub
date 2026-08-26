@@ -108,10 +108,14 @@ class RuntimePaths:
 
     @property
     def full_update_staging_dir(self) -> Path:
+        if self.platform is HostPlatform.WINDOWS:
+            return self.root / ".su"
         return self.cache_dir / "update-staging"
 
     @property
     def full_update_backup_dir(self) -> Path:
+        if self.platform is HostPlatform.WINDOWS:
+            return self.root / ".ub"
         return self.cache_dir / "update-backup"
 
     @property

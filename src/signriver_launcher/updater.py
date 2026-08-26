@@ -223,6 +223,8 @@ class UpdateClient:
             shutil.copy2(staged_launcher, helper)
             if not is_windows:
                 helper.chmod(0o755)
+            if not helper.is_file():
+                raise PackageError(f"全量更新辅助程序不存在：{helper}")
             command = [
                 str(helper),
                 "--apply-full-update",
@@ -243,14 +245,21 @@ class UpdateClient:
                 transaction.transaction_id,
                 str(os.getpid()),
             ]
-        subprocess.Popen(
-            command,
-            cwd=self.paths.root,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=frozen_child_environment(),
-        )
+        try:
+            subprocess.Popen(
+                command,
+                cwd=self.paths.root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=frozen_child_environment(),
+            )
+        except OSError as error:
+            winerror = getattr(error, "winerror", None)
+            suffix = f" WinError {winerror}" if winerror is not None else ""
+            raise PackageError(
+                f"无法启动全量更新辅助程序{suffix}：{helper}（工作目录：{self.paths.root}）"
+            ) from error
 
     def download(
         self,
