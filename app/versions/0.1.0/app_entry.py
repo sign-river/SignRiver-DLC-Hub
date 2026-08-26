@@ -142,11 +142,11 @@ BUTTON_GHOST = {
 }
 CONSOLE_GHOST_BUTTON = {
     **BUTTON_GHOST,
-    "hover_color": "#EEF2F6",
-    "text_color": "#666666",
-    "corner_radius": 5,
+    "hover_color": "#E9EEF3",
+    "text_color": "#7A8793",
+    "corner_radius": 4,
+    "font": ("Segoe UI", 10),
     # 使用字体元组，避免模块导入阶段创建 Tk font（根窗口尚未建立）。
-    "font": ("Segoe UI", 11),
 }
 
 # 常用工具卡片的描述区域固定高度；超长内容只在卡片摘要态截短，详情页仍显示完整说明。
@@ -2969,14 +2969,15 @@ class DlcHubApplication:
         ).pack(side="left", padx=12)
         console_actions = ctk.CTkFrame(self.tool_center_console_toolbar, fg_color="transparent")
         console_actions.pack(side="right", padx=4)
-        for text, command in (("⧉ 复制", self._copy_tool_logs), ("⌫ 清空", self._clear_tool_logs)):
-            ctk.CTkButton(console_actions, text=text, width=50, height=24,
+        for text, command in (("复制", self._copy_tool_logs), ("清空", self._clear_tool_logs)):
+            ctk.CTkButton(console_actions, text=text, width=42, height=20,
                           command=command, **CONSOLE_GHOST_BUTTON).pack(side="left", padx=1)
         self.tool_center_console_lock = ctk.CTkCheckBox(
             console_actions, text="锁定滚屏", width=76, height=22,
             checkbox_width=15, checkbox_height=15,
             command=self._toggle_tool_autoscroll, font=ctk.CTkFont(size=11),
             text_color=UI["text_secondary"],
+            fg_color="#AAB7C4", hover_color="#93A4B4", border_color="#AAB7C4",
         )
         self.tool_center_console_lock.select()
         self.tool_center_console_lock.pack(side="left", padx=(5, 2))
