@@ -496,7 +496,14 @@ class GuideCatalogService:
                     blocks.append((kind, text, url))
             elif kind == "button" and text:
                 target = str(block.get("target") or "").strip()
-                if target in {"patch-tool", "dlc-home"} or target.startswith("guide:"):
+                if (
+                    target in {"patch-tool", "dlc-home"}
+                    or target.startswith("guide:")
+                    or (
+                        target.startswith("tool:")
+                        and bool(_SAFE_ID.fullmatch(target.removeprefix("tool:").strip()))
+                    )
+                ):
                     blocks.append((kind, text, target))
             elif kind == "image":
                 raw_path = str(block.get("asset_name") or block.get("path") or "").strip().replace("\\", "/")

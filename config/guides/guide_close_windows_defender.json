@@ -23,7 +23,12 @@
     },
     {
       "kind": "text",
-      "text": "本程序不会自动关闭 Windows Defender。请仅在理解风险后，按教程自行操作，或使用标题下方按钮下载/启动辅助工具。"
+      "text": "本程序不会自动关闭 Windows Defender。请仅在理解风险后，按教程自行操作；如需使用辅助工具，请通过本文中的工具详情入口进入管理页面。"
+    },
+    {
+      "kind": "button",
+      "text": "查看工具详情 →",
+      "target": "tool:dcontrol"
     },
     {
       "kind": "heading",

@@ -370,6 +370,7 @@ def test_guide_internal_navigation_buttons_are_whitelisted(tmp_path: Path) -> No
         "blocks": [
             {"kind": "button", "text": "补丁工具", "target": "patch-tool"},
             {"kind": "button", "text": "安全软件", "target": "guide:security-interference"},
+            {"kind": "button", "text": "工具详情", "target": "tool:dcontrol"},
             {"kind": "button", "text": "危险命令", "target": "cmd:del"},
         ],
         "tools": [],
@@ -377,6 +378,7 @@ def test_guide_internal_navigation_buttons_are_whitelisted(tmp_path: Path) -> No
     assert document.blocks == (
         ("button", "补丁工具", "patch-tool"),
         ("button", "安全软件", "guide:security-interference"),
+        ("button", "工具详情", "tool:dcontrol"),
     )
 
 

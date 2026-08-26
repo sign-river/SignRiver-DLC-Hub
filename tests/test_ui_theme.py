@@ -171,6 +171,10 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert 'text="← 返回解决方案"' in source
     assert 'text="可以关闭 Windows Defender"' in source
     assert 'text="查看教程"' in source
+    solution_detail = source.split("def _show_solution_detail", 1)[1].split("def _show_solution_list", 1)[0]
+    assert "_pack_helper_tool_actions" not in solution_detail
+    assert "工具管理统一在工具详情页完成" in solution_detail
+    assert 'target.startswith("tool:")' in source
     assert 'return "下载工具"' in source
     assert 'return "暂停下载"' in source
     assert 'return "删除下载"' in source
