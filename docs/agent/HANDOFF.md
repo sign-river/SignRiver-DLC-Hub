@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次将 `config/guides/guide_patch_state.json` 中“常见原因”的说明改为问题细节描述：“问题通常表现为补丁状态未通过、unlock.dll 缺失，或补丁文件下载后消失、无法读取。”未修改客户端代码；实际活动版本为 `0.2.0`，配置由共享 `config/guides/` 读取，无需模块同步，重启客户端后即可查看。
+- 验证：指南 JSON 解析通过；`tests/test_platform_content.py tests/test_client_problem_center.py` 共 1 项失败，失败为工作区既有补丁代码与测试夹具字段不一致（`interference_files_deleted` 缺失），与本次文案无关；两个活动/基线模块编译、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次按截图删除补丁详情页“从云端重新下载补丁”按钮下方的说明行；下载逻辑、按钮和运行日志保持不变。基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`。工作区其余补丁领域改动属于用户已有改动，未触碰。
 - 验证：`python -m pytest -q tests/test_ui_theme.py`（62 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 
