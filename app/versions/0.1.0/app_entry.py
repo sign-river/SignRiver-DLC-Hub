@@ -3423,7 +3423,8 @@ class DlcHubApplication:
                 "收集完成后，可直接将生成的日志资料文件夹或其中的日志文件发送给 AI，并附上遇到的问题，以获取参考解决方案。"
             ),
             text_color=UI["text_secondary"],
-            pady=(16, 12),
+            min_height=190,
+            pady=(10, 8),
         )
         self.support_collection_status_label = ctk.CTkLabel(
             body,
@@ -3433,9 +3434,9 @@ class DlcHubApplication:
             justify="left",
             wraplength=720,
         )
-        self.support_collection_status_label.pack(fill="x", padx=16, pady=(0, 12))
+        self.support_collection_status_label.pack(fill="x", padx=16, pady=(4, 10))
         actions = ctk.CTkFrame(body, fg_color="transparent")
-        actions.pack(fill="x", padx=16, pady=(0, 16))
+        actions.pack(fill="x", padx=16, pady=(2, 16))
         self.support_collection_start_button = ctk.CTkButton(
             actions,
             text="正在收集……" if self.support_collection_running else "一键收集资料",
@@ -4051,7 +4052,8 @@ class DlcHubApplication:
             textbox.update_idletasks()
             result = textbox._textbox.count("1.0", "end", "-displaylines")
             lines = int(result[0] if isinstance(result, tuple) else result)
-            height = max(34, lines * 22 + 10)
+            min_height = int(getattr(textbox, "_tool_detail_min_height", 34))
+            height = max(min_height, lines * 22 + 10)
             if int(textbox.cget("height")) != height:
                 textbox.configure(height=height)
                 self.window.after_idle(self.tool_center_detail_body._update_scrollbar_visibility)
@@ -4059,11 +4061,14 @@ class DlcHubApplication:
             raw_text = getattr(textbox, "_tool_detail_raw_text", "")
             width = max(1, textbox.winfo_width() - 8)
             lines = max(1, (len(raw_text) * 14 + width - 1) // width)
-            textbox.configure(height=max(34, lines * 22 + 10))
+            min_height = int(getattr(textbox, "_tool_detail_min_height", 34))
+            textbox.configure(height=max(min_height, lines * 22 + 10))
         finally:
             textbox._fitting_tool_detail_text = False
 
-    def _create_tool_detail_textbox(self, text: str, *, text_color=None, pady=(0, 12)):
+    def _create_tool_detail_textbox(
+        self, text: str, *, text_color=None, min_height=34, pady=(0, 12)
+    ):
         """复用解决方案详情页的只读文本框换行与自动高度逻辑。"""
         textbox = ctk.CTkTextbox(
             self.tool_center_detail_body,
@@ -4079,6 +4084,7 @@ class DlcHubApplication:
         )
         textbox.insert("1.0", text)
         textbox._tool_detail_raw_text = text
+        textbox._tool_detail_min_height = min_height
         textbox.configure(state="disabled")
         textbox.pack(fill="x", padx=16, pady=pady)
         textbox.bind(

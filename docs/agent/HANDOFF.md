@@ -4,6 +4,9 @@
 
 ## 当前状态（2026-08-26）
 
+- 本次调整“日志资料收集”详情页布局：正文文本框设置 190px 最小高度，状态信息与操作按钮增加上下间距，避免正文与后续组件挤压；基线已同步到活动模块 `0.2.0`，未修改 `app/state.json`，需重启客户端加载。
+- 验证：`python -m pytest -q tests/test_support_collection_ui.py tests/test_ui_theme.py`（66 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
+
 - 本次优化“日志资料收集”详情正文：改为逐行列出收集内容，并补充可将日志资料发送给 AI、附带问题以获取参考解决方案的提示。基线 `0.1.0` 已修改，并已定向同步到活动模块 `0.2.0`；未修改 `app/state.json`，需重启客户端加载。
 - 验证：`python -m pytest -q tests/test_support_collection_ui.py`（2 项通过）；两个模块 `py_compile`、基线 Ruff、`git diff --check` 通过。未执行 GUI 人工验收、构建、上传或推送。
 
