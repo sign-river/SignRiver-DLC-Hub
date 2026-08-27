@@ -2349,6 +2349,8 @@ class DlcHubApplication:
         for selection_name, game in matches:
             display_name = game.get("display_name") or selection_name
             is_current = selection_name == self.selected_game_name
+            if len(display_name) > 30:
+                display_name = f"{display_name[:30]}\n{display_name[30:]}"
             text = (
                 f"{display_name}  ·  ✓ 当前选择"
                 if is_current
@@ -2359,8 +2361,6 @@ class DlcHubApplication:
                 text=text,
                 command=lambda value=selection_name: self._choose_game_from_picker(value),
                 anchor="w",
-                justify="left",
-                wraplength=350,
                 height=54 if is_current or len(display_name) > 24 else 40,
                 fg_color=UI["primary_surface"] if is_current else UI["card"],
                 hover_color=UI["primary_surface_hover"],

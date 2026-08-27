@@ -50,8 +50,8 @@ def test_game_picker_keeps_long_names_left_aligned_and_wrapped() -> None:
     )[0]
 
     assert 'anchor="w"' in picker
-    assert 'justify="left"' in picker
-    assert "wraplength=350" in picker
+    assert 'if len(display_name) > 30:' in picker
+    assert 'display_name[:30]}\\n{display_name[30:]' in picker
 
 
 def test_guides_request_user_friendly_evidence() -> None:
