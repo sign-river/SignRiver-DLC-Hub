@@ -78,6 +78,10 @@ def test_latest_installer_tool_uses_selected_source_manifest_without_updater() -
     assert '"下载最新安装包"' in source
     assert 'tool_key="builtin:latest-installer"' in source
     assert '"下载最新安装包",\n            requires_cloud_download=False,' in source
+    latest_installer = _app_method_source("_show_latest_installer_detail")
+    assert 'origin: str = "tool_center"' in latest_installer
+    assert 'back_command = self._return_from_tool_to_solution' in latest_installer
+    assert 'self._show_latest_installer_detail(\n                    origin="solution", article_id=current_id\n                )' in source
     assert "UPDATE_MANIFEST_URLS" in source
     assert 'release.get("kind") != "full"' in source
     assert 'windows-x64' in source

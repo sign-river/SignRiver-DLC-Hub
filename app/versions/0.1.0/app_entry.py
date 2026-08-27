@@ -3508,10 +3508,30 @@ class DlcHubApplication:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _show_latest_installer_detail(self) -> None:
+    def _show_latest_installer_detail(
+        self,
+        *,
+        origin: str = "tool_center",
+        article_id: str | None = None,
+    ) -> None:
+        if origin == "solution" and article_id:
+            self._tool_detail_solution_return = (article_id, self.solution_detail_origin)
+            article = self.solution_articles.get(article_id)
+            back_text = (
+                f"← 返回{article[0]}"
+                if article and article[0]
+                else "← 返回解决方案"
+            )
+            back_command = self._return_from_tool_to_solution
+        else:
+            self._tool_detail_solution_return = None
+            back_text = "← 返回常用工具"
+            back_command = self._show_tool_center_list
         self._show_tool_center_detail(
             "下载最新安装包",
             requires_cloud_download=False,
+            back_text=back_text,
+            back_command=back_command,
             tool_key="builtin:latest-installer",
         )
         body = self.tool_center_detail_body
@@ -5290,7 +5310,9 @@ class DlcHubApplication:
                     self._show_page("常用工具")
                 finally:
                     self._skip_tool_center_refresh = False
-                self._show_latest_installer_detail()
+                self._show_latest_installer_detail(
+                    origin="solution", article_id=current_id
+                )
                 return
             if tool_id == "security-products" and current_id:
                 self._skip_tool_center_refresh = True
