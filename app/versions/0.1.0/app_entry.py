@@ -2392,24 +2392,30 @@ class DlcHubApplication:
             return
 
         def worker() -> None:
-            try:
-                index = self.cartridge_catalog.refresh_index(allow_network=True)
-                active_id = self.cartridge.adapter.descriptor.game_id
-                loaded = self.cartridge_catalog.load_cartridge(
-                    active_id, allow_network=True, allow_fallback=False,
-                )
-                self._post_ui(
-                    lambda index=index, loaded=loaded: self._on_remote_index_ready(
-                        index, loaded
+            last_success = False
+            last_error: Exception | None = None
+            # Providers may briefly serve the previous Release after publish.
+            for delay in (0.0, 2.0, 5.0, 10.0):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    index = self.cartridge_catalog.refresh_index(allow_network=True)
+                    active_id = self.cartridge.adapter.descriptor.game_id
+                    loaded = self.cartridge_catalog.load_cartridge(
+                        active_id, allow_network=True, allow_fallback=False,
                     )
-                )
-            except Exception as error:
-                self.context.logger.warning(
-                    "Remote cartridge index refresh failed: %s", error
-                )
+                    last_success = True
+                    self._post_ui(
+                        lambda index=index, loaded=loaded: self._on_remote_index_ready(
+                            index, loaded
+                        )
+                    )
+                except Exception as error:
+                    last_error = error
+            if not last_success:
                 self._post_ui(
-                    lambda error=error: self._on_remote_cartridge_refresh_failed(
-                        str(error)
+                    lambda error=last_error: self._on_remote_cartridge_refresh_failed(
+                        str(error) if error else "远端卡带刷新失败"
                     )
                 )
         threading.Thread(target=worker, daemon=True).start()
