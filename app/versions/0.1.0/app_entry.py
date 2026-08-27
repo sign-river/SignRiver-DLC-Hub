@@ -2394,6 +2394,7 @@ class DlcHubApplication:
         def worker() -> None:
             last_success = False
             last_error: Exception | None = None
+            last_signature = None
             # Providers may briefly serve the previous Release after publish.
             for delay in (0.0, 2.0, 5.0, 10.0):
                 if delay:
@@ -2405,6 +2406,13 @@ class DlcHubApplication:
                         active_id, allow_network=True, allow_fallback=False,
                     )
                     last_success = True
+                    signature = tuple(
+                        (entry.game_id, entry.sha256)
+                        for entry in index.cartridges
+                    )
+                    if signature == last_signature:
+                        continue
+                    last_signature = signature
                     self._post_ui(
                         lambda index=index, loaded=loaded: self._on_remote_index_ready(
                             index, loaded
