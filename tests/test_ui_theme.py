@@ -43,6 +43,17 @@ def test_user_ui_hides_internal_diagnostics() -> None:
     assert "def _format_fatal_error_details" in launcher
 
 
+def test_game_picker_keeps_long_names_left_aligned_and_wrapped() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    picker = source.split("def _refresh_game_picker_results", 1)[1].split(
+        "def _choose_game_from_picker", 1
+    )[0]
+
+    assert 'anchor="w"' in picker
+    assert 'justify="left"' in picker
+    assert "wraplength=350" in picker
+
+
 def test_guides_request_user_friendly_evidence() -> None:
     guide_text = "\n".join(path.read_text(encoding="utf-8") for path in GUIDES_ROOT.glob("*.json"))
 
@@ -151,7 +162,7 @@ def test_game_selector_uses_a_searchable_in_app_picker_and_home_uses_github() ->
     assert 'game.get("game_id", "")' in source
     assert '✓ 当前选择' in source
     assert 'f"{display_name}  ·  ✓ 当前选择"' in source
-    assert 'height=54 if is_current else 40' in source
+    assert 'height=54 if is_current or len(display_name) > 24 else 40' in source
     assert '没有找到匹配的游戏' in source
     assert 'self._set_game_selector_text(display_name)' in source
     assert 'text="复制游戏列表"' in source
