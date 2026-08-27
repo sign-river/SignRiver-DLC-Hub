@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from signriver_publisher.extension_assets import ExtensionExportError
+from signriver_publisher.extension_assets import ExtensionExportError, export_tool_assets
 from signriver_publisher.workspace import PublisherWorkspace
 
 
@@ -79,6 +79,22 @@ def test_extension_publish_assets_materialises_guides_and_tools(tmp_path: Path) 
     profile = workspace.tools_release_profile()
     assert profile.release_tag == "tools"
     assert profile.appinfo_name == "tools_index.json"
+
+
+def test_tool_payload_export_does_not_require_guides(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    _write_extension_source(workspace)
+    for path in workspace.guides_source_dir.iterdir():
+        if path.is_file():
+            path.unlink()
+
+    files, summary = export_tool_assets(
+        workspace.tools_source_dir, workspace.output_dir / "tools",
+    )
+
+    assert summary.error == ""
+    assert [path.name for path in files] == ["sample-tool.zip"]
 
 
 def test_extension_preflight_requires_problem_detail_summary_type(tmp_path: Path) -> None:

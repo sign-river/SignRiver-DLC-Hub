@@ -95,16 +95,16 @@ class CartridgeManagementUiMixin:
         extension_overview.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         extension_overview.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            extension_overview, text="扩展指南与工具", text_color=BLUE,
+            extension_overview, text="工具文件上传", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
         ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="ew")
         self.hub_status_summary = ctk.CTkLabel(
-            extension_overview, text="正在读取扩展资源…", text_color=MUTED,
+            extension_overview, text="正在读取工具资源…", text_color=MUTED,
             anchor="w", justify="left", wraplength=390,
         )
         self.hub_status_summary.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="ew")
         ctk.CTkButton(
-            extension_overview, text="进入指南与工具", height=36,
+            extension_overview, text="进入工具文件上传", height=36,
             fg_color=LIGHT_BLUE, command=self._show_extension_detail,
         ).grid(row=2, column=0, padx=14, pady=(0, 14), sticky="ew")
 
@@ -188,7 +188,7 @@ class CartridgeManagementUiMixin:
             command=self._show_cartridge_home,
         ).grid(row=0, column=0, padx=8, pady=(4, 0), sticky="w")
         ctk.CTkLabel(
-            self.extension_detail_page, text="扩展指南与工具",
+            self.extension_detail_page, text="工具文件上传",
             font=("Microsoft YaHei UI", 20, "bold"), text_color=BLUE,
         ).grid(row=1, column=0, padx=12, pady=(8, 8), sticky="w")
 
@@ -199,36 +199,27 @@ class CartridgeManagementUiMixin:
         actions.grid(row=2, column=0, padx=8, pady=(0, 8), sticky="ew")
         actions.grid_columnconfigure((0, 1), weight=1, uniform="extension_actions")
         ctk.CTkLabel(
-            actions, text="管理相互引用的指南、工具索引和工具包。", text_color=MUTED,
+            actions, text="将工具载荷同步到 GitLink 与 GitHub 的 tools Release。", text_color=MUTED,
             anchor="w", justify="left",
         ).grid(row=0, column=0, columnspan=2, padx=14, pady=(12, 8), sticky="ew")
         ctk.CTkButton(
-            actions, text="打开指南目录", height=36, fg_color=LIGHT_BLUE,
-            command=self.open_guides_source_folder,
-        ).grid(row=1, column=0, padx=(14, 6), pady=4, sticky="ew")
-        ctk.CTkButton(
             actions, text="打开工具目录", height=36, fg_color=LIGHT_BLUE,
             command=self.open_tools_source_folder,
-        ).grid(row=1, column=1, padx=(6, 14), pady=4, sticky="ew")
-        self.extensions_local_publish_button = ctk.CTkButton(
-            actions, text="本地发布指南与工具项", height=36, fg_color=LIGHT_BLUE,
-            command=self.publish_local_guides_and_tools,
-        )
-        self.extensions_local_publish_button.grid(row=2, column=0, padx=(14, 6), pady=(4, 8), sticky="ew")
+        ).grid(row=1, column=0, padx=14, pady=4, sticky="ew")
         self.extensions_publish_button = ctk.CTkButton(
             actions, text="双端上传工具文件", height=36, fg_color=BLUE,
             command=self.publish_extensions_mirror,
         )
-        self.extensions_publish_button.grid(row=2, column=1, padx=(6, 14), pady=(4, 8), sticky="ew")
+        self.extensions_publish_button.grid(row=1, column=1, padx=(6, 14), pady=4, sticky="ew")
         self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
             actions,
-            text="未修改的扩展文件会与本地成功发布记录中的 SHA-256 比对，相同文件直接复用。",
+            text="仅上传工具文件；tools_index.json 和指南内容随客户端版本发布。未修改文件会按 SHA-256 直接复用。",
             text_color=MUTED, anchor="w", justify="left", wraplength=780,
-        ).grid(row=3, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+        ).grid(row=2, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
 
         transfer = ctk.CTkFrame(actions, fg_color="transparent")
-        transfer.grid(row=4, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="ew")
+        transfer.grid(row=3, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.extensions_upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=190, anchor="w", text_color=MUTED,
@@ -635,10 +626,10 @@ class CartridgeManagementUiMixin:
     def publish_extensions_mirror(self) -> None:
         """Preflight and publish downloadable tool payloads only."""
         summary = self.workspace.extension_resource_summary()
-        if not summary.guides.configured or summary.guides.error or summary.tools.error:
+        if summary.tools.error:
             messagebox.showerror(
-                "扩展预检失败",
-                "指南、工具包和相互引用必须完整后才能发布：\n\n"
+                "工具文件预检失败",
+                "tools_index.json 和工具包必须完整后才能上传：\n\n"
                 f"{summary.status_text}",
             )
             return
@@ -650,36 +641,36 @@ class CartridgeManagementUiMixin:
         )
         if not all(owner and repository and token for _, owner, repository, token in targets):
             messagebox.showerror(
-                "无法双端发布扩展",
+                "无法双端上传工具文件",
                 "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。",
             )
             return
         if not messagebox.askyesno(
-            "确认双端发布扩展",
-            "将校验本地指南与工具项，但仅上传工具下载文件到两端 tools Release。\n\n"
-            "不会上传指南、指南附件或 tools_index.json。是否继续？",
+            "确认双端上传工具文件",
+            "仅上传工具下载文件到两端 tools Release。\n\n"
+            "指南和 tools_index.json 随客户端版本发布，不会上传到云端。是否继续？",
         ):
             return
-        if not self._begin_background_mutation("publish", "正在预检并双端发布扩展"):
+        if not self._begin_background_mutation("publish", "正在预检并双端上传工具文件"):
             return
         self._active_publish_scope = "extensions"
         self._set_publish_buttons_available(False)
         self.hub_generate_button.configure(state="disabled")
         publish_button, _pause_button, status_label, progress_bar = self._publish_scope_controls()
-        publish_button.configure(state="disabled", text="正在预检并发布扩展…")
-        status_label.configure(text="正在校验并生成扩展 Release…")
+        publish_button.configure(state="disabled", text="正在预检并上传工具文件…")
+        status_label.configure(text="正在校验并生成 tools Release…")
         progress_bar.set(0)
         self._upload_control = UploadControl()
 
         def worker() -> None:
             stage = "预检"
             try:
-                plan = self.workspace.extension_publish_assets()
-                release_sets = ((self.workspace.tools_release_profile(), plan.tools, "SignRiver Tools"),)
+                tool_assets = self.workspace.tool_publish_assets()
+                release_sets = ((self.workspace.tools_release_profile(), tool_assets, "SignRiver Tools"),)
                 one_host_total = sum(len(assets) for _, assets, _ in release_sets)
                 total = one_host_total * 2
                 if not one_host_total:
-                    raise RuntimeError("扩展目录未生成任何可发布文件")
+                    raise RuntimeError("工具目录未生成任何可发布文件")
 
                 stage = "GitLink"
                 gitlink_repo = GitLinkRepository(targets[0][1], targets[0][2])
@@ -752,12 +743,12 @@ class CartridgeManagementUiMixin:
                         state_channel="github",
                     )
                     completed += len(assets)
-                self._post_ui(lambda guide_count=len(plan.guides), tool_count=len(plan.tools),
-                              uploaded_count=uploaded, skipped_count=skipped,
-                              removed_count=removed: self._extensions_mirror_publish_done(
-                                  guide_count, tool_count, uploaded_count, skipped_count,
-                                  removed_count
-                              ))
+                self._post_ui(lambda tool_count=len(tool_assets),
+                                  uploaded_count=uploaded, skipped_count=skipped,
+                                  removed_count=removed: self._extensions_mirror_publish_done(
+                                      tool_count, uploaded_count, skipped_count,
+                                      removed_count
+                                  ))
             except (UploadPaused, GitHubUploadPaused) as error:
                 self._post_ui(lambda value=f"{stage}：{error}": self._extensions_mirror_publish_failed(value, paused=True))
             except Exception as error:
@@ -766,7 +757,7 @@ class CartridgeManagementUiMixin:
         threading.Thread(target=worker, daemon=True, name="extensions-mirror-publish").start()
 
     def _extensions_mirror_publish_done(
-        self, guide_count: int, tool_count: int, uploaded: int, skipped: int,
+        self, tool_count: int, uploaded: int, skipped: int,
         removed: int,
     ) -> None:
         self._end_background_mutation("publish")
@@ -775,16 +766,16 @@ class CartridgeManagementUiMixin:
         self.hub_generate_button.configure(state="normal")
         _publish_button, _pause_button, status_label, progress_bar = self._publish_scope_controls()
         progress_bar.set(1)
-        status_label.configure(text="指南与工具扩展双端发布完成")
+        status_label.configure(text="工具文件双端发布完成")
         self._log(
             "工具下载文件双端发布完成："
-            f"本地指南/工具项 {guide_count + 1} 个定义未上传，tools 每端 {tool_count} 个文件；"
+            f"tools 每端 {tool_count} 个文件；"
             f"GitHub 上传 {uploaded} 个，按本地哈希跳过 {skipped} 个，"
             f"移除云端旧附件 {removed} 个。"
         )
         self.refresh_cartridge_management()
         messagebox.showinfo(
-            "扩展发布完成",
+            "工具文件上传完成",
             "工具下载文件已同步到 GitLink 和 GitHub 的 tools Release；指南和工具项仍以本地配置为准。\n"
             f"本次移除云端旧附件：{removed} 个。",
         )
@@ -796,12 +787,11 @@ class CartridgeManagementUiMixin:
         self.hub_generate_button.configure(state="normal")
         _publish_button, pause_button, status_label, _progress_bar = self._publish_scope_controls()
         pause_button.configure(state="disabled", text="暂停发布")
-        status_label.configure(text="扩展发布已暂停" if paused else "扩展发布失败")
-        self._log(f"指南与工具扩展双端发布未完成：{message}")
+        status_label.configure(text="工具文件上传已暂停" if paused else "工具文件上传失败")
         if paused:
-            messagebox.showinfo("扩展发布已暂停", message)
+            messagebox.showinfo("工具文件上传已暂停", message)
         else:
-            messagebox.showerror("扩展双端发布失败", message)
+            messagebox.showerror("工具文件双端上传失败", message)
 
     def publish_cartridge_hub(self) -> None:
         profiles = self.workspace.list_games()

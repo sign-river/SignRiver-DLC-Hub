@@ -34,6 +34,7 @@ from .extension_assets import (
     ExtensionPublishAssets,
     ExtensionResourceSummary,
     TOOLS_INDEX_ASSET_NAME,
+    export_tool_assets,
     export_extension_assets,
     inspect_extension_resources,
     sync_local_client_resources,
@@ -1378,6 +1379,21 @@ class PublisherWorkspace:
             guides=make_assets(guide_files),
             tools=make_assets(tool_files),
             summary=summary,
+        )
+
+    def tool_publish_assets(self) -> tuple[PublishAsset, ...]:
+        """Build the cloud payload without requiring guide definitions."""
+        files, summary = export_tool_assets(
+            self.tools_source_dir, self.output_dir / "tools",
+        )
+        if summary.error:
+            raise RuntimeError(summary.error)
+        return tuple(
+            PublishAsset(
+                path=path, name=path.name, size_bytes=path.stat().st_size,
+                sha256=self._verified_file_sha256(path),
+            )
+            for path in sorted(files, key=lambda item: item.name.casefold())
         )
 
     def changed_publish_assets(

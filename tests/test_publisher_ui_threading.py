@@ -1123,15 +1123,14 @@ def test_resource_management_ui_splits_overview_and_operation_subpages() -> None
     for text in (
         "发布资源统一管理",
         "卡带与公告",
-        "扩展指南与工具",
+        "工具文件上传",
         "刷新资源概览",
         "进入卡带与公告",
-        "进入指南与工具",
+        "进入工具文件上传",
         "全部游戏卡带",
         "管理公告",
-        "打开指南目录",
         "打开工具目录",
-        "预检并双端发布扩展",
+        "确认双端上传工具文件",
         "publish_extensions_mirror",
     ):
         assert text in source

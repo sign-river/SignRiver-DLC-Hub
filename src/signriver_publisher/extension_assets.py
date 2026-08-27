@@ -270,6 +270,29 @@ def export_extension_assets(
     return guide_files, tuple(written_tools), summary
 
 
+def export_tool_assets(
+    tools_source_dir: Path, tools_output_dir: Path
+) -> tuple[tuple[Path, ...], ToolResourceSummary]:
+    """Materialise only downloadable tool payloads for the tools Release."""
+    try:
+        _records, tool_files = _tool_records(tools_source_dir)
+    except ExtensionExportError as error:
+        return (), ToolResourceSummary(True, error=str(error))
+    tools_output_dir.mkdir(parents=True, exist_ok=True)
+    previous = _load_manifest(tools_output_dir)
+    for name in previous:
+        (tools_output_dir / name).unlink(missing_ok=True)
+    written: list[Path] = []
+    for source in tool_files:
+        if source.name == TOOLS_INDEX_ASSET_NAME:
+            continue
+        target = tools_output_dir / source.name
+        shutil.copy2(source, target)
+        written.append(target)
+    _write_manifest(tools_output_dir, {path.name for path in written})
+    return tuple(written), ToolResourceSummary(True, len(_records))
+
+
 def sync_local_client_resources(
     guides_source_dir: Path, tools_source_dir: Path, target_dir: Path
 ) -> tuple[Path, ...]:
@@ -314,6 +337,6 @@ def sync_local_client_resources(
 __all__ = [
     "ExtensionExportError", "ExtensionPublishAssets", "ExtensionResourceSummary",
     "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "ToolResourceSummary",
-    "export_extension_assets", "inspect_extension_resources",
+    "export_extension_assets", "export_tool_assets", "inspect_extension_resources",
     "sync_local_client_resources",
 ]
