@@ -94,6 +94,19 @@ def test_latest_installer_tool_uses_selected_source_manifest_without_updater() -
     assert "def _open_latest_installer_folder" in source
 
 
+def test_paradox_launcher_tools_are_builtin_and_guard_running_process() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    assert '"P 社启动器警告清除"' in source
+    assert '"P 社启动器安装工具"' in source
+    assert "def _paradox_launcher_root" in source
+    assert "def _paradox_launcher_version_dir" in source
+    assert "def _paradox_launcher_is_running" in source
+    assert "请先完全退出 P 社启动器" in source
+    assert "去除启动器警告" in source
+    assert "打开安装程序" in source
+    assert "PARADOX_LAUNCHER_INSTALLER_URL" in source
+
+
 def test_guides_request_user_friendly_evidence() -> None:
     guide_text = "\n".join(path.read_text(encoding="utf-8") for path in GUIDES_ROOT.glob("*.json"))
 

@@ -154,6 +154,32 @@ def test_update_guide_mentions_code_issue_and_both_latest_package_sources(tmp_pa
     assert sum(block[1] == "仍无法解决时" for block in document.blocks if block[0] == "heading") == 1
 
 
+def test_paradox_launcher_guides_include_warning_flow_and_installer_fallback(tmp_path: Path) -> None:
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entries = service.refresh_index(allow_network=False)
+    warning = service.load_guide(
+        next(item for item in entries if item.guide_id == "paradox-launcher-dlc-warning"),
+        allow_network=False,
+    )
+    steam_error = service.load_guide(
+        next(item for item in entries if item.guide_id == "paradox-launcher-steam-error"),
+        allow_network=False,
+    )
+    warning_text = "\n".join(block[1] for block in warning.blocks if block[0] == "text")
+    steam_text = "\n".join(block[1] for block in steam_error.blocks if block[0] == "text")
+    warning_targets = {block[2] for block in warning.blocks if block[0] == "button"}
+    steam_targets = {block[2] for block in steam_error.blocks if block[0] == "button"}
+    assert "正常现象" in warning_text and "不影响 DLC 使用" in warning_text
+    assert {Path(block[1]).name for block in warning.blocks if block[0] == "image"} >= {
+        "paradox-launcher-warning.png", "paradox-launcher-versions.png",
+    }
+    assert "Steam 运行时通讯错误" in steam_text
+    assert warning_targets == {"tool:paradox-launcher-warning"}
+    assert steam_targets == {"tool:paradox-launcher-warning", "tool:paradox-launcher-installer"}
+
+
 def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive() -> None:
     tool = GuideTool.from_dict({
         "tool_id": "security-scan", "title": "安全软件扫描", "description": "",

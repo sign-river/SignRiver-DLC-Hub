@@ -309,6 +309,8 @@ UPDATE_MANIFEST_URLS = {
 }
 MICROSOFT_FALSE_POSITIVE_URL = "https://www.microsoft.com/en-us/wdsi/filesubmission"
 WINDOWS_SECURITY_URI = "windowsdefender://threatsettings/"
+PARADOX_LAUNCHER_INSTALLER_URL = "https://launcher.paradoxinteractive.com/installer/Paradox%20Launcher.exe"
+PARADOX_LAUNCHER_INSTALLER_NAME = "Paradox-Launcher-Installer.exe"
 
 
 class _PatchAssetVerificationError(RuntimeError):
@@ -3371,6 +3373,16 @@ class DlcHubApplication:
                 "从当前下载源获取最新 Windows 安装包，不影响程序自动更新。",
                 self._show_latest_installer_detail,
             ))
+            cards.append((
+                "P 社启动器警告清除",
+                "处理 P 社启动器 DLC 列表警告并检查启动器状态。",
+                self._show_paradox_launcher_warning_tool,
+            ))
+            cards.append((
+                "P 社启动器安装工具",
+                "下载官方 P 社启动器安装程序并打开下载文件夹。",
+                self._show_paradox_launcher_installer_tool,
+            ))
         cards.extend(
             (
                 tool.title,
@@ -3614,6 +3626,273 @@ class DlcHubApplication:
                 self._post_ui(lambda: status.configure(text="下载失败，请检查网络后重试。"))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _paradox_launcher_root(self) -> Path | None:
+        """Locate the standard Paradox Launcher installation directory."""
+        if os.name != "nt":
+            return None
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        candidates = []
+        if local_appdata:
+            candidates.append(Path(local_appdata) / "Programs" / "Paradox Interactive" / "launcher")
+        candidates.append(Path.home() / "AppData" / "Local" / "Programs" / "Paradox Interactive" / "launcher")
+        return next((path for path in candidates if path.is_dir()), None)
+
+    def _paradox_launcher_is_running(self) -> bool:
+        if os.name != "nt":
+            return False
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq launcher.exe", "/NH"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return "launcher.exe" in result.stdout.lower()
+
+    def _paradox_launcher_version_dir(self) -> Path | None:
+        root = self._paradox_launcher_root()
+        if root is None:
+            return None
+        version_dirs = sorted(
+            (path for path in root.glob("launcher-*") if path.is_dir()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
+        relative = Path("resources") / "app.asar.unpacked" / "node_modules" / "greenworks" / "lib" / "steam_api64.dll"
+        for path in version_dirs:
+            if (path / relative).is_file():
+                return path
+        return None
+
+    def _paradox_patch_source(self) -> Path | None:
+        """Use the already downloaded, verified unlocker asset as patch source."""
+        ready = self._patch_ready_paths()
+        if not ready:
+            return None
+        source = ready.get("unlocker_dll")
+        return source if source is not None and source.is_file() else None
+
+    def _show_paradox_launcher_warning_tool(
+        self, *, origin: str = "tool_center", article_id: str | None = None
+    ) -> None:
+        back_text = "← 返回常用工具"
+        back_command = self._show_tool_center_list
+        if origin == "solution" and article_id:
+            self._tool_detail_solution_return = (article_id, self.solution_detail_origin)
+            article = self.solution_articles.get(article_id)
+            back_text = f"← 返回{article[0]}" if article and article[0] else "← 返回解决方案"
+            back_command = self._return_from_tool_to_solution
+        else:
+            self._tool_detail_solution_return = None
+        self._show_tool_center_detail(
+            "P 社启动器警告清除",
+            requires_cloud_download=False,
+            back_text=back_text,
+            back_command=back_command,
+            tool_key="builtin:paradox-launcher-warning",
+        )
+        body = self.tool_center_detail_body
+        self._create_tool_detail_textbox(
+            "如果 P 社启动器启动后提示 Steam 运行时通讯错误，请先点击“启动器修复”。如果修复无效，再使用 P 社启动器安装工具覆盖安装一个新的启动器。",
+            text_color=UI["text_secondary"], pady=(16, 10),
+        )
+        self.paradox_launcher_status = ctk.CTkLabel(
+            body, text="正在检查启动器安装路径……", text_color=UI["text"], anchor="w"
+        )
+        self.paradox_launcher_status.pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 14))
+        ctk.CTkButton(
+            actions, text="去除启动器警告", width=150,
+            command=self._repair_paradox_launcher, **BUTTON_PRIMARY,
+        ).pack(side="left")
+        ctk.CTkButton(
+            actions, text="打开启动器安装文件夹", width=176,
+            command=self._open_paradox_launcher_folder, **BUTTON_SECONDARY,
+        ).pack(side="left", padx=(8, 0))
+        self._refresh_paradox_launcher_status()
+
+    def _refresh_paradox_launcher_status(self) -> None:
+        status = getattr(self, "paradox_launcher_status", None)
+        if status is None:
+            return
+        root = self._paradox_launcher_root()
+        version = self._paradox_launcher_version_dir()
+        if root is None:
+            text = "未找到 P 社启动器安装目录。"
+        elif version is None:
+            text = f"已找到安装目录，但没有可处理的完整版本：{root}"
+        else:
+            text = f"当前可处理版本：{version.name}"
+        status.configure(text=text)
+
+    def _open_paradox_launcher_folder(self) -> None:
+        self._append_tool_log("点击操作：打开 P 社启动器安装文件夹", tool_key="builtin:paradox-launcher-warning")
+        root = self._paradox_launcher_root()
+        if root is None:
+            self._notify("未找到 P 社启动器安装文件夹，请先安装启动器。", error=True)
+            return
+        self._open_path(root)
+
+    def _repair_paradox_launcher(self) -> None:
+        key = "builtin:paradox-launcher-warning"
+        self._append_tool_log("点击操作：修复 P 社启动器", tool_key=key)
+        if self._paradox_launcher_is_running():
+            self._append_tool_log("修复中断：P 社启动器正在运行", tool_key=key)
+            self._notify("请先完全退出 P 社启动器，再重试修复。", error=True)
+            return
+        version_dir = self._paradox_launcher_version_dir()
+        source = self._paradox_patch_source()
+        if version_dir is None:
+            self._notify("未找到可处理的完整启动器版本，请先安装或更新 P 社启动器。", error=True)
+            return
+        if source is None:
+            self._notify("请先在当前游戏页面下载并准备好补丁资源，再进行启动器修复。", error=True)
+            return
+        target = version_dir / "resources" / "app.asar.unpacked" / "node_modules" / "greenworks" / "lib" / "steam_api64.dll"
+        backup = target.with_name("steam_api64.original.dll")
+        temporary = target.with_name("steam_api64.dll.signriver.tmp")
+        try:
+            if not backup.exists():
+                shutil.copy2(target, backup)
+            shutil.copy2(source, temporary)
+            os.replace(temporary, target)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.context.logger.exception("Paradox launcher repair failed")
+            self._append_tool_log("启动器修复失败", tool_key=key)
+            self._notify("启动器修复失败，请确认文件未被占用后重试。", error=True)
+            return
+        self._append_tool_log(f"启动器修复完成：{version_dir.name}", tool_key=key)
+        self._notify("启动器修复完成，请重新打开 P 社启动器。")
+        self._refresh_paradox_launcher_status()
+
+    def _paradox_installer_folder(self) -> Path:
+        folder = self.context.paths.data / "paradox-launcher-installer"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def _show_paradox_launcher_installer_tool(
+        self, *, origin: str = "tool_center", article_id: str | None = None
+    ) -> None:
+        back_text = "← 返回常用工具"
+        back_command = self._show_tool_center_list
+        if origin == "solution" and article_id:
+            self._tool_detail_solution_return = (article_id, self.solution_detail_origin)
+            article = self.solution_articles.get(article_id)
+            back_text = f"← 返回{article[0]}" if article and article[0] else "← 返回解决方案"
+            back_command = self._return_from_tool_to_solution
+        else:
+            self._tool_detail_solution_return = None
+        self._show_tool_center_detail(
+            "P 社启动器安装工具",
+            requires_cloud_download=False,
+            back_text=back_text,
+            back_command=back_command,
+            tool_key="builtin:paradox-launcher-installer",
+        )
+        body = self.tool_center_detail_body
+        self._create_tool_detail_textbox(
+            "从 P 社官网下载安装程序。官网下载需要代理或国际网络；如果没有条件，可以进群联系开发者协助下载。下载后可打开文件夹手动运行安装程序。",
+            text_color=UI["text_secondary"], pady=(16, 10),
+        )
+        self.paradox_installer_status = ctk.CTkLabel(
+            body, text="尚未下载", text_color=UI["text"], anchor="w"
+        )
+        self.paradox_installer_status.pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 10))
+        self.paradox_installer_download_button = ctk.CTkButton(
+            actions, text="下载 P 社启动器安装程序", width=190,
+            command=self._download_paradox_launcher_installer, **BUTTON_PRIMARY,
+        )
+        self.paradox_installer_download_button.pack(side="left")
+        ctk.CTkButton(
+            actions, text="打开安装程序", width=126,
+            command=self._launch_paradox_launcher_installer,
+            state="normal" if (self._paradox_installer_folder() / PARADOX_LAUNCHER_INSTALLER_NAME).is_file() else "disabled",
+            **BUTTON_SECONDARY,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            actions, text="打开下载文件夹", width=140,
+            command=lambda: self._open_path(self._paradox_installer_folder()), **BUTTON_SECONDARY,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            body, text="打开 P 社官网", width=126,
+            command=lambda: self._open_tool_url("https://launcher.paradoxinteractive.com/", "P 社官网", tool_key="builtin:paradox-launcher-installer"),
+            **BUTTON_SECONDARY,
+        ).pack(anchor="w", padx=16, pady=(0, 6))
+        ctk.CTkButton(
+            body, text="加入 QQ 群获取协助", width=150,
+            command=lambda: self._open_tool_url("https://qm.qq.com/q/NQRer2RHmC", "QQ群", tool_key="builtin:paradox-launcher-installer"),
+            **BUTTON_SECONDARY,
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+
+    def _download_paradox_launcher_installer(self) -> None:
+        status = getattr(self, "paradox_installer_status", None)
+        button = getattr(self, "paradox_installer_download_button", None)
+        if status is None or button is None:
+            return
+        key = "builtin:paradox-launcher-installer"
+        target = self._paradox_installer_folder() / PARADOX_LAUNCHER_INSTALLER_NAME
+        self._append_tool_log("开始下载：P 社启动器安装程序", tool_key=key)
+        status.configure(text="正在下载……")
+        button.configure(state="disabled", text="正在下载……")
+
+        def worker() -> None:
+            temporary = target.with_suffix(target.suffix + ".part")
+            try:
+                request = urllib.request.Request(
+                    PARADOX_LAUNCHER_INSTALLER_URL,
+                    headers={"User-Agent": "SignRiver-DLC-Hub"},
+                )
+                with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as stream:
+                    shutil.copyfileobj(response, stream)
+                if temporary.stat().st_size == 0:
+                    raise OSError("下载文件为空")
+                os.replace(temporary, target)
+            except Exception as error:
+                self.context.logger.exception("Paradox launcher installer download failed")
+                temporary.unlink(missing_ok=True)
+                self._post_ui(lambda value=str(error): self._append_tool_log(f"下载失败：{value}", tool_key=key))
+                self._post_ui(lambda: status.configure(text="下载失败，请检查网络后重试。"))
+                self._post_ui(lambda: button.configure(state="normal", text="下载 P 社启动器安装程序"))
+                return
+            self._post_ui(lambda: self._append_tool_log("P 社启动器安装程序下载完成", tool_key=key))
+            self._post_ui(lambda: status.configure(text=f"已下载：{target.name}"))
+            self._post_ui(lambda: button.configure(state="normal", text="卸载安装程序"))
+            self._post_ui(lambda: button.configure(command=self._delete_paradox_launcher_installer, **BUTTON_DANGER))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _launch_paradox_launcher_installer(self) -> None:
+        target = self._paradox_installer_folder() / PARADOX_LAUNCHER_INSTALLER_NAME
+        key = "builtin:paradox-launcher-installer"
+        self._append_tool_log("点击操作：打开 P 社启动器安装程序", tool_key=key)
+        if not target.is_file():
+            self._notify("尚未下载 P 社启动器安装程序。", error=True)
+            return
+        try:
+            self._start_helper_executable(target, run_as_admin=False)
+        except OSError:
+            self.context.logger.exception("Paradox launcher installer launch failed")
+            self._append_tool_log("打开安装程序失败", tool_key=key)
+            self._notify("无法打开安装程序，请先打开下载文件夹手动运行。", error=True)
+
+    def _delete_paradox_launcher_installer(self) -> None:
+        target = self._paradox_installer_folder() / PARADOX_LAUNCHER_INSTALLER_NAME
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            self._notify("卸载安装程序失败，请关闭正在使用它的窗口后重试。", error=True)
+            return
+        self._append_tool_log("已卸载 P 社启动器安装程序", tool_key="builtin:paradox-launcher-installer")
+        self._notify("已卸载 P 社启动器安装程序")
+        self._show_paradox_launcher_installer_tool()
 
     def _open_latest_installer_folder(self) -> None:
         self._append_tool_log(
@@ -5311,6 +5590,26 @@ class DlcHubApplication:
                 finally:
                     self._skip_tool_center_refresh = False
                 self._show_latest_installer_detail(
+                    origin="solution", article_id=current_id
+                )
+                return
+            if tool_id == "paradox-launcher-warning" and current_id:
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_paradox_launcher_warning_tool(
+                    origin="solution", article_id=current_id
+                )
+                return
+            if tool_id == "paradox-launcher-installer" and current_id:
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_paradox_launcher_installer_tool(
                     origin="solution", article_id=current_id
                 )
                 return

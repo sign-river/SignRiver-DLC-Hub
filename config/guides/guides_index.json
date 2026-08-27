@@ -70,6 +70,30 @@
       "platforms": [
         "all"
       ]
+    },
+    {
+      "guide_id": "paradox-launcher-dlc-warning",
+      "title": "解锁后 P 社游戏启动器 DLC 列表出现警告",
+      "summary": "启动器 DLC 列表提示无法确认 DLC 拥有者，但不影响 DLC 使用。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_paradox_launcher_dlc_warning.json",
+      "platforms": ["windows"]
+    },
+    {
+      "guide_id": "paradox-launcher-steam-error",
+      "title": "P 社启动器 Steam 运行时通讯错误",
+      "summary": "启动器更新后补丁失效，启动时提示 Steam 运行时通讯错误。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_paradox_launcher_steam_error.json",
+      "platforms": ["windows"]
+    },
+    {
+      "guide_id": "paradox-launcher-crash-null",
+      "title": "游戏启动时报错（退出代码 null）",
+      "summary": "启动游戏时弹出错误提示，显示游戏意外终止并返回退出代码 null。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_paradox_launcher_crash_null.json",
+      "platforms": ["windows"]
     }
   ]
 }
