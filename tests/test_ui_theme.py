@@ -81,6 +81,8 @@ def test_latest_installer_tool_uses_selected_source_manifest_without_updater() -
     assert 'release.get("kind") != "full"' in source
     assert 'windows-x64' in source
     assert "打开下载文件夹" in source
+    assert "如果程序更新时遇到报错" in source
+    assert "将压缩包放到任意位置解压" in source
     assert "开始下载最新安装包：读取" in source
     assert "最新安装包下载完成" in source
     assert "最新安装包下载失败" in source

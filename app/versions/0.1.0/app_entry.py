@@ -3516,7 +3516,7 @@ class DlcHubApplication:
         )
         body = self.tool_center_detail_body
         self._create_tool_detail_textbox(
-            "读取当前下载源的更新清单，自动选择最新的 Windows 安装包并下载到本地。此工具不会触发程序自动更新。",
+            "如果程序更新时遇到报错，可以使用此工具下载最新发布包。工具会读取当前下载源并自动选择最新的 Windows 安装包；下载成功后点击“打开下载文件夹”，将压缩包放到任意位置解压，之后即可继续正常使用。本工具不会触发程序自动更新。",
             text_color=UI["text_secondary"],
             pady=(16, 14),
         )
