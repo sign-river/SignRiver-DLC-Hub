@@ -1740,7 +1740,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=13),
         ).pack(fill="x")
         ctk.CTkButton(
-            guide_tips_body, text="开始一键排错  →", width=190, height=42,
+            guide_tips_body, text="开始一键排错  →", width=170, height=50,
             command=lambda: self._show_page("简单错误检测"),
         ).grid(row=0, column=1, padx=(24, 0))
         ctk.CTkLabel(self.error_guide_card, text="其他工具", text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=36, pady=(0, 12))
@@ -3547,7 +3547,7 @@ class DlcHubApplication:
             font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(fill="x", padx=14, pady=(10, 2))
         ctk.CTkLabel(
-            ai_callout, text="收集完成后，点击下方按钮打开日志收集文件夹，可将日志文件与遇到的问题一起交由 AI 辅助诊断，获取更有针对性的参考方案。",
+            ai_callout, text="收集完成后，点击下方按钮打开日志收集文件夹，所有日志会集中在同一目录中，可一键全选并连同遇到的问题一起交由 AI 辅助诊断，获取更有针对性的参考方案。",
             text_color=UI["text_secondary"], anchor="w", justify="left", wraplength=720,
         ).pack(fill="x", padx=14, pady=(0, 10))
         self.support_collection_status_label = ctk.CTkLabel(
@@ -4936,17 +4936,6 @@ class DlcHubApplication:
             **BUTTON_SECONDARY,
         )
         launch_button.pack(side="left", padx=(8, 0))
-        if origin == "solution" and article_id:
-            ctk.CTkButton(
-                row,
-                text="查看工具详情",
-                width=128,
-                command=lambda selected=tool, selected_article=article_id: self._show_guide_tool_detail(
-                    selected, origin="solution", article_id=selected_article
-                ),
-                **BUTTON_SECONDARY,
-            ).pack(side="left", padx=(8, 0))
-
     def _refresh_helper_tool_view(
         self, tool: GuideTool, *, origin: str, article_id: str | None
     ) -> None:

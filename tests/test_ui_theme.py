@@ -383,6 +383,7 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert '**self._helper_download_button_style(tool)' in helper_actions
     assert 'command=lambda selected=tool: self._launch_helper_tool(selected),' in helper_actions
     assert '**BUTTON_SECONDARY' in helper_actions
+    assert 'text="查看工具详情"' not in helper_actions
     assert 'command=lambda: self._remove_guide_tool(target), **BUTTON_DANGER' in tool_detail
     assert 'command=lambda item=product: self._open_security_product(item),' in security_products
     assert '**BUTTON_SECONDARY' in security_products
