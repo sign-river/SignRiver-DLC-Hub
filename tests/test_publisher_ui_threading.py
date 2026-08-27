@@ -1130,6 +1130,7 @@ def test_resource_management_ui_splits_overview_and_operation_subpages() -> None
         "全部游戏卡带",
         "管理公告",
         "打开工具目录",
+        "构建工具快照",
         "确认双端上传工具文件",
         "publish_extensions_mirror",
     ):
@@ -1137,6 +1138,8 @@ def test_resource_management_ui_splits_overview_and_operation_subpages() -> None
 
     assert "self.extension_detail_page = ctk.CTkFrame" in source
     assert "def _show_extension_detail" in source
+    assert "打开指南目录" not in source
+    assert "本地发布指南与工具项" not in home_source
     assert "CTkScrollableFrame" not in home_source
 
 

@@ -8,7 +8,10 @@ module gives the publisher the same view before anything is uploaded.
 from __future__ import annotations
 
 import json
+import hashlib
+import os
 import shutil
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +28,7 @@ TOOLS_INDEX_ASSET_NAME = "tools_index.json"
 TOOLS_RELEASE_TAG = "tools"
 _TOOLS_MANIFEST_NAME = ".tools-manifest.json"
 _LOCAL_MANIFEST_NAME = ".local-guides-tools-manifest.json"
+_BUILD_SNAPSHOT_NAME = ".tools-build.json"
 _SAFE_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 
 
@@ -271,26 +275,98 @@ def export_extension_assets(
 
 
 def export_tool_assets(
-    tools_source_dir: Path, tools_output_dir: Path
+    tools_source_dir: Path, tools_output_dir: Path, *, require_snapshot: bool = True
 ) -> tuple[tuple[Path, ...], ToolResourceSummary]:
-    """Materialise only downloadable tool payloads for the tools Release."""
-    try:
-        _records, tool_files = _tool_records(tools_source_dir)
-    except ExtensionExportError as error:
-        return (), ToolResourceSummary(True, error=str(error))
+    """Materialise flat files from assets after validating the local snapshot."""
+    assets_dir = tools_source_dir / "assets"
+    if require_snapshot:
+        files = validate_tool_snapshot(tools_source_dir)
+    else:
+        files = _scan_tool_assets(assets_dir)
     tools_output_dir.mkdir(parents=True, exist_ok=True)
     previous = _load_manifest(tools_output_dir)
     for name in previous:
         (tools_output_dir / name).unlink(missing_ok=True)
     written: list[Path] = []
-    for source in tool_files:
-        if source.name == TOOLS_INDEX_ASSET_NAME:
-            continue
+    for source in files:
         target = tools_output_dir / source.name
         shutil.copy2(source, target)
         written.append(target)
     _write_manifest(tools_output_dir, {path.name for path in written})
-    return tuple(written), ToolResourceSummary(True, len(_records))
+    return tuple(written), ToolResourceSummary(True, len(files))
+
+
+def _scan_tool_assets(assets_dir: Path) -> tuple[Path, ...]:
+    if not assets_dir.is_dir():
+        raise ExtensionExportError("工具目录缺少 assets 文件夹")
+    entries = tuple(sorted(assets_dir.iterdir(), key=lambda item: item.name.casefold()))
+    if not entries:
+        raise ExtensionExportError("assets 文件夹中没有工具文件")
+    seen: set[str] = set()
+    files: list[Path] = []
+    for path in entries:
+        if path.is_symlink():
+            raise ExtensionExportError(f"工具文件不能是符号链接：{path.name}")
+        if not path.is_file():
+            raise ExtensionExportError(f"assets 只能直接放普通文件：{path.name}")
+        key = path.name.casefold()
+        if key in seen:
+            raise ExtensionExportError(f"工具文件名大小写重复：{path.name}")
+        seen.add(key)
+        files.append(path)
+    return tuple(files)
+
+
+def _file_snapshot(path: Path) -> dict[str, object]:
+    before = path.stat()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    after = path.stat()
+    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+        after.st_size, after.st_mtime_ns, after.st_ctime_ns
+    ):
+        raise ExtensionExportError(f"工具文件在校验期间发生变化：{path.name}")
+    return {"name": path.name, "size_bytes": after.st_size, "sha256": digest}
+
+
+def build_tool_snapshot(tools_source_dir: Path) -> dict[str, object]:
+    """Hash the flat assets directory and atomically write the local snapshot."""
+    files = _scan_tool_assets(tools_source_dir / "assets")
+    snapshot = {
+        "schema_version": 1,
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "files": [_file_snapshot(path) for path in files],
+    }
+    target = tools_source_dir / _BUILD_SNAPSHOT_NAME
+    tools_source_dir.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, target)
+    return snapshot
+
+
+def _read_tool_snapshot(tools_source_dir: Path) -> dict[str, object]:
+    path = tools_source_dir / _BUILD_SNAPSHOT_NAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ExtensionExportError("请先构建工具快照") from error
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise ExtensionExportError("工具快照格式无效，请重新构建")
+    if not isinstance(value.get("files"), list) or not value["files"]:
+        raise ExtensionExportError("工具快照中没有工具文件，请重新构建")
+    return value
+
+
+def validate_tool_snapshot(tools_source_dir: Path) -> tuple[Path, ...]:
+    snapshot = _read_tool_snapshot(tools_source_dir)
+    current = _scan_tool_assets(tools_source_dir / "assets")
+    expected = snapshot["files"]
+    if not all(isinstance(item, dict) for item in expected):
+        raise ExtensionExportError("工具快照文件记录无效，请重新构建")
+    actual = [_file_snapshot(path) for path in current]
+    if actual != expected:
+        raise ExtensionExportError("工具文件已变化，请重新构建工具快照")
+    return current
 
 
 def sync_local_client_resources(
@@ -337,6 +413,7 @@ def sync_local_client_resources(
 __all__ = [
     "ExtensionExportError", "ExtensionPublishAssets", "ExtensionResourceSummary",
     "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "ToolResourceSummary",
-    "export_extension_assets", "export_tool_assets", "inspect_extension_resources",
+    "build_tool_snapshot", "export_extension_assets", "export_tool_assets",
+    "inspect_extension_resources", "validate_tool_snapshot",
     "sync_local_client_resources",
 ]

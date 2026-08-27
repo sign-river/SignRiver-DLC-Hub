@@ -197,7 +197,7 @@ class CartridgeManagementUiMixin:
             border_color="#D8E6F4", corner_radius=10,
         )
         actions.grid(row=2, column=0, padx=8, pady=(0, 8), sticky="ew")
-        actions.grid_columnconfigure((0, 1), weight=1, uniform="extension_actions")
+        actions.grid_columnconfigure((0, 1, 2), weight=1, uniform="extension_actions")
         ctk.CTkLabel(
             actions, text="将工具载荷同步到 GitLink 与 GitHub 的 tools Release。", text_color=MUTED,
             anchor="w", justify="left",
@@ -205,21 +205,26 @@ class CartridgeManagementUiMixin:
         ctk.CTkButton(
             actions, text="打开工具目录", height=36, fg_color=LIGHT_BLUE,
             command=self.open_tools_source_folder,
-        ).grid(row=1, column=0, padx=14, pady=4, sticky="ew")
+        ).grid(row=1, column=0, padx=(14, 6), pady=4, sticky="ew")
+        self.extensions_build_button = ctk.CTkButton(
+            actions, text="构建工具快照", height=36, fg_color=LIGHT_BLUE,
+            command=self.build_tool_snapshot,
+        )
+        self.extensions_build_button.grid(row=1, column=1, padx=6, pady=4, sticky="ew")
         self.extensions_publish_button = ctk.CTkButton(
             actions, text="双端上传工具文件", height=36, fg_color=BLUE,
             command=self.publish_extensions_mirror,
         )
-        self.extensions_publish_button.grid(row=1, column=1, padx=(6, 14), pady=4, sticky="ew")
+        self.extensions_publish_button.grid(row=1, column=2, padx=(6, 14), pady=4, sticky="ew")
         self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
             actions,
             text="仅上传工具文件；tools_index.json 和指南内容随客户端版本发布。未修改文件会按 SHA-256 直接复用。",
             text_color=MUTED, anchor="w", justify="left", wraplength=780,
-        ).grid(row=2, column=0, columnspan=2, padx=14, pady=(0, 8), sticky="ew")
+        ).grid(row=2, column=0, columnspan=3, padx=14, pady=(0, 8), sticky="ew")
 
         transfer = ctk.CTkFrame(actions, fg_color="transparent")
-        transfer.grid(row=3, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="ew")
+        transfer.grid(row=3, column=0, columnspan=3, padx=14, pady=(4, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.extensions_upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=190, anchor="w", text_color=MUTED,
@@ -306,7 +311,6 @@ class CartridgeManagementUiMixin:
                 self.cartridge_list, text="尚未配置游戏卡带", text_color=MUTED
             ).pack(pady=24)
         target = f"{self.settings.owner}/{self.settings.repository}"
-        extension_status = self.workspace.extension_resource_summary().status_text
         self.hub_summary.configure(
             text=f"共 {len(profiles)} 张卡带 · 本地已生成 {generated} 张"
         )
@@ -317,7 +321,7 @@ class CartridgeManagementUiMixin:
             )
         )
         self.hub_status_summary.configure(
-            text=f"{extension_status} · 发布前将校验 tool_id 互相引用"
+            text="工具文件放在 tools/assets/ · 上传前先构建工具快照"
         )
         self._schedule_scrollable_reset(self.cartridge_list)
 
@@ -623,6 +627,18 @@ class CartridgeManagementUiMixin:
         self._log(f"本地指南与工具项发布完成：{len(written)} 个文件")
         messagebox.showinfo("本地发布完成", f"已同步 {len(written)} 个文件；请构建并发布客户端更新后生效。")
 
+    def build_tool_snapshot(self) -> None:
+        try:
+            snapshot = self.workspace.build_tool_snapshot()
+        except Exception as error:
+            self.extensions_upload_status.configure(text="构建失败")
+            messagebox.showerror("工具快照构建失败", str(error), parent=self)
+            return
+        count = len(snapshot.get("files", []))
+        built_at = str(snapshot.get("built_at", "")).replace("T", " ").split("+", 1)[0]
+        self.extensions_upload_status.configure(text=f"快照已构建：{count} 个文件 · {built_at}")
+        self._log(f"工具快照构建完成：{count} 个文件")
+
     def publish_extensions_mirror(self) -> None:
         """Preflight and publish downloadable tool payloads only."""
         summary = self.workspace.extension_resource_summary()
@@ -644,6 +660,9 @@ class CartridgeManagementUiMixin:
                 "无法双端上传工具文件",
                 "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。",
             )
+            return
+        if not (self.workspace.tools_source_dir / ".tools-build.json").is_file():
+            messagebox.showerror("无法上传工具文件", "请先点击“构建工具快照”。", parent=self)
             return
         if not messagebox.askyesno(
             "确认双端上传工具文件",
@@ -716,6 +735,16 @@ class CartridgeManagementUiMixin:
                         profile, github_repo.owner, github_repo.name, assets,
                         state_channel="github",
                     )
+                    remote_names = {
+                        str(item.get("name") or "").casefold()
+                        for item in release.assets
+                        if isinstance(item, dict)
+                    }
+                    missing_remote = tuple(
+                        asset for asset in assets
+                        if asset.name.casefold() not in remote_names
+                    )
+                    changed = tuple({asset.name: asset for asset in (*changed, *missing_remote)}.values())
                     skipped += len(assets) - len(changed)
                     if not changed:
                         self._post_ui(lambda tag=profile.release_tag, count=len(assets): self._log(

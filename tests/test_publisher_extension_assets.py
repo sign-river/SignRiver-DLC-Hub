@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from signriver_publisher.extension_assets import ExtensionExportError, export_tool_assets
+from signriver_publisher.extension_assets import (
+    ExtensionExportError,
+    build_tool_snapshot,
+    export_tool_assets,
+)
 from signriver_publisher.workspace import PublisherWorkspace
 
 
@@ -88,6 +92,7 @@ def test_tool_payload_export_does_not_require_guides(tmp_path: Path) -> None:
     for path in workspace.guides_source_dir.iterdir():
         if path.is_file():
             path.unlink()
+    build_tool_snapshot(workspace.tools_source_dir)
 
     files, summary = export_tool_assets(
         workspace.tools_source_dir, workspace.output_dir / "tools",
@@ -95,6 +100,53 @@ def test_tool_payload_export_does_not_require_guides(tmp_path: Path) -> None:
 
     assert summary.error == ""
     assert [path.name for path in files] == ["sample-tool.zip"]
+
+
+def test_tool_snapshot_scans_assets_without_tools_index(tmp_path: Path) -> None:
+    tools = tmp_path / "tools"
+    (tools / "assets").mkdir(parents=True)
+    payload = b"tool payload"
+    (tools / "assets" / "tool-a.zip").write_bytes(payload)
+
+    snapshot = build_tool_snapshot(tools)
+
+    assert snapshot["schema_version"] == 1
+    assert snapshot["files"][0]["name"] == "tool-a.zip"
+    assert snapshot["files"][0]["size_bytes"] == len(payload)
+    assert len(snapshot["files"][0]["sha256"]) == 64
+    assert (tools / ".tools-build.json").is_file()
+
+
+@pytest.mark.parametrize("kind", ["nested", "symlink"])
+def test_tool_snapshot_rejects_non_flat_assets(tmp_path: Path, kind: str) -> None:
+    tools = tmp_path / "tools"
+    assets = tools / "assets"
+    assets.mkdir(parents=True)
+    if kind == "nested":
+        (assets / "nested").mkdir()
+    else:
+        target = tmp_path / "real.zip"
+        target.write_bytes(b"payload")
+        try:
+            (assets / "link.zip").symlink_to(target)
+        except OSError:
+            pytest.skip("当前环境不支持创建符号链接")
+
+    with pytest.raises(ExtensionExportError):
+        build_tool_snapshot(tools)
+
+
+def test_tool_payload_export_rejects_stale_snapshot(tmp_path: Path) -> None:
+    tools = tmp_path / "tools"
+    assets = tools / "assets"
+    assets.mkdir(parents=True)
+    path = assets / "tool-a.zip"
+    path.write_bytes(b"first")
+    build_tool_snapshot(tools)
+    path.write_bytes(b"changed")
+
+    with pytest.raises(ExtensionExportError, match="已变化"):
+        export_tool_assets(tools, tmp_path / "output")
 
 
 def test_extension_preflight_requires_problem_detail_summary_type(tmp_path: Path) -> None:

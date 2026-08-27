@@ -34,6 +34,7 @@ from .extension_assets import (
     ExtensionPublishAssets,
     ExtensionResourceSummary,
     TOOLS_INDEX_ASSET_NAME,
+    build_tool_snapshot,
     export_tool_assets,
     export_extension_assets,
     inspect_extension_resources,
@@ -1395,6 +1396,9 @@ class PublisherWorkspace:
             )
             for path in sorted(files, key=lambda item: item.name.casefold())
         )
+
+    def build_tool_snapshot(self) -> dict[str, object]:
+        return build_tool_snapshot(self.tools_source_dir)
 
     def changed_publish_assets(
         self, profile: GameProfile, owner: str, repository: str, assets: tuple[PublishAsset, ...],

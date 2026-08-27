@@ -52,6 +52,9 @@ class PublisherTargetsUiMixin:
                 state="normal" if available else "disabled",
                 text="双端上传工具文件",
             )
+        build_button = getattr(self, "extensions_build_button", None)
+        if build_button is not None:
+            build_button.configure(state="normal" if available else "disabled")
         local_button = getattr(self, "extensions_local_publish_button", None)
         if local_button is not None:
             local_button.configure(
