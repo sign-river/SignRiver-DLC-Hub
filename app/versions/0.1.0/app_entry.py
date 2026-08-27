@@ -5211,6 +5211,11 @@ class DlcHubApplication:
         self._current_solution_article_id = None
         self._solution_return_context = None
         if return_context:
+            if return_context[0] == "problem":
+                event_id = str(return_context[1])
+                self._show_page("问题记录")
+                self._select_problem(event_id)
+                return
             if return_context[0] == "guide":
                 source_id = str(return_context[1])
                 source_origin = str(return_context[2])
@@ -6919,7 +6924,11 @@ class DlcHubApplication:
             and report.task_id == "patch-tool"
             else self._solution_id_for_problem_code(report.code)
         )
-        self._open_solution_article(solution_id)
+        self._open_solution_article(
+            solution_id,
+            origin="problem",
+            return_context=("problem", report.event_id),
+        )
 
     def _set_problem_detail(self, report: ProblemReport | None) -> None:
         for child in self.problem_detail_content.winfo_children():

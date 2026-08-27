@@ -56,6 +56,22 @@ def test_game_picker_keeps_long_names_left_aligned_and_wrapped() -> None:
     assert "popup_width, popup_height = 520, 400" in source
 
 
+def test_problem_solution_returns_to_same_problem_record() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    method = source.split("def _open_problem_solution", 1)[1].split(
+        "def _set_problem_detail", 1
+    )[0]
+    return_method = source.split("def _return_from_solution_detail", 1)[1].split(
+        "def _show_solution_detail", 1
+    )[0]
+
+    assert 'origin="problem"' in method
+    assert 'return_context=("problem", report.event_id)' in method
+    assert 'return_context[0] == "problem"' in return_method
+    assert 'self._show_page("问题记录")' in return_method
+    assert "self._select_problem(event_id)" in return_method
+
+
 def test_guides_request_user_friendly_evidence() -> None:
     guide_text = "\n".join(path.read_text(encoding="utf-8") for path in GUIDES_ROOT.glob("*.json"))
 
