@@ -7251,7 +7251,7 @@ class DlcHubApplication:
             try:
                 self.cartridge_catalog.refresh_index(allow_network=True)
                 loaded = self.cartridge_catalog.load_cartridge(
-                    self.cartridge.cartridge_id,
+                    self.cartridge.adapter.descriptor.game_id,
                     allow_network=True,
                     allow_fallback=False,
                 )

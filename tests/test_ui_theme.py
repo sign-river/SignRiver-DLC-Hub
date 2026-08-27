@@ -470,6 +470,7 @@ def test_catalog_actions_require_remote_cartridge_sync() -> None:
     assert "allow_fallback=False" in source
     assert "卡带配置未同步，DLC 操作已禁用" in source
     assert 'text="等待卡带同步"' in source
+    assert "self.cartridge.adapter.descriptor.game_id" in source
 
 
 def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None:
