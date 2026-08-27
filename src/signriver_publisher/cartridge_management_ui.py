@@ -51,8 +51,16 @@ class CartridgeManagementUiMixin:
         toolbar = self._card(self.cartridge_home_page, 0, "发布资源统一管理")
         toolbar.grid_columnconfigure(0, weight=1)
 
+        # 刷新是页面级的轻量操作，放在标题栏右侧；不要把它作为摘要卡
+        # 的第三列拉伸，否则在窄窗口中会形成突兀的“竖向大按钮”。
+        self.hub_refresh_button = ctk.CTkButton(
+            toolbar, text="刷新资源概览", width=128, height=32,
+            fg_color=LIGHT_BLUE, command=self.refresh_cartridge_management,
+        )
+        self.hub_refresh_button.grid(row=0, column=1, padx=(12, 20), pady=(14, 8), sticky="e")
+
         overview = ctk.CTkFrame(toolbar, fg_color="transparent")
-        overview.grid(row=1, column=0, padx=18, pady=(0, 16), sticky="ew")
+        overview.grid(row=1, column=0, columnspan=2, padx=18, pady=(0, 16), sticky="ew")
         overview.grid_columnconfigure((0, 1), weight=1, uniform="resource_summary")
 
         cartridge_overview = ctk.CTkFrame(
@@ -99,12 +107,6 @@ class CartridgeManagementUiMixin:
             extension_overview, text="进入指南与工具", height=36,
             fg_color=LIGHT_BLUE, command=self._show_extension_detail,
         ).grid(row=2, column=0, padx=14, pady=(0, 14), sticky="ew")
-
-        self.hub_refresh_button = ctk.CTkButton(
-            overview, text="刷新资源概览", width=132, height=36,
-            fg_color=LIGHT_BLUE, command=self.refresh_cartridge_management,
-        )
-        self.hub_refresh_button.grid(row=0, column=2, padx=(12, 0), sticky="ns")
 
         self._build_cartridge_detail_page()
         self._build_extension_detail_page()
