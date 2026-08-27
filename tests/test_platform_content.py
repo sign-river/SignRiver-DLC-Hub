@@ -137,6 +137,24 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
     assert not windows_tool.applies_to("steamos")
 
 
+def test_update_guide_mentions_code_issue_and_both_latest_package_sources(tmp_path: Path) -> None:
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entry = next(
+        item for item in service.refresh_index(allow_network=False)
+        if item.guide_id == "update-module-basics"
+    )
+    document = service.load_guide(entry, allow_network=False)
+    text = "\n".join(block[1] for block in document.blocks if block[0] == "text")
+    links = {block[2] for block in document.blocks if block[0] == "link"}
+
+    assert "程序代码中的兼容性问题" in text
+    assert "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases" in links
+    assert "https://github.com/sign-river/signriver-dlc-assets/releases" in links
+    assert sum(block[1] == "仍无法解决时" for block in document.blocks if block[0] == "heading") == 1
+
+
 def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive() -> None:
     tool = GuideTool.from_dict({
         "tool_id": "security-scan", "title": "安全软件扫描", "description": "",
