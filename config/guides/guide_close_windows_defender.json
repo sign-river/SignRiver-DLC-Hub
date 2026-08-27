@@ -7,12 +7,20 @@
     },
     {
       "kind": "text",
-      "text": "点击下方按钮进入关闭 Windows Defender 工具界面，然后点击“下载工具”，等待下载完成后点击“启动工具”。工具打开后，点击“停用 Windows Defender”即可。"
+      "text": "点击下方按钮进入关闭 Windows Defender 工具界面，然后点击“下载工具”，等待下载完成后点击“启动工具”。点击启动工具后如果弹出权限请求，正常授予即可。工具打开后，点击“停用 Windows Defender”即可。"
     },
     {
       "kind": "button",
       "text": "进入关闭 Windows Defender 工具界面 →",
       "target": "tool:dcontrol"
+    },
+    {
+      "kind": "image",
+      "asset_name": "defender-download.png"
+    },
+    {
+      "kind": "image",
+      "asset_name": "defender-launch.png"
     },
     {
       "kind": "image",

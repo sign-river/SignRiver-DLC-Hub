@@ -429,7 +429,10 @@ def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -
     assert document.blocks[0] == ("heading", "建议操作")
     assert ("button", "进入关闭 Windows Defender 工具界面 →", "tool:dcontrol") in document.blocks
     image_blocks = [block for block in document.blocks if block[0] == "image"]
-    assert image_blocks and image_blocks[0][1].endswith("defender-control.png")
+    assert {Path(block[1]).name for block in image_blocks} >= {
+        "defender-download.png", "defender-launch.png", "defender-control.png",
+    }
+    assert "弹出权限请求，正常授予即可" in document.blocks[1][1]
     assert not any(block[0] == "heading" and block[1] == "常见原因" for block in document.blocks)
     assert not any(block[0] == "heading" and block[1] == "注意事项" for block in document.blocks)
 
