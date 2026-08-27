@@ -1,0 +1,20 @@
+{
+  "guide_id": "graphics-device-compatibility",
+  "blocks": [
+    {"kind": "heading", "text": "适用范围"},
+    {"kind": "text", "text": "启动游戏时出现“Failed to create a graphics device”或 DirectDraw/Direct3D 加速被禁用时，可使用本指南。它仅适用于 Windows，不代表所有启动失败都由图形配置引起。"},
+    {"kind": "image", "asset_name": "graphics-device-failed.png"},
+    {"kind": "heading", "text": "建议操作"},
+    {"kind": "text", "text": "先重启电脑，再回到程序主页运行“一键排错”。程序会读取四项固定图形配置、运行 dxdiag 并检查显卡驱动信息。"},
+    {"kind": "button", "text": "开始一键排错 →", "target": "quick-check"},
+    {"kind": "text", "text": "如果检测明确显示硬件加速被禁用，可进入“图形设备兼容性”工具。修复前会备份注册表，用户确认并具备管理员权限后才会写入固定值；修复完成后必须重启电脑。"},
+    {"kind": "button", "text": "打开图形设备工具 →", "target": "tool:graphics-compatibility"},
+    {"kind": "heading", "text": "修复失败或仍无法启动"},
+    {"kind": "text", "text": "请在显卡驱动详情中使用设备管理器、Windows 更新或显卡厂商官网检查驱动。不要关闭安全防护，也不要下载来源不明的 DLL。若自动修复失败，可根据工具中的备份提示手动复核注册表，并先导出诊断资料。"},
+    {"kind": "button", "text": "打开日志资料收集 →", "target": "tool:support-collection"},
+    {"kind": "heading", "text": "仍无法解决时"},
+    {"kind": "text", "text": "联系开发者时请附上错误截图、游戏名称、显卡驱动信息和诊断资料。"},
+    {"kind": "link", "text": "点击联系开发者（QQ群）  →", "url": "https://qm.qq.com/q/NQRer2RHmC"}
+  ],
+  "tools": []
+}

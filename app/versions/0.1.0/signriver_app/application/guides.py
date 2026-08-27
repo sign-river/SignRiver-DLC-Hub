@@ -404,7 +404,7 @@ class GuideCatalogService:
             elif kind == "button" and text:
                 target = str(block.get("target") or "").strip()
                 if (
-                    target in {"patch-tool", "dlc-home"}
+                    target in {"patch-tool", "dlc-home", "quick-check"}
                     or target.startswith("guide:")
                     or (
                         target.startswith("tool:")
