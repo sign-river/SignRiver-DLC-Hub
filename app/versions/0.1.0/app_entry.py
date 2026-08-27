@@ -2349,27 +2349,53 @@ class DlcHubApplication:
         for selection_name, game in matches:
             display_name = game.get("display_name") or selection_name
             is_current = selection_name == self.selected_game_name
-            if len(display_name) > 30:
-                display_name = f"{display_name[:30]}\n{display_name[30:]}"
             text = (
                 f"{display_name}  ·  ✓ 当前选择"
                 if is_current
                 else display_name
             )
-            ctk.CTkButton(
+            item = ctk.CTkFrame(
                 results,
-                text=text,
-                command=lambda value=selection_name: self._choose_game_from_picker(value),
-                anchor="w",
-                height=54 if is_current or len(display_name) > 24 else 40,
                 fg_color=UI["primary_surface"] if is_current else UI["card"],
-                hover_color=UI["primary_surface_hover"],
                 border_color=UI["primary_border"] if is_current else UI["border"],
                 border_width=1,
-                text_color=UI["primary"] if is_current else UI["text"],
                 corner_radius=8,
+            )
+            item.pack(fill="x", padx=6, pady=3)
+            def callback(_event, value=selection_name):
+                self._choose_game_from_picker(value)
+            item.bind("<Button-1>", callback)
+            item.bind(
+                "<Enter>",
+                lambda _event, target=item: target.configure(fg_color=UI["primary_surface_hover"]),
+            )
+            item.bind(
+                "<Leave>",
+                lambda _event, target=item, selected=is_current: target.configure(
+                    fg_color=UI["primary_surface"] if selected else UI["card"]
+                ),
+            )
+            label = ctk.CTkLabel(
+                item,
+                text=text,
+                anchor="w",
+                justify="left",
+                wraplength=350,
+                text_color=UI["primary"] if is_current else UI["text"],
                 font=ctk.CTkFont(size=13, weight="bold" if is_current else "normal"),
-            ).pack(fill="x", padx=6, pady=3)
+            )
+            label.pack(fill="x", padx=12, pady=10)
+            label.bind("<Button-1>", callback)
+            label.bind(
+                "<Enter>",
+                lambda _event, target=item: target.configure(fg_color=UI["primary_surface_hover"]),
+            )
+            label.bind(
+                "<Leave>",
+                lambda _event, target=item, selected=is_current: target.configure(
+                    fg_color=UI["primary_surface"] if selected else UI["card"]
+                ),
+            )
         # 刷新搜索结果会重建子控件，显式触发一次内容高度重测，避免滚动条状态停留在旧结果。
         results.after_idle(results._update_scrollbar_visibility)
 
