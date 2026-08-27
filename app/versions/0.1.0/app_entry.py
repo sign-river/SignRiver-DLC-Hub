@@ -2265,6 +2265,10 @@ class DlcHubApplication:
             y = max(8, self.game_selector.winfo_rooty() - popup_height - 4)
         popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
         popup.deiconify()
+        # 游戏项是在弹窗尚未映射时创建的；此时滚动容器可能拿到过小的画布高度，
+        # 导致自动隐藏逻辑误判为“无需滚动”。映射后重新测量，确保超长列表显示滑块。
+        popup.after_idle(self.game_picker_results._update_scrollbar_visibility)
+        popup.after(120, self.game_picker_results._update_scrollbar_visibility)
         popup.lift()
         # Toplevel 焦点会在第二次打开时先落回组合框；等窗口映射完成后
         # 强制交给搜索框，避免浮层可见但键盘输入仍被主窗口吞掉。
@@ -2339,6 +2343,7 @@ class DlcHubApplication:
                 justify="center",
                 font=ctk.CTkFont(size=13),
             ).pack(fill="x", padx=12, pady=36)
+            results.after_idle(results._update_scrollbar_visibility)
             return
         for selection_name, game in matches:
             display_name = game.get("display_name") or selection_name
@@ -2362,6 +2367,8 @@ class DlcHubApplication:
                 corner_radius=8,
                 font=ctk.CTkFont(size=13, weight="bold" if is_current else "normal"),
             ).pack(fill="x", padx=6, pady=3)
+        # 刷新搜索结果会重建子控件，显式触发一次内容高度重测，避免滚动条状态停留在旧结果。
+        results.after_idle(results._update_scrollbar_visibility)
 
     def _choose_game_from_picker(self, display_name: str) -> None:
         self._hide_game_picker()
