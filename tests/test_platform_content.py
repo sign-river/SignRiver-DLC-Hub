@@ -332,7 +332,7 @@ def test_invalid_cached_guide_detail_falls_back_to_bootstrap(tmp_path: Path) -> 
 
     assert document.entry.guide_id == "network-basics"
     assert document.blocks
-    assert any("部分地区可能无法正常登录或连接 GitLink" in block[1] for block in document.blocks if block[0] == "text")
+    assert any("部分运营商提供的网络可能无法正常登录或连接 GitLink" in block[1] for block in document.blocks if block[0] == "text")
 
 
 def test_remote_guide_image_is_downloaded_and_cached_per_guide(tmp_path: Path) -> None:
