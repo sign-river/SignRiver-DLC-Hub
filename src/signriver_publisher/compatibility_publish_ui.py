@@ -1053,18 +1053,16 @@ class CompatibilityPublishUiMixin:
                 release = client.ensure_release(profile.release_tag)
                 total = len(assets)
                 completed_names = set(completed)
-                reusable_assets = {
-                    str(item.get("name")): int(item.get("size") or 0)
-                    for item in release.assets
-                    if item.get("name") and item.get("size") is not None
+                changed_names = {
+                    asset.name
+                    for asset in self.workspace.changed_publish_assets(
+                        profile, owner, name, assets, state_channel="github"
+                    )
                 }
                 for index, asset in enumerate(assets, start=1):
                     if (
                         asset.name in completed_names
-                        or (
-                            asset.name != profile.appinfo_name
-                            and reusable_assets.get(asset.name) == asset.size_bytes
-                        )
+                        or asset.name not in changed_names
                     ):
                         completed_names.add(asset.name)
                         self._queue_upload_progress(
@@ -1094,6 +1092,13 @@ class CompatibilityPublishUiMixin:
                     self._queue_upload_progress(
                         index, total, asset.name, asset.size_bytes, asset.size_bytes
                     )
+                self.workspace.save_publish_state(
+                    profile,
+                    self.workspace.publish_state_for_assets(
+                        profile, owner, name, assets
+                    ),
+                    state_channel="github",
+                )
                 self._post_ui(
                     lambda: self._github_publish_done(owner, name, profile, total)
                 )

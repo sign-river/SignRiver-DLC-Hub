@@ -507,14 +507,18 @@ class CartridgeManagementUiMixin:
                     targets[1][3],
                 )
                 release = github.ensure_release(profile.release_tag)
-                reusable = {
-                    str(item.get("name")): int(item.get("size") or 0)
-                    for item in release.assets
-                    if item.get("name") and item.get("size") is not None
-                }
+                # GitHub's asset metadata only exposes size, which is not a
+                # content identity.  A changed JSON can retain the same size
+                # and must still replace the remote attachment.  Reuse is
+                # therefore allowed only from the per-channel hash state.
+                changed = self.workspace.changed_publish_assets(
+                    profile, targets[1][1], targets[1][2], assets,
+                    state_channel="github",
+                )
+                changed_names = {asset.name for asset in changed}
                 for index, asset in enumerate(assets, start=1):
                     overall = len(assets) + index
-                    if reusable.get(asset.name) == asset.size_bytes:
+                    if asset.name not in changed_names:
                         self._queue_upload_progress(
                             overall, total, asset.name,
                             asset.size_bytes, asset.size_bytes,
@@ -542,6 +546,13 @@ class CartridgeManagementUiMixin:
                             f"[GitHub {i}/{len(assets)}] 已上传 {value}"
                         )
                     )
+                self.workspace.save_publish_state(
+                    profile,
+                    self.workspace.publish_state_for_assets(
+                        profile, targets[1][1], targets[1][2], assets
+                    ),
+                    state_channel="github",
+                )
                 self._post_ui(
                     lambda count=len(assets): self._hub_mirror_publish_done(count)
                 )

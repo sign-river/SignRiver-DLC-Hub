@@ -289,6 +289,28 @@ def test_github_asset_upload_recovers_from_existing_asset_conflict(
     assert attempts == [b"asset", b"asset"]
 
 
+def test_github_asset_upload_replaces_case_variant_name(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "asset.zip"
+    path.write_bytes(b"asset")
+    deleted: list[int] = []
+
+    client = GitHubReleaseClient(
+        GitHubRepository("sign-river", "assets"), "token",
+        opener=lambda _request, *, timeout: _Response(
+            {"id": 8, "name": path.name}
+        ),
+    )
+    monkeypatch.setattr(client, "delete_asset", deleted.append)
+    release = GitHubRelease(
+        1, "tag", "https://uploads.example.test/1{?name}",
+        ({"id": 7, "name": "ASSET.ZIP", "size": path.stat().st_size},),
+    )
+
+    client.upload_asset(release, path)
+
+    assert deleted == [7]
+
+
 def test_github_asset_upload_retries_transient_server_error(
     tmp_path, monkeypatch
 ) -> None:

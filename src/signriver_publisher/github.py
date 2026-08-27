@@ -221,7 +221,10 @@ class GitHubReleaseClient:
         path = Path(path)
         if replace_existing:
             for asset in release.assets:
-                if str(asset.get("name")) == path.name:
+                # Release names are case-insensitive for our publishing
+                # contract; remove every variant before uploading so a
+                # replacement cannot leave duplicate logical attachments.
+                if str(asset.get("name") or "").casefold() == path.name.casefold():
                     self.delete_asset(int(asset["id"]))
         upload_base = release.upload_url.split("{", 1)[0]
         url = f"{upload_base}?name={quote(path.name)}"
