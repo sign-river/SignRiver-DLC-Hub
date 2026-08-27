@@ -3511,7 +3511,7 @@ class DlcHubApplication:
     def _show_latest_installer_detail(self) -> None:
         self._show_tool_center_detail(
             "下载最新安装包",
-            requires_cloud_download=True,
+            requires_cloud_download=False,
             tool_key="builtin:latest-installer",
         )
         body = self.tool_center_detail_body
