@@ -28,7 +28,11 @@ from .dlc_naming import (
     auto_managed_folder,
     parse_managed_folder,
 )
-from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
+from .client_cartridges import (
+    HUB_RELEASE_TAG,
+    INDEX_ASSET_NAME,
+    export_hub_cartridges,
+)
 from .extension_assets import (
     build_tool_snapshot,
     export_tool_assets,
@@ -1284,7 +1288,15 @@ class PublisherWorkspace:
         """Regenerate and snapshot the complete client cartridge hub."""
         written = self.export_client_hub(default_game_id=default_game_id)
         assets: list[PublishAsset] = []
-        for path in sorted(written, key=lambda item: item.name.casefold()):
+        # Keep the hub index last.  Clients can then never observe a newly
+        # published catalog that references cartridge files which are still
+        # being uploaded or have not propagated through the provider yet.
+        ordered = tuple(
+            path for path in written if path.name.casefold() != INDEX_ASSET_NAME.casefold()
+        ) + tuple(
+            path for path in written if path.name.casefold() == INDEX_ASSET_NAME.casefold()
+        )
+        for path in ordered:
             stat = path.stat()
             assets.append(
                 PublishAsset(

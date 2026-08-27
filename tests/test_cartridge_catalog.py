@@ -383,6 +383,7 @@ def test_publisher_snapshots_complete_hub_as_publish_assets(tmp_path: Path) -> N
     assets = workspace.hub_publish_assets(default_game_id="stellaris")
 
     assert assets
+    assert assets[-1].name == "cartridges_index.json"
     assert {asset.name for asset in assets} == {
         path.name for path in workspace.export_client_hub(default_game_id="stellaris")
     }
