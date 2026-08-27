@@ -426,6 +426,12 @@ def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -
     assert tool.is_helper_tool()
     assert tool.applies_to("windows")
     assert not tool.applies_to("steamos")
+    assert document.blocks[0] == ("heading", "建议操作")
+    assert ("button", "进入关闭 Windows Defender 工具界面 →", "tool:dcontrol") in document.blocks
+    image_blocks = [block for block in document.blocks if block[0] == "image"]
+    assert image_blocks and image_blocks[0][1].endswith("defender-control.png")
+    assert not any(block[0] == "heading" and block[1] == "常见原因" for block in document.blocks)
+    assert not any(block[0] == "heading" and block[1] == "注意事项" for block in document.blocks)
 
 
 def test_guide_tool_can_be_marked_as_not_requiring_cloud_download() -> None:

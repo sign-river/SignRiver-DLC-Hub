@@ -3,32 +3,20 @@
   "blocks": [
     {
       "kind": "heading",
-      "text": "常见原因"
-    },
-    {
-      "kind": "text",
-      "text": "当需要临时排查 Windows Defender 是否拦截程序文件时，可以参考以下操作。请先确认问题确实与安全软件拦截有关。"
-    },
-    {
-      "kind": "heading",
       "text": "建议操作"
     },
     {
       "kind": "text",
-      "text": "这里填写关闭 Windows Defender 的具体步骤。当前仅为后续内容模板：先说明适用系统与风险，再按顺序写出操作，并提醒完成后按需恢复防护。"
-    },
-    {
-      "kind": "heading",
-      "text": "注意事项"
-    },
-    {
-      "kind": "text",
-      "text": "本程序不会自动关闭 Windows Defender。请仅在理解风险后，按教程自行操作；如需使用辅助工具，请通过本文中的工具详情入口进入管理页面。"
+      "text": "点击下方按钮进入关闭 Windows Defender 工具界面，然后点击“下载工具”，等待下载完成后点击“启动工具”。工具打开后，点击“停用 Windows Defender”即可。"
     },
     {
       "kind": "button",
-      "text": "查看工具详情 →",
+      "text": "进入关闭 Windows Defender 工具界面 →",
       "target": "tool:dcontrol"
+    },
+    {
+      "kind": "image",
+      "asset_name": "defender-control.png"
     },
     {
       "kind": "heading",
