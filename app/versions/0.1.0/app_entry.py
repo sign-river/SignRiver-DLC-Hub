@@ -184,6 +184,7 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
 
     def __init__(self, *args, **kwargs):
         # Fluent 风格：窄胶囊滑块、透明轨道；CTkScrollbar 本身没有步进按钮。
+        self._always_show_scrollbar = bool(kwargs.pop("always_show_scrollbar", False))
         kwargs.setdefault("scrollbar_fg_color", "transparent")
         super().__init__(*args, **kwargs)
         self._scrollbar.configure(
@@ -278,7 +279,7 @@ class _AutoHideScrollableFrame(ctk.CTkScrollableFrame):  # ctk.CTkScrollableFram
         bbox = self._parent_canvas.bbox("all")
         canvas_height = self._parent_canvas.winfo_height()
         content_height = 0 if bbox is None else bbox[3] - bbox[1]
-        should_show = content_height > canvas_height + 1
+        should_show = self._always_show_scrollbar or content_height > canvas_height + 1
         if should_show == self._scrollbar_visible:
             return
         self._scrollbar_visible = should_show
@@ -2245,6 +2246,7 @@ class DlcHubApplication:
         self.game_picker_results = _AutoHideScrollableFrame(
             shell,
             fg_color="transparent",
+            always_show_scrollbar=True,
             scrollbar_button_color=UI["brand"],
             scrollbar_button_hover_color=UI["primary"],
             corner_radius=0,
