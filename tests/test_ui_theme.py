@@ -383,6 +383,8 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert 'command=lambda: self._remove_guide_tool(target), **BUTTON_DANGER' in tool_detail
     assert 'command=lambda item=product: self._open_security_product(item),' in security_products
     assert '**BUTTON_SECONDARY' in security_products
+    assert 'self._set_tool_ready(self.helper_tools.is_installed(tool))' in tool_detail
+    assert '"开发者提供的受控工具" if not tool.is_helper_tool() else ""' in tool_detail
     assert 'text="查看教程"' in defender_banner
     assert 'fg_color=UI["card"]' in defender_banner
     assert 'border_color=UI["border"]' in defender_banner

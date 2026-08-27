@@ -3375,11 +3375,15 @@ class DlcHubApplication:
         body = self.tool_center_detail_body
         if tool.detail_intro:
             self._create_tool_detail_textbox(tool.detail_intro, pady=(16, 6))
-        self._create_tool_detail_textbox(
-            tool.description or "开发者提供的受控工具",
-            text_color=UI["text_secondary"],
-            pady=(6 if tool.detail_intro else 16, 12),
+        description = tool.description or (
+            "开发者提供的受控工具" if not tool.is_helper_tool() else ""
         )
+        if description:
+            self._create_tool_detail_textbox(
+                description,
+                text_color=UI["text_secondary"],
+                pady=(6 if tool.detail_intro else 16, 12),
+            )
         if tool.detail_warnings:
             warning_text = "使用前请注意：\n" + "\n".join(
                 f"• {warning}" for warning in tool.detail_warnings
@@ -3395,6 +3399,7 @@ class DlcHubApplication:
                 wraplength=688,
             ).pack(fill="x", padx=16, pady=(0, 12))
         if tool.is_helper_tool():
+            self._set_tool_ready(self.helper_tools.is_installed(tool))
             actions = ctk.CTkFrame(body, fg_color="transparent")
             actions.pack(fill="x", padx=16, pady=(0, 14))
             self._pack_helper_tool_actions(
