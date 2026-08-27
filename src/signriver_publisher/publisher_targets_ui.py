@@ -55,12 +55,6 @@ class PublisherTargetsUiMixin:
         build_button = getattr(self, "extensions_build_button", None)
         if build_button is not None:
             build_button.configure(state="normal" if available else "disabled")
-        local_button = getattr(self, "extensions_local_publish_button", None)
-        if local_button is not None:
-            local_button.configure(
-                state="normal" if available else "disabled",
-                text="本地发布指南与工具项",
-            )
 
     def _removed_single_source_action(self) -> None:
         """Prevent a retained legacy method from reviving a removed workflow."""

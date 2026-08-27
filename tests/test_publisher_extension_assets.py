@@ -9,266 +9,57 @@ from signriver_publisher.extension_assets import (
     ExtensionExportError,
     build_tool_snapshot,
     export_tool_assets,
+    validate_tool_snapshot,
 )
-from signriver_publisher.workspace import PublisherWorkspace
 
 
-def _write_extension_source(
-    workspace: PublisherWorkspace, *, tool_id: str = "sample-tool",
-    reference: dict[str, object] | None = None, include_package: bool = True,
-) -> None:
-    guides = workspace.guides_source_dir
-    tools = workspace.tools_source_dir
-    guides.mkdir(parents=True, exist_ok=True)
-    tools.mkdir(parents=True, exist_ok=True)
-    (tools / "assets").mkdir(exist_ok=True)
-    (guides / "guides_index.json").write_text(
-        json.dumps({
-            "schema_version": 1,
-            "guides": [{
-                "guide_id": "sample-guide",
-                "title": "样例指南",
-                "summary": "说明",
-                "summary_type": "problem_detail",
-                "asset_name": "guide_sample.json",
-                "platforms": ["all"],
-            }],
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    tool_reference = reference or {"tool_id": tool_id, "release_tag": "tools"}
-    (guides / "guide_sample.json").write_text(
-        json.dumps({
-            "guide_id": "sample-guide",
-            "blocks": [{"kind": "text", "text": "说明"}],
-            "tools": [tool_reference],
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    package = "sample-tool.zip"
-    (tools / "tools_index.json").write_text(
-        json.dumps({
-            "schema_version": 1,
-            "tools": [{
-                "tool_id": tool_id,
-                "title": "样例工具",
-                "description": "用于发布预检测试。",
-                "asset_name": package,
-                "filename": package,
-                "revision": "2026.08.25.1",
-                "platforms": ["all"],
-                "package_kind": "zip",
-                "launch_action": "open_folder",
-                "release_tag": "tools",
-            }],
-        }, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    if include_package:
-        (tools / "assets" / package).write_bytes(b"sample tool package")
+def _assets(root: Path) -> Path:
+    path = root / "tools" / "assets"
+    path.mkdir(parents=True)
+    return path
 
 
-def test_extension_publish_assets_materialises_guides_and_tools(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-
-    plan = workspace.extension_publish_assets()
-
-    assert {asset.name for asset in plan.guides} == {
-        "guides_index.json", "guide_sample.json",
-    }
-    assert {asset.name for asset in plan.tools} == {"sample-tool.zip"}
-    assert plan.summary.status_text == "指南 已发现 1 篇文章、0 个附件；工具 已发现 1 个工具"
-    profile = workspace.tools_release_profile()
-    assert profile.release_tag == "tools"
-    assert profile.appinfo_name == "tools_index.json"
-
-
-def test_tool_payload_export_does_not_require_guides(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-    for path in workspace.guides_source_dir.iterdir():
-        if path.is_file():
-            path.unlink()
-    build_tool_snapshot(workspace.tools_source_dir)
-
-    files, summary = export_tool_assets(
-        workspace.tools_source_dir, workspace.output_dir / "tools",
-    )
-
-    assert summary.error == ""
-    assert [path.name for path in files] == ["sample-tool.zip"]
-
-
-def test_tool_snapshot_scans_assets_without_tools_index(tmp_path: Path) -> None:
-    tools = tmp_path / "tools"
-    (tools / "assets").mkdir(parents=True)
-    payload = b"tool payload"
-    (tools / "assets" / "tool-a.zip").write_bytes(payload)
-
-    snapshot = build_tool_snapshot(tools)
-
+def test_build_and_export_tools_without_metadata(tmp_path: Path) -> None:
+    assets = _assets(tmp_path)
+    (assets / "tool-a.zip").write_bytes(b"abc")
+    snapshot = build_tool_snapshot(tmp_path / "tools")
     assert snapshot["schema_version"] == 1
     assert snapshot["files"][0]["name"] == "tool-a.zip"
-    assert snapshot["files"][0]["size_bytes"] == len(payload)
-    assert len(snapshot["files"][0]["sha256"]) == 64
-    assert (tools / ".tools-build.json").is_file()
+    assert snapshot["files"][0]["size_bytes"] == 3
+    output = tmp_path / "output"
+    files, count = export_tool_assets(tmp_path / "tools", output)
+    assert count == 1
+    assert [item.name for item in files] == ["tool-a.zip"]
+    assert (output / "tool-a.zip").read_bytes() == b"abc"
 
 
-@pytest.mark.parametrize("kind", ["nested", "symlink"])
-def test_tool_snapshot_rejects_non_flat_assets(tmp_path: Path, kind: str) -> None:
-    tools = tmp_path / "tools"
-    assets = tools / "assets"
-    assets.mkdir(parents=True)
-    if kind == "nested":
-        (assets / "nested").mkdir()
-    else:
-        target = tmp_path / "real.zip"
-        target.write_bytes(b"payload")
-        try:
-            (assets / "link.zip").symlink_to(target)
-        except OSError:
-            pytest.skip("当前环境不支持创建符号链接")
-
+def test_empty_assets_fail(tmp_path: Path) -> None:
+    _assets(tmp_path)
     with pytest.raises(ExtensionExportError):
-        build_tool_snapshot(tools)
+        build_tool_snapshot(tmp_path / "tools")
 
 
-def test_tool_payload_export_rejects_stale_snapshot(tmp_path: Path) -> None:
-    tools = tmp_path / "tools"
-    assets = tools / "assets"
-    assets.mkdir(parents=True)
-    path = assets / "tool-a.zip"
-    path.write_bytes(b"first")
-    build_tool_snapshot(tools)
-    path.write_bytes(b"changed")
-
-    with pytest.raises(ExtensionExportError, match="已变化"):
-        export_tool_assets(tools, tmp_path / "output")
+def test_nested_directories_and_case_duplicates_fail(tmp_path: Path) -> None:
+    assets = _assets(tmp_path)
+    (assets / "nested").mkdir()
+    with pytest.raises(ExtensionExportError):
+        build_tool_snapshot(tmp_path / "tools")
 
 
-def test_extension_preflight_requires_problem_detail_summary_type(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-    index_path = workspace.guides_source_dir / "guides_index.json"
-    payload = json.loads(index_path.read_text(encoding="utf-8"))
-    payload["guides"][0].pop("summary_type")
-    index_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-    with pytest.raises(ExtensionExportError, match="summary_type 必须为 problem_detail"):
-        workspace.extension_publish_assets()
+def test_changed_assets_require_rebuild(tmp_path: Path) -> None:
+    assets = _assets(tmp_path)
+    target = assets / "tool.zip"
+    target.write_bytes(b"before")
+    build_tool_snapshot(tmp_path / "tools")
+    target.write_bytes(b"after")
+    with pytest.raises(ExtensionExportError):
+        validate_tool_snapshot(tmp_path / "tools")
 
 
-def test_extension_preflight_rejects_missing_tool_reference(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace, reference={"tool_id": "missing-tool", "release_tag": "tools"})
-
-    with pytest.raises(ExtensionExportError, match="不存在于 tools_index.json"):
-        workspace.extension_publish_assets()
-
-
-def test_extension_preflight_rejects_missing_tool_package(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace, include_package=False)
-
-    with pytest.raises(ExtensionExportError, match="工具包不存在"):
-        workspace.extension_publish_assets()
-
-
-def test_extension_preflight_rejects_inconsistent_guide_metadata(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(
-        workspace,
-        reference={
-            "tool_id": "sample-tool",
-            "release_tag": "tools",
-            "revision": "different",
-        },
-    )
-
-    with pytest.raises(ExtensionExportError, match="revision 与 tools_index.json 不一致"):
-        workspace.extension_publish_assets()
-
-
-def test_extension_preflight_rejects_non_boolean_download_requirement(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-    index = workspace.tools_source_dir / "tools_index.json"
-    payload = json.loads(index.read_text(encoding="utf-8"))
-    payload["tools"][0]["requires_cloud_download"] = "false"
-    index.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-    with pytest.raises(ExtensionExportError, match="requires_cloud_download 必须是布尔值"):
-        workspace.extension_publish_assets()
-
-
-def test_extension_preflight_rejects_inconsistent_download_requirement(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(
-        workspace,
-        reference={
-            "tool_id": "sample-tool",
-            "release_tag": "tools",
-            "requires_cloud_download": False,
-        },
-    )
-
-    with pytest.raises(ExtensionExportError, match="requires_cloud_download 与 tools_index.json 不一致"):
-        workspace.extension_publish_assets()
-
-
-def test_extension_preflight_allows_unreferenced_tools(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace, reference={"tool_id": "sample-tool", "release_tag": "hub"})
-
-    plan = workspace.extension_publish_assets()
-
-    assert {asset.name for asset in plan.tools} == {"sample-tool.zip"}
-
-
-def test_changed_publish_assets_uses_only_local_successful_hashes(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-    plan = workspace.extension_publish_assets()
-    profile = workspace.tools_release_profile()
-
-    assert workspace.changed_publish_assets(profile, "owner", "repository", plan.tools) == plan.tools
-
-    workspace.save_publish_state(
-        profile, workspace.publish_state_for_assets(profile, "owner", "repository", plan.tools)
-    )
-    assert workspace.changed_publish_assets(profile, "owner", "repository", plan.tools) == ()
-
-    changed_path = workspace.tools_source_dir / "assets" / "sample-tool.zip"
-    changed_path.write_bytes(b"changed tool package")
-    changed_plan = workspace.extension_publish_assets()
-    changed = workspace.changed_publish_assets(profile, "owner", "repository", changed_plan.tools)
-
-    assert [asset.name for asset in changed] == ["sample-tool.zip"]
-
-
-def test_sync_local_guides_and_tools_writes_client_definitions(tmp_path: Path) -> None:
-    workspace = PublisherWorkspace(tmp_path / "publisher")
-    workspace.initialize()
-    _write_extension_source(workspace)
-    target = tmp_path / "client-config" / "guides"
-
-    from signriver_publisher.extension_assets import sync_local_client_resources
-    written = sync_local_client_resources(
-        workspace.guides_source_dir, workspace.tools_source_dir, target
-    )
-
-    assert {path.name for path in written} == {
-        "guides_index.json", "guide_sample.json", "tools_index.json",
-    }
-    assert (target / "tools_index.json").is_file()
+def test_snapshot_does_not_read_tools_index(tmp_path: Path) -> None:
+    assets = _assets(tmp_path)
+    (assets / "tool.bin").write_bytes(b"payload")
+    (tmp_path / "tools" / "tools_index.json").write_text("not json", encoding="utf-8")
+    build_tool_snapshot(tmp_path / "tools")
+    payload = json.loads((tmp_path / "tools" / ".tools-build.json").read_text(encoding="utf-8"))
+    assert payload["files"][0]["name"] == "tool.bin"

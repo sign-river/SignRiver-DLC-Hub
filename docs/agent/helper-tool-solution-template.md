@@ -48,13 +48,12 @@ GitHub 示例：
 
 工具目录约定：`publisher-workspace/tools/assets/` 只接受平铺普通文件；客户端 `config/guides/` 内的固定工具定义必须自行保证 `asset_name` 与载荷文件名一致。
 
-## 发布拓展指南和工具
+## 工具载荷发布
 
 发布源严格分开：
 
 | 资源 | 发布器工作区 | Release | 索引 |
 | --- | --- | --- | --- |
-| 指南与工具项定义 | `publisher-workspace/guides/`、`publisher-workspace/tools/tools_index.json` | 客户端 `config/guides/` | 本地版本发布 |
 | 工具包 | `publisher-workspace/tools/assets/` | `tools` | 客户端内置定义中的 `asset_name` |
 
 使用发布器“发布资源统一管理”页的“工具文件上传”。客户端指南与工具项定义在客户端版本准备阶段同步，不属于云端上传流程。工具文件上传流程会先检查：
@@ -64,7 +63,7 @@ GitHub 示例：
 
 预检失败时不会开始上传。先点击“构建工具快照”，再点击“上传工具文件”；发布器只将载荷同步到 GitLink、GitHub 的 `tools` Release，不上传指南或工具定义。需要更新客户端定义时，直接修改客户端配置并随客户端版本构建。
 
-发布器为 GitLink 与 GitHub 分别保存本地成功发布的 SHA-256 状态。下次发布时只上传本地内容发生变化的附件，未变化的附件跳过；此判断不下载云端文件作内容比较。若有人手动删除云端附件而本地文件和本地状态均未变化，发布器不会自动补回，需修改文件或清除对应本地发布状态后重新发布。
+发布器为 GitLink 与 GitHub 分别保存本地成功发布的 SHA-256 状态，并以远端现有附件校验结果为准；云端附件被清空时会自动补传。
 
 指南正文里的 `tools` 条目推荐只保留：
 
@@ -153,8 +152,8 @@ GitHub 示例：
 至少运行：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests\test_helper_tools.py tests\test_platform_content.py tests\test_publisher_guides.py tests\test_ui_theme.py tests\test_client_problem_center.py
-.\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\signriver_app\application\helper_tools.py app\versions\0.1.0\signriver_app\application\guides.py app\versions\0.1.0\app_entry.py src\signriver_publisher\client_guides.py tests\test_helper_tools.py
+.\.venv\Scripts\python.exe -m pytest -q tests\test_helper_tools.py tests\test_platform_content.py tests\test_ui_theme.py tests\test_client_problem_center.py
+.\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\signriver_app\application\helper_tools.py app\versions\0.1.0\signriver_app\application\guides.py app\versions\0.1.0\app_entry.py tests\test_helper_tools.py
 .\.venv\Scripts\python.exe -m compileall -q app\versions\0.1.0 app\versions\<active_version>
 ```
 

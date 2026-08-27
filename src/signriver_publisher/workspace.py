@@ -29,16 +29,9 @@ from .dlc_naming import (
     parse_managed_folder,
 )
 from .client_cartridges import HUB_RELEASE_TAG, export_hub_cartridges
-from .client_guides import GuideResourceSummary, clear_exported_guides, export_guides, inspect_hub_guides
 from .extension_assets import (
-    ExtensionPublishAssets,
-    ExtensionResourceSummary,
-    TOOLS_INDEX_ASSET_NAME,
     build_tool_snapshot,
     export_tool_assets,
-    export_extension_assets,
-    inspect_extension_resources,
-    sync_local_client_resources,
 )
 from .freshness import (
     DlcFreshnessReport,
@@ -230,21 +223,9 @@ class PublisherWorkspace:
         return self.root / "announcement.json"
 
     @property
-    def guides_source_dir(self) -> Path:
-        """Local publisher content source for optional troubleshooting guides."""
-        return self.root / "guides"
-
-    @property
     def tools_source_dir(self) -> Path:
         """Local publisher content source for independently listed helper tools."""
         return self.root / "tools"
-
-    def guide_resource_summary(self) -> GuideResourceSummary:
-        return inspect_hub_guides(self.guides_source_dir)
-
-    def extension_resource_summary(self) -> ExtensionResourceSummary:
-        """Return the preflight state of the guide and tool extension sources."""
-        return inspect_extension_resources(self.guides_source_dir, self.tools_source_dir)
 
     @property
     def announcement_draft_path(self) -> Path:
@@ -1233,7 +1214,6 @@ class PublisherWorkspace:
             freshness_by_game=freshness,
             resource_availability_by_game=availability,
         )
-        clear_exported_guides(hub_dir)
         return cartridge_assets
 
     def published_platform_resources(
@@ -1317,78 +1297,20 @@ class PublisherWorkspace:
         return tuple(assets)
 
     @staticmethod
-    def guides_release_profile() -> GameProfile:
-        """Return the synthetic profile used for the dedicated guides Release."""
-        return GameProfile(
-            game_id="guides",
-            display_name="报错指南扩展",
-            release_tag="guides",
-            appinfo_name="guides_index.json",
-        )
-
-    def guides_publish_assets(self) -> tuple[PublishAsset, ...]:
-        """Regenerate and snapshot only the dedicated guide Release assets."""
-        written = export_guides(self.guides_source_dir, self.output_dir / "guides")
-        assets: list[PublishAsset] = []
-        for path in sorted(written, key=lambda item: item.name.casefold()):
-            stat = path.stat()
-            assets.append(
-                PublishAsset(
-                    path=path,
-                    name=path.name,
-                    size_bytes=stat.st_size,
-                    sha256=self._verified_file_sha256(path),
-                )
-            )
-        return tuple(assets)
-
-    def sync_local_guides_and_tools(self) -> tuple[Path, ...]:
-        """Publish guide and tool definitions into the tracked client config."""
-        return sync_local_client_resources(
-            self.guides_source_dir, self.tools_source_dir,
-            self.root.parent.parent / "config" / "guides",
-        )
-
-    @staticmethod
     def tools_release_profile() -> GameProfile:
         """Return the synthetic profile used for the dedicated tools Release."""
         return GameProfile(
             game_id="tools",
             display_name="辅助工具扩展",
             release_tag="tools",
-            appinfo_name=TOOLS_INDEX_ASSET_NAME,
-        )
-
-    def extension_publish_assets(self) -> ExtensionPublishAssets:
-        """Validate cross references and snapshot both independent Releases."""
-        guide_files, tool_files, summary = export_extension_assets(
-            self.guides_source_dir, self.tools_source_dir,
-            self.output_dir / "guides", self.output_dir / "tools",
-        )
-
-        def make_assets(files: tuple[Path, ...]) -> tuple[PublishAsset, ...]:
-            return tuple(
-                PublishAsset(
-                    path=path, name=path.name, size_bytes=path.stat().st_size,
-                    sha256=self._verified_file_sha256(path),
-                )
-                for path in sorted(files, key=lambda item: item.name.casefold())
-            )
-
-        tool_files = tuple(path for path in tool_files if path.name != TOOLS_INDEX_ASSET_NAME)
-        return ExtensionPublishAssets(
-            guides=make_assets(guide_files),
-            tools=make_assets(tool_files),
-            summary=summary,
+            appinfo_name="tools-release.json",
         )
 
     def tool_publish_assets(self) -> tuple[PublishAsset, ...]:
         """Build the cloud payload without requiring guide definitions."""
-        files, summary = export_tool_assets(
+        files, _count = export_tool_assets(
             self.tools_source_dir, self.output_dir / "tools",
         )
-        if summary.error:
-            raise RuntimeError(summary.error)
         return tuple(
             PublishAsset(
                 path=path, name=path.name, size_bytes=path.stat().st_size,

@@ -216,10 +216,9 @@ class CartridgeManagementUiMixin:
             command=self.publish_extensions_mirror,
         )
         self.extensions_publish_button.grid(row=1, column=2, padx=(6, 14), pady=4, sticky="ew")
-        self.guides_publish_button = self.extensions_publish_button
         ctk.CTkLabel(
             actions,
-            text="仅上传工具文件；tools_index.json 和指南内容随客户端版本发布。未修改文件会按 SHA-256 直接复用。",
+            text="仅上传工具文件；工具定义随客户端版本发布。未修改文件会按 SHA-256 直接复用。",
             text_color=MUTED, anchor="w", justify="left", wraplength=780,
         ).grid(row=2, column=0, columnspan=3, padx=14, pady=(0, 8), sticky="ew")
 
@@ -390,14 +389,13 @@ class CartridgeManagementUiMixin:
         self.hub_publish_button.configure(state="normal")
         self.refresh_cartridge_management()
         hub_dir = self.workspace.output_dir / "hub"
-        guide_status = self.workspace.guide_resource_summary().status_text
         self._log(
-            f"客户端卡带中心已生成到 {hub_dir}（报错指南 {guide_status}）："
+            f"客户端卡带中心已生成到 {hub_dir}："
             + "、".join(asset.name for asset in assets)
         )
         messagebox.showinfo(
             "生成完成",
-            f"已生成 {len(assets)} 个 hub 文件。\n报错指南：{guide_status}。\n\n"
+            f"已生成 {len(assets)} 个 hub 文件。\n\n"
             "可直接点击“发布 hub Release”，无需手动上传。",
         )
 
@@ -608,25 +606,6 @@ class CartridgeManagementUiMixin:
         else:
             messagebox.showerror("卡带中心双端发布失败", message)
 
-    def publish_guides_mirror(self) -> None:
-        """Keep compatibility with old callers while publishing all extensions."""
-        self.publish_extensions_mirror()
-
-    def publish_local_guides_and_tools(self) -> None:
-        """Validate and copy fixed guide/tool definitions into client config."""
-        if not messagebox.askyesno(
-            "确认本地发布",
-            "将把指南内容和常用工具项同步到客户端 config/guides，随下次程序更新生效。是否继续？",
-        ):
-            return
-        try:
-            written = self.workspace.sync_local_guides_and_tools()
-        except Exception as error:
-            messagebox.showerror("本地发布失败", str(error))
-            return
-        self._log(f"本地指南与工具项发布完成：{len(written)} 个文件")
-        messagebox.showinfo("本地发布完成", f"已同步 {len(written)} 个文件；请构建并发布客户端更新后生效。")
-
     def build_tool_snapshot(self) -> None:
         try:
             snapshot = self.workspace.build_tool_snapshot()
@@ -660,7 +639,7 @@ class CartridgeManagementUiMixin:
         if not messagebox.askyesno(
             "确认双端上传工具文件",
             "仅上传工具下载文件到两端 tools Release。\n\n"
-            "指南和 tools_index.json 随客户端版本发布，不会上传到云端。是否继续？",
+            "工具定义随客户端版本发布，不会上传到云端。是否继续？",
         ):
             return
         if not self._begin_background_mutation("publish", "正在预检并双端上传工具文件"):
@@ -798,7 +777,7 @@ class CartridgeManagementUiMixin:
         self.refresh_cartridge_management()
         messagebox.showinfo(
             "工具文件上传完成",
-            "工具下载文件已同步到 GitLink 和 GitHub 的 tools Release；指南和工具项仍以本地配置为准。\n"
+            "工具下载文件已同步到 GitLink 和 GitHub 的 tools Release；工具定义仍以客户端本地配置为准。\n"
             f"本次移除云端旧附件：{removed} 个。",
         )
 
@@ -920,11 +899,6 @@ class CartridgeManagementUiMixin:
 
     def open_hub_output_folder(self) -> None:
         path = self.workspace.output_dir / "hub"
-        path.mkdir(parents=True, exist_ok=True)
-        self._open(path)
-
-    def open_guides_source_folder(self) -> None:
-        path = self.workspace.guides_source_dir
         path.mkdir(parents=True, exist_ok=True)
         self._open(path)
 
