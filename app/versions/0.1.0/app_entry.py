@@ -562,6 +562,10 @@ class DlcHubApplication:
         self.game_picker_query: StringVar | None = None
         self.game_picker_search = None
         self.cartridge_loading = False
+        # The bootstrap/cache cartridge is display-only until the current
+        # remote hub configuration has been verified for this session.
+        self.cartridge_remote_synced = False
+        self.cartridge_remote_sync_error = ""
         self.cartridges: dict[str, object] = {}
         self.supported_games: dict[str, dict[str, str]] = {}
         # Defaults must exist before bootstrap cartridge activation; persisted
@@ -788,6 +792,13 @@ class DlcHubApplication:
         except Exception:
             self.context.logger.exception("Unable to initialize game discovery")
         self._build_ui()
+        # Do not allow actions against the bootstrap/cache cartridge before
+        # the remote hub configuration has been verified.
+        self.download_selected_button.configure(
+            state="disabled", text="等待卡带同步"
+        )
+        self.selection_toggle_button.configure(state="disabled")
+        self.repair_button.configure(state="disabled")
         self._update_problem_badge()
         self.main_window_origin = self._center_on_desktop(
             self.window, width=1120, height=840,
@@ -2376,7 +2387,7 @@ class DlcHubApplication:
                 index = self.cartridge_catalog.refresh_index(allow_network=True)
                 active_id = self.cartridge.adapter.descriptor.game_id
                 loaded = self.cartridge_catalog.load_cartridge(
-                    active_id, allow_network=True,
+                    active_id, allow_network=True, allow_fallback=False,
                 )
                 self._post_ui(
                     lambda index=index, loaded=loaded: self._on_remote_index_ready(
@@ -2387,8 +2398,21 @@ class DlcHubApplication:
                 self.context.logger.warning(
                     "Remote cartridge index refresh failed: %s", error
                 )
-
+                self._post_ui(
+                    lambda error=error: self._on_remote_cartridge_refresh_failed(
+                        str(error)
+                    )
+                )
         threading.Thread(target=worker, daemon=True).start()
+
+    def _on_remote_cartridge_refresh_failed(self, message: str) -> None:
+        self.cartridge_remote_synced = False
+        self.cartridge_remote_sync_error = message or "远端卡带刷新失败"
+        self._set_batch_download_state(self.batch_download_state)
+        self.catalog_preview.configure(
+            text="卡带配置未同步，已禁用 DLC 操作；请重试刷新目录。"
+        )
+        self._notify("卡带配置未同步，DLC 操作已禁用", error=True)
 
     def _on_remote_index_ready(self, index, loaded) -> None:
         previous_name = self.selected_game_name
@@ -2413,6 +2437,9 @@ class DlcHubApplication:
         self._set_game_selector_text(self.selected_game_name)
         if previous_name != self.selected_game_name:
             self._select_game(self.selected_game_name)
+        self.cartridge_remote_synced = True
+        self.cartridge_remote_sync_error = ""
+        self._set_batch_download_state(self.batch_download_state)
         self._notify(f"已同步游戏列表（{len(index.cartridges)} 款）")
 
     def _select_game(self, display_name: str) -> None:
@@ -7222,6 +7249,23 @@ class DlcHubApplication:
 
         def worker() -> None:
             try:
+                self.cartridge_catalog.refresh_index(allow_network=True)
+                loaded = self.cartridge_catalog.load_cartridge(
+                    self.cartridge.cartridge_id,
+                    allow_network=True,
+                    allow_fallback=False,
+                )
+                if loaded.cartridge is not self.cartridge:
+                    self._post_ui(
+                        lambda loaded=loaded: self._on_catalog_cartridge_ready(
+                            loaded, generation=generation, cartridge_id=cartridge_id,
+                            source=source, request_generation=request_generation,
+                        )
+                    )
+                    return
+                self._post_ui(
+                    lambda: self._mark_cartridge_remote_synced()
+                )
                 snapshot = catalog.refresh_snapshot()
                 self._post_ui(
                     lambda snapshot=snapshot: self._show_catalog(
@@ -7239,8 +7283,26 @@ class DlcHubApplication:
                         request_generation=request_generation,
                     )
                 )
-
         threading.Thread(target=worker, daemon=True).start()
+
+    def _mark_cartridge_remote_synced(self) -> None:
+        self.cartridge_remote_synced = True
+        self.cartridge_remote_sync_error = ""
+
+    def _on_catalog_cartridge_ready(
+        self, loaded, *, generation: int, cartridge_id: str,
+        source: str, request_generation: int,
+    ) -> None:
+        if (
+            generation != self.game_selection_generation
+            or cartridge_id != self.cartridge.cartridge_id
+            or source != self.user_settings.download_source
+            or request_generation != self.catalog_request_generation
+        ):
+            return
+        self._mark_cartridge_remote_synced()
+        self._activate_loaded_cartridge(loaded, rebuild_services=True)
+        self._refresh_catalog()
 
     def _show_catalog(
         self, snapshot: CatalogSnapshot, *, generation: int | None = None,
@@ -8350,7 +8412,8 @@ class DlcHubApplication:
         restore_original_button = getattr(self, "restore_original_button", None)
         if repair_button is not None:
             repair_button.configure(
-                state="normal" if state == "idle" else "disabled"
+                state=("normal" if state == "idle" else "disabled")
+                if self.cartridge_remote_synced else "disabled"
             )
         if remove_patch_button is not None:
             remove_patch_button.configure(
@@ -8360,6 +8423,13 @@ class DlcHubApplication:
             restore_original_button.configure(
                 state="normal" if state == "idle" else "disabled"
             )
+        if not self.cartridge_remote_synced:
+            self.download_selected_button.configure(
+                state="disabled", text="等待卡带同步"
+            )
+            selection_toggle = getattr(self, "selection_toggle_button", None)
+            if selection_toggle is not None:
+                selection_toggle.configure(state="disabled")
 
     def _cancel_all_downloads(self) -> None:
         if self.download_queue is None or self.batch_download_state == "cancelling":

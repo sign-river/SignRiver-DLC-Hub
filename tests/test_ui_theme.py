@@ -463,6 +463,15 @@ def test_catalog_defaults_to_simple_view_with_advanced_management() -> None:
     assert "def _freshness_status_text" in source
 
 
+def test_catalog_actions_require_remote_cartridge_sync() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "self.cartridge_remote_synced = False" in source
+    assert "allow_fallback=False" in source
+    assert "卡带配置未同步，DLC 操作已禁用" in source
+    assert 'text="等待卡带同步"' in source
+
+
 def test_catalog_commands_emphasize_unlock_and_align_secondary_actions() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
 

@@ -135,6 +135,7 @@ class CartridgeCatalogService:
         *,
         allow_network: bool = True,
         prefer_cached: bool = False,
+        allow_fallback: bool = True,
     ) -> LoadedCartridge:
         """Download or reuse one game cartridge described by the current index."""
         if self.index is None:
@@ -170,6 +171,10 @@ class CartridgeCatalogService:
                 )
                 source = "remote"
             except Exception as error:
+                if not allow_fallback:
+                    raise CartridgeCatalogError(
+                        f"无法从远端加载游戏卡带 {game_id}：{error}"
+                    ) from error
                 if document is None:
                     document = self._load_local_document(
                         entry, cache_path, bootstrap_path

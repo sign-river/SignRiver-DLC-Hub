@@ -293,6 +293,31 @@ def test_catalog_rejects_tampered_remote_cartridge(tmp_path: Path) -> None:
         service.load_cartridge("stellaris", allow_network=True)
 
 
+def test_catalog_strict_remote_load_does_not_fall_back_to_cache(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    bootstrap = BOOTSTRAP / "cartridge_stellaris.json"
+    (cache / "cartridge_stellaris.json").write_bytes(bootstrap.read_bytes())
+
+    class FailingSource:
+        def get_release_by_tag(self, _tag: str):
+            raise OSError("remote unavailable")
+
+    service = CartridgeCatalogService(
+        cache,
+        bootstrap_dir=None,
+        source=FailingSource(),
+    )
+    index = CartridgeIndex.from_dict(
+        json.loads((BOOTSTRAP / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    )
+    service.index = index
+    with pytest.raises(CartridgeCatalogError, match="无法从远端加载游戏卡带"):
+        service.load_cartridge(
+            "stellaris", allow_network=True, allow_fallback=False
+        )
+
+
 def test_publisher_exports_hub_cartridges(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path)
     workspace.initialize()
