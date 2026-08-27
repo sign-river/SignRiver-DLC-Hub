@@ -2221,7 +2221,10 @@ class DlcHubApplication:
         ).pack(side="right")
         ctk.CTkLabel(
             header,
-            text="支持中文、英文和游戏标识搜索",
+            text=(
+                f"已读取 {len(self.cartridge_catalog.index.cartridges) if self.cartridge_catalog.index else 0} 款 · "
+                f"当前平台可用 {len(self.supported_games)} 款"
+            ),
             text_color=UI["muted"],
             font=ctk.CTkFont(size=11),
         ).pack(side="right", padx=(0, 8))
@@ -2449,7 +2452,9 @@ class DlcHubApplication:
         self.cartridge_remote_synced = True
         self.cartridge_remote_sync_error = ""
         self._set_batch_download_state(self.batch_download_state)
-        self._notify(f"已同步游戏列表（{len(index.cartridges)} 款）")
+        self._notify(
+            f"已同步游戏主表（{len(index.cartridges)} 款，当前平台可用 {len(self.supported_games)} 款）"
+        )
 
     def _select_game(self, display_name: str) -> None:
         if (
