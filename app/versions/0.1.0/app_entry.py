@@ -1654,8 +1654,24 @@ class DlcHubApplication:
         )
         self.announcement_mute_switch.pack(anchor="e")
 
-        # Developer-only module fallback remains persisted for compatibility,
-        # but is intentionally not exposed in the ordinary settings page.
+        fallback_row, fallback_action, fallback_description = _settings_row(
+            general_body,
+            "启动失败时保留当前模块",
+            "当前模块启动失败时保留并显示错误，不会悄悄回退到旧版本。",
+            last=True,
+        )
+        self.settings_description_boxes.append(fallback_description)
+        self.prevent_module_fallback_var = BooleanVar(
+            value=self.context.updates.prevent_module_fallback
+        )
+        self.prevent_module_fallback_switch = _blue_switch(
+            fallback_action,
+            text="",
+            width=54,
+            variable=self.prevent_module_fallback_var,
+            command=self._toggle_prevent_module_fallback,
+        )
+        self.prevent_module_fallback_switch.pack(anchor="e")
 
         for index, card in enumerate((network_card, program_card, general_card)):
             card.pack(
