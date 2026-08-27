@@ -52,7 +52,8 @@ def test_game_picker_keeps_long_names_left_aligned_and_wrapped() -> None:
     assert 'anchor="w"' in picker
     assert 'item = ctk.CTkFrame(' in picker
     assert 'label = ctk.CTkLabel(' in picker
-    assert 'wraplength=350' in picker
+    assert 'wraplength=460' in picker
+    assert "popup_width, popup_height = 520, 400" in source
 
 
 def test_guides_request_user_friendly_evidence() -> None:

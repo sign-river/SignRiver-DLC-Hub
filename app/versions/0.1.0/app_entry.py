@@ -2254,7 +2254,7 @@ class DlcHubApplication:
         self._refresh_game_picker_results()
 
         self.window.update_idletasks()
-        popup_width, popup_height = 410, 400
+        popup_width, popup_height = 520, 400
         screen_width = self.window.winfo_screenwidth()
         screen_height = self.window.winfo_screenheight()
         x = min(
@@ -2380,7 +2380,7 @@ class DlcHubApplication:
                 text=text,
                 anchor="w",
                 justify="left",
-                wraplength=350,
+                wraplength=460,
                 text_color=UI["primary"] if is_current else UI["text"],
                 font=ctk.CTkFont(size=13, weight="bold" if is_current else "normal"),
             )
