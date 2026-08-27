@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import ctypes
 import os
 import shutil
@@ -9,6 +10,8 @@ import threading
 import time
 import traceback
 import webbrowser
+import urllib.request
+import urllib.parse
 from dataclasses import replace
 from pathlib import Path
 from queue import Empty, SimpleQueue
@@ -300,6 +303,10 @@ AUTHOR_EN = "SignRiver"
 AUTHOR_CN = "唏嘘南溪"
 USAGE_TUTORIAL_URL = "https://sign-river.github.io/p/signriver-dlc-hub/getting-started/"
 BILIBILI_TUTORIAL_URL = "https://space.bilibili.com/504574253?spm_id_from=333.1007.0.0"
+UPDATE_MANIFEST_URLS = {
+    "gitlink": "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases/download/updates/update-manifest.json",
+    "github": "https://github.com/sign-river/signriver-dlc-assets/releases/download/updates/update-manifest.json",
+}
 MICROSOFT_FALSE_POSITIVE_URL = "https://www.microsoft.com/en-us/wdsi/filesubmission"
 WINDOWS_SECURITY_URI = "windowsdefender://threatsettings/"
 
@@ -3358,6 +3365,12 @@ class DlcHubApplication:
             "收集游戏日志与配置用于排查。",
             self._show_support_collection_tool,
         ))
+        if self.host_platform == "windows":
+            cards.append((
+                "下载最新安装包",
+                "从当前下载源获取最新 Windows 安装包，不影响程序自动更新。",
+                self._show_latest_installer_detail,
+            ))
         cards.extend(
             (
                 tool.title,
@@ -3489,6 +3502,82 @@ class DlcHubApplication:
                 justify="left",
                 wraplength=720,
             ).pack(fill="x", padx=16, pady=(0, 14))
+
+    def _latest_installer_folder(self) -> Path:
+        folder = self.context.paths.data / "latest-installers"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def _show_latest_installer_detail(self) -> None:
+        self._show_tool_center_detail(
+            "下载最新安装包",
+            requires_cloud_download=True,
+            tool_key="builtin:latest-installer",
+        )
+        body = self.tool_center_detail_body
+        self._create_tool_detail_textbox(
+            "读取当前下载源的更新清单，自动选择最新的 Windows 安装包并下载到本地。此工具不会触发程序自动更新。",
+            text_color=UI["text_secondary"],
+            pady=(16, 14),
+        )
+        self.latest_installer_status = ctk.CTkLabel(
+            body, text="尚未下载", text_color=UI["text"], anchor="w"
+        )
+        self.latest_installer_status.pack(fill="x", padx=16, pady=(0, 12))
+        actions = ctk.CTkFrame(body, fg_color="transparent")
+        actions.pack(fill="x", padx=16, pady=(0, 14))
+        ctk.CTkButton(
+            actions, text="下载最新安装包", width=150,
+            command=self._download_latest_installer, **BUTTON_PRIMARY,
+        ).pack(side="left")
+        ctk.CTkButton(
+            actions, text="打开下载文件夹", width=140,
+            command=lambda: open_directory(self._latest_installer_folder()),
+            **BUTTON_SECONDARY,
+        ).pack(side="left", padx=(8, 0))
+
+    def _download_latest_installer(self) -> None:
+        status = getattr(self, "latest_installer_status", None)
+        if status is None:
+            return
+        source = self.user_settings.download_source
+        manifest_url = UPDATE_MANIFEST_URLS.get(source, UPDATE_MANIFEST_URLS["gitlink"])
+        status.configure(text=f"正在读取 {provider_display_name(source)} 最新版本……")
+
+        def worker() -> None:
+            try:
+                request = urllib.request.Request(
+                    manifest_url, headers={"User-Agent": "SignRiver-DLC-Hub"}
+                )
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    manifest = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+                releases = manifest.get("releases", []) if isinstance(manifest, dict) else []
+                candidates = []
+                for release in releases:
+                    if not isinstance(release, dict) or release.get("kind") != "full":
+                        continue
+                    package = release.get("platform_packages", {}).get("windows-x64") if isinstance(release.get("platform_packages"), dict) else None
+                    package = package if isinstance(package, dict) else release
+                    package_url = package.get("package_url")
+                    if isinstance(package_url, str) and package_url:
+                        version = str(release.get("version") or "0")
+                        key = tuple(int(part) if part.isdigit() else 0 for part in version.split("."))
+                        candidates.append((key, version, urllib.parse.urljoin(manifest_url, package_url)))
+                if not candidates:
+                    raise RuntimeError("未找到 Windows 安装包")
+                _, version, package_url = max(candidates)
+                filename = Path(urllib.parse.urlparse(package_url).path).name or f"SignRiver-DLC-Hub-v{version}-windows-x64.zip"
+                target = self._latest_installer_folder() / filename
+                temp = target.with_suffix(target.suffix + ".download")
+                with urllib.request.urlopen(package_url, timeout=60) as response, temp.open("wb") as output:
+                    shutil.copyfileobj(response, output, length=1024 * 256)
+                temp.replace(target)
+                self._post_ui(lambda: status.configure(text=f"已下载 v{version}：{filename}"))
+            except Exception:
+                self.context.logger.exception("Latest installer download failed")
+                self._post_ui(lambda: status.configure(text="下载失败，请检查网络后重试。"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _pack_declared_tool_detail_actions(self, parent, tool: GuideTool) -> None:
         """Render only the schema-approved, non-executable cloud detail actions."""
@@ -5172,6 +5261,14 @@ class DlcHubApplication:
         if target.startswith("tool:"):
             tool_id = target.removeprefix("tool:").strip()
             current_id = self._current_solution_article_id
+            if tool_id == "latest-installer" and current_id:
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_latest_installer_detail()
+                return
             if tool_id == "security-products" and current_id:
                 self._skip_tool_center_refresh = True
                 try:

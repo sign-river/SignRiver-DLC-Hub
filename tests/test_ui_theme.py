@@ -72,6 +72,17 @@ def test_problem_solution_returns_to_same_problem_record() -> None:
     assert "self._select_problem(event_id)" in return_method
 
 
+def test_latest_installer_tool_uses_selected_source_manifest_without_updater() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert '"下载最新安装包"' in source
+    assert 'tool_key="builtin:latest-installer"' in source
+    assert "UPDATE_MANIFEST_URLS" in source
+    assert 'release.get("kind") != "full"' in source
+    assert 'windows-x64' in source
+    assert "打开下载文件夹" in source
+
+
 def test_guides_request_user_friendly_evidence() -> None:
     guide_text = "\n".join(path.read_text(encoding="utf-8") for path in GUIDES_ROOT.glob("*.json"))
 

@@ -147,11 +147,10 @@ def test_update_guide_mentions_code_issue_and_both_latest_package_sources(tmp_pa
     )
     document = service.load_guide(entry, allow_network=False)
     text = "\n".join(block[1] for block in document.blocks if block[0] == "text")
-    links = {block[2] for block in document.blocks if block[0] == "link"}
+    targets = {block[2] for block in document.blocks if block[0] == "button"}
 
     assert "程序代码中的兼容性问题" in text
-    assert "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases" in links
-    assert "https://github.com/sign-river/signriver-dlc-assets/releases" in links
+    assert "tool:latest-installer" in targets
     assert sum(block[1] == "仍无法解决时" for block in document.blocks if block[0] == "heading") == 1
 
 

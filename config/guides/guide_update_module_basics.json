@@ -26,14 +26,9 @@
       "text": "如果下载最新安装包或重试更新后仍无法解决，请联系开发者并说明遇到的现象，必要时附上截图。"
     },
     {
-      "kind": "link",
-      "text": "下载 GitLink 源最新安装包  →",
-      "url": "https://gitlink.org.cn/signriver/signriver-dlc-assets/releases"
-    },
-    {
-      "kind": "link",
-      "text": "下载 GitHub 源最新安装包  →",
-      "url": "https://github.com/sign-river/signriver-dlc-assets/releases"
+      "kind": "button",
+      "text": "进入最新安装包下载工具  →",
+      "target": "tool:latest-installer"
     },
     {
       "kind": "link",
