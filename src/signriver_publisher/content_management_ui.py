@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from pathlib import Path
-from tkinter import TclError, filedialog, messagebox
+from tkinter import BooleanVar, TclError, filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -547,6 +547,7 @@ class ContentManagementUiMixin:
             ("已发布平台资源 (JSON)", "published_platform_resources"),
         )
         self.profile_entries: dict[str, object] = {}
+        self.platform_resource_vars: dict[str, BooleanVar] = {}
         for row, (label, key) in enumerate(labels):
             ctk.CTkLabel(form, text=label, width=110, anchor="w").grid(
                 row=row, column=0, pady=3, sticky="w"
@@ -560,6 +561,23 @@ class ContentManagementUiMixin:
                     button_color=BLUE,
                     height=32,
                 )
+            elif key == "published_platform_resources":
+                entry = ctk.CTkFrame(form, fg_color="transparent")
+                for platform, text in (
+                    ("windows", "Windows"),
+                    ("steamos", "SteamOS"),
+                    ("macos", "macOS"),
+                ):
+                    variable = BooleanVar(value=False)
+                    self.platform_resource_vars[platform] = variable
+                    ctk.CTkCheckBox(
+                        entry,
+                        text=text,
+                        variable=variable,
+                        onvalue=True,
+                        offvalue=False,
+                        width=110,
+                    ).pack(side="left", padx=(0, 18))
             else:
                 entry = ctk.CTkEntry(form, border_color="#BDBDBD", height=32)
             entry.grid(row=row, column=1, pady=3, sticky="ew")
@@ -586,6 +604,12 @@ class ContentManagementUiMixin:
         self._refresh_content_release_summary()
         self.refresh_resource_lists()
         for key, entry in self.profile_entries.items():
+            if key == "published_platform_resources":
+                resources = self.profile.published_platform_resources or {}
+                for platform, variable in self.platform_resource_vars.items():
+                    values = resources.get(platform, {})
+                    variable.set(bool(values.get("patch") or values.get("dlc")))
+                continue
             if key in PROFILE_OPTION_LABELS:
                 value = getattr(self.profile, key)
                 entry.set(PROFILE_OPTION_LABELS[key].get(value, value))
@@ -949,6 +973,7 @@ class ContentManagementUiMixin:
         try:
             values = {
                 key: entry.get().strip() for key, entry in self.profile_entries.items()
+                if key != "published_platform_resources"
             }
             for key, labels in PROFILE_OPTION_LABELS.items():
                 displayed = values[key]
@@ -956,6 +981,12 @@ class ContentManagementUiMixin:
                     (stored for stored, label in labels.items() if label == displayed),
                     displayed,
                 )
+            selected_platforms = {
+                platform: {"patch": True, "dlc": values["dlc_delivery_mode"] != "built_in"}
+                for platform, variable in self.platform_resource_vars.items()
+                if variable.get()
+            }
+            values["published_platform_resources"] = selected_platforms or None
             values["appinfo_name"] = f"{values['game_id']}_appinfo.json"
             values["dlc_group_search_roots"] = [
                 item.strip()
