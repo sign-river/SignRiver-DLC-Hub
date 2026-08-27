@@ -10,6 +10,8 @@ from types import SimpleNamespace
 # from release archives on CI and may be stale, so always read 0.1.0 here.
 APP_ENTRY = Path(__file__).parents[1] / "app" / "versions" / "0.1.0" / "app_entry.py"
 CURRENT_APP_ENTRY = APP_ENTRY
+LAUNCHER_MAIN = Path(__file__).parents[1] / "src" / "signriver_launcher" / "main.py"
+GUIDES_ROOT = Path(__file__).parents[1] / "config" / "guides"
 
 
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
@@ -19,6 +21,32 @@ def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
     assert "self.context.app_version" in source
     assert "def _cancel_update_download" in source
     assert "def _render_update_download_row" in source
+
+
+def test_user_ui_hides_internal_diagnostics() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    launcher = LAUNCHER_MAIN.read_text(encoding="utf-8")
+
+    assert "扫描产生" not in source
+    assert " · App {" not in source
+    assert "开发调试时可开启" not in source
+    assert "技术详情 / Traceback" not in source
+    assert "云端资源" in source
+    # Fatal dialog stays concise; the detailed formatter remains available for
+    # the explicit copy-diagnostics action and logs.
+    fatal_dialog = launcher.split("def _show_fatal_error", 1)[1].split(
+        "def _format_fatal_error_details", 1
+    )[0]
+    assert "错误码" not in fatal_dialog
+    assert "事件 ID" not in fatal_dialog
+    assert "def _format_fatal_error_details" in launcher
+
+
+def test_guides_request_user_friendly_evidence() -> None:
+    guide_text = "\n".join(path.read_text(encoding="utf-8") for path in GUIDES_ROOT.glob("*.json"))
+
+    assert "错误详情或诊断信息" not in guide_text
+    assert "说明遇到的现象，必要时附上截图" in guide_text
 PUBLISHER_ROOT = Path(__file__).parents[1] / "src" / "signriver_publisher"
 PUBLISHER_UI = PUBLISHER_ROOT / "ui.py"
 PUBLISHER_UI_SOURCES = tuple(
@@ -1406,7 +1434,7 @@ def test_download_source_cache_fallback_only_shows_warning() -> None:
 
     assert events[-1] == "refresh_catalog"
     assert notifications == [
-        ("远程主表或当前卡带不可用，已使用本地缓存（连接超时）", True)
+        ("远程主表或当前卡带暂时不可用，已使用本地缓存；如仍异常请检查网络后重试。", True)
     ]
     assert all("卡带已重新加载" not in message for message, _ in notifications)
 
@@ -1422,7 +1450,7 @@ def test_patch_only_release_keeps_unlock_button_available() -> None:
     )[0]
     assert "if snapshot.patch_bundle is None:" in no_entries
     assert "self._set_batch_download_state(self.batch_download_state)" in no_entries
-    assert "当前 Release 没有 DLC 资源；可直接安装补丁。" in no_entries
+    assert "当前云端没有需要下载的 DLC；可直接安装补丁。" in no_entries
 
 
 def test_repair_prepares_every_resource_before_destructive_cleanup() -> None:

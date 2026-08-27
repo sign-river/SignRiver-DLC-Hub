@@ -135,13 +135,6 @@ def _show_fatal_error(
             wraplength=520,
             pady=10,
         ).pack(fill="x")
-        if report is not None:
-            tk.Label(
-                frame,
-                text=f"错误码：{report.code.value}\n事件 ID：{report.event_id}",
-                justify="left",
-                anchor="w",
-            ).pack(fill="x", pady=(0, 8))
         status = tk.StringVar(value="")
 
         def copy_details() -> None:
@@ -510,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
                     severity=ProblemSeverity.CRITICAL,
                     stage="launcher.fatal",
                     summary="启动器发生致命错误",
-                    suggestion="请复制详情或打开日志目录，并使用事件 ID 反馈问题。",
+                    suggestion="请打开日志目录或复制详情后联系开发者。",
                     error=error,
                     app_version=app_version,
                     logger=logger,

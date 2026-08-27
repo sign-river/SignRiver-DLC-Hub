@@ -1122,7 +1122,7 @@ class DlcHubApplication:
         self.export_games_button.pack(side="left", padx=(10, 0))
         self.platform_status = ctk.CTkLabel(
             selector_row,
-            text=f"{self.cartridge.platform_name} · App {self.cartridge.store_app_id}",
+            text=f"{self.cartridge.platform_name}",
             text_color=UI["muted"],
         )
         self.platform_status.pack(side="right")
@@ -1214,8 +1214,7 @@ class DlcHubApplication:
         self.catalog_status = ctk.CTkLabel(
             catalog_card,
             text=(
-                f"等待读取 {provider_display_name(self.user_settings.download_source)}"
-                f" · {self.cartridge.release_tag} Release"
+                f"等待读取 {provider_display_name(self.user_settings.download_source)} 云端资源"
             ),
             anchor="w",
         )
@@ -1655,24 +1654,8 @@ class DlcHubApplication:
         )
         self.announcement_mute_switch.pack(anchor="e")
 
-        fallback_row, fallback_action, fallback_description = _settings_row(
-            general_body,
-            "启动失败时保留当前模块",
-            "开发调试时可开启；当前模块启动失败将停止并显示错误，不会悄悄回退到旧版本。",
-            last=True,
-        )
-        self.settings_description_boxes.append(fallback_description)
-        self.prevent_module_fallback_var = BooleanVar(
-            value=self.context.updates.prevent_module_fallback
-        )
-        self.prevent_module_fallback_switch = _blue_switch(
-            fallback_action,
-            text="",
-            width=54,
-            variable=self.prevent_module_fallback_var,
-            command=self._toggle_prevent_module_fallback,
-        )
-        self.prevent_module_fallback_switch.pack(anchor="e")
+        # Developer-only module fallback remains persisted for compatibility,
+        # but is intentionally not exposed in the ordinary settings page.
 
         for index, card in enumerate((network_card, program_card, general_card)):
             card.pack(
@@ -2595,7 +2578,7 @@ class DlcHubApplication:
         self.selected_game_name = display_name
         self._set_game_selector_text(display_name)
         self.platform_status.configure(
-            text=f"{game['platform']} · App {game['store_app_id']}"
+            text=f"{game['platform']}"
         )
         self.top_health.configure(text=f"{display_name} · 正在刷新")
         self._scan_games()
@@ -2874,7 +2857,7 @@ class DlcHubApplication:
                 self._record_problem(report)
                 message = str(error)
                 self._post_ui(lambda value=message, key=tool_key: self._append_tool_log(f"下载失败：{value}", tool_key=key))
-                self._post_ui(lambda value=message: self._notify(f"指南附件下载失败：{value}", error=True))
+                self._post_ui(lambda: self._notify("指南附件下载失败，请重试；如仍失败请导出诊断包。", error=True))
             finally:
                 self._post_ui(lambda: self._finish_tool_operation())
 
@@ -2944,7 +2927,7 @@ class DlcHubApplication:
                 self._post_ui(lambda value=result: messagebox.showinfo(f"工具运行结果：{tool.title}", value, parent=self.window))
             except Exception as error:
                 self.context.logger.exception("Guide tool execution failed: %s", tool.tool_id)
-                self._post_ui(lambda value=str(error): self._notify(f"工具运行失败：{value}", error=True))
+                self._post_ui(lambda: self._notify("工具运行失败，请重试；如仍失败请导出诊断包。", error=True))
                 self._post_ui(lambda value=str(error), key=tool_key: self._append_tool_log(f"运行失败：{value}", tool_key=key))
             finally:
                 self._post_ui(lambda: self._set_tool_ready(path.is_file(), running=False))
@@ -3515,7 +3498,7 @@ class DlcHubApplication:
             self._append_tool_log(f"已打开链接：{label}", tool_key=key)
         except Exception as error:
             self._append_tool_log(f"打开链接失败：{error}", tool_key=key)
-            self._notify(f"无法打开链接：{error}", error=True)
+            self._notify("无法打开链接，请检查默认浏览器设置后重试。", error=True)
 
     def _solution_id_for_tool(self, tool: GuideTool) -> str | None:
         for article_id, article in self.solution_articles.items():
@@ -3685,7 +3668,7 @@ class DlcHubApplication:
         status = getattr(self, "support_collection_status_label", None)
         if status is not None:
             status.configure(text=self._support_collection_status_text())
-        messagebox.showerror("资料收集失败", message, parent=self.window)
+        messagebox.showerror("资料收集失败", "暂时无法收集资料，请重试；如仍失败请查看运行日志。", parent=self.window)
 
     def _open_support_collection_folder(self) -> None:
         self._append_tool_log("点击操作：打开收集文件夹", tool_key="builtin:support-collection")
@@ -3906,7 +3889,7 @@ class DlcHubApplication:
         except Exception as error:
             self.context.logger.exception("Unable to re-download patch assets")
             self._append_tool_log(f"重新下载失败：{error}", tool_key=patch_key)
-            self._notify(f"无法开始重新下载补丁：{error}", error=True)
+            self._notify("无法开始重新下载补丁，请稍后重试。", error=True)
             return
         self._append_tool_log("已开始重新下载补丁资源", tool_key=patch_key)
         self._notify("已开始重新下载补丁资源；下载完成后不会自动应用。")
@@ -3926,7 +3909,7 @@ class DlcHubApplication:
             self._post_ui(
                 lambda value=str(error): (
                     self._append_tool_log(f"补丁重新下载异常：{value}", tool_key="builtin:patch-tool"),
-                    self._notify(f"补丁重新下载异常：{value}", error=True),
+                    self._notify("补丁重新下载失败，请稍后重试。", error=True),
                 )
             )
 
@@ -4039,7 +4022,7 @@ class DlcHubApplication:
                 return
             except Exception as error:
                 self._append_tool_log(f"打开 Windows 安全中心失败：{error}", tool_key=key)
-                self._notify(f"无法打开 Windows 安全中心：{error}", error=True)
+                self._notify("无法打开 Windows 安全中心，请从系统设置中手动打开。", error=True)
                 return
         target = preferred_security_product_executable(product)
         if target is not None and target.suffix.casefold() == ".exe" and target.is_file():
@@ -4049,7 +4032,7 @@ class DlcHubApplication:
                 return
             except OSError as error:
                 self._append_tool_log(f"启动杀毒软件失败：{error}", tool_key=key)
-                self._notify(f"无法打开 {product.name}：{error}", error=True)
+                self._notify(f"无法打开 {product.name}，请手动启动该安全软件。", error=True)
                 return
         if is_lenovo_security_product(product):
             self._append_tool_log("启动失败：未找到联想电脑管家主程序", tool_key=key)
@@ -4711,7 +4694,7 @@ class DlcHubApplication:
                 subprocess.Popen(["mmc.exe", "devmgmt.msc"])
         except (OSError, AttributeError) as error:
             self._append_tool_log(f"打开设备管理器失败：{error}", tool_key="builtin:gpu-driver")
-            self._notify(f"无法打开设备管理器：{error}", error=True)
+            self._notify("无法打开设备管理器，请从 Windows 搜索中手动打开。", error=True)
 
     def _quick_check_security_products(self) -> None:
         """List Windows Security Center products without blocking the UI thread."""
@@ -4985,7 +4968,7 @@ class DlcHubApplication:
                 self.helper_tools.delete(tool.tool_id)
             except OSError as error:
                 self._append_tool_log(f"删除失败：{error}", tool_key=tool_key)
-                self._notify(f"删除工具失败：{error}", error=True)
+                self._notify("删除工具失败，请关闭正在运行的工具后重试。", error=True)
                 return
             self._append_tool_log(f"已删除 {tool.title}", tool_key=tool_key)
             self._notify(f"已删除 {tool.title}")
@@ -5008,7 +4991,7 @@ class DlcHubApplication:
                 self._post_ui(
                     lambda value=message, key=tool_key: self._append_tool_log(f"下载失败：{value}", tool_key=key)
                 )
-                self._post_ui(lambda value=message: self._notify(f"工具下载失败：{value}", error=True))
+                self._post_ui(lambda: self._notify("工具下载失败，请检查网络后重试。", error=True))
             else:
                 self._post_ui(lambda key=tool_key: self._append_tool_log(f"{tool.title} 已下载", tool_key=key))
                 self._post_ui(lambda: self._notify(f"{tool.title} 已下载"))
@@ -5059,7 +5042,7 @@ class DlcHubApplication:
         except Exception as error:
             self.context.logger.exception("Helper tool launch failed: %s", tool.tool_id)
             self._append_tool_log(f"启动失败：{error}", tool_key=tool_key)
-            self._notify(f"启动工具失败：{error}", error=True)
+            self._notify("启动工具失败，请确认文件未被安全软件拦截后重试。", error=True)
 
     def _start_helper_executable(self, path: Path, *, run_as_admin: bool) -> None:
         if os.name == "nt" and run_as_admin:
@@ -5601,8 +5584,8 @@ class DlcHubApplication:
                 future = self.download_queue.resume(task_id)
                 future.add_done_callback(self._download_finished)
             self._schedule_task_refresh()
-        except Exception as error:
-            messagebox.showerror("任务操作失败", str(error), parent=self.window)
+        except Exception:
+            messagebox.showerror("任务操作失败", "无法完成任务操作，请稍后重试。", parent=self.window)
 
     def _clear_terminal_tasks(self) -> None:
         if self.download_queue is None:
@@ -5641,9 +5624,9 @@ class DlcHubApplication:
                 "请先暂停或取消当前下载任务，再清除全部记录。",
                 parent=self.window,
             )
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to clear all download tasks")
-            messagebox.showerror("清除记录失败", str(error), parent=self.window)
+            messagebox.showerror("清除记录失败", "无法清除任务记录，请稍后重试。", parent=self.window)
 
     def _cleanup_cache(self) -> None:
         """Preview and clear every re-downloadable file in the app cache."""
@@ -5851,7 +5834,7 @@ class DlcHubApplication:
         self.cache_status.configure(text="清除所有缓存失败")
         self._schedule_cache_usage_scan(force=True)
         self._reconcile_catalog_cache()
-        messagebox.showerror("清除缓存失败", message, parent=self.window)
+        messagebox.showerror("清除缓存失败", "无法清除缓存，请关闭正在使用相关文件的程序后重试。", parent=self.window)
 
     def _toggle_download_never_timeout(self) -> None:
         enabled = bool(self.download_never_timeout_var.get())
@@ -5866,13 +5849,13 @@ class DlcHubApplication:
             if self.settings_repository is not None:
                 self.settings_repository.save(updated)
             self.download_manager.configure_timeout(None if enabled else 30)
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to save download timeout setting")
             self.download_never_timeout_var.set(
                 previous.download_never_timeout
             )
             messagebox.showerror(
-                "保存设置失败", str(error), parent=self.window
+                "保存设置失败", "设置暂时无法保存，请稍后重试。", parent=self.window
             )
             return
         self.user_settings = updated
@@ -5882,10 +5865,10 @@ class DlcHubApplication:
         enabled = bool(self.prevent_module_fallback_var.get())
         try:
             self.context.updates.set_prevent_module_fallback(enabled)
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to save module fallback setting")
             self.prevent_module_fallback_var.set(not enabled)
-            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            messagebox.showerror("保存设置失败", "设置暂时无法保存，请稍后重试。", parent=self.window)
             return
         self._notify(
             "已开启：模块启动失败时不自动回退"
@@ -5949,12 +5932,12 @@ class DlcHubApplication:
         try:
             if self.settings_repository is not None:
                 self.settings_repository.save(updated)
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to save download source")
             self.download_source_menu.set(
                 provider_display_name(previous.download_source)
             )
-            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            messagebox.showerror("保存设置失败", "下载源设置暂时无法保存，请稍后重试。", parent=self.window)
             return
         self.user_settings = updated
         self.download_source_generation += 1
@@ -6082,12 +6065,7 @@ class DlcHubApplication:
         self._activate_loaded_cartridge(loaded, rebuild_services=True)
         self._sync_game_selector_values()
         self._set_game_selector_text(self.selected_game_name)
-        self.platform_status.configure(
-            text=(
-                f"{self.cartridge.platform_name} · App "
-                f"{self.cartridge.store_app_id}"
-            )
-        )
+        self.platform_status.configure(text=f"{self.cartridge.platform_name}")
         self._scan_games()
         self._refresh_catalog()
         if remote_loaded:
@@ -6095,10 +6073,10 @@ class DlcHubApplication:
                 f"下载和程序更新源已切换为 {provider_display_name(source)}，卡带已重新加载"
             )
         else:
-            message = "远程主表或当前卡带不可用，已使用本地缓存"
-            if fallback_message:
-                message = f"{message}（{fallback_message}）"
-            self._notify(message, error=True)
+            self._notify(
+                "远程主表或当前卡带暂时不可用，已使用本地缓存；如仍异常请检查网络后重试。",
+                error=True,
+            )
         return True
 
     def _run_speed_test(self) -> None:
@@ -6114,9 +6092,9 @@ class DlcHubApplication:
             try:
                 result = measure_download_speed(url)
                 self._post_ui(lambda result=result: self._finish_speed_test(result))
-            except Exception as error:
+            except Exception:
                 self.context.logger.exception("Download speed test failed")
-                message = str(error)
+                message = "网络测速失败，请检查网络后重试。"
                 self._post_ui(lambda message=message: self._finish_speed_test_error(message))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -6136,7 +6114,7 @@ class DlcHubApplication:
         self.speed_test_running = False
         self.speed_test_button.configure(state="normal", text="重新测速")
         self.speed_test_status.configure(text="测速失败")
-        messagebox.showerror("测速失败", message, parent=self.window)
+        messagebox.showerror("测速失败", "无法完成网络测速，请检查网络后重试。", parent=self.window)
 
     def _refresh_announcement(self) -> None:
         """Fetch the remote notice in the background, then show it when needed."""
@@ -6257,9 +6235,9 @@ class DlcHubApplication:
         try:
             if self.settings_repository is not None:
                 self.settings_repository.save(updated)
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to mute announcement")
-            messagebox.showerror("保存设置失败", str(error), parent=self.window)
+            messagebox.showerror("保存设置失败", "设置暂时无法保存，请稍后重试。", parent=self.window)
             return
         self.user_settings = updated
         if hasattr(self, "announcement_mute_var"):
@@ -6629,7 +6607,7 @@ class DlcHubApplication:
             self._append_tool_log(f"已打开文件：{path}")
         except Exception as error:
             self._append_tool_log(f"打开文件失败：{error}")
-            self._notify(f"无法打开文件：{error}", error=True)
+            self._notify("无法打开文件，请确认文件存在且未被其他程序占用。", error=True)
 
     @staticmethod
     def _is_file_openable(path: Path) -> bool:
@@ -6647,7 +6625,7 @@ class DlcHubApplication:
             self._append_tool_log(f"已打开目录：{path}")
         except Exception as error:
             self._append_tool_log(f"打开目录失败：{error}")
-            messagebox.showerror("无法打开目录", str(error), parent=self.window)
+            messagebox.showerror("无法打开目录", "目录不可用，请确认路径存在并具有访问权限。", parent=self.window)
 
     def _refresh_log_preview(self) -> None:
         path = self.context.paths.data / "logs" / "launcher.log"
@@ -6721,9 +6699,9 @@ class DlcHubApplication:
                 self._post_ui(
                     lambda output=output: self._finish_diagnostic_export(output)
                 )
-            except Exception as error:
+            except Exception:
                 self.context.logger.exception("Diagnostic export failed")
-                message = str(error)
+                message = "诊断包导出失败，请稍后重试。"
                 self._post_ui(
                     lambda message=message: self._finish_diagnostic_export_error(
                         message
@@ -6751,7 +6729,7 @@ class DlcHubApplication:
         self.diagnostics_export_button.configure(
             state="normal", text="导出诊断包"
         )
-        messagebox.showerror("诊断导出失败", message, parent=self.window)
+        messagebox.showerror("诊断导出失败", "暂时无法导出诊断包，请稍后重试。", parent=self.window)
 
     def _problem_detail_text(self, report: ProblemReport) -> str:
         status = "未解决" if report.status is ProblemStatus.OPEN else "已解决"
@@ -6802,10 +6780,10 @@ class DlcHubApplication:
             return
         try:
             reports = self.problem_store.list_reports()
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to load problem reports")
             reports = []
-            self._notify(f"问题记录读取失败：{error}", error=True)
+            self._notify("问题记录暂时无法读取，请稍后重试。", error=True)
         self.problem_rows = reports
         for child in self.problem_list.winfo_children():
             child.destroy()
@@ -6933,36 +6911,20 @@ class DlcHubApplication:
         for text, color, background in (
             (severity, UI["danger"] if report.severity.value in {"error", "critical"} else UI["primary"], "#FDECEC" if report.severity.value in {"error", "critical"} else UI["primary_surface"]),
             (status, UI["danger"] if report.status is ProblemStatus.OPEN else UI["success"], "#FDECEC" if report.status is ProblemStatus.OPEN else "#E7F5EC"),
-            (report.code.value, UI["text_secondary"], UI["panel"]),
         ):
             ctk.CTkLabel(meta, text=text, text_color=color, fg_color=background, corner_radius=5,
                          font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=(0, 6))
-        info = ctk.CTkFrame(self.problem_detail_content, fg_color=UI["panel"], corner_radius=8)
-        info.pack(fill="x", padx=4, pady=(0, 12))
-        ctk.CTkLabel(info, text="基础信息", text_color=UI["text"], anchor="w",
-                     font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(12, 8))
-        fields = (("发生时间", report.last_occurred_at), ("事件 ID", report.event_id), ("阶段", report.stage), ("平台", report.platform or "-"), ("程序版本", report.app_version or "-"), ("重复次数", str(report.retry_count)))
-        for index, (label, value) in enumerate(fields):
-            row, column = divmod(index, 2)
-            ctk.CTkLabel(info, text=f"{label}\n{value}", text_color=UI["text_secondary"], anchor="w",
-                         justify="left", font=ctk.CTkFont(size=12)).grid(row=row + 1, column=column, sticky="w", padx=14, pady=5)
         suggestion = ctk.CTkFrame(self.problem_detail_content, fg_color=UI["primary_surface"], corner_radius=8)
         suggestion.pack(fill="x", padx=4, pady=(0, 12))
         ctk.CTkLabel(suggestion, text="处理建议", text_color=UI["primary"], anchor="w",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", padx=14, pady=(12, 4))
         ctk.CTkButton(suggestion, text="查看对应解决方案  →", width=156,
                       command=lambda report=report: self._open_problem_solution(report), **BUTTON_SECONDARY).pack(anchor="w", padx=14, pady=(0, 12))
-        technical_header = ctk.CTkFrame(self.problem_detail_content, fg_color="transparent")
-        technical_header.pack(fill="x", padx=4, pady=(0, 4))
-        ctk.CTkLabel(technical_header, text="技术详情 / Traceback", text_color=UI["text"], anchor="w",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkButton(technical_header, text="复制", width=64, height=28, **BUTTON_SECONDARY,
-                      command=lambda: self._copy_problem_text(report.technical_details or self._problem_detail_text(report))).pack(side="right")
-        technical = ctk.CTkTextbox(self.problem_detail_content, height=180, wrap="word", fg_color="#F3F4F6", text_color=UI["text_secondary"], border_width=0, corner_radius=8,
-                                  font=ctk.CTkFont(family="Consolas", size=12))
-        technical.pack(fill="x", padx=4, pady=(0, 12))
-        technical.insert("1.0", report.technical_details or "未记录技术详情")
-        technical.configure(state="disabled")
+        ctk.CTkButton(
+            suggestion, text="复制诊断信息（供反馈使用） →", width=190,
+            command=lambda: self._copy_problem_text(report.format_details()),
+            **BUTTON_SECONDARY,
+        ).pack(anchor="w", padx=14, pady=(0, 12))
         self._render_problem_actions(report)
 
     def _select_problem(self, event_id: str, *, refresh_list: bool = True) -> None:
@@ -7145,9 +7107,9 @@ class DlcHubApplication:
             return
         try:
             self.problem_store.clear()
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to clear problem reports")
-            messagebox.showerror("清空失败", str(error), parent=self.window)
+            messagebox.showerror("清空失败", "无法清空问题记录，请稍后重试。", parent=self.window)
             return
         self.selected_problem_event_id = None
         self._show_problem_list()
@@ -7173,9 +7135,9 @@ class DlcHubApplication:
             return
         try:
             self.problem_store.delete(target_id)
-        except Exception as error:
+        except Exception:
             self.context.logger.exception("Unable to delete current problem report")
-            messagebox.showerror("删除失败", str(error), parent=self.window)
+            messagebox.showerror("删除失败", "无法删除问题记录，请稍后重试。", parent=self.window)
             return
         self.selected_problem_event_id = None
         self._show_problem_list()
@@ -7269,8 +7231,7 @@ class DlcHubApplication:
         self.catalog_refresh_button.configure(state="disabled")
         self.catalog_status.configure(
             text=(
-                f"正在读取 {provider_display_name(self.user_settings.download_source)}"
-                f" · {self.cartridge.release_tag} Release……"
+                f"正在读取 {provider_display_name(self.user_settings.download_source)} 云端资源……"
             )
         )
 
@@ -7394,14 +7355,14 @@ class DlcHubApplication:
         self._refresh_catalog_capacity_summary()
         self._refresh_catalog_freshness_label(catalog_count=len(entries))
         if not entries:
-            self._clear_catalog_views("当前 Release 中没有可用的 DLC 资源")
+            self._clear_catalog_views("当前云端资源中没有可用的 DLC")
             self.selection_toggle_button.configure(state="disabled", text="全选 DLC")
             if snapshot.patch_bundle is None:
                 self.catalog_patch_warning.configure(
                     text="补丁资源缺失，暂无法一键解锁。"
                 )
                 self.catalog_preview.configure(
-                    text="Release 中没有 DLC 资源，且补丁资源也不可用；请刷新目录后重试。"
+                    text="云端没有可用的 DLC 或补丁资源；请刷新目录后重试。"
                 )
                 self.download_selected_button.configure(
                     state="disabled", text="暂无可用 DLC"
@@ -7412,7 +7373,7 @@ class DlcHubApplication:
                 # patch even when there is no DLC ZIP to download.
                 self.catalog_patch_warning.configure(text="")
                 self.catalog_preview.configure(
-                    text="当前 Release 没有 DLC 资源；可直接安装补丁。"
+                    text="当前云端没有需要下载的 DLC；可直接安装补丁。"
                 )
                 self._set_batch_download_state(self.batch_download_state)
             return
@@ -9248,7 +9209,7 @@ class DlcHubApplication:
         if self.unlock_workflow_active and entry.dlc_id in self.unlock_requested_dlc_ids:
             self.unlock_failed_dlc_ids.add(entry.dlc_id)
         self.catalog_preview.configure(
-            text=f"{entry.display_name} 下载完成，但自动安装失败：{message}"
+            text=f"{entry.display_name} 下载完成，但自动安装失败；请重新扫描后重试。"
         )
         self._notify(f"{entry.display_name}：自动安装失败", error=True)
         self._maybe_finish_unlock_workflow()
@@ -9478,8 +9439,12 @@ class DlcHubApplication:
         self.manual_file_operation_token = None
         if not current:
             return
-        self.catalog_preview.configure(text=f"{title}：{message}")
-        messagebox.showerror(title, message, parent=self.window)
+        friendly = {
+            "检查失败": "无法检查补丁状态，请稍后重试。",
+            "操作失败": "文件操作未完成，请稍后重试。",
+        }.get(title, "操作未完成，请稍后重试。")
+        self.catalog_preview.configure(text=f"{title}：{friendly}")
+        messagebox.showerror(title, friendly, parent=self.window)
 
     def _manage_entry(self, entry) -> None:
         if self.install_service is None or self.current_installation is None:
@@ -10226,9 +10191,9 @@ class DlcHubApplication:
         self.unlock_workflow_active = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
-        self.catalog_preview.configure(text=f"一键解锁工具执行失败：{message}")
-        self._notify(f"一键解锁工具执行失败：{message}", error=True)
-        messagebox.showerror("一键解锁工具执行失败", message, parent=self.window)
+        self.catalog_preview.configure(text="一键解锁未完成，请查看解决方案或稍后重试。")
+        self._notify("一键解锁未完成", error=True)
+        messagebox.showerror("一键解锁未完成", "请查看解决方案或稍后重试；如仍失败请导出诊断包。", parent=self.window)
 
     def _restore_original_state(self) -> None:
         """Remove only receipt-backed DLC and the patch managed by this app."""
@@ -10370,8 +10335,8 @@ class DlcHubApplication:
 
     def _on_original_restore_failed(self, message: str) -> None:
         self._set_batch_download_state("idle")
-        self.catalog_preview.configure(text=f"移除本程序安装内容失败：{message}")
-        self._notify(f"移除本程序安装内容失败：{message}", error=True)
+        self.catalog_preview.configure(text="部分安装内容未能移除，请关闭游戏后重试。")
+        self._notify("部分安装内容未能移除", error=True)
         messagebox.showerror(
             "移除本程序安装内容失败", message, parent=self.window
         )
@@ -10436,8 +10401,8 @@ class DlcHubApplication:
 
     def _on_patch_remove_failed(self, message: str) -> None:
         self._set_batch_download_state("idle")
-        self.catalog_preview.configure(text=f"补丁移除失败：{message}")
-        self._notify(f"补丁移除失败：{message}", error=True)
+        self.catalog_preview.configure(text="补丁未能移除，请关闭游戏后重试。")
+        self._notify("补丁未能移除", error=True)
         messagebox.showerror(
             "补丁移除失败", message, parent=self.window,
         )
@@ -10894,9 +10859,9 @@ class DlcHubApplication:
         self.pending_dlc_batch_task_ids = ()
         self.batch_download_task_ids = ()
         self._set_batch_download_state("idle")
-        self.catalog_preview.configure(text=f"一键修复失败：{message}")
-        self._notify(f"一键修复失败：{message}", error=True)
-        messagebox.showerror("一键修复失败", message, parent=self.window)
+        self.catalog_preview.configure(text="一键修复未完成，请稍后重试。")
+        self._notify("一键修复未完成", error=True)
+        messagebox.showerror("一键修复未完成", "请稍后重试；如仍失败请导出诊断包。", parent=self.window)
 
     # ---- End of patch workflow ---------------------------------------------
 
@@ -11112,9 +11077,8 @@ class DlcHubApplication:
             self.install_recovery_key = None
             self.install_recovery_pending = None
             self.game_status.configure(text="未检测到有效安装")
-            suffix = f"（扫描产生 {len(report.issues)} 条诊断信息）" if report.issues else ""
             self.game_path.configure(
-                text=f"可使用“选择目录”手动指定 {game_name} 根目录{suffix}"
+                text=f"可使用“选择目录”手动指定 {game_name} 根目录"
             )
             self.open_game_button.configure(state="disabled")
             self.launch_game_button.configure(state="disabled")
@@ -11623,7 +11587,7 @@ class DlcHubApplication:
         self._set_update_activity_visible(False)
         self.status.configure(text="更新失败")
         self.update_button.configure(state="normal")
-        messagebox.showerror("更新失败", message, parent=self.window)
+        messagebox.showerror("更新失败", "程序更新未完成，请检查网络后重试。", parent=self.window)
 
     def run(self) -> None:
         # Show the window inside the event loop: a bare deiconify() before
