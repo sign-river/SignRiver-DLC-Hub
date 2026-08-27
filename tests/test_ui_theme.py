@@ -153,6 +153,9 @@ def test_error_guide_is_the_single_sidebar_entry_for_logs_and_problem_records() 
     assert '("解决方案", "按现象查看对应的处理办法", "常见问题教程")' in source
     assert '("运行日志", "查看详细运行信息", "运行日志")' in source
     assert 'text="返回指南"' in source
+    assert 'text=f"当前平台可用 {len(self.supported_games)} 款游戏"' in source
+    assert 'f"已同步 {len(self.supported_games)} 款游戏"' in source
+    assert '已同步游戏主表（' not in source
     problem_layout = source.split('problem_header = ctk.CTkFrame(self.problem_card', 1)[1].split(
         'problem_body = ctk.CTkFrame(', 1
     )[0]
