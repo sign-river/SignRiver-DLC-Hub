@@ -7,12 +7,16 @@
     },
     {
       "kind": "text",
-      "text": "本程序是自行开发并开源的软件，部分安全软件可能因程序信誉或行为特征不足而产生误判。遇到拦截时，请先核对官方发布来源与文件校验信息，再根据需要手动将程序或相关目录加入白名单。"
+      "text": "本程序是自行开发并开源的软件，部分安全软件可能因程序信誉或行为特征不足而产生误判。遇到拦截时，请先进入杀毒软件检测工具，查看检测到的安全软件，并点击“打开”启动对应界面。"
     },
     {
-      "kind": "link",
-      "text": "GitHub 项目仓库（访问可能需要代理或国际网络）  →",
-      "url": "https://github.com/sign-river/SignRiver-DLC-Hub"
+      "kind": "button",
+      "text": "进入杀毒软件检测工具 →",
+      "target": "tool:security-products"
+    },
+    {
+      "kind": "image",
+      "asset_name": "security-products-list.png"
     },
     {
       "kind": "heading",
@@ -20,7 +24,24 @@
     },
     {
       "kind": "text",
-      "text": "仅在确认文件来自本程序官方发布链路且问题记录与拦截时间对应时，按安全软件自身界面进行人工恢复或允许。无法确认来源时不要恢复文件，请保留记录并反馈。"
+      "text": "例如，即使没有额外安装杀毒软件，也可能被 Windows Defender 拦截。请在检测列表中点击 Windows Defender 的“打开”，进入 Windows 安全中心的“保护历史记录”，查看最近被删除或隔离的文件；确认来自本程序官方发布链路后，再按安全软件界面将文件加入白名单。"
+    },
+    {
+      "kind": "image",
+      "asset_name": "windows-defender-history.png"
+    },
+    {
+      "kind": "text",
+      "text": "如果你比较了解电脑且确认当前使用环境安全，也可以选择临时关闭 Windows Defender，再按需恢复防护。"
+    },
+    {
+      "kind": "button",
+      "text": "查看关闭 Windows Defender 指南 →",
+      "target": "guide:close-windows-defender"
+    },
+    {
+      "kind": "text",
+      "text": "当然，文件也不一定是 Windows Defender 删除的，还可能是 360、火绒、艾可菲等其他安全软件。建议逐一排查检测列表中的每个安全软件，并将确认无误的程序文件加入对应白名单。"
     },
     {
       "kind": "heading",

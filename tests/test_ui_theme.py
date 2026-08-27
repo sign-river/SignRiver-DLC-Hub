@@ -373,6 +373,7 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     security_products = _app_method_source("_render_security_products")
     defender_banner = _app_method_source("_pack_close_windows_defender_banner")
     tool_center = _app_method_source("_build_tool_center_page")
+    solution_navigation = _app_method_source("_activate_solution_button")
 
     assert 'text="从云端重新下载补丁"' in patch_tool
     assert 'command=self._redownload_patch_assets, **BUTTON_PRIMARY' in patch_tool
@@ -393,6 +394,7 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     assert 'fg_color=UI["card"]' in defender_banner
     assert 'border_color=UI["border"]' in defender_banner
     assert '**BUTTON_PRIMARY' in defender_banner
+    assert 'tool_id == "security-products"' in solution_navigation
     assert 'command=self._copy_tool_logs, **CONSOLE_GHOST_BUTTON' in tool_center
     assert 'self.tool_center_console_clear_button = ctk.CTkButton(' in tool_center
     assert 'command=self._clear_tool_logs,' in tool_center

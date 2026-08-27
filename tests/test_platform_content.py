@@ -446,7 +446,10 @@ def test_security_interference_guide_explains_open_source_false_positive_and_git
     entry = next(item for item in entries if item.guide_id == "security-interference")
     document = service.load_guide(entry, allow_network=False)
     assert any("自行开发并开源" in block[1] and "误判" in block[1] for block in document.blocks if block[0] == "text")
-    assert ("link", "GitHub 项目仓库（访问可能需要代理或国际网络）  →", "https://github.com/sign-river/SignRiver-DLC-Hub") in document.blocks
+    assert ("button", "进入杀毒软件检测工具 →", "tool:security-products") in document.blocks
+    assert ("image", str(GUIDES / "assets" / "security-products-list.png")) in document.blocks
+    assert ("image", str(GUIDES / "assets" / "windows-defender-history.png")) in document.blocks
+    assert ("button", "查看关闭 Windows Defender 指南 →", "guide:close-windows-defender") in document.blocks
 
 
 def test_guide_tool_can_be_marked_as_not_requiring_cloud_download() -> None:

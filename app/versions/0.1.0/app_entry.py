@@ -5131,6 +5131,14 @@ class DlcHubApplication:
         if target.startswith("tool:"):
             tool_id = target.removeprefix("tool:").strip()
             current_id = self._current_solution_article_id
+            if tool_id == "security-products" and current_id:
+                self._skip_tool_center_refresh = True
+                try:
+                    self._show_page("常用工具")
+                finally:
+                    self._skip_tool_center_refresh = False
+                self._show_security_products()
+                return
             tool = next(
                 (item for item in self._guide_tools_for_current_platform() if item.tool_id == tool_id),
                 None,
