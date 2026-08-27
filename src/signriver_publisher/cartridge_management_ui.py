@@ -641,13 +641,9 @@ class CartridgeManagementUiMixin:
 
     def publish_extensions_mirror(self) -> None:
         """Preflight and publish downloadable tool payloads only."""
-        summary = self.workspace.extension_resource_summary()
-        if summary.tools.error:
-            messagebox.showerror(
-                "工具文件预检失败",
-                "tools_index.json 和工具包必须完整后才能上传：\n\n"
-                f"{summary.status_text}",
-            )
+        snapshot_path = self.workspace.tools_source_dir / ".tools-build.json"
+        if not snapshot_path.is_file():
+            messagebox.showerror("无法上传工具文件", "请先点击“构建工具快照”。", parent=self)
             return
         if not self._save_active_settings():
             return
@@ -660,9 +656,6 @@ class CartridgeManagementUiMixin:
                 "无法双端上传工具文件",
                 "请先填写并保存 GitLink 和 GitHub 的仓库及令牌。",
             )
-            return
-        if not (self.workspace.tools_source_dir / ".tools-build.json").is_file():
-            messagebox.showerror("无法上传工具文件", "请先点击“构建工具快照”。", parent=self)
             return
         if not messagebox.askyesno(
             "确认双端上传工具文件",
