@@ -438,6 +438,17 @@ def test_windows_bootstrap_guides_include_close_windows_defender_helper_tool() -
     assert not any(block[0] == "heading" and block[1] == "注意事项" for block in document.blocks)
 
 
+def test_security_interference_guide_explains_open_source_false_positive_and_github() -> None:
+    service = GuideCatalogService(
+        Path("unused-cache"), bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entries = service.refresh_index(allow_network=False)
+    entry = next(item for item in entries if item.guide_id == "security-interference")
+    document = service.load_guide(entry, allow_network=False)
+    assert any("自行开发并开源" in block[1] and "误判" in block[1] for block in document.blocks if block[0] == "text")
+    assert ("link", "GitHub 项目仓库（访问可能需要代理或国际网络）  →", "https://github.com/sign-river/SignRiver-DLC-Hub") in document.blocks
+
+
 def test_guide_tool_can_be_marked_as_not_requiring_cloud_download() -> None:
     tool = GuideTool.from_dict({
         "tool_id": "local-check",
