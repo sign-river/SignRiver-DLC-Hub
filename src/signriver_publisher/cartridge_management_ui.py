@@ -94,6 +94,8 @@ class CartridgeManagementUiMixin:
         )
         extension_overview.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
         extension_overview.grid_columnconfigure(0, weight=1)
+        # 与左侧卡片的两行摘要保持相同的垂直节奏，让主按钮落在同一条基线。
+        extension_overview.grid_rowconfigure(2, weight=1)
         ctk.CTkLabel(
             extension_overview, text="工具文件上传", text_color=BLUE,
             font=("Microsoft YaHei UI", 14, "bold"), anchor="w",
@@ -106,7 +108,7 @@ class CartridgeManagementUiMixin:
         ctk.CTkButton(
             extension_overview, text="进入工具文件上传", height=36,
             fg_color=LIGHT_BLUE, command=self._show_extension_detail,
-        ).grid(row=2, column=0, padx=14, pady=(0, 14), sticky="ew")
+        ).grid(row=3, column=0, padx=14, pady=(0, 14), sticky="ew")
 
         self._build_cartridge_detail_page()
         self._build_extension_detail_page()
