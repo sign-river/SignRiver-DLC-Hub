@@ -3532,7 +3532,7 @@ class DlcHubApplication:
         ).pack(side="left")
         ctk.CTkButton(
             actions, text="打开下载文件夹", width=140,
-            command=lambda: open_directory(self._latest_installer_folder()),
+            command=self._open_latest_installer_folder,
             **BUTTON_SECONDARY,
         ).pack(side="left", padx=(8, 0))
 
@@ -3542,6 +3542,10 @@ class DlcHubApplication:
             return
         source = self.user_settings.download_source
         manifest_url = UPDATE_MANIFEST_URLS.get(source, UPDATE_MANIFEST_URLS["gitlink"])
+        self._append_tool_log(
+            f"开始下载最新安装包：读取 {provider_display_name(source)} 更新清单",
+            tool_key="builtin:latest-installer",
+        )
         status.configure(text=f"正在读取 {provider_display_name(source)} 最新版本……")
 
         def worker() -> None:
@@ -3567,17 +3571,36 @@ class DlcHubApplication:
                     raise RuntimeError("未找到 Windows 安装包")
                 _, version, package_url = max(candidates)
                 filename = Path(urllib.parse.urlparse(package_url).path).name or f"SignRiver-DLC-Hub-v{version}-windows-x64.zip"
+                self._append_tool_log(
+                    f"已找到最新安装包：v{version} · {filename}",
+                    tool_key="builtin:latest-installer",
+                )
                 target = self._latest_installer_folder() / filename
                 temp = target.with_suffix(target.suffix + ".download")
                 with urllib.request.urlopen(package_url, timeout=60) as response, temp.open("wb") as output:
                     shutil.copyfileobj(response, output, length=1024 * 256)
                 temp.replace(target)
+                self._append_tool_log(
+                    f"最新安装包下载完成：{filename}",
+                    tool_key="builtin:latest-installer",
+                )
                 self._post_ui(lambda: status.configure(text=f"已下载 v{version}：{filename}"))
             except Exception:
                 self.context.logger.exception("Latest installer download failed")
+                self._append_tool_log(
+                    "最新安装包下载失败",
+                    tool_key="builtin:latest-installer",
+                )
                 self._post_ui(lambda: status.configure(text="下载失败，请检查网络后重试。"))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _open_latest_installer_folder(self) -> None:
+        self._append_tool_log(
+            "点击操作：打开最新安装包下载文件夹",
+            tool_key="builtin:latest-installer",
+        )
+        open_directory(self._latest_installer_folder())
 
     def _pack_declared_tool_detail_actions(self, parent, tool: GuideTool) -> None:
         """Render only the schema-approved, non-executable cloud detail actions."""
