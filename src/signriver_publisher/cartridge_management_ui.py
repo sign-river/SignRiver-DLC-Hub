@@ -507,6 +507,15 @@ class CartridgeManagementUiMixin:
                     targets[1][3],
                 )
                 release = github.ensure_release(profile.release_tag)
+                github_removed = github.delete_assets_not_in_release(
+                    release, {asset.name for asset in assets}
+                )
+                if github_removed:
+                    self._post_ui(
+                        lambda names=github_removed: self._log(
+                            f"[GitHub] 清理云端旧附件：{', '.join(names)}"
+                        )
+                    )
                 # GitHub's asset metadata only exposes size, which is not a
                 # content identity.  A changed JSON can retain the same size
                 # and must still replace the remote attachment.  Reuse is

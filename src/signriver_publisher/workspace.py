@@ -780,10 +780,8 @@ class PublisherWorkspace:
         else:
             target.unlink()
         if kind == "dlc":
-            # Import numbering is only a convenient local name allocator.  A
-            # deleted DLC must not leave a persistent high-water mark behind:
-            # otherwise repeated import/delete cycles keep producing larger
-            # and larger dlcNNN prefixes, including after a publisher restart.
+            # Keep the allocator's high-water mark so deleting a DLC cannot
+            # make a later import reuse its published identity.
             self._sync_dlc_import_number(profile)
         self._invalidate_build_complete(profile)
 
@@ -828,6 +826,8 @@ class PublisherWorkspace:
         target.mkdir(parents=True, exist_ok=True)
         records: list[ResourceRecord] = []
         expected: set[str] = set()
+        seen_dlc_ids: set[str] = set()
+        seen_install_names: set[str] = set()
         build_state = self._load_build_state(profile)
         previous_dlcs = build_state.get("dlcs") if isinstance(build_state.get("dlcs"), dict) else {}
         next_dlcs: dict[str, object] = {}
@@ -843,6 +843,13 @@ class PublisherWorkspace:
         for index, source in enumerate(dlcs, start=1):
             report("检查构建缓存", index, source.name, "正在比对源资源与本地发布包")
             dlc_id, display_name = self._parse_dlc_folder(source.name)
+            install_name = source.name.split("_", 1)[1].casefold()
+            if dlc_id in seen_dlc_ids:
+                raise WorkspaceError(f"DLC 编号重复：{dlc_id}")
+            if install_name in seen_install_names:
+                raise WorkspaceError(f"DLC 安装目录重名：{source.name}")
+            seen_dlc_ids.add(dlc_id)
+            seen_install_names.add(install_name)
             if not any(path.is_file() for path in source.rglob("*")):
                 report("保留空目录", index, source.name, "将生成可安装目录包")
             asset_name = f"{source.name}.zip"
@@ -1709,19 +1716,24 @@ class PublisherWorkspace:
                 raise WorkspaceError("共享 DLC 文件组模式必须使用 grouped_directory 校验")
 
     def _next_dlc_import_number(self, profile: GameProfile) -> int:
-        """Return the first number after the DLC folders that still exist.
-
-        ``.dlc-import-state.json`` is retained as diagnostic/migration state,
-        but it must never reserve numbers for deleted resources.  The local
-        directory is the source of truth, including after a restart.
-        """
+        """Return a monotonic number that is never reused after deletion."""
         existing = 0
         dlc_dir = self.game_dir(profile.game_id) / "dlc"
         for path in dlc_dir.iterdir():
             parsed = parse_managed_folder(path.name) if path.is_dir() else None
             if parsed is not None:
                 existing = max(existing, parsed[2])
-        return existing + 1
+        reserved = 0
+        try:
+            state = json.loads(
+                (self.game_dir(profile.game_id) / ".dlc-import-state.json")
+                .read_text(encoding="utf-8")
+            )
+            if isinstance(state, dict):
+                reserved = max(0, int(state.get("next_number") or 0) - 1)
+        except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        return max(existing, reserved) + 1
 
     def _advance_dlc_import_number(self, profile: GameProfile, managed_name: str) -> None:
         parsed = parse_managed_folder(managed_name)
@@ -1732,10 +1744,17 @@ class PublisherWorkspace:
         self._atomic_json(path, {"version": 1, "next_number": next_number})
 
     def _sync_dlc_import_number(self, profile: GameProfile) -> None:
-        """Persist the current directory-derived next number for visibility."""
+        """Persist the monotonic allocator without lowering its high-water mark."""
+        dlc_dir = self.game_dir(profile.game_id) / "dlc"
+        existing = max(
+            (parsed[2] for path in dlc_dir.iterdir() if path.is_dir()
+             for parsed in [parse_managed_folder(path.name)] if parsed is not None),
+            default=0,
+        )
+        current = self._next_dlc_import_number(profile)
         self._atomic_json(
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
-            {"version": 1, "next_number": self._next_dlc_import_number(profile)},
+            {"version": 1, "next_number": max(current, existing + 1)},
         )
 
     def _import_staging_root(self, profile: GameProfile) -> Path:

@@ -4129,6 +4129,9 @@ class PublisherApplication(ctk.CTk):
                     GitHubRepository(owner, name), token
                 )
                 release = client.ensure_release(profile.release_tag)
+                client.delete_assets_not_in_release(
+                    release, {asset.name for asset in assets}
+                )
                 total = len(assets)
                 completed_names = set(completed)
                 changed_names = {
@@ -4692,6 +4695,15 @@ class PublisherApplication(ctk.CTk):
                     targets[1][3],
                 )
                 release = github.ensure_release(profile.release_tag)
+                github_removed = github.delete_assets_not_in_release(
+                    release, {asset.name for asset in assets}
+                )
+                if github_removed:
+                    self._post_ui(
+                        lambda names=github_removed: self._log(
+                            f"[GitHub] 清理云端旧附件：{', '.join(names)}"
+                        )
+                    )
                 changed = self.workspace.changed_publish_assets(
                     profile, targets[1][1], targets[1][2], assets,
                     state_channel="github",

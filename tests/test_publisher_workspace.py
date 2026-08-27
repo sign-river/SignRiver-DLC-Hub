@@ -772,7 +772,7 @@ def test_clear_local_sources_resets_dlc_import_state_without_touching_patches(
     assert workspace._next_dlc_import_number(profile) == 1
 
 
-def test_auto_prefix_cartridge_reuses_number_after_deleted_folder_and_restart(tmp_path: Path) -> None:
+def test_auto_prefix_cartridge_keeps_numbers_monotonic_after_deleted_folder_and_restart(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     workspace.initialize()
     profile = next(
@@ -798,7 +798,7 @@ def test_auto_prefix_cartridge_reuses_number_after_deleted_folder_and_restart(tm
     imported_second = restarted.import_dlc(profile, second)
 
     assert imported_first.name == "dlc001_Expansion1"
-    assert imported_second.name == "dlc001_VikingsScenario"
+    assert imported_second.name == "dlc002_VikingsScenario"
     assert (imported_second / "content.dat").read_bytes() == b"second"
 
 
@@ -1086,6 +1086,18 @@ def test_build_requires_dlls_and_rejects_wrong_steam_app(tmp_path: Path) -> None
     (patches / "steam_api64.dll").write_bytes(b"patched")
     (patches / "steam_api64_o.dll").write_bytes(b"original")
     with pytest.raises(WorkspaceError, match="当前游戏要求 281990"):
+        workspace.build(profile)
+
+
+def test_build_rejects_duplicate_dlc_numbers(tmp_path: Path) -> None:
+    workspace, profile = built_minimal_workspace(tmp_path)
+    dlc_root = workspace.game_dir(profile.game_id) / "dlc"
+    for name in ("dlc001_first", "dlc001_second"):
+        folder = dlc_root / name
+        folder.mkdir()
+        (folder / "content.dat").write_bytes(name.encode())
+
+    with pytest.raises(WorkspaceError, match="DLC 编号重复：dlc001"):
         workspace.build(profile)
 
 

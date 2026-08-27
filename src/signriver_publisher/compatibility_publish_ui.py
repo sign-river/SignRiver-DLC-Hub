@@ -1051,6 +1051,9 @@ class CompatibilityPublishUiMixin:
                     GitHubRepository(owner, name), token
                 )
                 release = client.ensure_release(profile.release_tag)
+                client.delete_assets_not_in_release(
+                    release, {asset.name for asset in assets}
+                )
                 total = len(assets)
                 completed_names = set(completed)
                 changed_names = {
