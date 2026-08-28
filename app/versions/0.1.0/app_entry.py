@@ -95,7 +95,6 @@ from .signriver_app.infrastructure.gpu_driver import (
 )
 from .signriver_app.infrastructure.graphics_compatibility import (
     GraphicsCompatibilityService,
-    GraphicsDiagnostic,
 )
 from .signriver_app.infrastructure.persistence import (
     Database,
@@ -629,7 +628,6 @@ class DlcHubApplication:
             self.context.paths.root, self.context.paths.data
         )
         self.graphics_compatibility = GraphicsCompatibilityService()
-        self.graphics_last_diagnostic: GraphicsDiagnostic | None = None
         self.support_bundle_collector = SupportBundleCollector(
             self.context.paths.root, self.context.paths.data
         )
@@ -4968,7 +4966,6 @@ class DlcHubApplication:
                 self.quick_check_steps.append(self._quick_check_patch_state)
         if self.host_platform == "windows":
             self.quick_check_steps.append(self._quick_check_gpu_driver)
-            self.quick_check_steps.append(self._quick_check_graphics_compatibility)
             self.quick_check_steps.append(self._quick_check_security_products)
         # Only tools explicitly marked by a developer are admitted here.  The
         # user cannot supply a command, path, or opt-in flag through the UI.
@@ -5072,54 +5069,14 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _quick_check_graphics_compatibility(self) -> None:
-        """后台检查固定的 DirectDraw/Direct3D 配置和 dxdiag 状态。"""
-        self.quick_check_waiting = True
-        result_index = self._add_quick_check_result("图形设备兼容性：正在读取加速状态……")
-        self._render_quick_check_output()
-
-        def worker() -> None:
-            try:
-                diagnostic = self.graphics_compatibility.diagnose()
-                self.graphics_last_diagnostic = diagnostic
-                message = f"图形设备兼容性：{diagnostic.summary}"
-                solution = "graphics-device-compatibility" if diagnostic.code != "graphics_acceleration_ok" else None
-                def detail_action(value=diagnostic) -> None:
-                    self._show_graphics_compatibility_detail(value, origin="quick_check")
-            except Exception as error:
-                self.context.logger.exception("Graphics compatibility quick check failed")
-                diagnostic = None
-                message = f"图形设备兼容性：检测失败（{type(error).__name__}）。"
-                solution = "graphics-device-compatibility"
-                def detail_action() -> None:
-                    self._show_graphics_compatibility_detail(origin="quick_check")
-
-            def finish() -> None:
-                if not self.quick_check_running:
-                    return
-                self._replace_quick_check_result(result_index, message, solution, tool_detail_action=detail_action)
-                self.quick_check_waiting = False
-                self._render_quick_check_output()
-                if not self.quick_check_paused:
-                    self.window.after(0, self._advance_quick_check)
-
-            self._post_ui(finish)
-
-        threading.Thread(target=worker, daemon=True).start()
-
     def _show_graphics_compatibility_detail(
-        self, diagnostic: GraphicsDiagnostic | None = None, *, origin: str = "tool_center"
+        self, diagnostic=None, *, origin: str = "tool_center"
     ) -> None:
         if self.host_platform != "windows":
             self._notify("图形设备兼容性检查当前仅支持 Windows。")
             return
-        diagnostic = diagnostic or self.graphics_last_diagnostic
         back_command = self._show_tool_center_list
         back_text = "← 返回常用工具"
-        if origin == "quick_check":
-            back_text = "← 回到一键排错"
-            def back_command() -> None:
-                self._show_page("简单错误检测")
         self._show_page("常用工具")
         self._show_tool_center_detail(
             "图形设备兼容性", requires_cloud_download=False,
@@ -5128,40 +5085,25 @@ class DlcHubApplication:
         )
         body = self.tool_center_detail_body
         self._create_tool_detail_textbox(
-            "此工具只检查 Windows 图形加速配置。修复前会备份固定的四项注册表值，成功后需要重启电脑；不会自动更新驱动或修改安全软件设置。",
+            "此工具不自动判断游戏是否能启动。请先点击“打开 DirectX 诊断工具”，在“显示”页自行查看 DirectDraw/Direct3D 加速状态；如需应用指南中的固定修复，再确认后修改注册表。不会自动更新驱动或修改安全软件设置。",
             text_color=UI["text_secondary"], pady=(16, 12),
         )
-        if diagnostic is None:
-            ctk.CTkLabel(body, text="正在读取状态……", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=16, pady=8)
-        else:
-            status_color = UI["success"] if diagnostic.code == "graphics_acceleration_ok" else "#B7791F"
-            ctk.CTkLabel(body, text=f"状态：{diagnostic.summary}", text_color=status_color, anchor="w", font=ctk.CTkFont(size=14, weight="bold")).pack(fill="x", padx=16, pady=(0, 8))
-            ctk.CTkLabel(body, text=f"DirectDraw：{diagnostic.directdraw}    Direct3D：{diagnostic.direct3d}", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=16, pady=(0, 8))
-            for item in diagnostic.registry:
-                value = "未设置" if not item.exists else (str(item.value) if item.error is None else f"不可读取（{item.error}）")
-                ctk.CTkLabel(body, text=f"{item.key} · {item.value_name}：{value}", text_color=UI["text_secondary"], anchor="w").pack(fill="x", padx=16, pady=2)
-            if diagnostic.dxdiag_error:
-                ctk.CTkLabel(body, text=f"dxdiag：{diagnostic.dxdiag_error}", text_color="#B7791F", anchor="w", wraplength=680).pack(fill="x", padx=16, pady=(6, 8))
+        ctk.CTkLabel(body, text="操作说明", text_color=UI["primary"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", padx=16, pady=(4, 6))
+        self._create_tool_detail_textbox("1. 打开 DirectX 诊断工具。\n2. 切换到“显示”页，确认 DirectDraw/Direct3D 加速状态。\n3. 如状态显示禁用，关闭诊断工具后点击“修复图形设备配置”。\n4. 修复成功后重启电脑，再启动游戏。", text_color=UI["text_secondary"], pady=(0, 12))
 
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(fill="x", padx=16, pady=(12, 16))
-        ctk.CTkButton(actions, text="重新检测", width=104, command=lambda: self._show_graphics_compatibility_detail(origin=origin), **BUTTON_SECONDARY).pack(side="left")
+        ctk.CTkButton(actions, text="打开 DirectX 诊断工具", width=166, command=self._open_dxdiag_tool, **BUTTON_SECONDARY).pack(side="left")
         ctk.CTkButton(actions, text="修复图形设备配置", width=150, command=self._repair_graphics_compatibility, **BUTTON_PRIMARY).pack(side="left", padx=(8, 0))
         ctk.CTkButton(actions, text="恢复本次备份", width=120, command=self._restore_graphics_compatibility, **BUTTON_DANGER).pack(side="left", padx=(8, 0))
-        if diagnostic is None and not getattr(self, "graphics_probe_running", False):
-            self.graphics_probe_running = True
-            def probe() -> None:
-                try:
-                    value = self.graphics_compatibility.diagnose()
-                except Exception:
-                    value = None
-                def finish() -> None:
-                    self.graphics_probe_running = False
-                    if value is not None:
-                        self.graphics_last_diagnostic = value
-                    self._show_graphics_compatibility_detail(value, origin=origin)
-                self._post_ui(finish)
-            threading.Thread(target=probe, daemon=True).start()
+
+    def _open_dxdiag_tool(self) -> None:
+        try:
+            subprocess.Popen(["dxdiag.exe"])
+            self._append_tool_log("已打开 DirectX 诊断工具", tool_key="builtin:graphics-compatibility")
+        except OSError as error:
+            self._append_tool_log(f"打开 DirectX 诊断工具失败：{error}", tool_key="builtin:graphics-compatibility")
+            self._notify("无法打开 DirectX 诊断工具，请使用 Win+R 输入 dxdiag。", error=True)
 
     def _repair_graphics_compatibility(self) -> None:
         if not messagebox.askyesno("修复图形设备配置", "将备份并写入四项固定注册表值。此操作需要管理员权限，完成后必须重启电脑。确定继续吗？", parent=self.window):
@@ -5171,8 +5113,7 @@ class DlcHubApplication:
         self._append_tool_log(message, tool_key="builtin:graphics-compatibility")
         self._notify(message, error=not ok)
         if ok:
-            self.graphics_last_diagnostic = self.graphics_compatibility.diagnose()
-            self._show_graphics_compatibility_detail(self.graphics_last_diagnostic)
+            self._show_graphics_compatibility_detail()
 
     def _restore_graphics_compatibility(self) -> None:
         if not messagebox.askyesno("恢复图形设备备份", "仅恢复本次修复前保存的四项注册表值，确定继续吗？", parent=self.window):
