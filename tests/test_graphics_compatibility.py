@@ -21,6 +21,9 @@ def test_parse_dxdiag_english_and_chinese_states() -> None:
     assert module.GraphicsCompatibilityService._parse_dxdiag(
         "DirectDraw 加速: 已启用\nDirect3D 加速: 已禁用"
     ) == ("enabled", "disabled")
+    assert module.GraphicsCompatibilityService._parse_dxdiag(
+        "DirectDraw 加速：已启用\nDirect3D 加速：不可用"
+    ) == ("enabled", "unavailable")
 
 
 def test_non_windows_diagnosis_is_safe(monkeypatch) -> None:

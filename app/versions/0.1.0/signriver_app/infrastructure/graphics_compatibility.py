@@ -97,11 +97,17 @@ class GraphicsCompatibilityService:
     @staticmethod
     def _parse_dxdiag(text: str) -> tuple[str, str]:
         def state(label: str) -> str:
-            match = re.search(rf"(?:{label})[^:\r\n]*:\s*(Enabled|Disabled|Not Available|已启用|已禁用|不可用)", text, re.I)
-            if not match:
-                return "unknown"
-            value = match.group(1).casefold()
-            return "enabled" if value in {"enabled", "已启用"} else "disabled" if value in {"disabled", "已禁用"} else "unavailable"
+            for line in text.splitlines():
+                if not re.search(rf"(?:{label})", line, re.I):
+                    continue
+                value = line.casefold()
+                if any(token in value for token in ("enabled", "已启用")):
+                    return "enabled"
+                if any(token in value for token in ("disabled", "已禁用")):
+                    return "disabled"
+                if any(token in value for token in ("not available", "不可用")):
+                    return "unavailable"
+            return "unknown"
         return state("DirectDraw Acceleration|DirectDraw 加速"), state("Direct3D Acceleration|Direct3D 加速")
 
     def run_dxdiag(self, *, timeout: int = 60, retry_delay: float = 1.0) -> tuple[str, str, str | None]:
@@ -122,7 +128,7 @@ class GraphicsCompatibilityService:
                         last_error = f"dxdiag 返回 {getattr(completed, 'returncode', 1)} 或未生成诊断文件"
                     else:
                         raw = target.read_bytes()
-                        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8"
+                        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or raw.count(b"\x00") > len(raw) // 20 else "utf-8"
                         text = raw.decode(encoding, errors="replace")
                         directdraw, direct3d = self._parse_dxdiag(text)
                         return directdraw, direct3d, None
