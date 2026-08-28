@@ -5564,7 +5564,7 @@ class DlcHubApplication:
                 self._post_ui(lambda: self._notify("工具下载失败，请检查网络后重试。", error=True))
             else:
                 self._post_ui(lambda key=tool_key: self._append_tool_log(f"{tool.title} 已下载", tool_key=key))
-                self._post_ui(lambda: self._notify(f"{tool.title} 已下载"))
+                self._post_ui(lambda: self._notify("下载成功！如游戏运行有问题，请前往“报错指南”查看解决办法。"))
             finally:
                 self._post_ui(
                     lambda: self._finish_helper_tool_download(
@@ -9337,7 +9337,11 @@ class DlcHubApplication:
             if result.spec.task_id not in self.batch_download_task_ids:
                 self._post_ui(
                     lambda result=result: self._notify(
-                        f"{result.spec.filename}：{'下载完成' if result.state is DownloadState.READY else result.state.value}",
+                        (
+                            "下载成功！如游戏运行有问题，请前往“报错指南”查看解决办法。"
+                            if result.state is DownloadState.READY
+                            else f"{result.spec.filename}：{result.state.value}"
+                        ),
                         error=result.state in {DownloadState.FAILED, DownloadState.CORRUPT},
                     )
                 )
@@ -9812,7 +9816,7 @@ class DlcHubApplication:
         ))
         self._show_install_state(entry)
         self.catalog_preview.configure(text=f"{entry.display_name} 已自动安装到游戏目录")
-        self._notify(f"{entry.display_name}：安装完成")
+        self._notify("下载并安装成功！如游戏运行有问题，请前往“报错指南”查看解决办法。")
         self._maybe_finish_unlock_workflow()
 
     def _on_auto_install_failure(
