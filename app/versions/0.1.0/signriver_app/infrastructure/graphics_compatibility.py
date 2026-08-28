@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,24 +104,35 @@ class GraphicsCompatibilityService:
             return "enabled" if value in {"enabled", "已启用"} else "disabled" if value in {"disabled", "已禁用"} else "unavailable"
         return state("DirectDraw Acceleration|DirectDraw 加速"), state("Direct3D Acceleration|Direct3D 加速")
 
-    def run_dxdiag(self, *, timeout: int = 20) -> tuple[str, str, str | None]:
+    def run_dxdiag(self, *, timeout: int = 60, retry_delay: float = 1.0) -> tuple[str, str, str | None]:
         if not self.supported:
             return "unknown", "unknown", "unsupported"
         with tempfile.TemporaryDirectory(prefix="signriver-dxdiag-") as directory:
             target = Path(directory) / "DxDiag.txt"
-            try:
-                completed = self._runner(
-                    ["dxdiag", "/whql:off", "/t", str(target)],
-                    capture_output=True, text=True, timeout=timeout, check=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if getattr(completed, "returncode", 1) != 0 or not target.is_file():
-                    return "unknown", "unknown", f"dxdiag returned {getattr(completed, 'returncode', 1)}"
-                text = target.read_text(encoding="utf-16", errors="replace")
-                directdraw, direct3d = self._parse_dxdiag(text)
-                return directdraw, direct3d, None
-            except Exception as error:
-                return "unknown", "unknown", f"{type(error).__name__}: {error}"
+            last_error = "dxdiag 未生成诊断文件"
+            for attempt in range(2):
+                target.unlink(missing_ok=True)
+                try:
+                    completed = self._runner(
+                        ["dxdiag", "/whql:off", "/t", str(target)],
+                        capture_output=True, text=True, timeout=timeout, check=False,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    if getattr(completed, "returncode", 1) != 0 or not target.is_file():
+                        last_error = f"dxdiag 返回 {getattr(completed, 'returncode', 1)} 或未生成诊断文件"
+                    else:
+                        raw = target.read_bytes()
+                        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8"
+                        text = raw.decode(encoding, errors="replace")
+                        directdraw, direct3d = self._parse_dxdiag(text)
+                        return directdraw, direct3d, None
+                except subprocess.TimeoutExpired:
+                    last_error = f"dxdiag 超时（第 {attempt + 1} 次，每次上限 {timeout} 秒）"
+                except Exception as error:
+                    last_error = f"{type(error).__name__}: {error}"
+                if attempt == 0 and retry_delay > 0:
+                    time.sleep(retry_delay)
+            return "unknown", "unknown", last_error
 
     def diagnose(self) -> GraphicsDiagnostic:
         if not self.supported:

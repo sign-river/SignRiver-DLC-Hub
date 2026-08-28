@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import subprocess
 from pathlib import Path
 
 
@@ -27,3 +28,37 @@ def test_non_windows_diagnosis_is_safe(monkeypatch) -> None:
     result = module.GraphicsCompatibilityService().diagnose()
     assert result.code == "graphics_not_applicable"
     assert not result.repairable
+
+
+def test_dxdiag_retries_after_timeout_and_clears_partial_output(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(module.os, "name", "nt")
+    calls = []
+
+    def runner(_command, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            (tmp_path / "DxDiag.txt").write_text("partial", encoding="utf-8")
+            raise subprocess.TimeoutExpired("dxdiag", 60)
+        (tmp_path / "DxDiag.txt").write_text(
+            "DirectDraw Acceleration: Enabled\nDirect3D Acceleration: Enabled",
+            encoding="utf-8",
+        )
+        return type("Completed", (), {"returncode": 0, "stdout": ""})()
+
+    # The service creates its own temp directory, so patch the temp-dir helper
+    # to make the retry's stale-file cleanup observable.
+    class TempDir:
+        def __enter__(self):
+            return str(tmp_path)
+        def __exit__(self, *_args):
+            return False
+
+    original = module.tempfile.TemporaryDirectory
+    module.tempfile.TemporaryDirectory = lambda **_kwargs: TempDir()
+    try:
+        service = module.GraphicsCompatibilityService(runner=runner)
+        result = service.run_dxdiag(timeout=60, retry_delay=0)
+    finally:
+        module.tempfile.TemporaryDirectory = original
+    assert result[:2] == ("enabled", "enabled")
+    assert len(calls) == 2

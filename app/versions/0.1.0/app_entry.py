@@ -2821,14 +2821,17 @@ class DlcHubApplication:
             text_color=UI["primary"],
             font=ctk.CTkFont(size=20, weight="bold"),
             anchor="w",
+            justify="left",
         )
-        self.solution_detail_title_label.pack(side="left", fill="x", expand=True)
+        self.solution_detail_header.grid_columnconfigure(0, weight=1)
+        self.solution_detail_title_label.grid(row=0, column=0, sticky="ew", padx=(0, 12))
         self.solution_detail_back_button = ctk.CTkButton(
             self.solution_detail_header, text="← 返回解决方案", width=144,
             command=self._return_from_solution_detail,
             **BUTTON_SECONDARY,
         )
-        self.solution_detail_back_button.pack(side="right")
+        self.solution_detail_back_button.grid(row=0, column=1, sticky="ne")
+        self.solution_detail_header.bind("<Configure>", self._update_solution_detail_header_layout, add="+")
         self.solution_detail_body = _AutoHideScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
         self.solution_detail_body.bind("<Configure>", self._update_solution_detail_wraplength)
@@ -4571,9 +4574,9 @@ class DlcHubApplication:
         for article_id, (title, summary, _blocks) in matches:
             card = ctk.CTkFrame(self.solution_list, fg_color=UI["panel"], border_color=UI["border"], border_width=1, corner_radius=10)
             card.pack(fill="x", pady=6)
-            title_label = ctk.CTkLabel(card, text=title, text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w")
+            title_label = ctk.CTkLabel(card, text=self._truncate_solution_card_text(title), text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w")
             title_label.pack(fill="x", padx=16, pady=(12, 3))
-            summary_label = ctk.CTkLabel(card, text=summary, text_color=UI["text_secondary"], anchor="w")
+            summary_label = ctk.CTkLabel(card, text=self._truncate_solution_card_text(summary), text_color=UI["text_secondary"], anchor="w")
             summary_label.pack(fill="x", padx=16, pady=(0, 12))
             arrow = ctk.CTkLabel(card, text="→", text_color=UI["primary"], font=ctk.CTkFont(size=18), anchor="e")
             arrow.place(relx=1, rely=0.5, x=-18, anchor="e")
@@ -4582,6 +4585,12 @@ class DlcHubApplication:
 
             for widget in (card, title_label, summary_label, arrow):
                 widget.bind("<Button-1>", callback)
+
+    @staticmethod
+    def _truncate_solution_card_text(text: str, max_chars: int = 56) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3].rstrip() + "..."
 
     def _open_solution_image(self, image_path: Path) -> None:
         from PIL import Image, ImageTk
@@ -4628,6 +4637,18 @@ class DlcHubApplication:
         for textbox in getattr(self, "solution_detail_textboxes", ()):
             if textbox.winfo_exists():
                 self._fit_solution_textbox(textbox)
+
+    def _update_solution_detail_header_layout(self, _event=None) -> None:
+        label = getattr(self, "solution_detail_title_label", None)
+        header = getattr(self, "solution_detail_header", None)
+        button = getattr(self, "solution_detail_back_button", None)
+        if label is None or header is None or button is None or not label.winfo_exists():
+            return
+        scaling = label._get_widget_scaling()
+        button_width = int(button.winfo_reqwidth() / scaling)
+        available = max(1, int(header.winfo_width() / scaling) - button_width - 12)
+        if label.cget("wraplength") != available:
+            label.configure(wraplength=available)
 
     def _fit_solution_textbox(self, textbox) -> None:
         if getattr(textbox, "_fitting_solution_text", False) or not textbox.winfo_exists():
@@ -4772,6 +4793,24 @@ class DlcHubApplication:
         self.solution_detail_image_sources = []
         self.solution_detail_textboxes = []
         self.solution_detail_title_label.configure(text=title)
+        # A leading guide image is an immediate visual identification of the
+        # reported error, so place it directly below the title and before the
+        # summary. Other images keep their declared position in the article.
+        if blocks and blocks[0][0] == "image" and len(blocks[0]) >= 2:
+            image_path = self.context.paths.root / blocks[0][1]
+            if image_path.is_file():
+                from PIL import Image
+                source = Image.open(image_path).convert("RGB")
+                max_width, max_height = 820, 520
+                scale = min(max_width / source.width, max_height / source.height, 1.0)
+                preview_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
+                image = ctk.CTkImage(light_image=source, size=preview_size)
+                self.solution_detail_images.append(image)
+                self.solution_detail_image_sources.append(source)
+                preview = ctk.CTkLabel(self.solution_detail_body, text="", image=image, cursor="hand2")
+                preview.pack(anchor="w", pady=(0, 16))
+                preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
+            blocks = blocks[1:]
         summary_textbox = self._create_solution_textbox(summary)
         summary_textbox.pack_configure(pady=(0, 18))
         action_row = None
@@ -4869,7 +4908,6 @@ class DlcHubApplication:
         self.solution_detail_back_button.configure(
             text="返回指南", command=lambda: self._show_page("报错指南")
         )
-        self.solution_detail_back_button.pack(side="right")
         self.solution_list.pack(fill="both", expand=True, padx=24, pady=(0, 18))
 
     def _build_quick_check_page(self) -> None:
@@ -5096,6 +5134,20 @@ class DlcHubApplication:
         ctk.CTkButton(actions, text="重新检测", width=104, command=lambda: self._show_graphics_compatibility_detail(origin=origin), **BUTTON_SECONDARY).pack(side="left")
         ctk.CTkButton(actions, text="修复图形设备配置", width=150, command=self._repair_graphics_compatibility, **BUTTON_PRIMARY).pack(side="left", padx=(8, 0))
         ctk.CTkButton(actions, text="恢复本次备份", width=120, command=self._restore_graphics_compatibility, **BUTTON_DANGER).pack(side="left", padx=(8, 0))
+        if diagnostic is None and not getattr(self, "graphics_probe_running", False):
+            self.graphics_probe_running = True
+            def probe() -> None:
+                try:
+                    value = self.graphics_compatibility.diagnose()
+                except Exception:
+                    value = None
+                def finish() -> None:
+                    self.graphics_probe_running = False
+                    if value is not None:
+                        self.graphics_last_diagnostic = value
+                    self._show_graphics_compatibility_detail(value, origin=origin)
+                self._post_ui(finish)
+            threading.Thread(target=probe, daemon=True).start()
 
     def _repair_graphics_compatibility(self) -> None:
         if not messagebox.askyesno("修复图形设备配置", "将备份并写入四项固定注册表值。此操作需要管理员权限，完成后必须重启电脑。确定继续吗？", parent=self.window):
