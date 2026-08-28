@@ -9948,6 +9948,7 @@ class DlcHubApplication:
             )
         else:
             detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
+        detail = f"{detail}\n\n如游戏运行出现问题，请前往“报错指南”查看解决办法。"
         self.catalog_preview.configure(text=f"一键解锁工具执行成功：{detail}")
         self._notify("一键解锁工具执行成功")
         messagebox.showinfo("一键解锁工具执行成功", detail, parent=self.window)
