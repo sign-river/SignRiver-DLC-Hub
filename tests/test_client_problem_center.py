@@ -300,6 +300,42 @@ def test_post_apply_missing_file_restores_original_and_records_security_problem(
     app._on_patch_workflow_failed.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("health", "expected", "solution_id"),
+    [
+        (
+            "HEALTHY",
+            "补丁状态：已正常安装并通过校验。",
+            None,
+        ),
+        (
+            "MODIFIED",
+            "补丁状态：游戏中的补丁文件与已安装版本不一致，建议重新安装补丁。",
+            "patch-state",
+        ),
+        (
+            "UNKNOWN",
+            "补丁状态：尚未完成安装或无法确认安装状态，建议重新安装补丁。",
+            "patch-state",
+        ),
+    ],
+)
+def test_quick_check_patch_state_uses_actionable_user_wording(
+    app_module, tmp_path: Path, health: str, expected: str, solution_id: str | None
+) -> None:
+    app = _app(app_module)
+    app.current_installation = SimpleNamespace(root=tmp_path)
+    app.patch_engine = Mock()
+    app.patch_engine.audit_recorded.return_value = SimpleNamespace(
+        health=getattr(app_module.PatchHealth, health)
+    )
+    app._add_quick_check_result = Mock()
+
+    app._quick_check_patch_state()
+
+    app._add_quick_check_result.assert_called_once_with(expected, solution_id)
+
+
 def test_problem_action_rejects_non_allowlisted_action(app_module) -> None:
     app = _app(app_module)
     app._open_path = Mock()

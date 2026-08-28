@@ -5013,10 +5013,24 @@ class DlcHubApplication:
             return
         try:
             audit = self.patch_engine.audit_recorded(installation.root)
-            health = audit.health.value
-            self._add_quick_check_result(f"补丁状态：{health}", None if health == "healthy" else "patch-state")
+            if audit.health is PatchHealth.HEALTHY:
+                message = "补丁状态：已正常安装并通过校验。"
+                solution_id = None
+            elif audit.health is PatchHealth.MODIFIED:
+                message = (
+                    "补丁状态：游戏中的补丁文件与已安装版本不一致，"
+                    "建议重新安装补丁。"
+                )
+                solution_id = "patch-state"
+            else:
+                message = "补丁状态：尚未完成安装或无法确认安装状态，建议重新安装补丁。"
+                solution_id = "patch-state"
+            self._add_quick_check_result(message, solution_id)
         except Exception:
-            self._add_quick_check_result("补丁状态：尚未安装或无法读取。", "patch-state")
+            self._add_quick_check_result(
+                "补丁状态：暂时无法检查，请打开补丁工具重新安装补丁。",
+                "patch-state",
+            )
 
     def _quick_check_gpu_driver(self) -> None:
         """异步读取显卡驱动，避免 PowerShell 查询阻塞界面。"""
