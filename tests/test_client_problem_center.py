@@ -310,12 +310,12 @@ def test_post_apply_missing_file_restores_original_and_records_security_problem(
         ),
         (
             "MODIFIED",
-            "补丁状态：游戏中的补丁文件与已安装版本不一致，建议重新安装补丁。",
+            "补丁状态：游戏中的补丁文件与已安装版本不一致，建议重新执行一键解锁。",
             "patch-state",
         ),
         (
             "UNKNOWN",
-            "补丁状态：尚未完成安装或无法确认安装状态，建议重新安装补丁。",
+            "补丁状态：尚未完成安装或无法确认安装状态，建议重新执行一键解锁。",
             "patch-state",
         ),
     ],
