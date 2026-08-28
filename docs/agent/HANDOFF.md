@@ -618,3 +618,9 @@
 - macOS Sequoia VM（Darwin 24、x86_64）通过本机 VNC 接管；当前源码同步到 `~/signriver-build`，使用已有用户目录 Miniforge Python 3.13，安装项目 dev 依赖后完成 `tests/test_build_native_release.py` 定向测试与 `tools/build_native_release.py --platform macos`。
 - macOS 构建产物位于来宾 `~/signriver-build/dist/`：首装 `SignRiver-DLC-Hub-v0.2.0-macos-x64.app.zip`（25,145,191 bytes，SHA-256 `d7f540554b06b02af9cd059fb1fe9ace8bb6719ad31a9d2e0c05b03ef46481b9`）；更新包 `updates/SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip`（25,159,088 bytes，SHA-256 `2f45b3a271ae2f85492f83dc4bbb5c6c60a2a35fa7c4cdf9f64af73f776784c6`）。`unzip -t`、Mach-O x86_64、ad-hoc `codesign --verify --deep --strict` 均通过，冻结客户端已启动并观察超过 8 秒。
 - 当前活动版本为 `0.2.0`；本次未修改客户端源码，仅在被 Git 忽略的 `publisher-workspace/vm-share/` 创建临时同步目录和归档，未上传、发布或推送；两台 SteamOS 与 macOS VM 最终均已关闭。
+
+## 2026-08-29：新增文章与指南组件库
+
+- 在 `app/versions/0.1.0/article_components.py` 新增可复用 CustomTkinter 组件：`AlertBanner`、`StepWorkflowCard`、`PillBadge`、`FramedImageContainer` 及 `demo_patch_troubleshooting()`；调色板统一定义 `Bg/Border/Text/Accent`，文本支持窄窗口自适应换行，图片支持等比缩放与图注。
+- 已将同一文件定向同步到活动版本 `0.2.0`（未修改 `app/state.json`）；当前客户端现有页面尚未接入该组件库，不能声称 GUI 已切换，需后续页面改造并重启验证。
+- 验证：两个版本 `py_compile`、组件导入、Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、全量测试、构建、上传或推送。
