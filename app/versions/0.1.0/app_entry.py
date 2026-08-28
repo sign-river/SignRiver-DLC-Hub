@@ -9918,39 +9918,13 @@ class DlcHubApplication:
             )
             return
 
-        installed_count = len(self.unlock_requested_dlc_ids)
-        game_name = self.cartridge.adapter.descriptor.display_name
-        patch_applied_this_run = self.unlock_patch_applied_this_run
         self.unlock_workflow_active = False
         self.unlock_patch_applied_this_run = False
         self.unlock_requested_dlc_ids = ()
         self.unlock_failed_dlc_ids.clear()
-        if self._uses_built_in_dlc_delivery():
-            detail = (
-                f"{game_name} 的补丁已在本次操作中下载并安装；DLC 已随游戏本体提供，"
-                "无需额外下载。"
-                if patch_applied_this_run
-                else f"{game_name} 的 DLC 已随游戏本体安装；补丁已经正确应用，"
-                "无需下载额外 DLC。"
-            )
-        elif installed_count:
-            detail = (
-                f"{game_name} 的补丁已在本次操作中下载并安装，选择的 "
-                f"{installed_count} 个 DLC 均已安装完成。"
-                if patch_applied_this_run
-                else f"{game_name} 的补丁已经正确应用，选择的 "
-                f"{installed_count} 个 DLC 均已安装完成。"
-            )
-        elif patch_applied_this_run:
-            detail = (
-                f"{game_name} 的补丁已在本次操作中下载并安装。"
-                "当前未选择需要额外安装的 DLC。"
-            )
-        else:
-            detail = f"{game_name} 的补丁已经正确应用，当前无需安装额外 DLC。"
-        detail = f"{detail}\n\n如游戏运行出现问题，请前往“报错指南”查看解决办法。"
-        self.catalog_preview.configure(text=f"一键解锁工具执行成功：{detail}")
-        self._notify("一键解锁工具执行成功")
+        detail = "一键解锁成功！\n\n如游戏运行出现问题，请前往“报错指南”查看解决办法。"
+        self.catalog_preview.configure(text="一键解锁成功")
+        self._notify("一键解锁成功")
         messagebox.showinfo("一键解锁工具执行成功", detail, parent=self.window)
 
     def _show_install_state(self, entry, snapshot=None) -> None:
