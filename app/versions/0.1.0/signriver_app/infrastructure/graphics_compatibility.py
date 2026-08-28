@@ -131,6 +131,12 @@ class GraphicsCompatibilityService:
                         encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or raw.count(b"\x00") > len(raw) // 20 else "utf-8"
                         text = raw.decode(encoding, errors="replace")
                         directdraw, direct3d = self._parse_dxdiag(text)
+                        # Recent Windows 11 dxdiag text exports omit the
+                        # legacy acceleration rows, but still enumerate real
+                        # display devices. Treat that as "not reported"
+                        # rather than a parser failure.
+                        if directdraw == "unknown" and direct3d == "unknown" and re.search(r"^\s*Card name:\s*\S+", text, re.M | re.I):
+                            directdraw = direct3d = "not_reported"
                         return directdraw, direct3d, None
                 except subprocess.TimeoutExpired:
                     last_error = f"dxdiag 超时（第 {attempt + 1} 次，每次上限 {timeout} 秒）"
@@ -156,7 +162,11 @@ class GraphicsCompatibilityService:
             summary = "图形设备状态不完整，建议打开详情页手动复查。"
         else:
             code = "graphics_acceleration_ok"
-            summary = "未发现 DirectDraw/Direct3D 加速配置异常。"
+            summary = (
+                "未发现 DirectDraw/Direct3D 配置异常；当前 dxdiag 未提供传统加速字段。"
+                if "not_reported" in {directdraw, direct3d}
+                else "未发现 DirectDraw/Direct3D 加速配置异常。"
+            )
         return GraphicsDiagnostic(code, summary, registry, directdraw, direct3d, dxdiag_error)
 
     def _backup_path(self, directory: Path) -> Path:
