@@ -1,0 +1,57 @@
+{
+  "guide_id": "paradox-launcher-crash-null",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
+      "kind": "text",
+      "text": "这个错误通常表示游戏启动时读取到了结构有问题的 dlc 文件，或者所需补丁文件缺失。实际排查中，补丁缺失更常见；如果之前安装过不完整的 dlc 文件，也可能触发同样的提示。"
+    },
+    {
+      "kind": "image",
+      "asset_name": "paradox-launcher-crash-null.png"
+    },
+    {
+      "kind": "text",
+      "text": "此问题往往不是因为Mod，缺失Visual C++ Redistributable 和 .NET Framework导致的"
+    },
+    {
+      "kind": "heading",
+      "text": "建议操作"
+    },
+    {
+      "kind": "text",
+      "text": "先返回程序主页，使用“一键修复”重新检查并补齐当前游戏所需文件。修复完成后，再重新启动游戏确认问题是否消失。"
+    },
+    {
+      "kind": "button",
+      "text": "返回主页执行一键修复 →",
+      "target": "dlc-home"
+    },
+    {
+      "kind": "text",
+      "text": "如果一键修复后仍然报错，基本可以锁定为补丁文件缺失或未能正常写入。请打开补丁状态异常指南，按其中步骤检查补丁并重新下载。"
+    },
+    {
+      "kind": "button",
+      "text": "查看补丁状态异常指南 →",
+      "target": "guide:patch-state"
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "如果完成一键修复并确认补丁状态正常后仍无法启动，请联系开发者并说明错误提示、所用游戏和已尝试的步骤，必要时附上截图。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
+    }
+  ],
+  "tools": []
+}

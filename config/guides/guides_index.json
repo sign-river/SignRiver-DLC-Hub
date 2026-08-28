@@ -89,10 +89,18 @@
     },
     {
       "guide_id": "paradox-launcher-crash-null",
-      "title": "游戏启动时报错（退出代码 null）",
-      "summary": "启动游戏时弹出错误提示，显示游戏意外终止并返回退出代码 null。",
+      "title": "游戏似乎出现崩溃或意外终止（退出代码 null）。此问题可以通过验证游戏文件完整性和停用任何 Mod 来解决。使用 Windows 系统的用户可能还需要安装 Visual C++ Redistributable 和 .NET Framework。",
+      "summary": "游戏似乎出现崩溃或意外终止（退出代码 null）。此问题可以通过验证游戏文件完整性和停用任何 Mod 来解决。使用 Windows 系统的用户可能还需要安装 Visual C++ Redistributable 和 .NET Framework。",
       "summary_type": "problem_detail",
       "asset_name": "guide_paradox_launcher_crash_null.json",
+      "platforms": ["windows"]
+    },
+    {
+      "guide_id": "graphics-device-compatibility",
+      "title": "无法创建图形设备（DirectDraw/Direct3D 加速异常）",
+      "summary": "启动游戏时提示 Failed to create a graphics device，或 DirectDraw/Direct3D 加速被禁用。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_graphics_device_compatibility.json",
       "platforms": ["windows"]
     }
   ]

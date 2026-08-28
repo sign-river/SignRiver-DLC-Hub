@@ -3,5 +3,6 @@
   "active_version": "0.2.0",
   "previous_version": "0.1.7",
   "pending_version": null,
-  "bad_versions": []
+  "bad_versions": [],
+  "prevent_module_fallback": true
 }
