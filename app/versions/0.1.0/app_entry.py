@@ -103,7 +103,7 @@ from .signriver_app.infrastructure.persistence import (
     InstallReceiptRepository,
     UserSettingsRepository,
 )
-from .article_components import FramedImageContainer
+from .article_components import AlertBanner, FramedImageContainer, StepWorkflowCard
 
 
 QUICK_CHECK_LOW_DISK_BYTES = 10 * 1024 * 1024 * 1024
@@ -4810,11 +4810,15 @@ class DlcHubApplication:
             blocks = blocks[1:]
         summary_textbox = self._create_solution_textbox(summary)
         summary_textbox.pack_configure(pady=(0, 18))
-        action_row = None
+        workflow_step = 0
         for kind, *values in blocks:
-            if kind not in {"button", "tool", "action"}:
-                action_row = None
             if kind == "heading":
+                if any(keyword in values[0] for keyword in ("注意", "警告", "风险")):
+                    AlertBanner(
+                        self.solution_detail_body, values[0],
+                        "请先阅读本节说明，再执行后续操作。", kind="warning",
+                    ).pack(fill="x", pady=(4, 8))
+                    continue
                 heading = ctk.CTkFrame(
                     self.solution_detail_body, fg_color=UI["primary_surface"],
                     border_color=UI["primary_border"], border_width=1, corner_radius=8,
@@ -4851,30 +4855,22 @@ class DlcHubApplication:
                     preview.pack(fill="x", pady=(0, 16))
                     preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
             elif kind == "button":
-                if action_row is None:
-                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
-                    action_row.pack(fill="x", pady=(0, 14))
-                # 指南中的按钮只是页面导航，降低视觉权重，避免与“下载/启动”主操作争夺注意力。
-                ctk.CTkButton(
-                    action_row, text=values[0], width=196, height=34,
-                    corner_radius=8, **BUTTON_SECONDARY,
+                workflow_step += 1
+                StepWorkflowCard(
+                    self.solution_detail_body, workflow_step, "执行指南操作",
+                    values[0], action_text="立即执行",
                     command=lambda target=values[1]: self._activate_solution_button(target),
-                ).pack(side="left", padx=(0, 8))
+                ).pack(fill="x", pady=(0, 10))
             elif kind == "tool":
                 # 指南中的工具声明仅用于工具目录关联；工具管理统一在工具详情页完成。
                 continue
             elif kind == "action":
-                if action_row is None:
-                    action_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
-                    action_row.pack(fill="x", pady=(0, 14))
-                ctk.CTkButton(
-                    action_row,
-                    text=values[0],
-                    width=156, height=36,
+                workflow_step += 1
+                StepWorkflowCard(
+                    self.solution_detail_body, workflow_step, "建议操作",
+                    values[0], action_text="执行",
                     command=values[1],
-                    fg_color=UI["primary"], hover_color=UI["primary_hover"],
-                    text_color="white", corner_radius=8,
-                ).pack(side="left", padx=(0, 8))
+                ).pack(fill="x", pady=(0, 10))
         # Keep the established labels discoverable for static UI regression
         # checks while deriving the displayed text from the return context.
         # text="← 回到一键排错" / text="← 返回杀毒软件检测" /

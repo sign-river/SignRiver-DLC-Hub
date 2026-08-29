@@ -630,3 +630,9 @@
 - 指南详情渲染器已实际接入 `FramedImageContainer`：正文截图增加浅灰边框、背景填充、居中等比缩放和文件名图注；章节标题改为浅蓝卡片与蓝色强调条，长标题配置 `wraplength`。
 - 基线 `0.1.0` 已修改并将相关代码块定向同步到活动版本 `0.2.0`；未修改 `app/state.json`。已按源码入口启动当前客户端，PID 72836，需在已打开窗口中重新进入指南详情查看；不声称已发布。
 - 验证：两个版本客户端与组件 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。
+
+## 2026-08-29：指南操作改为横幅与步骤卡片
+
+- 指南详情页进一步接入 `AlertBanner` 和 `StepWorkflowCard`：包含“注意/警告/风险”的章节显示警示横幅，`button/action` 块显示圆形序号、说明与右侧执行按钮；保留原有回调和返回路径。
+- 基线 `0.1.0` 已修改，相关代码块同步到活动版本 `0.2.0`；已停止旧源码进程并重启当前客户端 PID 58692，需重新打开指南详情查看。
+- 验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
