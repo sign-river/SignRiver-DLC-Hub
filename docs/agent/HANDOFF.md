@@ -715,3 +715,8 @@
 - 摘要导语 `lead` 改为与普通正文一致的透明背景 + 左侧阅读线，仅保留略大的字号，不再出现突兀的蓝色大卡片。
 - “常见原因 / 建议操作”等章节标题条高度收窄至约 48px，标题和强调线间距同步收紧；长标题仍允许按内容换行扩展。
 - 基线与活动版本已同步，客户端已重启，当前源码进程 PID 66920。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
+
+## 2026-08-29：正文文字改为主题黑色
+
+- `ArticleParagraphCard` 的摘要与普通正文统一使用主题 `Text` 颜色，浅色模式显示为黑色，深色模式仍自动使用可读的浅色文字；左侧阅读线、DLL/路径标签和交互逻辑保持不变。
+- 基线 `0.1.0` 已修改并定向同步到活动版本 `0.2.0`，源码客户端已重启，当前 PID 55172。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。

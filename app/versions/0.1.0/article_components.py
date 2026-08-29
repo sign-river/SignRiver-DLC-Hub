@@ -128,7 +128,7 @@ class ArticleParagraphCard(ctk.CTkFrame):
         self.text_widget = ctk.CTkTextbox(
             self, height=34, border_spacing=0, activate_scrollbars=False, wrap="char",
             fg_color="transparent", border_width=0, corner_radius=0,
-            text_color=PALETTE["Text"] if variant == "lead" else PALETTE["MutedText"],
+            text_color=PALETTE["Text"],
             font=_font(font_size),
         )
         self.text_widget.insert("1.0", text)
