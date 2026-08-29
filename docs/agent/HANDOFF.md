@@ -658,3 +658,8 @@
 - 移除卡片中的占位标题“执行指南操作”，卡片标题直接使用指南原按钮文案；正文改为简短引导，避免重复和无意义层级。
 - 右侧按钮按目标显示“进入工具界面”“查看相关指南”“进入补丁工具”等明确动作，仍调用原有 `_activate_solution_button` 或 action 回调。
 - 基线与活动版本已同步，客户端已重启，当前源码进程 PID 62688。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：移除步骤卡片次要占位说明
+
+- `StepWorkflowCard` 支持空正文；指南操作卡片不再显示“点击右侧按钮继续。”，单行标题在卡片内垂直居中，右侧动作按钮和原回调保持不变。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 68656。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。

@@ -94,6 +94,7 @@ class StepWorkflowCard(ctk.CTkFrame):
         kwargs.setdefault("height", 72)
         super().__init__(master, fg_color=PALETTE["Surface"], border_color=PALETTE["Border"],
                          border_width=1, corner_radius=10, **kwargs)
+        self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         badge = ctk.CTkLabel(self, text=str(step), width=34, height=34, corner_radius=17,
                              fg_color=PALETTE["Accent"], text_color="#FFFFFF",
@@ -105,9 +106,13 @@ class StepWorkflowCard(ctk.CTkFrame):
         self.title_label = ctk.CTkLabel(content, text=title, text_color=PALETTE["Text"],
                                         anchor="w", wraplength=620, font=_font(14, "bold"))
         self.title_label.grid(row=0, column=0, sticky="ew")
-        self.body_label = ctk.CTkLabel(content, text=body, text_color=PALETTE["MutedText"],
-                                       justify="left", anchor="w", wraplength=620)
-        self.body_label.grid(row=1, column=0, pady=(4, 0), sticky="ew")
+        self.body_label = None
+        if body:
+            self.body_label = ctk.CTkLabel(content, text=body, text_color=PALETTE["MutedText"],
+                                           justify="left", anchor="w", wraplength=620)
+            self.body_label.grid(row=1, column=0, pady=(4, 0), sticky="ew")
+        else:
+            self.title_label.grid_configure(pady=17)
         if action_text:
             ctk.CTkButton(self, text=action_text, command=command, width=132, height=36,
                           fg_color=PALETTE["Accent"], hover_color="#1D4ED8").grid(
@@ -116,7 +121,8 @@ class StepWorkflowCard(ctk.CTkFrame):
 
     def _resize(self, event) -> None:
         self.title_label.configure(wraplength=max(220, event.width - 220))
-        self.body_label.configure(wraplength=max(220, event.width - 220))
+        if self.body_label is not None:
+            self.body_label.configure(wraplength=max(220, event.width - 220))
 
 
 class FramedImageContainer(ctk.CTkFrame):

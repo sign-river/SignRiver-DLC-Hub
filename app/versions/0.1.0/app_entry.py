@@ -4872,7 +4872,7 @@ class DlcHubApplication:
                 )
                 StepWorkflowCard(
                     self.solution_detail_body, workflow_step, values[0],
-                    "点击右侧按钮继续。", action_text=action_text,
+                    "", action_text=action_text,
                     command=lambda target=target: self._activate_solution_button(target),
                 ).pack(fill="x", pady=(0, 10))
             elif kind == "tool":
@@ -4882,7 +4882,7 @@ class DlcHubApplication:
                 workflow_step += 1
                 StepWorkflowCard(
                     self.solution_detail_body, workflow_step, values[0],
-                    "点击右侧按钮继续。", action_text="进入工具界面",
+                    "", action_text="进入工具界面",
                     command=values[1],
                 ).pack(fill="x", pady=(0, 10))
         # Keep the established labels discoverable for static UI regression
