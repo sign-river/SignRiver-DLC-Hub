@@ -51,7 +51,7 @@ class AlertBanner(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(self, text=icon, text_color=PALETTE[accent], font=_font(20, "bold"),
                      width=28).grid(row=0, column=0, padx=(14, 8), pady=14, sticky="n")
-        body = ctk.CTkFrame(self, fg_color="transparent")
+        body = ctk.CTkFrame(self, fg_color="transparent", height=1)
         body.grid(row=0, column=1, padx=(0, 14), pady=12, sticky="ew")
         body.grid_columnconfigure(0, weight=1)
         self.title_label = ctk.CTkLabel(body, text=title, text_color=PALETTE["Text"],
@@ -97,7 +97,7 @@ class StepWorkflowCard(ctk.CTkFrame):
                              fg_color=PALETTE["Accent"], text_color="#FFFFFF",
                              font=_font(14, "bold"))
         badge.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="n")
-        content = ctk.CTkFrame(self, fg_color="transparent")
+        content = ctk.CTkFrame(self, fg_color="transparent", height=1)
         content.grid(row=0, column=1, padx=(0, 12), pady=12, sticky="ew")
         content.grid_columnconfigure(0, weight=1)
         self.title_label = ctk.CTkLabel(content, text=title, text_color=PALETTE["Text"],

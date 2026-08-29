@@ -641,3 +641,8 @@
 
 - 指南 `text` 块现在自动识别 `.dll` 文件名并显示为蓝色 `PillBadge`，不改变原文和业务回调；基线与活动版本均已同步。
 - 客户端已重启，当前源码进程 PID 46948。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：修复文章卡片默认高度撑开
+
+- 修复指南标题卡片大片空白：内部装饰 `CTkFrame` 的 CustomTkinter 默认高度会把父卡片撑到约 200px，现已显式限制装饰框高度，组件正文框也按内容收缩。
+- 基线与活动版本 `0.2.0` 已同步；客户端已重启，当前源码进程 PID 55040。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。

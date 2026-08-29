@@ -4826,7 +4826,7 @@ class DlcHubApplication:
                 )
                 heading.pack(fill="x", pady=(4, 8))
                 heading.grid_columnconfigure(1, weight=1)
-                ctk.CTkFrame(heading, width=4, fg_color=UI["primary"], corner_radius=2).grid(
+                ctk.CTkFrame(heading, width=4, height=4, fg_color=UI["primary"], corner_radius=2).grid(
                     row=0, column=0, sticky="ns", padx=(10, 8), pady=8,
                 )
                 ctk.CTkLabel(
