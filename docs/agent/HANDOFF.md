@@ -663,3 +663,8 @@
 
 - `StepWorkflowCard` 支持空正文；指南操作卡片不再显示“点击右侧按钮继续。”，单行标题在卡片内垂直居中，右侧动作按钮和原回调保持不变。
 - 基线与活动版本已同步，客户端已重启，当前源码进程 PID 68656。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：步骤序号徽章垂直居中
+
+- `StepWorkflowCard` 的圆形序号由顶部对齐改为网格单元自动居中，和单行标题及右侧按钮保持同一垂直中心线。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 73496。验证：组件 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。

@@ -99,7 +99,7 @@ class StepWorkflowCard(ctk.CTkFrame):
         badge = ctk.CTkLabel(self, text=str(step), width=34, height=34, corner_radius=17,
                              fg_color=PALETTE["Accent"], text_color="#FFFFFF",
                              font=_font(14, "bold"))
-        badge.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="n")
+        badge.grid(row=0, column=0, padx=(14, 12), pady=14, sticky="")
         content = ctk.CTkFrame(self, fg_color="transparent", height=1)
         content.grid(row=0, column=1, padx=(0, 12), pady=12, sticky="ew")
         content.grid_columnconfigure(0, weight=1)
