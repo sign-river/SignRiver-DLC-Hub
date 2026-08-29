@@ -674,3 +674,9 @@
 - 新增 `ArticleParagraphCard` 与 `extract_inline_badges()`：正文使用可复制的只读文本框，外层增加浅色卡片、细边框、左侧阅读强调线、导语样式和自适应高度；自动标记 DLL、Windows 路径和中文引号内的操作短语。
 - `_create_solution_textbox()` 已切换为正文卡片渲染，首个摘要使用 `lead` 样式，后续正文使用 `body` 样式；图片、按钮、工具入口和返回路径逻辑未改变。
 - 基线 `0.1.0` 已修改并定向同步到活动版本 `0.2.0`；已按源码入口启动客户端 PID 70576。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。
+
+## 2026-08-29：正文卡片降噪与自动标签收敛
+
+- 普通正文段落改为透明背景、无边框，仅保留细阅读强调线；摘要导语和章节标题仍保留卡片层级，避免“卡片套卡片”。
+- 自动标签仅保留 DLL 名称与 Windows 路径，移除对中文引号短语的识别，避免把“设置”等普通界面词误标为重点；路径标签超长时截断显示。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 60012。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。

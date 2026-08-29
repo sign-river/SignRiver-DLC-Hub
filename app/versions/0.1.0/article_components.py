@@ -87,21 +87,20 @@ class PillBadge(ctk.CTkLabel):
 
 
 def extract_inline_badges(text: str) -> list[tuple[str, str]]:
-    """提取正文中适合标签化的 DLL 名称、Windows 路径和短操作名。"""
+    """提取正文中适合标签化的 DLL 名称和 Windows 路径。"""
     values: list[tuple[str, str]] = []
     for value in re.findall(r"[\w.-]+\.dll", text, flags=re.IGNORECASE):
         item = (value, "accent")
         if item not in values:
             values.append(item)
     for value in re.findall(r"[A-Za-z]:\\[^，。；\n]{2,80}", text):
-        item = (value.rstrip("\\"), "neutral")
+        display = value.rstrip("\\")
+        if len(display) > 42:
+            display = display[:39].rstrip() + "..."
+        item = (display, "neutral")
         if item not in values:
             values.append(item)
-    for value in re.findall(r"“([^”]{2,24})”", text):
-        item = (value, "success")
-        if item not in values:
-            values.append(item)
-    return values[:5]
+    return values[:4]
 
 
 class ArticleParagraphCard(ctk.CTkFrame):
@@ -110,18 +109,19 @@ class ArticleParagraphCard(ctk.CTkFrame):
     def __init__(self, master, text: str, *, variant: str = "body", **kwargs):
         if variant not in {"body", "lead", "note"}:
             raise ValueError(f"未知正文样式: {variant}")
-        surface = {"body": PALETTE["Surface"], "lead": PALETTE["InfoSurface"],
+        surface = {"body": "transparent", "lead": PALETTE["InfoSurface"],
                    "note": PALETTE["WarningSurface"]}[variant]
-        border = {"body": PALETTE["Border"], "lead": PALETTE["Accent"],
+        border = {"body": "transparent", "lead": PALETTE["Accent"],
                   "note": PALETTE["Warning"]}[variant]
-        accent = {"body": PALETTE["Accent"], "lead": PALETTE["Accent"],
+        accent = {"body": PALETTE["Border"], "lead": PALETTE["Accent"],
                   "note": PALETTE["Warning"]}[variant]
         kwargs.setdefault("height", 1)
         super().__init__(master, fg_color=surface, border_color=border,
-                         border_width=1, corner_radius=10, **kwargs)
+                         border_width=0 if variant == "body" else 1,
+                         corner_radius=0 if variant == "body" else 10, **kwargs)
         self.grid_columnconfigure(1, weight=1)
         ctk.CTkFrame(self, width=3, height=1, fg_color=accent,
-                     corner_radius=2).grid(row=0, column=0, sticky="ns", padx=(12, 10), pady=12)
+                     corner_radius=2).grid(row=0, column=0, sticky="ns", padx=(4, 10), pady=8)
         font_size = 15 if variant == "lead" else 14
         self.text_widget = ctk.CTkTextbox(
             self, height=34, border_spacing=0, activate_scrollbars=False, wrap="char",
@@ -131,7 +131,8 @@ class ArticleParagraphCard(ctk.CTkFrame):
         )
         self.text_widget.insert("1.0", text)
         self.text_widget.configure(state="disabled")
-        self.text_widget.grid(row=0, column=1, sticky="ew", padx=(0, 14), pady=12)
+        self.text_widget.grid(row=0, column=1, sticky="ew", padx=(0, 14),
+                              pady=10 if variant == "body" else 12)
         badges = extract_inline_badges(text)
         if badges:
             badge_row = ctk.CTkFrame(self, fg_color="transparent", height=1)
