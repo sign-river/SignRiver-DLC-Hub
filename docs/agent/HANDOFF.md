@@ -624,3 +624,9 @@
 - 在 `app/versions/0.1.0/article_components.py` 新增可复用 CustomTkinter 组件：`AlertBanner`、`StepWorkflowCard`、`PillBadge`、`FramedImageContainer` 及 `demo_patch_troubleshooting()`；调色板统一定义 `Bg/Border/Text/Accent`，文本支持窄窗口自适应换行，图片支持等比缩放与图注。
 - 已将同一文件定向同步到活动版本 `0.2.0`（未修改 `app/state.json`）；当前客户端现有页面尚未接入该组件库，不能声称 GUI 已切换，需后续页面改造并重启验证。
 - 验证：两个版本 `py_compile`、组件导入、Ruff、`git diff --check` 均通过；未执行 GUI 人工验收、全量测试、构建、上传或推送。
+
+## 2026-08-29：指南详情页接入文章组件视觉
+
+- 指南详情渲染器已实际接入 `FramedImageContainer`：正文截图增加浅灰边框、背景填充、居中等比缩放和文件名图注；章节标题改为浅蓝卡片与蓝色强调条，长标题配置 `wraplength`。
+- 基线 `0.1.0` 已修改并将相关代码块定向同步到活动版本 `0.2.0`；未修改 `app/state.json`。已按源码入口启动当前客户端，PID 72836，需在已打开窗口中重新进入指南详情查看；不声称已发布。
+- 验证：两个版本客户端与组件 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。

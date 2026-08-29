@@ -103,6 +103,7 @@ from .signriver_app.infrastructure.persistence import (
     InstallReceiptRepository,
     UserSettingsRepository,
 )
+from .article_components import FramedImageContainer
 
 
 QUICK_CHECK_LOW_DISK_BYTES = 10 * 1024 * 1024 * 1024
@@ -4799,14 +4800,12 @@ class DlcHubApplication:
             if image_path.is_file():
                 from PIL import Image
                 source = Image.open(image_path).convert("RGB")
-                max_width, max_height = 820, 520
-                scale = min(max_width / source.width, max_height / source.height, 1.0)
-                preview_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
-                image = ctk.CTkImage(light_image=source, size=preview_size)
-                self.solution_detail_images.append(image)
                 self.solution_detail_image_sources.append(source)
-                preview = ctk.CTkLabel(self.solution_detail_body, text="", image=image, cursor="hand2")
-                preview.pack(anchor="w", pady=(0, 16))
+                preview = FramedImageContainer(
+                    self.solution_detail_body, source,
+                    caption=f"截图：{image_path.name}", max_size=(820, 520),
+                )
+                preview.pack(fill="x", pady=(0, 16))
                 preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
             blocks = blocks[1:]
         summary_textbox = self._create_solution_textbox(summary)
@@ -4816,7 +4815,20 @@ class DlcHubApplication:
             if kind not in {"button", "tool", "action"}:
                 action_row = None
             if kind == "heading":
-                ctk.CTkLabel(self.solution_detail_body, text=values[0], text_color=UI["text"], font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x", pady=(0, 6))
+                heading = ctk.CTkFrame(
+                    self.solution_detail_body, fg_color=UI["primary_surface"],
+                    border_color=UI["primary_border"], border_width=1, corner_radius=8,
+                )
+                heading.pack(fill="x", pady=(4, 8))
+                heading.grid_columnconfigure(1, weight=1)
+                ctk.CTkFrame(heading, width=4, fg_color=UI["primary"], corner_radius=2).grid(
+                    row=0, column=0, sticky="ns", padx=(10, 8), pady=8,
+                )
+                ctk.CTkLabel(
+                    heading, text=values[0], text_color=UI["primary"],
+                    font=ctk.CTkFont(size=15, weight="bold"), anchor="w",
+                    wraplength=760,
+                ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=10)
             elif kind == "text":
                 self._create_solution_textbox(values[0])
             elif kind == "link" and len(values) >= 2:
@@ -4831,14 +4843,12 @@ class DlcHubApplication:
                 if image_path.is_file():
                     from PIL import Image
                     source = Image.open(image_path).convert("RGB")
-                    max_width, max_height = 820, 520
-                    scale = min(max_width / source.width, max_height / source.height, 1.0)
-                    preview_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
-                    image = ctk.CTkImage(light_image=source, size=preview_size)
-                    self.solution_detail_images.append(image)
                     self.solution_detail_image_sources.append(source)
-                    preview = ctk.CTkLabel(self.solution_detail_body, text="", image=image, cursor="hand2")
-                    preview.pack(anchor="w", pady=(0, 16))
+                    preview = FramedImageContainer(
+                        self.solution_detail_body, source,
+                        caption=f"截图：{image_path.name}", max_size=(820, 520),
+                    )
+                    preview.pack(fill="x", pady=(0, 16))
                     preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
             elif kind == "button":
                 if action_row is None:
