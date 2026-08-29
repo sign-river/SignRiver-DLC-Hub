@@ -1,5 +1,11 @@
 # 当前任务交接
 
+## 2026-08-29：移除正文 DLL/路径重点标签
+
+- 删除 `ArticleParagraphCard` 对正文 `.dll` 文件名和 Windows 路径的自动识别及 `PillBadge` 行渲染；保留通用 `PillBadge` 组件供其他状态/演示使用。
+- 基线 `0.1.0` 与活动版本 `0.2.0` 均已同步；活动模块目录为本地忽略内容，需重启客户端后查看。
+- 验证：两个组件文件 `py_compile`、定向 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（101 项通过）、`git diff --check`；未执行 GUI、构建、上传或推送。
+
 ## 2026-08-29：整理并提交待处理改动
 
 - 已核对并提交当前工作区待处理的客户端状态、指南索引与 `paradox-launcher-crash-null` 指南资源，以及交接/决策记录。

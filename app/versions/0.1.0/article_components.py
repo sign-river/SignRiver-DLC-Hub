@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-import re
 
 import customtkinter as ctk
 from PIL import Image
@@ -86,23 +85,6 @@ class PillBadge(ctk.CTkLabel):
                          corner_radius=999, padx=9, pady=3, font=_font(12, "bold"), **kwargs)
 
 
-def extract_inline_badges(text: str) -> list[tuple[str, str]]:
-    """提取正文中适合标签化的 DLL 名称和 Windows 路径。"""
-    values: list[tuple[str, str]] = []
-    for value in re.findall(r"[\w.-]+\.dll", text, flags=re.IGNORECASE):
-        item = (value, "accent")
-        if item not in values:
-            values.append(item)
-    for value in re.findall(r"[A-Za-z]:\\[^，。；\n]{2,80}", text):
-        display = value.rstrip("\\")
-        if len(display) > 42:
-            display = display[:39].rstrip() + "..."
-        item = (display, "neutral")
-        if item not in values:
-            values.append(item)
-    return values[:4]
-
-
 class ArticleParagraphCard(ctk.CTkFrame):
     """可复制、可自适应高度的文章正文卡片。"""
 
@@ -135,14 +117,6 @@ class ArticleParagraphCard(ctk.CTkFrame):
         self.text_widget.configure(state="disabled")
         self.text_widget.grid(row=0, column=1, sticky="ew", padx=(0, 14),
                               pady=10 if variant == "body" else 12)
-        badges = extract_inline_badges(text)
-        if badges:
-            badge_row = ctk.CTkFrame(self, fg_color="transparent", height=1)
-            badge_row.grid(row=1, column=1, sticky="ew", padx=(0, 14), pady=(0, 10))
-            for value, tone in badges:
-                PillBadge(badge_row, value, tone=tone).pack(side="left", padx=(0, 6))
-
-
 class StepWorkflowCard(ctk.CTkFrame):
     """带圆形序号、分层文本和右侧动作按钮的步骤卡片。"""
 
@@ -249,6 +223,6 @@ def demo_patch_troubleshooting(master=None) -> ctk.CTkToplevel | ctk.CTk:
 
 __all__ = [
     "PALETTE", "AlertBanner", "StepWorkflowCard", "PillBadge",
-    "FramedImageContainer", "ArticleParagraphCard", "extract_inline_badges",
+    "FramedImageContainer", "ArticleParagraphCard",
     "demo_patch_troubleshooting",
 ]
