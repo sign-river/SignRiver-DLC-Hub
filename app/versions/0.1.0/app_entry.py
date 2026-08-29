@@ -4809,17 +4809,18 @@ class DlcHubApplication:
                 heading = ctk.CTkFrame(
                     self.solution_detail_body, fg_color=UI["primary_surface"],
                     border_color=UI["primary_border"], border_width=1, corner_radius=8,
+                    height=48,
                 )
                 heading.pack(fill="x", pady=(4, 8))
                 heading.grid_columnconfigure(1, weight=1)
                 ctk.CTkFrame(heading, width=4, height=4, fg_color=UI["primary"], corner_radius=2).grid(
-                    row=0, column=0, sticky="ns", padx=(10, 8), pady=8,
+                    row=0, column=0, sticky="ns", padx=(10, 8), pady=7,
                 )
                 ctk.CTkLabel(
                     heading, text=values[0], text_color=UI["primary"],
                     font=ctk.CTkFont(size=15, weight="bold"), anchor="w",
                     wraplength=760,
-                ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=10)
+                ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=7)
             elif kind == "text":
                 self._create_solution_textbox(values[0])
             elif kind == "link" and len(values) >= 2:

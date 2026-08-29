@@ -109,18 +109,18 @@ class ArticleParagraphCard(ctk.CTkFrame):
     def __init__(self, master, text: str, *, variant: str = "body", **kwargs):
         if variant not in {"body", "lead", "note"}:
             raise ValueError(f"未知正文样式: {variant}")
-        surface = {"body": "transparent", "lead": PALETTE["InfoSurface"],
+        surface = {"body": "transparent", "lead": "transparent",
                    "note": PALETTE["WarningSurface"]}[variant]
         # CustomTkinter 禁止 border_color 使用透明色；正文边框宽度为 0，
         # 这里使用页面背景色作为安全的占位颜色。
-        border = {"body": PALETTE["Bg"], "lead": PALETTE["Accent"],
+        border = {"body": PALETTE["Bg"], "lead": PALETTE["Bg"],
                   "note": PALETTE["Warning"]}[variant]
-        accent = {"body": PALETTE["Border"], "lead": PALETTE["Accent"],
+        accent = {"body": PALETTE["Border"], "lead": PALETTE["Border"],
                   "note": PALETTE["Warning"]}[variant]
         kwargs.setdefault("height", 1)
         super().__init__(master, fg_color=surface, border_color=border,
-                         border_width=0 if variant == "body" else 1,
-                         corner_radius=0 if variant == "body" else 10, **kwargs)
+                         border_width=0 if variant in {"body", "lead"} else 1,
+                         corner_radius=0 if variant in {"body", "lead"} else 10, **kwargs)
         self.grid_columnconfigure(1, weight=1)
         ctk.CTkFrame(self, width=3, height=1, fg_color=accent,
                      corner_radius=2).grid(row=0, column=0, sticky="ns", padx=(4, 10), pady=8)

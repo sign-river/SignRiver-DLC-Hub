@@ -691,3 +691,9 @@
 
 - `ArticleParagraphCard` 普通正文样式的 `border_width=0` 仍传入了 `border_color="transparent"`，CustomTkinter 会拒绝该属性并抛出 `ValueError`。现改用页面背景色作为不可见边框占位，保留无边框视觉效果。
 - 基线与活动版本已同步，客户端已重启，当前源码进程 PID 64916。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
+
+## 2026-08-29：统一摘要与正文样式并压缩章节标题
+
+- 摘要导语 `lead` 改为与普通正文一致的透明背景 + 左侧阅读线，仅保留略大的字号，不再出现突兀的蓝色大卡片。
+- “常见原因 / 建议操作”等章节标题条高度收窄至约 48px，标题和强调线间距同步收紧；长标题仍允许按内容换行扩展。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 66920。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
