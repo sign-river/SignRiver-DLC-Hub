@@ -4775,6 +4775,10 @@ class DlcHubApplication:
             return
         title, summary, blocks = article
         self._current_solution_article_id = article_id
+        # Build the complete article while its card is unmapped. Rendering
+        # directly into a visible scrollable frame exposes each newly created
+        # child as a fragmented intermediate frame when entering a guide.
+        self.solution_detail_page.pack_forget()
         # Rebuild only the inner content.  Keeping multiple live widget trees
         # inside CTkScrollableFrame can leave stale canvas items during rapid
         # scrolling, producing visible ghosting/duplicate paragraphs.

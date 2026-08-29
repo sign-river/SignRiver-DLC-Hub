@@ -720,3 +720,9 @@
 
 - `ArticleParagraphCard` 的摘要与普通正文统一使用主题 `Text` 颜色，浅色模式显示为黑色，深色模式仍自动使用可读的浅色文字；左侧阅读线、DLL/路径标签和交互逻辑保持不变。
 - 基线 `0.1.0` 已修改并定向同步到活动版本 `0.2.0`，源码客户端已重启，当前 PID 55172。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。
+
+## 2026-08-29：指南详情切换改为整页挂载
+
+- 从工具详情进入指南时，指南正文先在隐藏的详情卡片中完整构建，完成后再一次性挂载；避免可滚动容器逐个显示子控件造成碎片化中间帧。
+- 基线 `0.1.0` 已修改，并将同一代码块同步到活动版本 `0.2.0`；未修改 `app/state.json`，需重启客户端查看。
+- 验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（101 项通过）、`git diff --check`；未执行 GUI 人工验收、构建、上传或推送。
