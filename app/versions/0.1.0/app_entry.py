@@ -4863,10 +4863,17 @@ class DlcHubApplication:
                     preview.bind_click(lambda _event, path=image_path: self._open_solution_image(path))
             elif kind == "button":
                 workflow_step += 1
+                target = str(values[1])
+                action_text = (
+                    "进入工具界面" if target.startswith("tool:")
+                    else "查看相关指南" if target.startswith("guide:")
+                    else "进入补丁工具" if target == "patch-tool"
+                    else "继续"
+                )
                 StepWorkflowCard(
-                    self.solution_detail_body, workflow_step, "执行指南操作",
-                    values[0], action_text="立即执行",
-                    command=lambda target=values[1]: self._activate_solution_button(target),
+                    self.solution_detail_body, workflow_step, values[0],
+                    "点击右侧按钮继续。", action_text=action_text,
+                    command=lambda target=target: self._activate_solution_button(target),
                 ).pack(fill="x", pady=(0, 10))
             elif kind == "tool":
                 # 指南中的工具声明仅用于工具目录关联；工具管理统一在工具详情页完成。
@@ -4874,8 +4881,8 @@ class DlcHubApplication:
             elif kind == "action":
                 workflow_step += 1
                 StepWorkflowCard(
-                    self.solution_detail_body, workflow_step, "建议操作",
-                    values[0], action_text="执行",
+                    self.solution_detail_body, workflow_step, values[0],
+                    "点击右侧按钮继续。", action_text="进入工具界面",
                     command=values[1],
                 ).pack(fill="x", pady=(0, 10))
         # Keep the established labels discoverable for static UI regression
