@@ -2833,6 +2833,7 @@ class DlcHubApplication:
         self.solution_detail_header.bind("<Configure>", self._update_solution_detail_header_layout, add="+")
         self.solution_detail_body = _AutoHideScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
+        self.solution_detail_cache = {}
         self.solution_detail_body.bind("<Configure>", self._update_solution_detail_wraplength)
 
     def _load_remote_solution_articles(self, *, allow_network: bool) -> dict[str, tuple[object, ...]]:
@@ -4669,8 +4670,9 @@ class DlcHubApplication:
         finally:
             textbox._fitting_solution_text = False
 
-    def _create_solution_textbox(self, text: str, *, variant: str = "body"):
-        card = ArticleParagraphCard(self.solution_detail_body, text, variant=variant)
+    def _create_solution_textbox(self, text: str, *, variant: str = "body", parent=None):
+        parent = parent or self.solution_detail_body
+        card = ArticleParagraphCard(parent, text, variant=variant)
         card.pack(fill="x", pady=(0, 12))
         textbox = card.text_widget
         textbox._solution_raw_text = text
@@ -4774,8 +4776,33 @@ class DlcHubApplication:
             return
         title, summary, blocks = article
         self._current_solution_article_id = article_id
+        cached = getattr(self, "solution_detail_cache", {}).get(article_id)
         for child in self.solution_detail_body.winfo_children():
-            child.destroy()
+            child.pack_forget()
+        if cached is not None:
+            cached["frame"].pack(fill="x", expand=True)
+            self.solution_detail_textboxes = cached["textboxes"]
+            self.solution_detail_images = cached["images"]
+            self.solution_detail_image_sources = cached["sources"]
+            self.solution_detail_title_label.configure(text=title)
+            self.solution_list_header.pack_forget()
+            self.solution_search_bar.pack_forget()
+            self.solution_list.pack_forget()
+            back_text = "← 返回解决方案"
+            if self.solution_detail_origin == "quick_check":
+                back_text = "← 回到一键排错"
+            elif self.solution_detail_origin == "security_products":
+                back_text = "← 返回杀毒软件检测"
+            elif self.solution_detail_origin in {"tool_center", "guide_tool", "patch_tool"}:
+                back_text = "← 返回工具详情"
+            self.solution_detail_back_button.configure(
+                text=back_text, command=self._return_from_solution_detail,
+            )
+            self.solution_detail_page.pack(fill="both", expand=True)
+            self._update_solution_detail_wraplength()
+            return
+        render_parent = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent", height=1)
+        render_parent.pack(fill="x", expand=True)
         self.solution_detail_images = []
         self.solution_detail_image_sources = []
         self.solution_detail_textboxes = []
@@ -4790,24 +4817,24 @@ class DlcHubApplication:
                 source = Image.open(image_path).convert("RGB")
                 self.solution_detail_image_sources.append(source)
                 preview = FramedImageContainer(
-                    self.solution_detail_body, source,
+                    render_parent, source,
                     max_size=(820, 420),
                 )
                 preview.pack(fill="x", pady=(0, 16))
                 preview.bind_click(lambda _event, path=image_path: self._open_solution_image(path))
             blocks = blocks[1:]
-        self._create_solution_textbox(summary, variant="lead")
+        self._create_solution_textbox(summary, variant="lead", parent=render_parent)
         workflow_step = 0
         for kind, *values in blocks:
             if kind == "heading":
                 if any(keyword in values[0] for keyword in ("注意", "警告", "风险")):
                     AlertBanner(
-                        self.solution_detail_body, values[0],
+                        render_parent, values[0],
                         "请先阅读本节说明，再执行后续操作。", kind="warning",
                     ).pack(fill="x", pady=(4, 8))
                     continue
                 heading = ctk.CTkFrame(
-                    self.solution_detail_body, fg_color=UI["primary_surface"],
+                    render_parent, fg_color=UI["primary_surface"],
                     border_color=UI["primary_border"], border_width=1, corner_radius=8,
                     height=48,
                 )
@@ -4822,10 +4849,10 @@ class DlcHubApplication:
                     wraplength=760,
                 ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=7)
             elif kind == "text":
-                self._create_solution_textbox(values[0])
+                self._create_solution_textbox(values[0], parent=render_parent)
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
-                    self.solution_detail_body, text=values[0], text_color=UI["primary"],
+                    render_parent, text=values[0], text_color=UI["primary"],
                     cursor="hand2", anchor="w", justify="left",
                 )
                 link.pack(fill="x", pady=(0, 16))
@@ -4837,7 +4864,7 @@ class DlcHubApplication:
                     source = Image.open(image_path).convert("RGB")
                     self.solution_detail_image_sources.append(source)
                     preview = FramedImageContainer(
-                        self.solution_detail_body, source,
+                        render_parent, source,
                         max_size=(820, 420),
                     )
                     preview.pack(fill="x", pady=(0, 16))
@@ -4852,7 +4879,7 @@ class DlcHubApplication:
                     else "继续"
                 )
                 StepWorkflowCard(
-                    self.solution_detail_body, workflow_step, values[0],
+                    render_parent, workflow_step, values[0],
                     "", action_text=action_text,
                     command=lambda target=target: self._activate_solution_button(target),
                 ).pack(fill="x", pady=(0, 10))
@@ -4862,7 +4889,7 @@ class DlcHubApplication:
             elif kind == "action":
                 workflow_step += 1
                 StepWorkflowCard(
-                    self.solution_detail_body, workflow_step, values[0],
+                    render_parent, workflow_step, values[0],
                     "", action_text="进入工具界面",
                     command=values[1],
                 ).pack(fill="x", pady=(0, 10))
@@ -4890,6 +4917,12 @@ class DlcHubApplication:
             back_text = "← 返回解决方案"
         self.solution_detail_back_button.configure(text=back_text)
         self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
+        self.solution_detail_cache[article_id] = {
+            "frame": render_parent,
+            "textboxes": self.solution_detail_textboxes,
+            "images": self.solution_detail_images,
+            "sources": self.solution_detail_image_sources,
+        }
         self.solution_detail_page.update_idletasks()
         self._update_solution_detail_wraplength()
         self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)

@@ -698,6 +698,12 @@
 - `_destroy_widget_descendants()` 现在跳过半初始化控件；`_close()` 使用 `finally` 且分别保护 `quit()` / `destroy()`，即使清理异常也保证程序退出，不再要求任务管理器强制结束。
 - 基线 `0.1.0` 已修改并同步到活动版本 `0.2.0`。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。
 
+## 2026-08-29：优化指南详情页重复打开延迟
+
+- 指南详情页新增按 `article_id` 缓存的正文容器：首次打开仍按原逻辑构建，之后再次打开同一指南只切换已生成的 frame，不重复创建文本框、标签、图片和按钮。
+- 保留原有图片点击、工具/指南按钮回调、返回上下文和滚动容器；缓存命中时同步隐藏列表并更新返回按钮，避免导航状态残留。
+- 基线 `0.1.0` 已修改并同步到活动版本 `0.2.0`；未修改 `app/state.json`。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`；未执行构建、上传或推送。
+
 ## 2026-08-29：统一摘要与正文样式并压缩章节标题
 
 - 摘要导语 `lead` 改为与普通正文一致的透明背景 + 左侧阅读线，仅保留略大的字号，不再出现突兀的蓝色大卡片。
