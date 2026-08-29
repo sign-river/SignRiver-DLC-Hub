@@ -4,7 +4,6 @@ import hashlib
 import json
 import ctypes
 import os
-import re
 import shutil
 import subprocess
 import threading
@@ -104,7 +103,7 @@ from .signriver_app.infrastructure.persistence import (
     InstallReceiptRepository,
     UserSettingsRepository,
 )
-from .article_components import AlertBanner, FramedImageContainer, PillBadge, StepWorkflowCard
+from .article_components import AlertBanner, ArticleParagraphCard, FramedImageContainer, StepWorkflowCard
 
 
 QUICK_CHECK_LOW_DISK_BYTES = 10 * 1024 * 1024 * 1024
@@ -4670,28 +4669,16 @@ class DlcHubApplication:
         finally:
             textbox._fitting_solution_text = False
 
-    def _create_solution_textbox(self, text: str):
-        textbox = ctk.CTkTextbox(
-            self.solution_detail_body,
-            height=34,
-            border_spacing=0,
-            activate_scrollbars=False,
-            wrap="char",
-            fg_color="transparent",
-            border_width=0,
-            corner_radius=0,
-            text_color=UI["text_secondary"],
-            font=ctk.CTkFont(size=14),
-        )
-        textbox.insert("1.0", text)
+    def _create_solution_textbox(self, text: str, *, variant: str = "body"):
+        card = ArticleParagraphCard(self.solution_detail_body, text, variant=variant)
+        card.pack(fill="x", pady=(0, 12))
+        textbox = card.text_widget
         textbox._solution_raw_text = text
-        textbox.configure(state="disabled")
-        textbox.pack(fill="x", pady=(0, 16))
         textbox.bind("<Configure>", lambda _event, widget=textbox: self._fit_solution_textbox(widget), add="+")
         self.window.after_idle(lambda widget=textbox: self._fit_solution_textbox(widget))
         self.window.after(80, lambda widget=textbox: self._fit_solution_textbox(widget))
         self.solution_detail_textboxes.append(textbox)
-        return textbox
+        return card
 
     def _fit_tool_detail_textbox(self, textbox) -> None:
         """让工具详情正文文本框按实际显示行数展开，由外层滚动容器统一滚动。"""
@@ -4809,8 +4796,7 @@ class DlcHubApplication:
                 preview.pack(fill="x", pady=(0, 16))
                 preview.bind_click(lambda _event, path=image_path: self._open_solution_image(path))
             blocks = blocks[1:]
-        summary_textbox = self._create_solution_textbox(summary)
-        summary_textbox.pack_configure(pady=(0, 18))
+        self._create_solution_textbox(summary, variant="lead")
         workflow_step = 0
         for kind, *values in blocks:
             if kind == "heading":
@@ -4836,12 +4822,6 @@ class DlcHubApplication:
                 ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=10)
             elif kind == "text":
                 self._create_solution_textbox(values[0])
-                dll_names = list(dict.fromkeys(re.findall(r"[\w.-]+\.dll", values[0], flags=re.IGNORECASE)))
-                if dll_names:
-                    badge_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
-                    badge_row.pack(fill="x", pady=(0, 10))
-                    for dll_name in dll_names:
-                        PillBadge(badge_row, dll_name, tone="accent").pack(side="left", padx=(0, 6))
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["primary"],
