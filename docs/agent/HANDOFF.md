@@ -680,3 +680,9 @@
 - 普通正文段落改为透明背景、无边框，仅保留细阅读强调线；摘要导语和章节标题仍保留卡片层级，避免“卡片套卡片”。
 - 自动标签仅保留 DLL 名称与 Windows 路径，移除对中文引号短语的识别，避免把“设置”等普通界面词误标为重点；路径标签超长时截断显示。
 - 基线与活动版本已同步，客户端已重启，当前源码进程 PID 60012。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：修复页面销毁后的 Tk 回调异常
+
+- `_update_global_status()`、`_update_problem_badge()` 和 `_record_problem()` 增加 `_closing`、`winfo_exists()` 与 `TclError` 防护；窗口关闭或页面控件重建后，延迟回调不会再对已销毁控件调用 `configure()`，错误记录也不会触发二次 UI 异常。
+- 基线 `0.1.0` 已修改并将相关代码块同步到活动版本 `0.2.0`；未修改 `app/state.json`。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
+- `tests/test_client_problem_center.py` 全量执行时仍有 3 项工作区既有失败（补丁结果夹具字段、旧成功提示断言、旧回调参数断言），与本次生命周期保护无关，未修改其相关逻辑。

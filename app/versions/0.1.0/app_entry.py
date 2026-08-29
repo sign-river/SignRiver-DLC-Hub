@@ -7115,6 +7115,14 @@ class DlcHubApplication:
             self.window.after(50, self._drain_ui_events)
 
     def _update_global_status(self) -> None:
+        if getattr(self, "_closing", False):
+            return
+        global_status = getattr(self, "global_status", None)
+        try:
+            if global_status is None or not global_status.winfo_exists():
+                return
+        except TclError:
+            return
         snapshots = self.download_queue.snapshots() if self.download_queue is not None else ()
         active_states = {
             DownloadState.QUEUED, DownloadState.DOWNLOADING,
@@ -7130,13 +7138,19 @@ class DlcHubApplication:
             if self.cache_usage_bytes is not None
             else "统计中"
         )
-        self.global_status.configure(text=(
-            f"网络：{'已连接' if self.catalog_online else '未连接'}\n"
-            f"任务：{len(active) + update_task_count} · {_format_speed(speed)}\n"
-            f"缓存：{cache_text}"
-        ))
+        try:
+            global_status.configure(text=(
+                f"网络：{'已连接' if self.catalog_online else '未连接'}\n"
+                f"任务：{len(active) + update_task_count} · {_format_speed(speed)}\n"
+                f"缓存：{cache_text}"
+            ))
+        except TclError:
+            return
         self._schedule_cache_usage_scan()
-        self.window.after(2000, self._update_global_status)
+        try:
+            self.window.after(2000, self._update_global_status)
+        except TclError:
+            return
 
     def _schedule_cache_usage_scan(self, *, force: bool = False) -> None:
         """Refresh cache usage off the Tk thread and never overlap scans."""
@@ -7380,16 +7394,22 @@ class DlcHubApplication:
         except Exception:
             self.context.logger.exception("Unable to persist problem report")
             return report
-        self._update_problem_badge()
-        if getattr(self, "current_page", None) == "问题记录":
+        if not getattr(self, "_closing", False):
+            self._update_problem_badge()
+        if not getattr(self, "_closing", False) and getattr(self, "current_page", None) == "问题记录":
             self._refresh_problem_center(select_event_id=stored.event_id)
         return stored
 
     def _update_problem_badge(self) -> None:
         # Problem records are diagnostics for developers, not user-facing alerts.
+        if getattr(self, "_closing", False):
+            return
         button = getattr(self, "navigation_buttons", {}).get("报错指南")
-        if button is not None:
-            button.configure(text="报错指南")
+        try:
+            if button is not None and button.winfo_exists():
+                button.configure(text="报错指南")
+        except TclError:
+            return
 
     def _refresh_problem_center(self, select_event_id: str | None = None) -> None:
         if not hasattr(self, "problem_list"):
