@@ -11526,14 +11526,16 @@ class DlcHubApplication:
         """Destroy a widget tree from its leaves upward while the root stays alive."""
         try:
             children = tuple(widget.winfo_children())
-        except TclError:
+        except (AttributeError, TclError, RuntimeError):
+            # A failed CustomTkinter constructor can leave a partial widget
+            # without ``_canvas`` in the Tcl child list.
             return
         for child in children:
             self._destroy_widget_descendants(child)
             try:
                 if child.winfo_exists():
                     child.destroy()
-            except TclError:
+            except (AttributeError, TclError, RuntimeError):
                 # A sibling callback or the parent teardown may already have
                 # removed this widget.  The required end state is still met.
                 continue
@@ -11562,12 +11564,20 @@ class DlcHubApplication:
         self.window.withdraw()
         self._hide_game_picker()
         self._close_announcement_dialog()
-        self._destroy_widget_descendants(self.window)
-
-        # Stop the event loop only after child components are gone; destroy the
-        # outer root last so Tk never exposes its recursive teardown to users.
-        self.window.quit()
-        self.window.destroy()
+        try:
+            self._destroy_widget_descendants(self.window)
+        finally:
+            # Cleanup must never prevent the root from stopping.  In
+            # particular, partially initialized CustomTkinter widgets can
+            # raise AttributeError while being inspected during teardown.
+            try:
+                self.window.quit()
+            except (AttributeError, TclError, RuntimeError):
+                pass
+            try:
+                self.window.destroy()
+            except (AttributeError, TclError, RuntimeError):
+                pass
 
     def _show_download_state(self, snapshot) -> None:
         labels = {
