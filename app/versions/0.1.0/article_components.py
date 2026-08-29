@@ -46,6 +46,7 @@ class AlertBanner(ctk.CTkFrame):
         if kind not in self._STYLES:
             raise ValueError(f"未知横幅类型: {kind}")
         icon, _, surface, accent = self._STYLES[kind]
+        kwargs.setdefault("height", 72)
         super().__init__(master, fg_color=PALETTE[surface], border_color=PALETTE[accent],
                          border_width=1, corner_radius=10, **kwargs)
         self.grid_columnconfigure(1, weight=1)
@@ -90,6 +91,7 @@ class StepWorkflowCard(ctk.CTkFrame):
     def __init__(self, master, step: int, title: str, body: str, *,
                  action_text: str | None = None, command: Callable[[], None] | None = None,
                  **kwargs):
+        kwargs.setdefault("height", 72)
         super().__init__(master, fg_color=PALETTE["Surface"], border_color=PALETTE["Border"],
                          border_width=1, corner_radius=10, **kwargs)
         self.grid_columnconfigure(1, weight=1)
@@ -146,6 +148,11 @@ class FramedImageContainer(ctk.CTkFrame):
         self._image_label.configure(image=self._photo)
         if hasattr(self, "_caption"):
             self._caption.configure(wraplength=max(180, width - 24))
+
+    def bind_click(self, callback: Callable[[object], object]) -> None:
+        """将同一点击回调绑定到容器和实际图片，保持预览可点击。"""
+        self.bind("<Button-1>", callback, add="+")
+        self._image_label.bind("<Button-1>", callback, add="+")
 
 
 def demo_patch_troubleshooting(master=None) -> ctk.CTkToplevel | ctk.CTk:

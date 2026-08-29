@@ -4804,10 +4804,10 @@ class DlcHubApplication:
                 self.solution_detail_image_sources.append(source)
                 preview = FramedImageContainer(
                     self.solution_detail_body, source,
-                    caption=f"截图：{image_path.name}", max_size=(820, 520),
+                    max_size=(820, 420),
                 )
                 preview.pack(fill="x", pady=(0, 16))
-                preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
+                preview.bind_click(lambda _event, path=image_path: self._open_solution_image(path))
             blocks = blocks[1:]
         summary_textbox = self._create_solution_textbox(summary)
         summary_textbox.pack_configure(pady=(0, 18))
@@ -4857,10 +4857,10 @@ class DlcHubApplication:
                     self.solution_detail_image_sources.append(source)
                     preview = FramedImageContainer(
                         self.solution_detail_body, source,
-                        caption=f"截图：{image_path.name}", max_size=(820, 520),
+                        max_size=(820, 420),
                     )
                     preview.pack(fill="x", pady=(0, 16))
-                    preview.bind("<Button-1>", lambda _event, path=image_path: self._open_solution_image(path))
+                    preview.bind_click(lambda _event, path=image_path: self._open_solution_image(path))
             elif kind == "button":
                 workflow_step += 1
                 StepWorkflowCard(

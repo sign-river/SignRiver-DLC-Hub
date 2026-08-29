@@ -646,3 +646,9 @@
 
 - 修复指南标题卡片大片空白：内部装饰 `CTkFrame` 的 CustomTkinter 默认高度会把父卡片撑到约 200px，现已显式限制装饰框高度，组件正文框也按内容收缩。
 - 基线与活动版本 `0.2.0` 已同步；客户端已重启，当前源码进程 PID 55040。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：移除截图文件名并恢复图片点击
+
+- 截图容器不再显示内部文件名图注，预览最大高度调整为 420px，避免图片占满页面导致操作入口难以发现。
+- `FramedImageContainer` 新增 `bind_click()`，同时绑定容器和实际图片控件，恢复点击图片打开大图预览；原指南按钮仍保留原有目标与回调，仅更换视觉为步骤卡片。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 68656。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
