@@ -636,3 +636,8 @@
 - 指南详情页进一步接入 `AlertBanner` 和 `StepWorkflowCard`：包含“注意/警告/风险”的章节显示警示横幅，`button/action` 块显示圆形序号、说明与右侧执行按钮；保留原有回调和返回路径。
 - 基线 `0.1.0` 已修改，相关代码块同步到活动版本 `0.2.0`；已停止旧源码进程并重启当前客户端 PID 58692，需重新打开指南详情查看。
 - 验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。
+
+## 2026-08-29：指南正文自动标记 DLL
+
+- 指南 `text` 块现在自动识别 `.dll` 文件名并显示为蓝色 `PillBadge`，不改变原文和业务回调；基线与活动版本均已同步。
+- 客户端已重启，当前源码进程 PID 46948。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）；未执行构建、上传或推送。

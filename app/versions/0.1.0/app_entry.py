@@ -4,6 +4,7 @@ import hashlib
 import json
 import ctypes
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -103,7 +104,7 @@ from .signriver_app.infrastructure.persistence import (
     InstallReceiptRepository,
     UserSettingsRepository,
 )
-from .article_components import AlertBanner, FramedImageContainer, StepWorkflowCard
+from .article_components import AlertBanner, FramedImageContainer, PillBadge, StepWorkflowCard
 
 
 QUICK_CHECK_LOW_DISK_BYTES = 10 * 1024 * 1024 * 1024
@@ -4835,6 +4836,12 @@ class DlcHubApplication:
                 ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=10)
             elif kind == "text":
                 self._create_solution_textbox(values[0])
+                dll_names = list(dict.fromkeys(re.findall(r"[\w.-]+\.dll", values[0], flags=re.IGNORECASE)))
+                if dll_names:
+                    badge_row = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent")
+                    badge_row.pack(fill="x", pady=(0, 10))
+                    for dll_name in dll_names:
+                        PillBadge(badge_row, dll_name, tone="accent").pack(side="left", padx=(0, 6))
             elif kind == "link" and len(values) >= 2:
                 link = ctk.CTkLabel(
                     self.solution_detail_body, text=values[0], text_color=UI["primary"],
