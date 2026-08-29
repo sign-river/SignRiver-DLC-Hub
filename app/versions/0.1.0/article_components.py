@@ -111,7 +111,9 @@ class ArticleParagraphCard(ctk.CTkFrame):
             raise ValueError(f"未知正文样式: {variant}")
         surface = {"body": "transparent", "lead": PALETTE["InfoSurface"],
                    "note": PALETTE["WarningSurface"]}[variant]
-        border = {"body": "transparent", "lead": PALETTE["Accent"],
+        # CustomTkinter 禁止 border_color 使用透明色；正文边框宽度为 0，
+        # 这里使用页面背景色作为安全的占位颜色。
+        border = {"body": PALETTE["Bg"], "lead": PALETTE["Accent"],
                   "note": PALETTE["Warning"]}[variant]
         accent = {"body": PALETTE["Border"], "lead": PALETTE["Accent"],
                   "note": PALETTE["Warning"]}[variant]

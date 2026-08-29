@@ -686,3 +686,8 @@
 - `_update_global_status()`、`_update_problem_badge()` 和 `_record_problem()` 增加 `_closing`、`winfo_exists()` 与 `TclError` 防护；窗口关闭或页面控件重建后，延迟回调不会再对已销毁控件调用 `configure()`，错误记录也不会触发二次 UI 异常。
 - 基线 `0.1.0` 已修改并将相关代码块同步到活动版本 `0.2.0`；未修改 `app/state.json`。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
 - `tests/test_client_problem_center.py` 全量执行时仍有 3 项工作区既有失败（补丁结果夹具字段、旧成功提示断言、旧回调参数断言），与本次生命周期保护无关，未修改其相关逻辑。
+
+## 2026-08-29：修复正文卡片透明边框参数错误
+
+- `ArticleParagraphCard` 普通正文样式的 `border_width=0` 仍传入了 `border_color="transparent"`，CustomTkinter 会拒绝该属性并抛出 `ValueError`。现改用页面背景色作为不可见边框占位，保留无边框视觉效果。
+- 基线与活动版本已同步，客户端已重启，当前源码进程 PID 64916。验证：两个版本 `py_compile`、基线 Ruff、`tests/test_ui_theme.py tests/test_platform_content.py`（全部通过）、`git diff --check`。
