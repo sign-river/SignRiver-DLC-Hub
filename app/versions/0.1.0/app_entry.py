@@ -2833,7 +2833,6 @@ class DlcHubApplication:
         self.solution_detail_header.bind("<Configure>", self._update_solution_detail_header_layout, add="+")
         self.solution_detail_body = _AutoHideScrollableFrame(self.solution_detail_page, fg_color="transparent", corner_radius=0)
         self.solution_detail_body.pack(fill="both", expand=True, padx=24, pady=(0, 18))
-        self.solution_detail_cache = {}
         self.solution_detail_body.bind("<Configure>", self._update_solution_detail_wraplength)
 
     def _load_remote_solution_articles(self, *, allow_network: bool) -> dict[str, tuple[object, ...]]:
@@ -4776,31 +4775,14 @@ class DlcHubApplication:
             return
         title, summary, blocks = article
         self._current_solution_article_id = article_id
-        cached = getattr(self, "solution_detail_cache", {}).get(article_id)
+        # Rebuild only the inner content.  Keeping multiple live widget trees
+        # inside CTkScrollableFrame can leave stale canvas items during rapid
+        # scrolling, producing visible ghosting/duplicate paragraphs.
         for child in self.solution_detail_body.winfo_children():
-            child.pack_forget()
-        if cached is not None:
-            cached["frame"].pack(fill="x", expand=True)
-            self.solution_detail_textboxes = cached["textboxes"]
-            self.solution_detail_images = cached["images"]
-            self.solution_detail_image_sources = cached["sources"]
-            self.solution_detail_title_label.configure(text=title)
-            self.solution_list_header.pack_forget()
-            self.solution_search_bar.pack_forget()
-            self.solution_list.pack_forget()
-            back_text = "← 返回解决方案"
-            if self.solution_detail_origin == "quick_check":
-                back_text = "← 回到一键排错"
-            elif self.solution_detail_origin == "security_products":
-                back_text = "← 返回杀毒软件检测"
-            elif self.solution_detail_origin in {"tool_center", "guide_tool", "patch_tool"}:
-                back_text = "← 返回工具详情"
-            self.solution_detail_back_button.configure(
-                text=back_text, command=self._return_from_solution_detail,
-            )
-            self.solution_detail_page.pack(fill="both", expand=True)
-            self._update_solution_detail_wraplength()
-            return
+            try:
+                child.destroy()
+            except (TclError, RuntimeError):
+                continue
         render_parent = ctk.CTkFrame(self.solution_detail_body, fg_color="transparent", height=1)
         render_parent.pack(fill="x", expand=True)
         self.solution_detail_images = []
@@ -4917,12 +4899,6 @@ class DlcHubApplication:
             back_text = "← 返回解决方案"
         self.solution_detail_back_button.configure(text=back_text)
         self.solution_detail_back_button.configure(command=self._return_from_solution_detail)
-        self.solution_detail_cache[article_id] = {
-            "frame": render_parent,
-            "textboxes": self.solution_detail_textboxes,
-            "images": self.solution_detail_images,
-            "sources": self.solution_detail_image_sources,
-        }
         self.solution_detail_page.update_idletasks()
         self._update_solution_detail_wraplength()
         self.window.after_idle(self.solution_detail_body._update_scrollbar_visibility)
