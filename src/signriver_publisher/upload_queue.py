@@ -60,6 +60,10 @@ class UploadQueueItem:
     completed_bytes: int = 0
     current_filename: str | None = None
     current_source: str | None = None
+    current_file_bytes: int = 0
+    current_file_total_bytes: int = 0
+    current_file_index: int = 0
+    current_file_count: int = 0
     bytes_per_second: float = 0.0
     error: str | None = None
     mirror_delete_confirmed: bool = False
@@ -113,6 +117,10 @@ class ContentUploadQueue:
             duplicate.completed_bytes = 0
             duplicate.current_filename = None
             duplicate.current_source = None
+            duplicate.current_file_bytes = 0
+            duplicate.current_file_total_bytes = 0
+            duplicate.current_file_index = 0
+            duplicate.current_file_count = 0
             duplicate.bytes_per_second = 0.0
             duplicate.mirror_delete_confirmed = bool(plan.options.get("mirror_delete_confirmed"))
             duplicate.updated_at = _utc_now()
@@ -161,6 +169,10 @@ class ContentUploadQueue:
             duplicate.completed_bytes = 0
             duplicate.current_filename = None
             duplicate.current_source = None
+            duplicate.current_file_bytes = 0
+            duplicate.current_file_total_bytes = 0
+            duplicate.current_file_index = 0
+            duplicate.current_file_count = 0
             duplicate.bytes_per_second = 0.0
             duplicate.mirror_delete_confirmed = False
             duplicate.updated_at = _utc_now()
@@ -189,6 +201,10 @@ class ContentUploadQueue:
         item.completed_bytes = 0
         item.current_filename = None
         item.current_source = None
+        item.current_file_bytes = 0
+        item.current_file_total_bytes = 0
+        item.current_file_index = 0
+        item.current_file_count = 0
         item.bytes_per_second = 0.0
         item.error = "已保留最新提交，等待上传。"
         self._replace(item)
@@ -285,6 +301,10 @@ class ContentUploadQueue:
         item.bytes_per_second = 0.0
         item.current_filename = None
         item.current_source = None
+        item.current_file_bytes = 0
+        item.current_file_total_bytes = 0
+        item.current_file_index = 0
+        item.current_file_count = 0
         self._replace(item)
         return item
 
@@ -295,32 +315,30 @@ class ContentUploadQueue:
         return item
 
     def sync_progress(self, item_id: str, plan: ReleasePlan) -> UploadQueueItem:
-        """Copy the throttled provider sample persisted by ``ReleaseService``.
+        """Copy the throttled provider sample for the file currently uploading.
 
-        The provider uploads each source serially.  We expose a conservative
-        total that counts both sources, so an overnight upload never appears
-        finished after only GitLink or GitHub has completed.
+        ``completed_bytes`` is retained for compatibility with older queue
+        records, but the UI must not present it as a single upload total:
+        providers run independently and many files may be reused remotely.
         """
         item = self.get(item_id)
         sample = plan.options.get("upload_progress")
         if not isinstance(sample, dict):
             return item
         sent = max(0, int(sample.get("sent") or 0))
+        total = max(0, int(sample.get("total") or 0))
         source = str(sample.get("source") or "")
         filename = str(sample.get("filename") or "")
         speed = max(0.0, float(sample.get("bytes_per_second") or 0.0))
-        ordered_sources = ("gitlink", "github")
-        source_offset = item.total_bytes * (ordered_sources.index(source) if source in ordered_sources else 0)
-        # Pipeline order is meaningful: content attachments are uploaded before
-        # catalog.json, even if alphabetical ordering would put the catalog
-        # first.  Preserve it for the visible aggregate progress.
         artifacts = tuple(plan.artifacts)
-        before = 0
-        for artifact in artifacts:
-            if artifact.filename == filename:
-                break
-            before += max(0, int(artifact.size or 0))
-        item.completed_bytes = min(item.total_bytes * 2, source_offset + before + sent)
+        file_index = next(
+            (index for index, artifact in enumerate(artifacts) if artifact.filename == filename),
+            -1,
+        )
+        item.current_file_bytes = min(sent, total) if total else sent
+        item.current_file_total_bytes = total
+        item.current_file_index = file_index + 1 if file_index >= 0 else 0
+        item.current_file_count = len(artifacts)
         item.current_filename = filename or None
         item.current_source = source or None
         item.bytes_per_second = speed
@@ -401,6 +419,10 @@ class ContentUploadQueue:
             item.error = "上次关闭时上传未完成；可继续上传，已完成文件会先校验并跳过。"
             item.current_filename = None
             item.current_source = None
+            item.current_file_bytes = 0
+            item.current_file_total_bytes = 0
+            item.current_file_index = 0
+            item.current_file_count = 0
             item.bytes_per_second = 0.0
             item.updated_at = _utc_now()
             changed = True

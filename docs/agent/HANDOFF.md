@@ -5,9 +5,17 @@
 ## 当前状态（2026-09-04）
 
 - 分支：`main`
-- HEAD：`5ac7cfd`（记录全量更新发布一致性门禁）
+- HEAD：任务完成后以 Git 实际提交为准（本任务为发布器上传队列进度显示优化）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：整理前无未提交改动；本次文档压缩会产生新的文档改动。
+- 工作区：本任务改动已验证，待本地提交；无其他未提交改动。
+
+## 本次任务
+
+- 修改范围：`src/signriver_publisher/upload_queue.py`、`src/signriver_publisher/upload_queue_ui.py`、`tests/test_publisher_upload_queue.py`。
+- 上传队列进度条现在只表示当前文件的 `sent / total`；队列行文案显示本地文件数量/本地总大小、当前处理文件序号、来源、文件名和当前文件大小进度，不再把双端累计字节作为单条进度。
+- 活动客户端版本保持 `0.2.0`；本任务仅涉及 Windows 发布器，不修改客户端模块，因此无需同步活动模块；重新启动发布器后生效。
+- 已执行：`python -m pytest -q tests/test_publisher_upload_queue.py tests/test_publisher_ui_threading.py`（通过）；`python -m ruff check src/signriver_publisher/upload_queue.py src/signriver_publisher/upload_queue_ui.py tests/test_publisher_upload_queue.py`（通过）；`python -m compileall -q src/signriver_publisher`（通过）；`git diff --check`（通过）。
+- 未执行：发布器 GUI 人工验收、构建 EXE、真实上传和推送。
 
 ## 最近结论
 

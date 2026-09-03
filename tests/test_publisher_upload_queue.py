@@ -71,7 +71,7 @@ def test_running_upload_keeps_one_row_and_requeues_the_latest_submission(tmp_pat
     assert queue.requeue_latest(first.item_id).status is UploadQueueStatus.QUEUED
 
 
-def test_queue_progress_counts_both_remote_sources(tmp_path: Path) -> None:
+def test_queue_progress_tracks_the_current_file_only(tmp_path: Path) -> None:
     queue = ContentUploadQueue(tmp_path)
     plan = _plan("game-a", batch_id="a")
     item = queue.enqueue(plan, display_name="游戏 A")
@@ -85,7 +85,10 @@ def test_queue_progress_counts_both_remote_sources(tmp_path: Path) -> None:
 
     updated = queue.sync_progress(item.item_id, plan)
 
-    assert updated.completed_bytes == 150
+    assert updated.current_file_bytes == 30
+    assert updated.current_file_total_bytes == 100
+    assert updated.current_file_index == 1
+    assert updated.current_file_count == 2
     assert updated.current_source == "github"
     assert updated.bytes_per_second == 12.5
 

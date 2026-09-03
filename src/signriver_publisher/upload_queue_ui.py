@@ -277,8 +277,9 @@ class UploadQueueUiMixin:
             row=1, column=1, columnspan=2, padx=(0, 12), pady=(1, 8), sticky="ew"
         )
         progress = ctk.CTkProgressBar(card, height=8, progress_color=BLUE)
-        total = max(1, item.total_bytes * (2 if item.status is UploadQueueStatus.RUNNING else 1))
-        progress.set(1 if item.status is UploadQueueStatus.COMPLETED else min(1, item.completed_bytes / total))
+        current_total = max(1, item.current_file_total_bytes)
+        current_value = item.current_file_bytes / current_total
+        progress.set(1 if item.status is UploadQueueStatus.COMPLETED else min(1, current_value))
         progress.grid(row=2, column=0, columnspan=3, padx=14, pady=(0, 10), sticky="ew")
         self._upload_queue_progress_widgets[item.item_id] = (detail_label, progress)
         controls = ctk.CTkFrame(card, fg_color="transparent")
@@ -324,11 +325,15 @@ class UploadQueueUiMixin:
 
     @staticmethod
     def _queue_item_detail(item) -> str:
-        detail = f"{item.artifact_count} 个文件 · {_display_bytes(item.total_bytes)}"
+        detail = f"本地 {item.artifact_count} 个文件 · 本地总大小 {_display_bytes(item.total_bytes)}"
         if item.status is UploadQueueStatus.RUNNING:
-            total = max(1, item.total_bytes * 2)
-            detail += f" · {item.current_source or '准备中'} {item.current_filename or ''}".rstrip()
-            detail += f" · {_display_bytes(item.completed_bytes)} / {_display_bytes(total)}"
+            detail += f" · 文件 {item.current_file_index or 0}/{item.current_file_count or item.artifact_count}"
+            detail += f" · 当前文件：{item.current_source or '准备中'} {item.current_filename or ''}".rstrip()
+            if item.current_file_total_bytes > 0:
+                detail += (
+                    f" · {_display_bytes(item.current_file_bytes)}"
+                    f" / {_display_bytes(item.current_file_total_bytes)}"
+                )
             if item.bytes_per_second > 0:
                 detail += f" · {_display_bytes(item.bytes_per_second)}/s"
             if item.error:
@@ -707,9 +712,9 @@ class UploadQueueUiMixin:
             widgets = self._upload_queue_progress_widgets.get(item_id)
             if widgets is not None:
                 detail_label, progress = widgets
-                total = max(1, item.total_bytes * 2)
+                total = max(1, item.current_file_total_bytes)
                 detail_label.configure(text=self._queue_item_detail(item))
-                progress.set(min(1, item.completed_bytes / total))
+                progress.set(min(1, item.current_file_bytes / total))
         except Exception:
             pass
         self.after(350, lambda value=item_id: self._poll_upload_queue_progress(value))
