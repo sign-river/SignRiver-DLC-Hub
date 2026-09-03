@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## 2026-09-04：记录 0.1.5 → 0.2.0 全量更新事故的发布防复发约束
+
+- 本次仅完成原因排查和文档记录，未修改 0.1.5 兼容逻辑、更新器代码或发布资产。
+- 已确认风险：相同 `0.2.0` 曾存在多套 Windows 全量包；本地发布工作区包为 18,791,906 字节、SHA-256 `16683e...`，当前 `dist` 包为 22,357,517 字节、SHA-256 `8aba1c...`，线上 GitLink 清单又指向 19,183,195 字节、SHA-256 `1bb012...` 的另一套包。GitHub、GitLink 和本地清单不一致会导致更新下载/哈希校验失败或更新后行为不一致。
+- 另确认 `0.2.0` 将 Host API 提升到 3，而线上清单曾将最低启动器版本声明为 `0.1.0`/`0.1.2`，但没有对应的 0.1.5 冻结版 E2E 证据；最低版本声明必须以后续实际验证结果为准。
+- 后续发布门禁已写入 `docs/agent/DECISIONS.md`：单一构建产物、清单与附件大小/SHA-256 一致、GitLink/GitHub 回读一致，以及旧启动器更新矩阵验证。
+- 验证：`python -m pytest -q tests/test_full_update.py tests/test_updater.py tests/test_loader.py tests/test_state.py tests/test_versioning.py tests/test_release_build.py tests/test_build_module.py tests/test_restore_module_archives.py` 通过；`python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0 tools` 通过；`git diff --check` 通过。未执行真实远端包完整下载、GUI、上传或推送。
+- 当前活动版本仍为 `0.2.0`；本次没有基线/活动模块同步，也不需要重启客户端。
+
 ## 2026-08-29：移除正文 DLL/路径重点标签
 
 - 删除 `ArticleParagraphCard` 对正文 `.dll` 文件名和 Windows 路径的自动识别及 `PillBadge` 行渲染；保留通用 `PillBadge` 组件供其他状态/演示使用。
