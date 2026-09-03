@@ -70,6 +70,10 @@ class UpdateClient:
     def enabled(self) -> bool:
         return bool(self.settings.active_manifest_url)
 
+    @property
+    def prevent_module_fallback(self) -> bool:
+        return self.state_store.load().prevent_module_fallback
+
     def set_download_source(self, source: str) -> None:
         self.settings = self.settings.with_download_source(source)
 

@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 import customtkinter as ctk
 from tkinter import BooleanVar, Canvas, StringVar, TclError, filedialog, messagebox
-from signriver_common.platforms import detect_host_platform, open_directory
+from signriver_common.platforms import detect_host_platform, open_directory, reveal_in_file_manager
 from signriver_common.problems import (
     ProblemAction,
     ProblemCategory,
@@ -4277,7 +4277,7 @@ class DlcHubApplication:
                     row,
                     text="打开位置",
                     width=86,
-                    command=lambda item=path: self._open_path(item.parent),
+                    command=lambda r=role, item=path: self._reveal_path(self._resolve_patch_target_path(r, item)),
                     **BUTTON_SECONDARY,
                 ).pack(side="right", padx=(4, 10), pady=6)
                 if self._is_file_openable(path):
@@ -7259,6 +7259,41 @@ class DlcHubApplication:
         name = path.name.casefold()
         library_suffixes = (".dll", ".dylib", ".so", ".bundle", ".a", ".lib")
         return not name.endswith(library_suffixes) and ".so." not in name
+
+    def _reveal_path(self, path: Path) -> None:
+        try:
+            self.context.logger.info("操作：定位并显示路径：%s", path)
+            self._append_tool_log(f"定位路径：{path}")
+            reveal_in_file_manager(path)
+            self._append_tool_log(f"已定位路径：{path}")
+        except Exception as error:
+            self.context.logger.warning("定位路径失败，回退到打开目录：%s", error)
+            fallback = path if path.is_dir() else path.parent
+            self._open_path(fallback)
+
+    def _resolve_patch_target_path(self, role: str, cached_path: Path | None = None) -> Path | None:
+        canonical_role = self._canonical_patch_role(role)
+        installation = self.current_installation
+        if installation is not None and installation.root.is_dir() and self.patch_profile is not None:
+            profile = self.patch_profile
+            filename = None
+            if canonical_role == "unlocker_dll":
+                filename = profile.unlocker_dll_name
+            elif canonical_role == "original_dll":
+                filename = profile.runtime_original_library_name
+            elif canonical_role == "appinfo_json":
+                filename = profile.template.ini_target_name
+            if filename:
+                patch_dir = resolve_game_directory(
+                    installation.root,
+                    profile.install_relative_dir,
+                    field_name="patch install directory",
+                )
+                game_target = patch_dir / filename
+                if game_target.exists():
+                    return game_target
+                return patch_dir
+        return cached_path
 
     def _open_path(self, path: Path) -> None:
         try:

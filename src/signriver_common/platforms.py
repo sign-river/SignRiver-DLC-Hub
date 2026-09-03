@@ -59,6 +59,32 @@ def open_directory(path: Path, host: HostPlatform | str | None = None) -> None:
     )
 
 
+def reveal_in_file_manager(
+    path: Path,
+    host: HostPlatform | str | None = None,
+) -> None:
+    target = Path(path).expanduser().resolve(strict=False)
+    selected = detect_host_platform() if host is None else HostPlatform(str(host))
+    if selected is HostPlatform.WINDOWS:
+        if target.is_file():
+            subprocess.Popen(["explorer.exe", f"/select,{target}"])
+            return
+        open_directory(target if target.is_dir() else target.parent, host=selected)
+        return
+    if selected is HostPlatform.MACOS:
+        if target.exists():
+            subprocess.Popen(
+                ["open", "-R", str(target)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        open_directory(target.parent if target.parent.exists() else target, host=selected)
+        return
+    open_directory(target if target.is_dir() else target.parent, host=selected)
+
+
 def is_process_running(
     executable: Path,
     host: HostPlatform | str | None = None,
@@ -113,5 +139,6 @@ __all__ = [
     "is_process_running",
     "normalize_architecture",
     "open_directory",
+    "reveal_in_file_manager",
     "platform_package_key",
 ]
