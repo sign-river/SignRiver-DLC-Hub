@@ -199,6 +199,25 @@ def test_content_retry_only_reuploads_the_source_that_is_still_missing(tmp_path:
     assert github.calls.count("asset:asset.zip") == 2
 
 
+def test_second_source_failure_cannot_leave_first_source_before_index(tmp_path: Path) -> None:
+    service = ReleaseService(tmp_path / "ws")
+    plan = service.create_game_content_batch(
+        game_id="game", release_tag="v1",
+        attachments=[file(tmp_path / "asset.zip", b"asset")],
+        catalog=file(tmp_path / "catalog.json", b"{}"),
+        remote_targets=targets(),
+    )
+    confirmed(service, plan.batch_id)
+    gitlink = SnapshotProvider("gitlink")
+    github = SnapshotProvider("github", fail_upload=True)
+
+    with pytest.raises(TimeoutError, match="github upload timeout"):
+        service.execute_game_content(plan.batch_id, {"gitlink": gitlink, "github": github})
+
+    assert gitlink.calls == ["asset:asset.zip", "index:catalog.json"]
+    assert github.calls == ["asset:asset.zip"]
+
+
 def test_non_dlc_content_is_replaced_even_when_a_cache_entry_matches(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "ws")
     attachment = file(tmp_path / "patch.dll", b"new-patch")
@@ -271,7 +290,9 @@ def test_hub_degraded_resume_only_switches_failed_index_source(tmp_path: Path) -
     resumed = service.execute_hub(plan.batch_id, providers)
 
     assert resumed.status is ReleaseStatus.COMPLETED
-    assert providers["gitlink"].calls == gitlink_calls + ["index:hub-catalog.json"]
+    # The first source's index was already committed before the second source
+    # failed, so resume must not publish it a second time.
+    assert providers["gitlink"].calls == gitlink_calls
     assert providers["github"].calls.count("index:hub-catalog.json") == 2
 
 

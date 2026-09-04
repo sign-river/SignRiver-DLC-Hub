@@ -182,9 +182,19 @@ class UploadSnapshotAttachmentsStage:
         continued: dict[str, list[str]] = {}
         deleted: dict[str, list[str]] = {}
         pending_deletes: dict[str, list[str]] = {}
+        index = next(
+            (item for item in plan.artifacts if item.role == self.index_role), None
+        )
+        if index is None or not index.local_path:
+            raise ReleaseStageError(f"缺少主表产物：{self.index_role}", retryable=False)
         reuse_enabled = isinstance(plan.options.get("content_reuse_cache"), dict)
         next_reuse_cache = deepcopy(plan.options.get("content_reuse_cache", {})) if reuse_enabled else {}
         progress = _stage_progress(plan, self.stage_id)
+        prior_switched = progress.get("switched", [])
+        switched: list[str] = [
+            str(source) for source in prior_switched
+            if str(source) in self.providers
+        ] if isinstance(prior_switched, list) else []
         prior_trusted = progress.get("trusted", {})
         trusted = deepcopy(prior_trusted) if isinstance(prior_trusted, dict) else {}
         for source, provider in self.providers.items():
@@ -300,33 +310,56 @@ class UploadSnapshotAttachmentsStage:
             # directory snapshot.  Keeping the capability opt-in also lets
             # minimal providers upload safely without pretending to support
             # destructive mirror synchronisation.
-            if not delete_confirmed:
+            if delete_confirmed:
+                remote_names = {
+                    str(item.get("name") or "")
+                    for item in baseline.get("assets", [])
+                    if isinstance(item, dict)
+                }
+                extras = sorted(name for name in remote_names - desired_names if name)
+                preview = plan.options.get("remote_mirror_preview")
+                expected_extras: object | None = None
+                if isinstance(preview, dict):
+                    previewed_sources = preview.get("extra_files")
+                    if isinstance(previewed_sources, dict):
+                        expected_extras = previewed_sources.get(source)
+                if expected_extras is not None:
+                    expected = sorted(str(name) for name in expected_extras)
+                    if extras != expected:
+                        raise ReleaseStageError(
+                            f"{source} 远端目录已发生变化，请重新读取差异并确认删除清单。",
+                            retryable=False,
+                        )
+                for remote_name in extras:
+                    if self.checkpoint:
+                        self.checkpoint(plan)
+                    if provider.delete(remote_name).exists:
+                        raise ReleaseStageError(f"{source} 附件删除后仍存在：{remote_name}")
+                    deleted[source].append(remote_name)
+
+            # Complete one provider's snapshot before touching the next one.
+            # This prevents a later source failure from leaving an earlier
+            # source with replaced attachments but its old catalog/index.
+            if source in switched:
                 continue
-            remote_names = {
-                str(item.get("name") or "")
-                for item in baseline.get("assets", [])
-                if isinstance(item, dict)
-            }
-            extras = sorted(name for name in remote_names - desired_names if name)
-            preview = plan.options.get("remote_mirror_preview")
-            expected_extras: object | None = None
-            if isinstance(preview, dict):
-                previewed_sources = preview.get("extra_files")
-                if isinstance(previewed_sources, dict):
-                    expected_extras = previewed_sources.get(source)
-            if expected_extras is not None:
-                expected = sorted(str(name) for name in expected_extras)
-                if extras != expected:
-                    raise ReleaseStageError(
-                        f"{source} 远端目录已发生变化，请重新读取差异并确认删除清单。",
-                        retryable=False,
-                    )
-            for remote_name in extras:
-                if self.checkpoint:
-                    self.checkpoint(plan)
-                if provider.delete(remote_name).exists:
-                    raise ReleaseStageError(f"{source} 附件删除后仍存在：{remote_name}")
-                deleted[source].append(remote_name)
+            if self.checkpoint:
+                self.checkpoint(plan)
+            try:
+                result = provider.publish_index(plan, Path(index.local_path))
+            except Exception as exc:
+                raise ReleaseStageError(
+                    f"{source} 主表切换失败：{exc}",
+                    status=ReleaseStatus.DEGRADED if switched else ReleaseStatus.FAILED,
+                ) from exc
+            if not _trusted_remote_record(result, index):
+                raise ReleaseStageError(
+                    f"{source} 主表上传后未取得可信的附件 ID 或大小",
+                    status=ReleaseStatus.DEGRADED if switched else ReleaseStatus.FAILED,
+                )
+            switched.append(source)
+            progress["switched"] = list(switched)
+            if self.checkpoint:
+                self.checkpoint(plan)
         if any(pending_deletes.values()):
             details = "；".join(
                 f"{source}: {', '.join(names)}"
@@ -346,8 +379,14 @@ class UploadSnapshotAttachmentsStage:
                 "content_reuse_cache": next_reuse_cache,
                 "trusted": trusted,
                 "activity": progress.get("activity", []),
+                "switched": switched,
             },
-            {"all_snapshot_attachments_ready": all(len(value) == len(attachments) for value in ready.values())},
+            {
+                "all_snapshot_attachments_ready": all(
+                    len(value) == len(attachments) for value in ready.values()
+                ),
+                "all_indexes_verified": len(switched) == len(self.providers),
+            },
         )
 
 
@@ -365,6 +404,11 @@ class PublishSnapshotIndexStage:
 
     def execute(self, plan: ReleasePlan) -> StageExecutionResult:
         gate = next((item for item in plan.stages if item.stage_id == self.upload_stage_id), None)
+        if gate and gate.verification.get("all_indexes_verified"):
+            return StageExecutionResult(
+                {"switched": list(gate.output_summary.get("switched", []))},
+                {"all_indexes_verified": True},
+            )
         if not gate or not gate.verification.get("all_snapshot_attachments_ready"):
             raise ReleaseStageError("完整快照门禁未满足，禁止切换主表", retryable=False)
         index = next((item for item in plan.artifacts if item.role == self.index_role), None)
