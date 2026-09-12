@@ -5,9 +5,9 @@
 ## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：`377c9a4ae35ae410ed01cbd911bbd2079946e255`（本任务提交后以 Git 实际提交为准）
+- HEAD：`c3c15a93b7b86c981ede768b3bdfe02c2e8675c9`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：开始时无未提交改动；本任务的 DLC 新鲜度提示改动已验证，待本地提交。
+- 工作区：开始时无未提交改动；本任务的 P 社启动器目录识别修复已验证，待本地提交。
 
 ## 前次任务
 
@@ -19,11 +19,11 @@
 
 ## 本次任务
 
-- 修改范围：`src/signriver_publisher/{cream,steam,freshness,workspace}.py`、`app/versions/0.1.0/signriver_app/domain/cartridges.py`、`tests/test_dlc_freshness.py`、`tests/test_publisher_workspace.py`、`docs/publisher-guide.md`；定向同步运行时忽略目录 `app/versions/0.2.0/signriver_app/domain/cartridges.py`。
-- 发布器会保存 Steam DLC 接口提供的最新正式上线时间并导出到卡带 freshness；客户端保留原“资源提交于…”提示，只有该日期严格更晚时才追加“资源可能未跟上新版本，请提醒 UP 更新资源”。旧卡带和 Steam 未提供日期时保持原提示。
-- 活动客户端版本为 `0.2.0`；已定向同步同一解析与提示逻辑，用户重启客户端后可读取带新字段的云端卡带；未构建或发布新模块。
-- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_dlc_freshness.py tests/test_publisher_workspace.py -k "freshness or steam_store_client"`（6 项通过）；`\.venv\Scripts\python.exe -m ruff check src/signriver_publisher/cream.py src/signriver_publisher/steam.py src/signriver_publisher/freshness.py src/signriver_publisher/workspace.py app/versions/0.1.0/signriver_app/domain/cartridges.py tests/test_dlc_freshness.py tests/test_publisher_workspace.py` 通过；`\.venv\Scripts\python.exe -m compileall -q src/signriver_publisher app/versions/0.1.0/signriver_app/domain app/versions/0.2.0/signriver_app/domain` 通过；`git diff --check` 通过。
-- 未执行：客户端/发布器 GUI 人工验收、完整测试、构建、云端卡带发布和推送。此前运行的 `tests/test_dlc_freshness.py tests/test_publisher_workspace.py` 全量组合有一项与本次无关的既有失败：构建完成清单中的 JSON list 与 `profile.to_dict()` 的 tuple 比较不同。
+- 修改范围：`app/versions/0.1.0/app_entry.py`、新增 `app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py`、`tests/test_paradox_launcher_discovery.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py` 和同名基础设施模块。
+- 修复 P 社启动器警告清除工具：不再按目录名字符串排序，而是按全部数字版本段比较；并且仅接受同时包含 `Paradox Launcher.exe`、`resources/app.asar` 与目标 `steam_api64.dll` 的完整安装目录。`.cpatch` 单独存在的残缺版本目录会被忽略。
+- 活动客户端版本为 `0.2.0`；已定向同步同一逻辑，用户重启客户端后会优先处理完整的 `launcher-v2.2026.11.1`，而不是错误选中 `launcher-v2.2026.8.1`；未构建或发布新模块。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_paradox_launcher_discovery.py tests/test_ui_theme.py -k "paradox_launcher"`（3 项通过）；`\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py tests/test_paradox_launcher_discovery.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py app/versions/0.2.0/app_entry.py app/versions/0.2.0/signriver_app/infrastructure/paradox_launcher.py` 通过；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 最近结论
 

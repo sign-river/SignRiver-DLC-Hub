@@ -96,6 +96,7 @@ from .signriver_app.infrastructure.gpu_driver import (
 from .signriver_app.infrastructure.graphics_compatibility import (
     GraphicsCompatibilityService,
 )
+from .signriver_app.infrastructure.paradox_launcher import find_latest_complete_version
 from .signriver_app.infrastructure.persistence import (
     Database,
     DownloadTaskRepository,
@@ -3668,16 +3669,7 @@ class DlcHubApplication:
         root = self._paradox_launcher_root()
         if root is None:
             return None
-        version_dirs = sorted(
-            (path for path in root.glob("launcher-*") if path.is_dir()),
-            key=lambda path: path.name,
-            reverse=True,
-        )
-        relative = Path("resources") / "app.asar.unpacked" / "node_modules" / "greenworks" / "lib" / "steam_api64.dll"
-        for path in version_dirs:
-            if (path / relative).is_file():
-                return path
-        return None
+        return find_latest_complete_version(root)
 
     def _paradox_patch_source(self) -> Path | None:
         """Use the already downloaded, verified unlocker asset as patch source."""
