@@ -114,6 +114,53 @@ class CartridgeManagementUiMixin:
         self._build_cartridge_detail_page()
         self._build_extension_detail_page()
 
+    def _build_dlc_freshness_page(self) -> None:
+        """Build the dedicated, persistent all-game DLC freshness view."""
+        self.dlc_freshness_tab.grid_columnconfigure(0, weight=1)
+        self.dlc_freshness_tab.grid_rowconfigure(3, weight=1)
+        ctk.CTkLabel(
+            self.dlc_freshness_tab, text="全部 DLC 时效检查",
+            font=("Microsoft YaHei UI", 22, "bold"), text_color=BLUE,
+        ).grid(row=0, column=0, padx=24, pady=(22, 4), sticky="w")
+        ctk.CTkLabel(
+            self.dlc_freshness_tab,
+            text="逐个查询 Steam 最新 DLC 上线时间，并与当前资源提交时间比较；检查不会修改资源或发布内容。",
+            text_color=MUTED, anchor="w", justify="left",
+        ).grid(row=1, column=0, padx=24, pady=(0, 12), sticky="ew")
+
+        controls = ctk.CTkFrame(
+            self.dlc_freshness_tab, fg_color="#F7FAFE", border_width=1,
+            border_color="#D8E6F4", corner_radius=10,
+        )
+        controls.grid(row=2, column=0, padx=24, pady=(0, 12), sticky="ew")
+        controls.grid_columnconfigure(1, weight=1)
+        self.dlc_freshness_check_button = ctk.CTkButton(
+            controls, text="检查全部 DLC 时效", width=180, height=38,
+            fg_color=BLUE, command=self.check_all_dlc_freshness,
+        )
+        self.dlc_freshness_check_button.grid(row=0, column=0, padx=14, pady=12)
+        self.dlc_freshness_check_status = ctk.CTkLabel(
+            controls, text="尚未检查", text_color=MUTED, anchor="w",
+        )
+        self.dlc_freshness_check_status.grid(
+            row=0, column=1, padx=(4, 14), pady=12, sticky="ew"
+        )
+
+        results_card = ctk.CTkFrame(self.dlc_freshness_tab, fg_color="transparent")
+        results_card.grid(row=3, column=0, padx=24, pady=(0, 20), sticky="nsew")
+        results_card.grid_columnconfigure(0, weight=1)
+        results_card.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
+            results_card, text="游戏检查结果",
+            font=("Microsoft YaHei UI", 18, "bold"), text_color=BLUE,
+        ).grid(row=0, column=0, padx=4, pady=(0, 8), sticky="w")
+        self.dlc_freshness_result_list = ctk.CTkScrollableFrame(
+            results_card, fg_color="#FFFFFF", border_width=1,
+            border_color="#E0E0E0", corner_radius=10,
+        )
+        self.dlc_freshness_result_list.grid(row=1, column=0, sticky="nsew")
+        self._render_dlc_freshness_results(())
+
     def _build_cartridge_detail_page(self) -> None:
         ctk.CTkButton(
             self.cartridge_detail_page, text="← 返回发布资源管理", width=150,
@@ -154,24 +201,8 @@ class CartridgeManagementUiMixin:
             command=self.publish_cartridge_hub_mirror,
         )
         self.hub_publish_button.grid(row=2, column=1, padx=(6, 14), pady=4, sticky="ew")
-        self.hub_freshness_check_button = ctk.CTkButton(
-            actions, text="检查全部 DLC 时效", height=36, fg_color=LIGHT_BLUE,
-            command=self.check_all_dlc_freshness,
-        )
-        self.hub_freshness_check_button.grid(
-            row=3, column=0, columnspan=2, padx=14, pady=(4, 2), sticky="ew"
-        )
-        self.hub_freshness_check_status = ctk.CTkLabel(
-            actions,
-            text="按需查询 Steam 最新 DLC 上线时间，不会修改资源或发布内容。",
-            text_color=MUTED, anchor="w", justify="left",
-        )
-        self.hub_freshness_check_status.grid(
-            row=4, column=0, columnspan=2, padx=14, pady=(4, 8), sticky="ew"
-        )
-
         transfer = ctk.CTkFrame(actions, fg_color="transparent")
-        transfer.grid(row=5, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="ew")
+        transfer.grid(row=3, column=0, columnspan=2, padx=14, pady=(8, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.hub_upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=190, anchor="w", text_color=MUTED,
@@ -384,10 +415,11 @@ class CartridgeManagementUiMixin:
         if getattr(self, "_dlc_freshness_check_running", False):
             return
         self._dlc_freshness_check_running = True
-        self.hub_freshness_check_button.configure(state="disabled", text="正在检查…")
-        self.hub_freshness_check_status.configure(
+        self.dlc_freshness_check_button.configure(state="disabled", text="正在检查…")
+        self.dlc_freshness_check_status.configure(
             text="正在逐个查询 Steam DLC 上线时间…", text_color=MUTED
         )
+        self._render_dlc_freshness_results(())
 
         def worker() -> None:
             try:
@@ -404,7 +436,7 @@ class CartridgeManagementUiMixin:
         self, results: tuple[DlcFreshnessCheck, ...]
     ) -> None:
         self._dlc_freshness_check_running = False
-        self.hub_freshness_check_button.configure(
+        self.dlc_freshness_check_button.configure(
             state="normal", text="检查全部 DLC 时效"
         )
         outdated = [item for item in results if item.status == "资源过时"]
@@ -418,29 +450,68 @@ class CartridgeManagementUiMixin:
         else:
             summary = f"已完成检查：{len(results)} 个游戏的资源均未过时。"
             color = "#2E7D32"
-        self.hub_freshness_check_status.configure(text=summary, text_color=color)
-        lines = [
-            f"{item.display_name}：{item.status}"
-            + (
-                f"\n  资源提交：{item.resources_updated_at or '未知'}"
-                f"\n  Steam 最新 DLC：{item.latest_dlc_release_at or '未知'}"
-                if not item.error else f"\n  原因：{item.error}"
-            )
-            for item in results
-        ]
+        self.dlc_freshness_check_status.configure(text=summary, text_color=color)
+        self._render_dlc_freshness_results(results)
         self._log(f"全部 DLC 时效检查完成：{summary}")
-        messagebox.showinfo("全部 DLC 时效检查", summary + "\n\n" + "\n\n".join(lines))
 
     def _dlc_freshness_check_failed(self, message: str) -> None:
         self._dlc_freshness_check_running = False
-        self.hub_freshness_check_button.configure(
+        self.dlc_freshness_check_button.configure(
             state="normal", text="检查全部 DLC 时效"
         )
-        self.hub_freshness_check_status.configure(
+        self.dlc_freshness_check_status.configure(
             text="检查失败", text_color="#B26A00"
         )
         self._log(f"全部 DLC 时效检查失败：{message}")
-        messagebox.showerror("全部 DLC 时效检查失败", message)
+        self._render_dlc_freshness_results(())
+
+    def _render_dlc_freshness_results(
+        self, results: tuple[DlcFreshnessCheck, ...]
+    ) -> None:
+        """Render a fixed-column, scrollable result list in the dedicated page."""
+        container = self.dlc_freshness_result_list
+        for child in container.winfo_children():
+            child.destroy()
+        if not results:
+            ctk.CTkLabel(
+                container, text="点击“检查全部 DLC 时效”后显示各游戏结果。",
+                text_color=MUTED,
+            ).pack(pady=28)
+            return
+
+        header = ctk.CTkFrame(container, fg_color="#F1F6FC", corner_radius=7)
+        header.pack(fill="x", padx=6, pady=(6, 3))
+        header.grid_columnconfigure(0, weight=3)
+        header.grid_columnconfigure((1, 2), weight=2)
+        for column, text in enumerate(("游戏", "资源提交时间", "Steam 最新 DLC", "状态")):
+            ctk.CTkLabel(
+                header, text=text, text_color=BLUE,
+                font=("Microsoft YaHei UI", 13, "bold"), anchor="w",
+            ).grid(row=0, column=column, padx=12, pady=9, sticky="ew")
+
+        status_colors = {"未过时": "#2E7D32", "资源过时": "#B26A00"}
+        for item in results:
+            row = ctk.CTkFrame(
+                container, fg_color=CARD, border_width=1,
+                border_color="#E0E0E0", corner_radius=7,
+            )
+            row.pack(fill="x", padx=6, pady=3)
+            row.grid_columnconfigure(0, weight=3)
+            row.grid_columnconfigure((1, 2), weight=2)
+            values = (
+                item.display_name,
+                item.resources_updated_at or "未知",
+                item.latest_dlc_release_at or item.error or "未知",
+                item.status,
+            )
+            for column, value in enumerate(values):
+                ctk.CTkLabel(
+                    row, text=value, text_color=(
+                        status_colors.get(item.status, MUTED)
+                        if column == 3 else TEXT
+                    ), anchor="w", justify="left", wraplength=280,
+                ).grid(row=0, column=column, padx=12, pady=10, sticky="ew")
+        self._schedule_scrollable_reset(container)
 
     def generate_client_hub(self) -> None:
         if not self._begin_background_mutation(

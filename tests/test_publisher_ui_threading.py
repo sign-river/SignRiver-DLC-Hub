@@ -180,6 +180,8 @@ def test_cartridge_management_offers_read_only_all_game_dlc_freshness_check() ->
     assert "def check_all_dlc_freshness" in source
     assert "self.workspace.check_all_dlc_freshness()" in source
     assert "threading.Thread(target=worker, daemon=True).start()" in source
+    assert "def _render_dlc_freshness_results" in source
+    assert "messagebox.showinfo(\"全部 DLC 时效检查\"" not in source
 
 
 def test_publisher_uses_task_oriented_workspace_tabs() -> None:
@@ -191,8 +193,9 @@ def test_publisher_uses_task_oriented_workspace_tabs() -> None:
     release = source.index('self.tabs.add("发布包与归档")')
     resources = source.index('self.tabs.add("资源管理")')
     support = source.index('self.tabs.add("游戏支持数据")')
+    freshness = source.index('self.tabs.add("DLC 时效检查")')
     accounts = source.index('self.tabs.add("账户与测试")')
-    assert release < resources < support < accounts
+    assert release < resources < support < freshness < accounts
     assert 'self.tabs.add("发布工作台")' not in source
     assert 'self.sources_tab = self.content_tabs.add("本地资源")' in content_source
     assert 'self.upload_queue_tab = self.content_tabs.add("上传队列")' in content_source

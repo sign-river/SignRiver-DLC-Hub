@@ -331,11 +331,13 @@ class PublisherApplication(
         self.release_center_tab = self.tabs.add("发布包与归档")
         self.content_tab = self.tabs.add("资源管理")
         self.game_support_tab = self.tabs.add("游戏支持数据")
+        self.dlc_freshness_tab = self.tabs.add("DLC 时效检查")
         self.account_tab = self.tabs.add("账户与测试")
 
         self._build_release_center_tab()
         self._build_content_workspace()
         self._build_game_support_workspace()
+        self._build_dlc_freshness_page()
         self._build_account_test_workspace()
 
     def _destroy_widget_descendants(self, widget) -> None:

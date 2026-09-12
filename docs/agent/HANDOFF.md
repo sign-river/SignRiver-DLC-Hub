@@ -7,7 +7,14 @@
 - 分支：`main`
 - HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；全部 DLC 时效检查功能已验证，待本地提交。
+- 工作区：本次开始时干净；DLC 时效检查独立页面与结果列表已验证，待本地提交。
+
+## 最新任务（界面调整）
+
+- 修改范围：`src/signriver_publisher/ui.py`、`src/signriver_publisher/cartridge_management_ui.py`、`tests/test_publisher_ui_threading.py`、`docs/publisher-guide.md`。
+- “DLC 时效检查”已移到发布器左侧独立工作区；结果不再使用弹窗，而是在页面内的可滚动四列表持久展示游戏、资源提交时间、Steam 最新 DLC 上线时间和状态。卡带与公告页已移除该检查按钮与临时状态区域。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_dlc_freshness.py tests/test_publisher_ui_threading.py -k "freshness or cartridge_management or task_oriented_workspace"`（8 项通过）；`\.venv\Scripts\python.exe -m ruff check src/signriver_publisher/ui.py src/signriver_publisher/cartridge_management_ui.py tests/test_publisher_ui_threading.py` 通过；`\.venv\Scripts\python.exe -m compileall -q src/signriver_publisher tests/test_publisher_ui_threading.py` 通过；`git diff --check` 通过。
+- 未执行：发布器 GUI 人工验收、完整测试、构建发布器 EXE、资源发布和推送。
 
 ## 最新任务
 
