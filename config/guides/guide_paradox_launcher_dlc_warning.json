@@ -7,8 +7,8 @@
     {"kind": "image", "asset_name": "paradox-launcher-versions.png"},
     {"kind": "heading", "text": "建议操作"},
     {"kind": "text", "text": "不建议在这条警告上浪费时间。虽然可以尝试去除，但操作耗时，并可能为后续启动器更新埋下隐患，直接忽略即可。"},
-    {"kind": "text", "text": "如果一定要处理，可以使用 P 社启动器警告清除工具。工具会检查启动器是否正在运行，并只处理可确认的启动器版本目录。"},
-    {"kind": "button", "text": "进入 P 社启动器警告清除工具 →", "target": "tool:paradox-launcher-warning"}
+    {"kind": "text", "text": "如果一定要处理，可以使用 P 社启动器修复工具。工具会检查启动器是否正在运行，并只处理可确认的启动器版本目录。"},
+    {"kind": "button", "text": "进入 P 社启动器修复工具 →", "target": "tool:paradox-launcher-warning"}
   ],
   "tools": []
 }

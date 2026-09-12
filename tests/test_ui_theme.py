@@ -98,13 +98,13 @@ def test_latest_installer_tool_uses_selected_source_manifest_without_updater() -
 
 def test_paradox_launcher_tools_are_builtin_and_guard_running_process() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
-    assert '"P 社启动器警告清除"' in source
+    assert '"P 社启动器修复"' in source
     assert '"P 社启动器安装工具"' in source
     assert "def _paradox_launcher_root" in source
     assert "def _paradox_launcher_version_dir" in source
     assert "def _paradox_launcher_is_running" in source
     assert "请先完全退出 P 社启动器" in source
-    assert "去除启动器警告" in source
+    assert "启动器修复" in source
     assert "打开安装程序" in source
     assert "paradox_installer_open_button" in source
     assert 'paradox_installer_open_button.configure(state="normal")' in source

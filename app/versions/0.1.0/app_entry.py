@@ -3389,8 +3389,8 @@ class DlcHubApplication:
                 self._show_latest_installer_detail,
             ))
             cards.append((
-                "P 社启动器警告清除",
-                "处理 P 社启动器 DLC 列表警告并检查启动器状态。",
+                "P 社启动器修复",
+                "修复 P 社启动器 DLC 警告与 Steam 运行时通讯错误。",
                 self._show_paradox_launcher_warning_tool,
             ))
             cards.append((
@@ -3692,7 +3692,7 @@ class DlcHubApplication:
         else:
             self._tool_detail_solution_return = None
         self._show_tool_center_detail(
-            "P 社启动器警告清除",
+            "P 社启动器修复",
             requires_cloud_download=False,
             back_text=back_text,
             back_command=back_command,
@@ -3710,7 +3710,7 @@ class DlcHubApplication:
         actions = ctk.CTkFrame(body, fg_color="transparent")
         actions.pack(fill="x", padx=16, pady=(0, 14))
         ctk.CTkButton(
-            actions, text="去除启动器警告", width=150,
+            actions, text="启动器修复", width=150,
             command=self._repair_paradox_launcher, **BUTTON_PRIMARY,
         ).pack(side="left")
         ctk.CTkButton(

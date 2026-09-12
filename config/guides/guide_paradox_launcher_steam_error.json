@@ -5,8 +5,8 @@
     {"kind": "text", "text": "之前用补丁消除了 P 社启动器警告后，启动器版本可能自动更新并生成新的版本文件夹，而补丁仍留在旧文件夹中，因此启动时出现“Steam 运行时通讯错误”。"},
     {"kind": "image", "asset_name": "paradox-launcher-steam-error.png"},
     {"kind": "heading", "text": "建议操作"},
-    {"kind": "text", "text": "先进入 P 社启动器警告清除工具，点击“启动器修复”重新处理当前有效版本。"},
-    {"kind": "button", "text": "进入 P 社启动器警告清除工具 →", "target": "tool:paradox-launcher-warning"},
+    {"kind": "text", "text": "先进入 P 社启动器修复工具，点击“启动器修复”重新处理当前有效版本。"},
+    {"kind": "button", "text": "进入 P 社启动器修复工具 →", "target": "tool:paradox-launcher-warning"},
     {"kind": "text", "text": "如果修复后仍无法启动，再重新下载安装 P 社启动器。"},
     {"kind": "button", "text": "进入 P 社启动器安装工具 →", "target": "tool:paradox-launcher-installer"}
   ],
