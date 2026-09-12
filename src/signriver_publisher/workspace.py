@@ -15,7 +15,7 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from .announcements import AnnouncementDraft, AnnouncementValidationError
-from .cream import SteamAppInfo
+from .cream import AppInfoError, SteamAppInfo, load_steam_appinfo
 from .cartridges import create_builtin_cartridges
 from .dlc_naming import (
     AUTO_PREFIX,
@@ -1108,9 +1108,21 @@ class PublisherWorkspace:
             local_folders=dlcs,
             published_paths=published_paths,
             published_package_count=len(published_paths),
+            latest_dlc_release_at=self._latest_dlc_release_at(profile),
         )
         save_freshness_report(self.freshness_path(profile), report)
         return report
+
+    def _latest_dlc_release_at(self, profile: GameProfile) -> str:
+        """Read the newest official DLC date captured in the current AppInfo."""
+        appinfo_path = self.output_dir / profile.game_id / profile.appinfo_name
+        try:
+            appinfo = load_steam_appinfo(
+                appinfo_path, expected_app_id=profile.steam_app_id
+            )
+        except (AppInfoError, OSError):
+            return ""
+        return max((item.released_at for item in appinfo.dlcs if item.released_at), default="")
 
     def _published_dlc_paths(self, profile: GameProfile) -> tuple[Path, ...]:
         target = self.output_dir / profile.game_id
@@ -2095,7 +2107,14 @@ class PublisherWorkspace:
             "app_id": appinfo.app_id,
             "name": appinfo.name,
             "update_time": appinfo.update_time,
-            "dlcs": [{"id": item.app_id, "name": item.name} for item in appinfo.dlcs],
+            "dlcs": [
+                {
+                    "id": item.app_id,
+                    "name": item.name,
+                    **({"released_at": item.released_at} if item.released_at else {}),
+                }
+                for item in appinfo.dlcs
+            ],
         }
 
     @staticmethod

@@ -58,3 +58,20 @@ def test_client_freshness_summary_text() -> None:
     assert "资源提交于 2026-07-21 12:00:00" in stamp.client_summary()
     assert "收录 12 个包" in stamp.client_summary()
     assert "未知" in empty.client_summary()
+
+
+def test_client_freshness_warns_only_when_steam_dlc_is_newer() -> None:
+    stale = CartridgeFreshness(
+        resources_updated_at="2026-07-21 12:00:00",
+        package_count=12,
+        latest_dlc_release_at="2026-07-22 00:00:00",
+    )
+    current = CartridgeFreshness(
+        resources_updated_at="2026-07-21 12:00:00",
+        package_count=12,
+        latest_dlc_release_at="2026-07-20 00:00:00",
+    )
+
+    assert "资源提交于 2026-07-21 12:00:00" in stale.client_summary()
+    assert "请提醒 UP 更新资源" in stale.client_summary()
+    assert "请提醒 UP 更新资源" not in current.client_summary()

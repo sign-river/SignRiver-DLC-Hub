@@ -8,6 +8,7 @@ user selects that game (or when it is the configured default).
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
@@ -253,6 +254,7 @@ class CartridgeFreshness:
 
     resources_updated_at: str
     package_count: int = 0
+    latest_dlc_release_at: str = ""
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "CartridgeFreshness":
@@ -265,19 +267,35 @@ class CartridgeFreshness:
                 0,
                 int(value.get("package_count") or value.get("local_package_count") or 0),
             ),
+            latest_dlc_release_at=str(value.get("latest_dlc_release_at") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, object]:
         return {
             "resources_updated_at": self.resources_updated_at,
             "package_count": self.package_count,
+            "latest_dlc_release_at": self.latest_dlc_release_at,
         }
 
     def client_summary(self) -> str:
         if not self.resources_updated_at:
             return "资源提交时间：未知"
         extra = f" · 收录 {self.package_count} 个包" if self.package_count else ""
-        return f"资源提交于 {self.resources_updated_at}{extra}"
+        summary = f"资源提交于 {self.resources_updated_at}{extra}"
+        if self._newer_dlc_release_exists():
+            summary += (
+                f" · Steam 新 DLC 更新于 {self.latest_dlc_release_at}，"
+                "晚于资源提交时间；资源可能未跟上新版本，请提醒 UP 更新资源"
+            )
+        return summary
+
+    def _newer_dlc_release_exists(self) -> bool:
+        try:
+            submitted_at = datetime.fromisoformat(self.resources_updated_at)
+            released_at = datetime.fromisoformat(self.latest_dlc_release_at)
+        except ValueError:
+            return False
+        return released_at > submitted_at
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,6 +13,7 @@ class AppInfoError(RuntimeError):
 class SteamDlc:
     app_id: str
     name: str
+    released_at: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +48,11 @@ def load_steam_appinfo(path: Path, *, expected_app_id: str = "") -> SteamAppInfo
         if dlc_id in seen:
             raise AppInfoError(f"Steam AppInfo 包含重复 DLC ID：{dlc_id}")
         seen.add(dlc_id)
-        dlcs.append(SteamDlc(dlc_id, _text(item.get("name"), f"dlcs[{index}].name")))
+        dlcs.append(SteamDlc(
+            dlc_id,
+            _text(item.get("name"), f"dlcs[{index}].name"),
+            str(item.get("released_at") or "").strip(),
+        ))
     return SteamAppInfo(app_id, name, update_time, tuple(dlcs))
 
 

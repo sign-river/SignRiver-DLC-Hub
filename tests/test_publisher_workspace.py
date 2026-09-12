@@ -1106,7 +1106,7 @@ def test_steam_store_client_combines_names_and_sorts_ids() -> None:
         if "/api/appdetails" in url:
             return json.dumps({"281990": {"success": True, "data": {"name": "Stellaris", "dlc": [20, 10]}}}).encode()
         if "/api/dlcforapp/" in url:
-            return json.dumps({"status": 1, "appid": 281990, "name": "Stellaris", "dlc": [{"id": 10, "name": "First"}, {"id": 20, "name": "Second"}]}).encode()
+            return json.dumps({"status": 1, "appid": 281990, "name": "Stellaris", "dlc": [{"id": 10, "name": "First", "release_date": {"steam": "1780000000"}}, {"id": 20, "name": "Second"}]}).encode()
         raise AssertionError(url)
 
     result = SteamStoreClient(fetch=fetch).fetch_appinfo("281990")
@@ -1114,6 +1114,8 @@ def test_steam_store_client_combines_names_and_sorts_ids() -> None:
     assert result.app_id == "281990"
     assert result.name == "Stellaris"
     assert [(item.app_id, item.name) for item in result.dlcs] == [("10", "First"), ("20", "Second")]
+    assert result.dlcs[0].released_at
+    assert result.dlcs[1].released_at == ""
 
 
 def test_steam_store_client_retries_transient_request_failure() -> None:

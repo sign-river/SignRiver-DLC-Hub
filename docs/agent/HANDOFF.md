@@ -7,7 +7,7 @@
 - 分支：`main`
 - HEAD：`377c9a4ae35ae410ed01cbd911bbd2079946e255`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：开始时无未提交改动；本任务的指南正文样式改动已验证，待本地提交。
+- 工作区：开始时无未提交改动；本任务的 DLC 新鲜度提示改动已验证，待本地提交。
 
 ## 前次任务
 
@@ -19,11 +19,11 @@
 
 ## 本次任务
 
-- 修改范围：`app/versions/0.1.0/article_components.py`；定向同步运行时忽略目录 `app/versions/0.2.0/article_components.py`。
-- 报错指南的普通正文和摘要已移除左侧装饰竖线；黄色提示块仍保留强调线。
-- 活动客户端版本为 `0.2.0`；已定向同步同一组件至活动模块，用户重启客户端后生效，未构建或发布新版本。
-- 已执行：`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 app/versions/0.2.0`；`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py`；`git diff --check`。
-- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
+- 修改范围：`src/signriver_publisher/{cream,steam,freshness,workspace}.py`、`app/versions/0.1.0/signriver_app/domain/cartridges.py`、`tests/test_dlc_freshness.py`、`tests/test_publisher_workspace.py`、`docs/publisher-guide.md`；定向同步运行时忽略目录 `app/versions/0.2.0/signriver_app/domain/cartridges.py`。
+- 发布器会保存 Steam DLC 接口提供的最新正式上线时间并导出到卡带 freshness；客户端保留原“资源提交于…”提示，只有该日期严格更晚时才追加“资源可能未跟上新版本，请提醒 UP 更新资源”。旧卡带和 Steam 未提供日期时保持原提示。
+- 活动客户端版本为 `0.2.0`；已定向同步同一解析与提示逻辑，用户重启客户端后可读取带新字段的云端卡带；未构建或发布新模块。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_dlc_freshness.py tests/test_publisher_workspace.py -k "freshness or steam_store_client"`（6 项通过）；`\.venv\Scripts\python.exe -m ruff check src/signriver_publisher/cream.py src/signriver_publisher/steam.py src/signriver_publisher/freshness.py src/signriver_publisher/workspace.py app/versions/0.1.0/signriver_app/domain/cartridges.py tests/test_dlc_freshness.py tests/test_publisher_workspace.py` 通过；`\.venv\Scripts\python.exe -m compileall -q src/signriver_publisher app/versions/0.1.0/signriver_app/domain app/versions/0.2.0/signriver_app/domain` 通过；`git diff --check` 通过。
+- 未执行：客户端/发布器 GUI 人工验收、完整测试、构建、云端卡带发布和推送。此前运行的 `tests/test_dlc_freshness.py tests/test_publisher_workspace.py` 全量组合有一项与本次无关的既有失败：构建完成清单中的 JSON list 与 `profile.to_dict()` 的 tuple 比较不同。
 
 ## 最近结论
 

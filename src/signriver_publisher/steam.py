@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -61,6 +61,7 @@ class SteamStoreClient:
         if not isinstance(raw_dlcs, list):
             raise SteamApiError("Steam DLC 接口缺少 dlc 数组")
         names: dict[str, str] = {}
+        items_by_id: dict[str, dict[str, object]] = {}
         for index, item in enumerate(raw_dlcs, start=1):
             if not isinstance(item, dict):
                 raise SteamApiError(f"Steam 返回的第 {index} 个 DLC 格式不正确")
@@ -69,17 +70,20 @@ class SteamStoreClient:
             if not dlc_id.isdigit() or not dlc_name or "\n" in dlc_name or "\r" in dlc_name:
                 raise SteamApiError(f"Steam 返回的第 {index} 个 DLC 缺少有效 ID 或名称")
             names[dlc_id] = dlc_name
+            items_by_id[dlc_id] = item
         missing = [value for value in ordered_ids if value not in names]
         if missing:
             raise SteamApiError(f"Steam DLC 名称接口缺少 {len(missing)} 个条目：{', '.join(missing[:5])}")
-        dlcs = tuple(SteamDlc(value, names[value]) for value in ordered_ids)
+        dlcs = tuple(
+            SteamDlc(value, names[value], _release_time(items_by_id[value]))
+            for value in ordered_ids
+        )
         return SteamAppInfo(
             app_id=app_id,
             name=name,
             update_time=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
             dlcs=dlcs,
         )
-
     def _request(self, base_url: str, query: dict[str, str]) -> dict[str, object]:
         url = f"{base_url}?{urlencode(query)}"
         last_error: Exception | None = None
@@ -115,3 +119,21 @@ class SteamStoreClient:
         if len(data) > limit:
             raise SteamApiError("Steam API 响应过大")
         return data
+
+
+def _release_time(value: object) -> str:
+    """Return the official Steam DLC release instant when the API supplies it."""
+    if not isinstance(value, dict):
+        return ""
+    release_date = value.get("release_date")
+    if not isinstance(release_date, dict):
+        return ""
+    raw_timestamp = str(release_date.get("steam") or "").strip()
+    if not raw_timestamp.isdigit():
+        return ""
+    try:
+        return datetime.fromtimestamp(int(raw_timestamp), timezone.utc).astimezone().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    except (OverflowError, OSError, ValueError):
+        return ""

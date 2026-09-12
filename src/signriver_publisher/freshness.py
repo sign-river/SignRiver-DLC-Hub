@@ -17,6 +17,7 @@ class DlcFreshnessReport:
     package_count: int
     published_package_count: int
     summary: str
+    latest_dlc_release_at: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -25,6 +26,7 @@ class DlcFreshnessReport:
             "package_count": self.package_count,
             "published_package_count": self.published_package_count,
             "summary": self.summary,
+            "latest_dlc_release_at": self.latest_dlc_release_at,
         }
 
     def to_client_dict(self) -> dict[str, object]:
@@ -32,6 +34,7 @@ class DlcFreshnessReport:
         return {
             "resources_updated_at": self.resources_updated_at,
             "package_count": self.package_count,
+            "latest_dlc_release_at": self.latest_dlc_release_at,
         }
 
     @classmethod
@@ -49,6 +52,7 @@ class DlcFreshnessReport:
         )
         published = int(value.get("published_package_count") or 0)
         summary = str(value.get("summary") or "").strip()
+        latest_dlc_release_at = str(value.get("latest_dlc_release_at") or "").strip()
         if not summary and stamp:
             summary = f"资源提交于 {stamp} · 本地 {package_count} 个包"
         elif not summary:
@@ -59,6 +63,7 @@ class DlcFreshnessReport:
             package_count=package_count,
             published_package_count=published,
             summary=summary,
+            latest_dlc_release_at=latest_dlc_release_at,
         )
 
 
@@ -67,6 +72,7 @@ def build_resource_freshness(
     local_folders: tuple[Path, ...],
     published_paths: tuple[Path, ...] = (),
     published_package_count: int = 0,
+    latest_dlc_release_at: str = "",
 ) -> DlcFreshnessReport:
     """Derive a stamp from the newest local package / publish output mtime."""
     newest: float | None = None
@@ -90,6 +96,7 @@ def build_resource_freshness(
                 if package_count == 0
                 else "无法读取本地资源修改时间。"
             ),
+            latest_dlc_release_at=latest_dlc_release_at,
         )
     stamp = _format_local(datetime.fromtimestamp(newest).astimezone())
     summary = f"资源提交于 {stamp} · 本地 {package_count} 个包"
@@ -101,6 +108,7 @@ def build_resource_freshness(
         package_count=package_count,
         published_package_count=published_package_count,
         summary=summary,
+        latest_dlc_release_at=latest_dlc_release_at,
     )
 
 
