@@ -7,7 +7,7 @@
 - 分支：`main`
 - HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；正在准备提交 P 社启动器修复工具的统一文案。
+- 工作区：本次开始时干净；正在准备提交图形设备兼容性指南的配图与操作说明更新。
 
 ## 前次任务
 
@@ -18,6 +18,11 @@
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 本次任务
+
+- 修改范围：`config/guides/guide_graphics_device_compatibility.json`、图形设备指南资源、`tests/test_platform_content.py`；运行时配置目录直接生效，不修改客户端模块。
+- 图形设备指南已删除旧的“无法创建图形设备”长截图，改为两步说明与新配图：先在工具中打开 DirectX 诊断工具、于“显示”页确认 DirectDraw/Direct3D 加速状态；若显示“未启用”或“已禁用”，关闭诊断工具后点击“修复图形设备配置”。保留修复前备份、用户确认、管理员权限及修复后重启说明。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests\test_platform_content.py -k graphics`（1 项通过）；`\.venv\Scripts\python.exe -m ruff check tests\test_platform_content.py` 通过；`\.venv\Scripts\python.exe -m compileall -q tests\test_platform_content.py` 通过；已视觉核对两张新资源；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`、两份 P 社启动器指南、`docs/tool-item-ui-spec.md`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
 - 统一用户可见名称为“P 社启动器修复”：工具卡片、详情标题和按钮均使用相同表述；指南和工具规范已同步。原内部标识 `paradox-launcher-warning` 保持不变，既有指南跳转兼容。

@@ -180,6 +180,26 @@ def test_paradox_launcher_guides_include_warning_flow_and_installer_fallback(tmp
     assert steam_targets == {"tool:paradox-launcher-warning", "tool:paradox-launcher-installer"}
 
 
+def test_graphics_guide_explains_dxdiag_check_and_repair_with_current_images(tmp_path: Path) -> None:
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    entry = next(
+        item for item in service.refresh_index(allow_network=False)
+        if item.guide_id == "graphics-device-compatibility"
+    )
+    document = service.load_guide(entry, allow_network=False)
+    text = "\n".join(block[1] for block in document.blocks if block[0] == "text")
+    images = {Path(block[1]).name for block in document.blocks if block[0] == "image"}
+    targets = {block[2] for block in document.blocks if block[0] == "button"}
+
+    assert "打开 DirectX 诊断工具" in text
+    assert "DirectDraw 加速" in text and "Direct3D 加速" in text
+    assert "未启用" in text and "修复图形设备配置" in text
+    assert images == {"graphics-device-dxdiag-display.png", "graphics-device-repair.png"}
+    assert "tool:graphics-compatibility" in targets
+
+
 def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive() -> None:
     tool = GuideTool.from_dict({
         "tool_id": "security-scan", "title": "安全软件扫描", "description": "",
