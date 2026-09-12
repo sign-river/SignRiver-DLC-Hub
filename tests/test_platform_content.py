@@ -196,6 +196,8 @@ def test_graphics_guide_explains_dxdiag_check_and_repair_with_current_images(tmp
     assert "打开 DirectX 诊断工具" in text
     assert "DirectDraw 加速" in text and "Direct3D 加速" in text
     assert "未启用" in text and "修复图形设备配置" in text
+    assert "不代表所有启动失败" not in text
+    assert "修复失败或仍无法启动" not in text
     assert images == {"graphics-device-dxdiag-display.png", "graphics-device-repair.png"}
     assert "tool:graphics-compatibility" in targets
 
