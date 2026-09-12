@@ -3817,12 +3817,13 @@ class DlcHubApplication:
             command=self._download_paradox_launcher_installer, **BUTTON_PRIMARY,
         )
         self.paradox_installer_download_button.pack(side="left")
-        ctk.CTkButton(
+        self.paradox_installer_open_button = ctk.CTkButton(
             actions, text="打开安装程序", width=126,
             command=self._launch_paradox_launcher_installer,
             state="normal" if (self._paradox_installer_folder() / PARADOX_LAUNCHER_INSTALLER_NAME).is_file() else "disabled",
             **BUTTON_SECONDARY,
-        ).pack(side="left", padx=(8, 0))
+        )
+        self.paradox_installer_open_button.pack(side="left", padx=(8, 0))
         ctk.CTkButton(
             actions, text="打开下载文件夹", width=140,
             command=lambda: self._open_path(self._paradox_installer_folder()), **BUTTON_SECONDARY,
@@ -3872,6 +3873,7 @@ class DlcHubApplication:
             self._post_ui(lambda: status.configure(text=f"已下载：{target.name}"))
             self._post_ui(lambda: button.configure(state="normal", text="卸载安装程序"))
             self._post_ui(lambda: button.configure(command=self._delete_paradox_launcher_installer, **BUTTON_DANGER))
+            self._post_ui(lambda: self.paradox_installer_open_button.configure(state="normal"))
 
         threading.Thread(target=worker, daemon=True).start()
 

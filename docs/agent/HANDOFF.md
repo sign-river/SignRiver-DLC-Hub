@@ -7,7 +7,7 @@
 - 分支：`main`
 - HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；正在准备提交 P 社启动器官网及官方下载地址修复。
+- 工作区：本次开始时干净；正在准备提交 P 社启动器安装程序打开按钮状态修复。
 
 ## 前次任务
 
@@ -18,6 +18,12 @@
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 本次任务
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
+- 修复 P 社启动器安装程序下载完成后的 UI 状态：此前“打开安装程序”按钮未保留引用，下载回调只更新卸载按钮，导致已下载时仍禁用；现在回调会将该按钮设为可用。
+- 活动客户端版本为 `0.2.0`；已定向同步同一代码块，用户重启客户端后生效，未构建或发布新模块。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py -k paradox_launcher`（1 项通过）；`\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app\versions\0.1.0\app_entry.py app\versions\0.2.0\app_entry.py` 通过；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
 - 修复 P 社启动器安装工具：官网按钮改为 `https://www.paradoxinteractive.com/our-games/launcher`；下载安装程序改为官方 `v2/paradox-launcher-installer-windows` 端点，移除旧 `/installer/Paradox%20Launcher.exe` 的 404 地址。用户提供的 `_gl` / `_ga` 统计参数未固化，避免会话参数过期；无参数端点可稳定重定向到当前安装程序。
