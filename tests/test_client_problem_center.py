@@ -413,6 +413,7 @@ def test_problem_store_failure_does_not_reverse_successful_patch_apply(
         backup_replaced=False,
         unlocker_replaced=False,
         ini_written=False,
+        interference_files_deleted=(),
     )
 
     app._on_patch_applied(result)
@@ -454,8 +455,7 @@ def test_unlock_success_explains_that_the_patch_was_installed_this_run(app_modul
     app._maybe_finish_unlock_workflow()
 
     assert showinfo.call_args.args[1] == (
-        "群星 (Stellaris) 的补丁已在本次操作中下载并安装。"
-        "当前未选择需要额外安装的 DLC。"
+        "一键解锁成功！\n\n如游戏运行出现问题，请前往“报错指南”查看解决办法。"
     )
     assert app.unlock_patch_applied_this_run is False
 
@@ -561,7 +561,11 @@ def test_gui_callback_exception_records_patch_context_and_solution(app_module) -
     assert "KeyError" in report.technical_details
     app._open_solution_article = Mock()
     app._open_problem_solution(report)
-    app._open_solution_article.assert_called_once_with("patch-state")
+    app._open_solution_article.assert_called_once_with(
+        "patch-state",
+        origin="problem",
+        return_context=("problem", report.event_id),
+    )
 
 
 def test_gui_callback_hook_is_installed(app_module) -> None:

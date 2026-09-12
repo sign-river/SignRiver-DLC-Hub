@@ -5,9 +5,17 @@
 ## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
+- HEAD：`aac4d6ab8ce77487c6c4ea575319d60d1a1e3760`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；DLC 时效检查独立页面与结果列表已验证，待本地提交。
+- 工作区：本次开始时干净；全量测试问题修复已验证，按项目约定随本次交接提交。
+
+## 最新任务（全量测试修复）
+
+- 修改范围：`src/signriver_publisher/models.py`、`tests/test_client_problem_center.py`。
+- `PublisherCartridge.to_dict()` 现在将新增的 `patch_interference_files` 元组显式序列化为 JSON 列表，补齐发布工作区完成清单的稳定序列化契约。
+- 同步更新三项已经落后于现有产品行为的客户端测试：补丁应用结果夹具包含干扰文件清理字段；一键解锁成功文案使用当前简化提示；从问题记录打开解决方案时验证来源和返回上下文。
+- 已执行：4 个原失败测试定向运行通过；`\.venv\Scripts\python.exe -m pytest -q` 全量 886 项通过；`\.venv\Scripts\python.exe -m ruff check .` 通过；`\.venv\Scripts\python.exe -m compileall -q src app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。
+- 未执行：GUI 人工验收、构建、发布和推送；本任务只修复自动化回归与序列化遗漏。
 
 ## 最新任务（界面调整）
 

@@ -185,6 +185,7 @@ class PublisherCartridge:
         payload["patch_additional_relative_dirs"] = list(
             self.patch_additional_relative_dirs
         )
+        payload["patch_interference_files"] = list(self.patch_interference_files)
         return payload
 
     @classmethod
