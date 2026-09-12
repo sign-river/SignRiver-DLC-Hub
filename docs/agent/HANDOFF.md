@@ -5,17 +5,25 @@
 ## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：任务完成后以 Git 实际提交为准（本任务为客户端切换下载源卡死修复）
+- HEAD：`51dce80f03836d4821c1af7184e39f25415fc299`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：开始时无未提交改动；本任务改动已验证，待本地提交。
+- 工作区：开始时无未提交改动；下载源切换修复已提交。本任务的默认公告改动已验证，待本地提交。
 
-## 本次任务
+## 前次任务
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
 - 修复切换下载源时始终加载索引默认游戏的问题。现在会捕获并刷新用户当前选中游戏的卡带，避免非默认游戏的完成回调被丢弃、页面永久停在“正在加载”。
 - 已采用“定向同步到当前活动模块”：基线和 `0.2.0` 的同一代码块均已更新；用户重启客户端后生效，未构建或发布新版本。
 - 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py`（74 项通过）；`\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
+
+## 本次任务
+
+- 修改范围：`config/announcement.json`、`tests/test_announcement_service.py`。
+- 将打包随附的离线兜底公告由欢迎与使用提示改为“云端资源读取失败”，说明网络连接或下载源可能暂不可用，并指引用户检查网络或在设置中切换 GitLink / GitHub。公告 id 已更新，旧公告的静音状态不会抑制新提示。
+- 活动客户端版本为 `0.2.0`；本任务修改的是打包默认配置，未同步活动模块，需构建并安装新包后生效。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_announcement_service.py`（5 项通过）；`\.venv\Scripts\python.exe -m json.tool config/announcement.json` 通过；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、模块/安装包构建、真实远端下载和推送。
 
 ## 最近结论
 

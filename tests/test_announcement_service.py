@@ -42,7 +42,8 @@ def test_bootstrap_announcement_parses() -> None:
     announcement = Announcement.from_dict(payload)
     assert announcement.announcement_id
     assert announcement.title
-    assert "使用提示" in announcement.body
+    assert announcement.title == "云端资源读取失败"
+    assert "无法读取云端公告资源" in announcement.body
 
 
 def test_service_prefers_remote_and_caches(tmp_path: Path) -> None:
