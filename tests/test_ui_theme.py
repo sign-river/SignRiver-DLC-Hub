@@ -31,6 +31,8 @@ def test_user_ui_hides_internal_diagnostics() -> None:
     assert " · App {" not in source
     assert "开发调试时可开启" not in source
     assert "启动失败时保留当前模块" in source
+    assert "不会回退到旧版本。" in source
+    assert "不会悄悄回退到旧版本。" not in source
     assert "技术详情 / Traceback" not in source
     assert "云端资源" in source
     # Fatal dialog stays concise; the detailed formatter remains available for

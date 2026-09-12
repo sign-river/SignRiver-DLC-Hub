@@ -1671,7 +1671,7 @@ class DlcHubApplication:
         fallback_row, fallback_action, fallback_description = _settings_row(
             general_body,
             "启动失败时保留当前模块",
-            "当前模块启动失败时保留并显示错误，不会悄悄回退到旧版本。",
+            "当前模块启动失败时保留并显示错误，不会回退到旧版本。",
             last=True,
         )
         self.settings_description_boxes.append(fallback_description)
