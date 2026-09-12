@@ -6579,6 +6579,11 @@ class DlcHubApplication:
         self.guide_catalog.set_download_source(selected)
         self.helper_tools.set_download_source(selected)
         self.cartridges.clear()
+        # Keep the user's current game selected while the new source reloads
+        # its cartridge.  Loading the index default here makes the completion
+        # callback discard the result whenever the user has chosen another
+        # game, leaving the catalog in its loading state.
+        selected_game_id = self.cartridge.adapter.descriptor.game_id
         self.catalog_preview.configure(
             text=f"已切换到 {provider_display_name(selected)}，正在重新加载……"
         )
@@ -6586,7 +6591,8 @@ class DlcHubApplication:
         def worker() -> None:
             try:
                 self.cartridge_catalog.refresh_index(allow_network=True)
-                loaded = self.cartridge_catalog.load_default_cartridge(
+                loaded = self.cartridge_catalog.load_cartridge(
+                    selected_game_id,
                     allow_network=True,
                 )
                 remote_loaded = (
@@ -6604,7 +6610,8 @@ class DlcHubApplication:
             except Exception as error:
                 try:
                     self.cartridge_catalog.refresh_index(allow_network=False)
-                    loaded = self.cartridge_catalog.load_default_cartridge(
+                    loaded = self.cartridge_catalog.load_cartridge(
+                        selected_game_id,
                         allow_network=False,
                     )
                     message = str(error)

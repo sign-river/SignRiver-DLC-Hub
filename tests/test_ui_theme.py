@@ -1429,6 +1429,15 @@ def test_failed_download_source_switch_rolls_back_consistently() -> None:
     assert "已自动恢复为" in method
 
 
+def test_download_source_switch_reloads_the_current_game_not_the_index_default() -> None:
+    source = _app_method_source("_on_download_source_selected")
+
+    assert "selected_game_id = self.cartridge.adapter.descriptor.game_id" in source
+    assert source.count("self.cartridge_catalog.load_cartridge(") == 2
+    assert source.count("selected_game_id,") == 2
+    assert "load_default_cartridge" not in source
+
+
 def _download_source_ready_fixture():
     events: list[object] = []
     notifications: list[tuple[str, bool]] = []

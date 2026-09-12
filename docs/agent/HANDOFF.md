@@ -2,22 +2,20 @@
 
 > 本文件只保留当前状态；历史流水见 [`archive/`](archive/)。长期约束见 [`DECISIONS.md`](DECISIONS.md)。
 
-## 当前状态（2026-09-05）
+## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：任务完成后以 Git 实际提交为准（本任务为游戏内容发布顺序修复）
+- HEAD：任务完成后以 Git 实际提交为准（本任务为客户端切换下载源卡死修复）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本任务改动已验证，待本地提交；无其他未提交改动。
+- 工作区：开始时无未提交改动；本任务改动已验证，待本地提交。
 
 ## 本次任务
 
-- 修改范围：`src/signriver_publisher/content_release_pipeline.py`、`tests/test_publisher_content_pipelines.py`。
-- 游戏内容发布改为按源站完成附件上传、远端清理和 `catalog.json` 切换，再处理下一个源站；不再把所有源站的附件上传与主表切换拆成两个全局阶段。
-- 阶段检查点保存已完成主表切换的源站；恢复时跳过已完成源站的重复切换，并新增第二源失败时第一源保持完整闭环的回归测试。
-- 活动客户端版本保持 `0.2.0`；本任务仅涉及 Windows 发布器，不修改客户端模块，无需同步活动模块；重新启动发布器后生效。
-- 已执行：发布器相关定向测试 56 项通过；`python -m ruff check src/signriver_publisher/content_release_pipeline.py tests/test_publisher_content_pipelines.py` 通过；`python -m compileall -q src/signriver_publisher` 通过；`git diff --check` 通过。
-- 发布器全部专项测试中有 1 项既有失败：`tests/test_publisher_workspace.py::test_successful_build_writes_verified_completion_manifest`，为 `[]` 与 `()` 类型差异，与本任务无关。
-- 未执行：发布器 GUI 人工验收、发布器 EXE 构建、真实双源发布和推送。
+- 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
+- 修复切换下载源时始终加载索引默认游戏的问题。现在会捕获并刷新用户当前选中游戏的卡带，避免非默认游戏的完成回调被丢弃、页面永久停在“正在加载”。
+- 已采用“定向同步到当前活动模块”：基线和 `0.2.0` 的同一代码块均已更新；用户重启客户端后生效，未构建或发布新版本。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py`（74 项通过）；`\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 app/versions/0.2.0` 通过；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 最近结论
 
