@@ -5,9 +5,9 @@
 ## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：`dbbf4327f7eef3e86836297df45e38f81241b634`（本任务提交后以 Git 实际提交为准）
+- HEAD：`377c9a4ae35ae410ed01cbd911bbd2079946e255`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：开始时无未提交改动；本任务的设置说明文案改动已验证，待本地提交。
+- 工作区：开始时无未提交改动；本任务的指南正文样式改动已验证，待本地提交。
 
 ## 前次任务
 
@@ -19,10 +19,10 @@
 
 ## 本次任务
 
-- 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
-- 设置页“启动失败时保留当前模块”的说明已删除“悄悄”二字，改为“不会回退到旧版本”。
-- 活动客户端版本为 `0.2.0`；已定向同步同一文案至活动模块，用户重启客户端后生效，未构建或发布新版本。
-- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py`（74 项通过）；`git diff --check` 通过。
+- 修改范围：`app/versions/0.1.0/article_components.py`；定向同步运行时忽略目录 `app/versions/0.2.0/article_components.py`。
+- 报错指南的普通正文和摘要已移除左侧装饰竖线；黄色提示块仍保留强调线。
+- 活动客户端版本为 `0.2.0`；已定向同步同一组件至活动模块，用户重启客户端后生效，未构建或发布新版本。
+- 已执行：`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0 app/versions/0.2.0`；`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py`；`git diff --check`。
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 最近结论

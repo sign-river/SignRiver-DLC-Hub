@@ -97,15 +97,17 @@ class ArticleParagraphCard(ctk.CTkFrame):
         # 这里使用页面背景色作为安全的占位颜色。
         border = {"body": PALETTE["Bg"], "lead": PALETTE["Bg"],
                   "note": PALETTE["Warning"]}[variant]
-        accent = {"body": PALETTE["Border"], "lead": PALETTE["Border"],
-                  "note": PALETTE["Warning"]}[variant]
         kwargs.setdefault("height", 1)
         super().__init__(master, fg_color=surface, border_color=border,
                          border_width=0 if variant in {"body", "lead"} else 1,
                          corner_radius=0 if variant in {"body", "lead"} else 10, **kwargs)
-        self.grid_columnconfigure(1, weight=1)
-        ctk.CTkFrame(self, width=3, height=1, fg_color=accent,
-                     corner_radius=2).grid(row=0, column=0, sticky="ns", padx=(4, 10), pady=8)
+        text_column = 1 if variant == "note" else 0
+        self.grid_columnconfigure(text_column, weight=1)
+        if variant == "note":
+            ctk.CTkFrame(self, width=3, height=1, fg_color=PALETTE["Warning"],
+                         corner_radius=2).grid(
+                             row=0, column=0, sticky="ns", padx=(4, 10), pady=8
+                         )
         font_size = 15 if variant == "lead" else 14
         self.text_widget = ctk.CTkTextbox(
             self, height=34, border_spacing=0, activate_scrollbars=False, wrap="char",
@@ -115,7 +117,7 @@ class ArticleParagraphCard(ctk.CTkFrame):
         )
         self.text_widget.insert("1.0", text)
         self.text_widget.configure(state="disabled")
-        self.text_widget.grid(row=0, column=1, sticky="ew", padx=(0, 14),
+        self.text_widget.grid(row=0, column=text_column, sticky="ew", padx=(0, 14),
                               pady=10 if variant == "body" else 12)
 class StepWorkflowCard(ctk.CTkFrame):
     """带圆形序号、分层文本和右侧动作按钮的步骤卡片。"""
