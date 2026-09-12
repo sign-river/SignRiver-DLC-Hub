@@ -38,6 +38,7 @@ from .extension_assets import (
     export_tool_assets,
 )
 from .freshness import (
+    DlcFreshnessCheck,
     DlcFreshnessReport,
     build_resource_freshness,
     load_freshness_report,
@@ -1102,16 +1103,56 @@ class PublisherWorkspace:
 
     def refresh_resource_freshness(self, profile: GameProfile) -> DlcFreshnessReport:
         """Record the newest local package / publish-output modification time."""
+        report = self._resource_freshness_report(profile)
+        save_freshness_report(self.freshness_path(profile), report)
+        return report
+
+    def check_all_dlc_freshness(self) -> tuple[DlcFreshnessCheck, ...]:
+        """Compare every configured game's newest Steam DLC with its resources.
+
+        This is deliberately read-only: it does not refresh AppInfo files,
+        overwrite resource timestamps, or alter a pending publish build.
+        """
+        results: list[DlcFreshnessCheck] = []
+        for profile in self.list_games():
+            report = self._resource_freshness_report(profile)
+            try:
+                if not profile.steam_app_id:
+                    raise WorkspaceError("当前游戏没有配置 Steam App ID")
+                appinfo = self._appinfo_provider(profile.steam_app_id)
+                if appinfo.app_id != profile.steam_app_id:
+                    raise WorkspaceError(
+                        f"Steam 返回的 App ID 是 {appinfo.app_id}，当前游戏要求 {profile.steam_app_id}"
+                    )
+                latest = max(
+                    (item.released_at for item in appinfo.dlcs if item.released_at),
+                    default="",
+                )
+                results.append(DlcFreshnessCheck(
+                    game_id=profile.game_id,
+                    display_name=profile.display_name,
+                    resources_updated_at=report.resources_updated_at,
+                    latest_dlc_release_at=latest,
+                ))
+            except (SteamApiError, WorkspaceError, OSError, ValueError) as error:
+                results.append(DlcFreshnessCheck(
+                    game_id=profile.game_id,
+                    display_name=profile.display_name,
+                    resources_updated_at=report.resources_updated_at,
+                    error=str(error),
+                ))
+        return tuple(results)
+
+    def _resource_freshness_report(self, profile: GameProfile) -> DlcFreshnessReport:
+        """Calculate current resource freshness without persisting it."""
         dlcs, _patches = self.scan_sources(profile)
         published_paths = self._published_dlc_paths(profile)
-        report = build_resource_freshness(
+        return build_resource_freshness(
             local_folders=dlcs,
             published_paths=published_paths,
             published_package_count=len(published_paths),
             latest_dlc_release_at=self._latest_dlc_release_at(profile),
         )
-        save_freshness_report(self.freshness_path(profile), report)
-        return report
 
     def _latest_dlc_release_at(self, profile: GameProfile) -> str:
         """Read the newest official DLC date captured in the current AppInfo."""

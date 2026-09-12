@@ -173,6 +173,15 @@ def test_cartridge_management_owns_hub_generation_and_publish_workflow() -> None
     assert "请将这些文件上传到资源仓库" not in source
 
 
+def test_cartridge_management_offers_read_only_all_game_dlc_freshness_check() -> None:
+    source = _publisher_ui_sources()
+
+    assert 'text="检查全部 DLC 时效"' in source
+    assert "def check_all_dlc_freshness" in source
+    assert "self.workspace.check_all_dlc_freshness()" in source
+    assert "threading.Thread(target=worker, daemon=True).start()" in source
+
+
 def test_publisher_uses_task_oriented_workspace_tabs() -> None:
     source = inspect.getsource(PublisherApplication._build_ui)
     content_source = inspect.getsource(PublisherApplication._build_content_workspace)

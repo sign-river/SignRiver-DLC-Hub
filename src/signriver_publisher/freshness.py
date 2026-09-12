@@ -67,6 +67,30 @@ class DlcFreshnessReport:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DlcFreshnessCheck:
+    """One publisher-side comparison of packaged resources with Steam DLCs."""
+
+    game_id: str
+    display_name: str
+    resources_updated_at: str = ""
+    latest_dlc_release_at: str = ""
+    error: str = ""
+
+    @property
+    def status(self) -> str:
+        if self.error:
+            return "查询失败"
+        if not self.resources_updated_at or not self.latest_dlc_release_at:
+            return "无法判断"
+        try:
+            submitted_at = datetime.fromisoformat(self.resources_updated_at)
+            released_at = datetime.fromisoformat(self.latest_dlc_release_at)
+        except ValueError:
+            return "无法判断"
+        return "资源过时" if released_at > submitted_at else "未过时"
+
+
 def build_resource_freshness(
     *,
     local_folders: tuple[Path, ...],
@@ -136,6 +160,7 @@ def _format_local(value: datetime) -> str:
 
 
 __all__ = [
+    "DlcFreshnessCheck",
     "DlcFreshnessReport",
     "build_resource_freshness",
     "load_freshness_report",

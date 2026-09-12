@@ -16,6 +16,7 @@ from .gitlink import (
     UploadControl,
     UploadPaused,
 )
+from .freshness import DlcFreshnessCheck
 from .models import GameProfile, PublishAsset
 from .remote import RemoteResourceManager
 
@@ -153,9 +154,24 @@ class CartridgeManagementUiMixin:
             command=self.publish_cartridge_hub_mirror,
         )
         self.hub_publish_button.grid(row=2, column=1, padx=(6, 14), pady=4, sticky="ew")
+        self.hub_freshness_check_button = ctk.CTkButton(
+            actions, text="检查全部 DLC 时效", height=36, fg_color=LIGHT_BLUE,
+            command=self.check_all_dlc_freshness,
+        )
+        self.hub_freshness_check_button.grid(
+            row=3, column=0, columnspan=2, padx=14, pady=(4, 2), sticky="ew"
+        )
+        self.hub_freshness_check_status = ctk.CTkLabel(
+            actions,
+            text="按需查询 Steam 最新 DLC 上线时间，不会修改资源或发布内容。",
+            text_color=MUTED, anchor="w", justify="left",
+        )
+        self.hub_freshness_check_status.grid(
+            row=4, column=0, columnspan=2, padx=14, pady=(4, 8), sticky="ew"
+        )
 
         transfer = ctk.CTkFrame(actions, fg_color="transparent")
-        transfer.grid(row=3, column=0, columnspan=2, padx=14, pady=(8, 14), sticky="ew")
+        transfer.grid(row=5, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="ew")
         transfer.grid_columnconfigure(1, weight=1)
         self.hub_upload_status = ctk.CTkLabel(
             transfer, text="等待发布", width=190, anchor="w", text_color=MUTED,
@@ -362,6 +378,69 @@ class CartridgeManagementUiMixin:
             text=report.summary,
             text_color=TEXT,
         )
+
+    def check_all_dlc_freshness(self) -> None:
+        """Run the read-only Steam DLC freshness audit off the UI thread."""
+        if getattr(self, "_dlc_freshness_check_running", False):
+            return
+        self._dlc_freshness_check_running = True
+        self.hub_freshness_check_button.configure(state="disabled", text="正在检查…")
+        self.hub_freshness_check_status.configure(
+            text="正在逐个查询 Steam DLC 上线时间…", text_color=MUTED
+        )
+
+        def worker() -> None:
+            try:
+                results = self.workspace.check_all_dlc_freshness()
+                self._post_ui(lambda: self._dlc_freshness_check_done(results))
+            except Exception as error:
+                self._post_ui(
+                    lambda value=str(error): self._dlc_freshness_check_failed(value)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _dlc_freshness_check_done(
+        self, results: tuple[DlcFreshnessCheck, ...]
+    ) -> None:
+        self._dlc_freshness_check_running = False
+        self.hub_freshness_check_button.configure(
+            state="normal", text="检查全部 DLC 时效"
+        )
+        outdated = [item for item in results if item.status == "资源过时"]
+        unavailable = [item for item in results if item.status != "未过时"]
+        if outdated:
+            summary = f"发现 {len(outdated)} 个资源可能未跟上新 DLC。"
+            color = "#B26A00"
+        elif unavailable:
+            summary = f"已完成检查；{len(unavailable)} 个游戏无法判断。"
+            color = "#B26A00"
+        else:
+            summary = f"已完成检查：{len(results)} 个游戏的资源均未过时。"
+            color = "#2E7D32"
+        self.hub_freshness_check_status.configure(text=summary, text_color=color)
+        lines = [
+            f"{item.display_name}：{item.status}"
+            + (
+                f"\n  资源提交：{item.resources_updated_at or '未知'}"
+                f"\n  Steam 最新 DLC：{item.latest_dlc_release_at or '未知'}"
+                if not item.error else f"\n  原因：{item.error}"
+            )
+            for item in results
+        ]
+        self._log(f"全部 DLC 时效检查完成：{summary}")
+        messagebox.showinfo("全部 DLC 时效检查", summary + "\n\n" + "\n\n".join(lines))
+
+    def _dlc_freshness_check_failed(self, message: str) -> None:
+        self._dlc_freshness_check_running = False
+        self.hub_freshness_check_button.configure(
+            state="normal", text="检查全部 DLC 时效"
+        )
+        self.hub_freshness_check_status.configure(
+            text="检查失败", text_color="#B26A00"
+        )
+        self._log(f"全部 DLC 时效检查失败：{message}")
+        messagebox.showerror("全部 DLC 时效检查失败", message)
 
     def generate_client_hub(self) -> None:
         if not self._begin_background_mutation(

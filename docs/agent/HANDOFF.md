@@ -7,7 +7,14 @@
 - 分支：`main`
 - HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；正在准备提交图形设备兼容性指南的日志资料收集入口删除。
+- 工作区：本次开始时干净；全部 DLC 时效检查功能已验证，待本地提交。
+
+## 最新任务
+
+- 修改范围：`src/signriver_publisher/{freshness,workspace,cartridge_management_ui}.py`、`src/signriver_publisher/__init__.py`、`tests/test_dlc_freshness.py`、`tests/test_publisher_ui_threading.py`、`docs/publisher-guide.md`。
+- 发布器“游戏支持数据 → 卡带与公告 → 卡带与公告”新增“检查全部 DLC 时效”。任务在后台逐个请求 Steam DLC 上线时间，与当前本地/发布输出的资源提交时间比较；不会写入 AppInfo、改动资源或触发发布。结果会逐项显示“资源过时”“未过时”或“无法判断”。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_dlc_freshness.py tests/test_publisher_ui_threading.py -k "freshness or cartridge_management"`（7 项通过）；`\.venv\Scripts\python.exe -m ruff check src/signriver_publisher/freshness.py src/signriver_publisher/workspace.py src/signriver_publisher/cartridge_management_ui.py src/signriver_publisher/__init__.py tests/test_dlc_freshness.py tests/test_publisher_ui_threading.py` 通过；`\.venv\Scripts\python.exe -m compileall -q src/signriver_publisher tests/test_dlc_freshness.py tests/test_publisher_ui_threading.py` 通过；`git diff --check` 通过。
+- 未执行：发布器 GUI 人工验收、完整测试、构建发布器 EXE、资源发布和推送。
 
 ## 前次任务
 

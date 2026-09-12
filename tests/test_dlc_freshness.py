@@ -75,3 +75,29 @@ def test_client_freshness_warns_only_when_steam_dlc_is_newer() -> None:
     assert "资源提交于 2026-07-21 12:00:00" in stale.client_summary()
     assert "请提醒 UP 更新资源" in stale.client_summary()
     assert "请提醒 UP 更新资源" not in current.client_summary()
+
+
+def test_workspace_checks_all_games_without_changing_appinfo_files(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path,
+        appinfo_provider=lambda app_id: SteamAppInfo(
+            app_id=app_id,
+            name="Stellaris",
+            update_time="2026-07-21 12:00:00",
+            dlcs=(SteamDlc("111", "New DLC", "2099-07-22 00:00:00"),),
+        ),
+    )
+    workspace.initialize()
+    profile = next(
+        item for item in workspace.list_games() if item.game_id == "stellaris"
+    )
+    folder = workspace.game_dir(profile.game_id) / "dlc" / "dlc001_symbols"
+    folder.mkdir(parents=True)
+    appinfo_path = workspace.output_dir / profile.game_id / profile.appinfo_name
+
+    checks = workspace.check_all_dlc_freshness()
+
+    stellaris_check = next(item for item in checks if item.game_id == "stellaris")
+    assert len(checks) == len(workspace.list_games())
+    assert stellaris_check.status == "资源过时"
+    assert not appinfo_path.exists()

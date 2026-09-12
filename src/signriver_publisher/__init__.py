@@ -15,6 +15,7 @@ from .acceptance import (
 from .cartridges import create_builtin_cartridges
 from .models import GameProfile, PublisherCartridge, PublishAsset, ResourceRecord
 from .cream import AppInfoError, SteamAppInfo, SteamDlc, generate_cream_api_ini, load_steam_appinfo
+from .freshness import DlcFreshnessCheck
 from .settings import PublisherSettings, PublisherSettingsError, discover_settings_path
 from .steam import SteamApiError, SteamStoreClient
 from .remote import (
@@ -39,6 +40,7 @@ __all__ = [
     "PreparationVariant",
     "PatchFailureScenario",
     "AppInfoError",
+    "DlcFreshnessCheck",
     "GameProfile",
     "PublisherCartridge",
     "create_builtin_cartridges",
