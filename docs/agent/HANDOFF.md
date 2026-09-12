@@ -19,10 +19,12 @@
 
 ## 本次任务
 
-- 修改范围：`app/versions/0.1.0/app_entry.py`、新增 `app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py`、`tests/test_paradox_launcher_discovery.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py` 和同名基础设施模块。
+- 修改范围：`app/versions/0.1.0/app_entry.py`、新增 `app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py`、`tests/test_paradox_launcher_discovery.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py` 和同名基础设施模块。
 - 修复 P 社启动器警告清除工具：不再按目录名字符串排序，而是按全部数字版本段比较；并且仅接受同时包含 `Paradox Launcher.exe`、`resources/app.asar` 与目标 `steam_api64.dll` 的完整安装目录。`.cpatch` 单独存在的残缺版本目录会被忽略。
+- P 社启动器修复的原始 DLL 备份名已统一为 `steam_api64_o.dll`，与普通游戏补丁链路一致；此前仅这条专用路径错误使用 `steam_api64.original.dll`。
 - 活动客户端版本为 `0.2.0`；已定向同步同一逻辑，用户重启客户端后会优先处理完整的 `launcher-v2.2026.11.1`，而不是错误选中 `launcher-v2.2026.8.1`；未构建或发布新模块。
 - 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_paradox_launcher_discovery.py tests/test_ui_theme.py -k "paradox_launcher"`（3 项通过）；`\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py tests/test_paradox_launcher_discovery.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py app/versions/0.2.0/app_entry.py app/versions/0.2.0/signriver_app/infrastructure/paradox_launcher.py` 通过；`git diff --check` 通过。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests/test_paradox_launcher_discovery.py tests/test_ui_theme.py -k "paradox_launcher"`（3 项通过）；`\.venv\Scripts\python.exe -m pytest -q tests/test_ui_theme.py -k paradox_launcher`（1 项通过）；`\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py tests/test_paradox_launcher_discovery.py` 与 `\.venv\Scripts\python.exe -m ruff check app/versions/0.1.0/app_entry.py tests/test_ui_theme.py` 均通过；两轮 `compileall` 与 `git diff --check` 通过。
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 最近结论

@@ -3757,7 +3757,7 @@ class DlcHubApplication:
             self._notify("请先在当前游戏页面下载并准备好补丁资源，再进行启动器修复。", error=True)
             return
         target = version_dir / "resources" / "app.asar.unpacked" / "node_modules" / "greenworks" / "lib" / "steam_api64.dll"
-        backup = target.with_name("steam_api64.original.dll")
+        backup = target.with_name("steam_api64_o.dll")
         temporary = target.with_name("steam_api64.dll.signriver.tmp")
         try:
             if not backup.exists():
