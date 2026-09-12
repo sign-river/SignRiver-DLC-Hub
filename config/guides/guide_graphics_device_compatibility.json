@@ -9,7 +9,6 @@
     {"kind": "text", "text": "如果 DirectDraw 加速或 Direct3D 加速显示“未启用”或“已禁用”，请先关闭 DirectX 诊断工具，再点击图形设备兼容性工具中的“修复图形设备配置”。修复前会备份注册表，用户确认并具备管理员权限后才会写入固定值；修复完成后必须重启电脑。"},
     {"kind": "image", "asset_name": "graphics-device-repair.png"},
     {"kind": "button", "text": "打开图形设备工具 →", "target": "tool:graphics-compatibility"},
-    {"kind": "button", "text": "打开日志资料收集 →", "target": "tool:support-collection"},
     {"kind": "heading", "text": "仍无法解决时"},
     {"kind": "text", "text": "联系开发者时请附上错误截图、游戏名称、显卡驱动信息和诊断资料。"},
     {"kind": "link", "text": "点击联系开发者（QQ群）  →", "url": "https://qm.qq.com/q/NQRer2RHmC"}

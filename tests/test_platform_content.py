@@ -200,6 +200,7 @@ def test_graphics_guide_explains_dxdiag_check_and_repair_with_current_images(tmp
     assert "修复失败或仍无法启动" not in text
     assert images == {"graphics-device-dxdiag-display.png", "graphics-device-repair.png"}
     assert "tool:graphics-compatibility" in targets
+    assert "tool:support-collection" not in targets
 
 
 def test_guide_tool_quick_check_declaration_is_platform_safe_and_non_interactive() -> None:

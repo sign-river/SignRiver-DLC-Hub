@@ -7,7 +7,7 @@
 - 分支：`main`
 - HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：本次开始时干净；正在准备提交图形设备兼容性指南的冗余文案删除。
+- 工作区：本次开始时干净；正在准备提交图形设备兼容性指南的日志资料收集入口删除。
 
 ## 前次任务
 
@@ -18,6 +18,11 @@
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 本次任务
+
+- 修改范围：`config/guides/guide_graphics_device_compatibility.json`、`tests/test_platform_content.py`；运行时配置目录直接生效，不修改客户端模块。
+- 已删除图形设备指南中的“打开日志资料收集”操作入口；保留图形设备工具入口及联系开发者入口。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests\test_platform_content.py -k graphics`（1 项通过）；`\.venv\Scripts\python.exe -m ruff check tests\test_platform_content.py` 通过；`\.venv\Scripts\python.exe -m compileall -q tests\test_platform_content.py` 通过；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 - 修改范围：`config/guides/guide_graphics_device_compatibility.json`、`tests/test_platform_content.py`；运行时配置目录直接生效，不修改客户端模块。
 - 已删除图形设备指南中“它仅适用于 Windows，不代表所有启动失败都由图形配置引起”的补充句，以及“修复失败或仍无法启动”标题与其说明段；操作入口与联系开发者入口保留。
