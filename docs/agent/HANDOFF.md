@@ -5,9 +5,9 @@
 ## 当前状态（2026-09-13）
 
 - 分支：`main`
-- HEAD：`c3c15a93b7b86c981ede768b3bdfe02c2e8675c9`（本任务提交后以 Git 实际提交为准）
+- HEAD：`74f9e2bf809bc96e6d43f4aef58b8a95762e473f`（本任务提交后以 Git 实际提交为准）
 - 活动客户端版本：`0.2.0`，`app/state.json` 与活动模块一致。
-- 工作区：开始时无未提交改动；本任务的 P 社启动器目录识别修复已验证，待本地提交。
+- 工作区：本次开始时干净；正在准备提交 P 社启动器官网及官方下载地址修复。
 
 ## 前次任务
 
@@ -18,6 +18,12 @@
 - 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 ## 本次任务
+
+- 修改范围：`app/versions/0.1.0/app_entry.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py`。
+- 修复 P 社启动器安装工具：官网按钮改为 `https://www.paradoxinteractive.com/our-games/launcher`；下载安装程序改为官方 `v2/paradox-launcher-installer-windows` 端点，移除旧 `/installer/Paradox%20Launcher.exe` 的 404 地址。用户提供的 `_gl` / `_ga` 统计参数未固化，避免会话参数过期；无参数端点可稳定重定向到当前安装程序。
+- 活动客户端版本为 `0.2.0`；已定向同步同一代码块，用户重启客户端后生效，未构建或发布新模块。
+- 已执行：`\.venv\Scripts\python.exe -m pytest -q tests\test_ui_theme.py -k paradox_launcher`（1 项通过）；`\.venv\Scripts\python.exe -m ruff check app\versions\0.1.0\app_entry.py tests\test_ui_theme.py` 通过；`\.venv\Scripts\python.exe -m compileall -q app\versions\0.1.0\app_entry.py app\versions\0.2.0\app_entry.py` 通过；`curl.exe -I -L --max-time 30 -A "SignRiver-DLC-Hub" "https://launcher.paradoxinteractive.com/v2/paradox-launcher-installer-windows"` 返回 302 后 200；`git diff --check` 通过。
+- 未执行：客户端 GUI 人工验收、完整测试、构建、发布和推送。
 
 - 修改范围：`app/versions/0.1.0/app_entry.py`、新增 `app/versions/0.1.0/signriver_app/infrastructure/paradox_launcher.py`、`tests/test_paradox_launcher_discovery.py`、`tests/test_ui_theme.py`；定向同步运行时忽略目录 `app/versions/0.2.0/app_entry.py` 和同名基础设施模块。
 - 修复 P 社启动器警告清除工具：不再按目录名字符串排序，而是按全部数字版本段比较；并且仅接受同时包含 `Paradox Launcher.exe`、`resources/app.asar` 与目标 `steam_api64.dll` 的完整安装目录。`.cpatch` 单独存在的残缺版本目录会被忽略。

@@ -314,7 +314,7 @@ UPDATE_MANIFEST_URLS = {
 }
 MICROSOFT_FALSE_POSITIVE_URL = "https://www.microsoft.com/en-us/wdsi/filesubmission"
 WINDOWS_SECURITY_URI = "windowsdefender://threatsettings/"
-PARADOX_LAUNCHER_INSTALLER_URL = "https://launcher.paradoxinteractive.com/installer/Paradox%20Launcher.exe"
+PARADOX_LAUNCHER_INSTALLER_URL = "https://launcher.paradoxinteractive.com/v2/paradox-launcher-installer-windows"
 PARADOX_LAUNCHER_INSTALLER_NAME = "Paradox-Launcher-Installer.exe"
 
 
@@ -3829,7 +3829,7 @@ class DlcHubApplication:
         ).pack(side="left", padx=(8, 0))
         ctk.CTkButton(
             body, text="打开 P 社官网", width=126,
-            command=lambda: self._open_tool_url("https://launcher.paradoxinteractive.com/", "P 社官网", tool_key="builtin:paradox-launcher-installer"),
+            command=lambda: self._open_tool_url("https://www.paradoxinteractive.com/our-games/launcher", "P 社官网", tool_key="builtin:paradox-launcher-installer"),
             **BUTTON_SECONDARY,
         ).pack(anchor="w", padx=16, pady=(0, 6))
         ctk.CTkButton(

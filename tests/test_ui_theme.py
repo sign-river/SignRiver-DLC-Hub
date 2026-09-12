@@ -107,6 +107,8 @@ def test_paradox_launcher_tools_are_builtin_and_guard_running_process() -> None:
     assert "去除启动器警告" in source
     assert "打开安装程序" in source
     assert "PARADOX_LAUNCHER_INSTALLER_URL" in source
+    assert 'https://launcher.paradoxinteractive.com/v2/paradox-launcher-installer-windows' in source
+    assert 'https://www.paradoxinteractive.com/our-games/launcher' in source
     assert 'backup = target.with_name("steam_api64_o.dll")' in source
     assert "steam_api64.original.dll" not in source
 
