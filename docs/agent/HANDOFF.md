@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## 本次任务（Windows 客户端打包，2026-09-13）
+
+- 活动客户端版本：`0.2.0`；按正式 Windows 流程重新构建模块归档和全量更新包。
+- 修正 `config/module-archives.json` 中 `0.1.7`、`0.2.0` 归档的大小与 SHA-256，使其与本地新构建产物一致。
+- 产物：`dist/updates/SignRiver-DLC-Hub-full-v0.2.0-windows-x64.zip`、`dist/<中文产品名>-v0.2.0-windows-x64.zip`、对应自解压 EXE，以及 `dist/modules/SignRiver-DLC-Hub-module-v0.2.0.zip`。
+- 已验证：`build_module.py --all-versions`、`build_release.py --upx-dir ...`、`prepare_update_release.py` 均成功；Windows 全量 ZIP 与 GitLink/GitHub 清单大小和 SHA-256 一致；`git diff --check` 通过。
+- Windows 全量 ZIP：`22092217` bytes，SHA-256 `ec410df53833f7b20a102ea3d3a4ff6e6d128bd885eb15f7c3bb16cfa2657dae`。
+- 未执行：真实远端上传、发布器批次、GUI 人工验收和推送；用户如需发布，需先上传并完成双源回读核验。
+
 > 本文件只保留当前状态；历史流水见 [`archive/`](archive/)。长期约束见 [`DECISIONS.md`](DECISIONS.md)。
 
 ## 当前状态（2026-09-13）

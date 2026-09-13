@@ -12,14 +12,14 @@
     {
       "version": "0.1.7",
       "filename": "SignRiver-DLC-Hub-module-v0.1.7.zip",
-      "sha256": "cf2d2a93e67b790c852b79df35646fb2ee3499112be9c6627e35e1f9406b4844",
-      "size": 187755
+      "sha256": "6007a8ceee5ecd99b937025115889a08c9c9ee5c3bf185ceb76bb6d770d1fd35",
+      "size": 233255
     },
     {
       "version": "0.2.0",
       "filename": "SignRiver-DLC-Hub-module-v0.2.0.zip",
-      "sha256": "28ef829933955893d4a4ad6667cc737fc1493c2bd8748993adc3ec98a3ed23dd",
-      "size": 199755
+      "sha256": "b368c82085169086e4b49fe669b704522085c0178dd3c44b8d106ba47c8cab43",
+      "size": 287183
     }
   ],
   "repositories": {
