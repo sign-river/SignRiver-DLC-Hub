@@ -304,20 +304,29 @@ class PublisherWorkspace:
             except ValueError as error:
                 raise WorkspaceError(str(error)) from error
         self._parse_dlc_folder(managed_name)
-        destination = self.game_dir(profile.game_id) / "dlc" / managed_name
-        if destination.exists():
-            raise WorkspaceError(f"DLC 已存在：{managed_name}")
+        dlc_root = self.game_dir(profile.game_id) / "dlc"
+        existing = self._find_dlc_by_install_name(dlc_root, managed_name)
+        destination = existing or (dlc_root / managed_name)
         staging_root = self._import_staging_root(profile)
         staging_root.mkdir(parents=True, exist_ok=True)
         staging = staging_root / uuid.uuid4().hex[:8]
+        backup = staging_root / f"{staging.name}.backup"
         try:
             self._copy_directory(source, staging)
+            if destination.exists():
+                destination.replace(backup)
             staging.replace(destination)
         except (OSError, shutil.Error) as error:
+            if destination.exists() and backup.exists():
+                self._remove_tree(destination, ignore_errors=True)
+            if backup.exists() and not destination.exists():
+                backup.replace(destination)
             raise self._copy_workspace_error(source.name, error) from error
         finally:
             if staging.exists():
                 self._remove_tree(staging)
+            if backup.exists():
+                self._remove_tree(backup, ignore_errors=True)
         self._advance_dlc_import_number(profile, managed_name)
         self._invalidate_build_complete(profile)
         return destination
@@ -364,38 +373,36 @@ class PublisherWorkspace:
             )
         )
         dlc_root = self.game_dir(profile.game_id) / "dlc"
-        existing_install_names = {
-            parsed[1].casefold()
-            for path in dlc_root.iterdir()
-            if path.is_dir()
-            for parsed in [parse_managed_folder(path.name)]
-            if parsed is not None
-        }
+        existing_dlc = self._existing_dlc_by_install_name(dlc_root)
         first_number = self._next_dlc_import_number(profile)
         planned: list[tuple[Path, Path]] = []
         for offset, child in enumerate(children):
-            if child.name.casefold() in existing_install_names:
-                raise WorkspaceError(f"DLC 已存在：{child.name}")
             # Some games (for example Victoria 3) already expose their DLC
             # directories as dlcNNN_name.  Treat those names as authoritative
             # instead of prefixing a second publisher-managed number.
-            if parse_managed_folder(child.name) is not None:
+            parsed_child = parse_managed_folder(child.name)
+            install_name = parsed_child[1] if parsed_child is not None else child.name
+            existing = existing_dlc.get(install_name.casefold())
+            if existing is not None:
+                destination = existing
+            elif parsed_child is not None:
                 managed_name = child.name
+                destination = dlc_root / managed_name
             else:
                 try:
                     managed_name = auto_managed_folder(child.name, first_number + offset)
                 except ValueError as error:
                     raise WorkspaceError(str(error)) from error
-            destination = dlc_root / managed_name
-            if destination.exists():
-                raise WorkspaceError(f"DLC 已存在：{managed_name}")
+                destination = dlc_root / managed_name
+            if any(destination == item[1] for item in planned):
+                raise WorkspaceError(f"DLC 已存在：{destination.name}")
             planned.append((child, destination))
 
         staging_root = self._import_staging_root(profile)
         staging_root.mkdir(parents=True, exist_ok=True)
         batch = staging_root / uuid.uuid4().hex[:8]
         batch.mkdir()
-        committed: list[tuple[Path, Path]] = []
+        committed: list[tuple[Path, Path, Path]] = []
         current_name = source.name
         try:
             for index, (child, destination) in enumerate(planned, start=1):
@@ -405,20 +412,31 @@ class PublisherWorkspace:
                 self._copy_directory(child, batch / destination.name)
             for _, destination in planned:
                 staged = batch / destination.name
-                staged.replace(destination)
-                committed.append((destination, staged))
-        except (OSError, shutil.Error) as error:
-            for destination, staged in reversed(committed):
+                backup = batch / f".backup-{len(committed):03d}"
                 if destination.exists():
-                    destination.replace(staged)
+                    destination.replace(backup)
+                try:
+                    staged.replace(destination)
+                except OSError:
+                    if backup.exists() and not destination.exists():
+                        backup.replace(destination)
+                    raise
+                committed.append((destination, staged, backup))
+        except (OSError, shutil.Error) as error:
+            for destination, staged, backup in reversed(committed):
+                if destination.exists():
+                    self._remove_tree(destination, ignore_errors=True)
+                if backup.exists():
+                    backup.replace(destination)
             raise self._copy_workspace_error(current_name, error) from error
         finally:
             if batch.exists():
                 self._remove_tree(batch, ignore_errors=True)
         self._atomic_json(
             self.game_dir(profile.game_id) / ".dlc-import-state.json",
-            {"version": 1, "next_number": first_number + len(planned)},
+            {"version": 1, "next_number": first_number},
         )
+        self._sync_dlc_import_number(profile)
         self._invalidate_build_complete(profile)
         return tuple(destination for _, destination in planned)
 
@@ -465,29 +483,25 @@ class PublisherWorkspace:
                 "DLC 文件缺少 JSON 描述或 PNG 缩略图：" + "、".join(incomplete[:5])
             )
         dlc_root = self.game_dir(profile.game_id) / "dlc"
-        existing_names = {
-            parsed[1].casefold()
-            for path in dlc_root.iterdir() if path.is_dir()
-            for parsed in [parse_managed_folder(path.name)] if parsed is not None
-        }
+        existing_names = self._existing_dlc_by_install_name(dlc_root)
         first_number = self._next_dlc_import_number(profile)
         planned: list[tuple[str, dict[str, Path], Path]] = []
         for offset, key in enumerate(sorted(groups)):
-            if key in existing_names:
+            destination = existing_names.get(key)
+            if destination is None:
+                try:
+                    managed_name = auto_managed_folder(key, first_number + offset)
+                except ValueError as error:
+                    raise WorkspaceError(str(error)) from error
+                destination = dlc_root / managed_name
+            if any(destination == item[2] for item in planned):
                 raise WorkspaceError(f"DLC 已存在：{key}")
-            try:
-                managed_name = auto_managed_folder(key, first_number + offset)
-            except ValueError as error:
-                raise WorkspaceError(str(error)) from error
-            destination = dlc_root / managed_name
-            if destination.exists():
-                raise WorkspaceError(f"DLC 已存在：{managed_name}")
             planned.append((key, groups[key], destination))
         staging_root = self._import_staging_root(profile)
         staging_root.mkdir(parents=True, exist_ok=True)
         batch = staging_root / uuid.uuid4().hex[:8]
         batch.mkdir()
-        committed: list[tuple[Path, Path]] = []
+        committed: list[tuple[Path, Path, Path]] = []
         try:
             for index, (key, files, destination) in enumerate(planned, start=1):
                 if progress is not None:
@@ -498,12 +512,22 @@ class PublisherWorkspace:
                     shutil.copy2(path, staged / path.name)
             for _, _, destination in planned:
                 staged = batch / destination.name
-                staged.replace(destination)
-                committed.append((destination, staged))
-        except (OSError, shutil.Error) as error:
-            for destination, staged in reversed(committed):
+                backup = batch / f".backup-{len(committed):03d}"
                 if destination.exists():
-                    destination.replace(staged)
+                    destination.replace(backup)
+                try:
+                    staged.replace(destination)
+                except OSError:
+                    if backup.exists() and not destination.exists():
+                        backup.replace(destination)
+                    raise
+                committed.append((destination, staged, backup))
+        except (OSError, shutil.Error) as error:
+            for destination, staged, backup in reversed(committed):
+                if destination.exists():
+                    self._remove_tree(destination, ignore_errors=True)
+                if backup.exists():
+                    backup.replace(destination)
             raise self._copy_workspace_error(source.name, error) from error
         finally:
             if batch.exists():
@@ -542,32 +566,28 @@ class PublisherWorkspace:
             raise WorkspaceError("声明的聚合扫描目录中没有找到 DLC 子目录")
 
         dlc_root = self.game_dir(profile.game_id) / "dlc"
-        existing_names = {
-            parsed[1].casefold()
-            for path in dlc_root.iterdir() if path.is_dir()
-            for parsed in [parse_managed_folder(path.name)] if parsed is not None
-        }
+        existing_names = self._existing_dlc_by_install_name(dlc_root)
         ordered = sorted(groups, key=lambda item: display_names[item].casefold())
         first_number = self._next_dlc_import_number(profile)
         planned: list[tuple[str, list[Path], Path]] = []
         for offset, key in enumerate(ordered):
             name = display_names[key]
-            if key in existing_names:
+            destination = existing_names.get(key)
+            if destination is None:
+                try:
+                    managed_name = auto_managed_folder(name, first_number + offset)
+                except ValueError as error:
+                    raise WorkspaceError(str(error)) from error
+                destination = dlc_root / managed_name
+            if any(destination == item[2] for item in planned):
                 raise WorkspaceError(f"DLC 已存在：{name}")
-            try:
-                managed_name = auto_managed_folder(name, first_number + offset)
-            except ValueError as error:
-                raise WorkspaceError(str(error)) from error
-            destination = dlc_root / managed_name
-            if destination.exists():
-                raise WorkspaceError(f"DLC 已存在：{managed_name}")
             planned.append((name, groups[key], destination))
 
         staging_root = self._import_staging_root(profile)
         staging_root.mkdir(parents=True, exist_ok=True)
         batch = staging_root / uuid.uuid4().hex[:8]
         batch.mkdir()
-        committed: list[tuple[Path, Path]] = []
+        committed: list[tuple[Path, Path, Path]] = []
         current_name = source.name
         try:
             for index, (name, leaves, destination) in enumerate(planned, start=1):
@@ -580,12 +600,22 @@ class PublisherWorkspace:
                     self._copy_directory(leaf, staged_dlc / relative)
             for _, _, destination in planned:
                 staged = batch / destination.name
-                staged.replace(destination)
-                committed.append((destination, staged))
-        except (OSError, shutil.Error) as error:
-            for destination, staged in reversed(committed):
+                backup = batch / f".backup-{len(committed):03d}"
                 if destination.exists():
-                    destination.replace(staged)
+                    destination.replace(backup)
+                try:
+                    staged.replace(destination)
+                except OSError:
+                    if backup.exists() and not destination.exists():
+                        backup.replace(destination)
+                    raise
+                committed.append((destination, staged, backup))
+        except (OSError, shutil.Error) as error:
+            for destination, staged, backup in reversed(committed):
+                if destination.exists():
+                    self._remove_tree(destination, ignore_errors=True)
+                if backup.exists():
+                    backup.replace(destination)
             raise self._copy_workspace_error(current_name, error) from error
         finally:
             if batch.exists():
@@ -1766,6 +1796,24 @@ class PublisherWorkspace:
 
     def _import_staging_root(self, profile: GameProfile) -> Path:
         return self.root / ".staging" / profile.game_id
+
+    @staticmethod
+    def _existing_dlc_by_install_name(dlc_root: Path) -> dict[str, Path]:
+        return {
+            parsed[1].casefold(): path
+            for path in dlc_root.iterdir()
+            if path.is_dir()
+            for parsed in [parse_managed_folder(path.name)]
+            if parsed is not None
+        }
+
+    @classmethod
+    def _find_dlc_by_install_name(
+        cls, dlc_root: Path, managed_name: str
+    ) -> Path | None:
+        parsed = parse_managed_folder(managed_name)
+        install_name = parsed[1] if parsed is not None else managed_name
+        return cls._existing_dlc_by_install_name(dlc_root).get(install_name.casefold())
 
     def _import_staging_roots(self, profile: GameProfile) -> tuple[Path, ...]:
         # The second path is retained only to detect and clean residues created

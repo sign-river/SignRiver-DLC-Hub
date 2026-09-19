@@ -802,6 +802,28 @@ def test_auto_prefix_cartridge_keeps_numbers_monotonic_after_deleted_folder_and_
     assert (imported_second / "content.dat").read_bytes() == b"second"
 
 
+def test_auto_prefix_import_replaces_same_dlc_install_name(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(tmp_path / "publisher")
+    workspace.initialize()
+    profile = next(
+        item for item in workspace.list_games() if item.game_id == "civilization_6"
+    )
+    dlc_root = workspace.game_dir(profile.game_id) / "dlc"
+    existing = dlc_root / "dlc003_CityStations"
+    existing.mkdir()
+    (existing / "content.dat").write_text("old", encoding="utf-8")
+
+    source = tmp_path / "CityStations"
+    source.mkdir()
+    (source / "content.dat").write_text("new", encoding="utf-8")
+
+    imported = workspace.import_dlc(profile, source)
+
+    assert imported == existing
+    assert (existing / "content.dat").read_text(encoding="utf-8") == "new"
+    assert not (dlc_root / "dlc004_CityStations").exists()
+
+
 def test_manual_prefix_cartridge_still_rejects_raw_folder(tmp_path: Path) -> None:
     workspace = PublisherWorkspace(tmp_path / "publisher")
     profile = workspace.initialize()
