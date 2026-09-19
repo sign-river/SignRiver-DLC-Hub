@@ -687,6 +687,18 @@ class ContentManagementUiMixin:
             ctk.CTkLabel(row, text=path.name, anchor="w", text_color=TEXT).pack(
                 side="left", fill="x", expand=True, padx=12, pady=10
             )
+            if kind == "patches":
+                try:
+                    size_text = _display_bytes(path.stat().st_size)
+                except OSError:
+                    size_text = "大小未知"
+                ctk.CTkLabel(
+                    row,
+                    text=size_text,
+                    width=82,
+                    anchor="e",
+                    text_color=MUTED,
+                ).pack(side="right", padx=(8, 4), pady=10)
             ctk.CTkButton(
                 row,
                 text="删除",

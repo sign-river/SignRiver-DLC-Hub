@@ -209,6 +209,15 @@ def test_publisher_uses_task_oriented_workspace_tabs() -> None:
     assert "CTkTabview" not in inspect.getsource(PublisherApplication._nested_tabs)
 
 
+def test_local_patch_rows_show_file_size() -> None:
+    source = inspect.getsource(PublisherApplication._fill_resources)
+
+    assert 'if kind == "patches":' in source
+    assert "path.stat().st_size" in source
+    assert "_display_bytes(path.stat().st_size)" in source
+    assert 'size_text = "大小未知"' in source
+
+
 def test_publisher_mutating_entry_points_use_single_writer_guard() -> None:
     guarded = (
         "import_dlc",
