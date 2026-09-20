@@ -60,11 +60,27 @@ class GuideIndexEntry:
     builtin: bool = False
 
     @classmethod
-    def from_dict(cls, value: dict[str, object], *, builtin: bool = False) -> "GuideIndexEntry":
+    def from_dict(
+        cls,
+        value: dict[str, object],
+        *,
+        builtin: bool = False,
+        platform: str = "windows",
+    ) -> "GuideIndexEntry":
+        normalized_platform = str(platform or "windows").strip().lower().split("-", 1)[0]
+
+        def localized(field: str) -> str:
+            fallback = str(value.get(field) or "").strip()
+            raw = value.get(f"{field}_by_platform")
+            if not isinstance(raw, dict):
+                return fallback
+            selected = raw.get(normalized_platform, raw.get("all", fallback))
+            return str(selected or fallback).strip()
+
         return cls(
             guide_id=_id(value.get("guide_id"), "guide_id"),
-            title=str(value.get("title") or "").strip(),
-            summary=str(value.get("summary") or "").strip(),
+            title=localized("title"),
+            summary=localized("summary"),
             asset_name=str(value.get("asset_name") or "").strip(),
             platforms=_platforms(value.get("platforms")),
             builtin=builtin,
@@ -292,7 +308,7 @@ class GuideCatalogService:
         entries = tuple(
             entry
             for entry in (
-                GuideIndexEntry.from_dict(item, builtin=builtin)
+                GuideIndexEntry.from_dict(item, builtin=builtin, platform=self.platform)
                 for item in raw_entries
                 if isinstance(item, dict)
             )
@@ -393,8 +409,23 @@ class GuideCatalogService:
         for block in raw_blocks:
             if not isinstance(block, dict):
                 continue
+            raw_block_platforms = block.get("platforms")
+            if raw_block_platforms is not None:
+                allowed = _platforms(raw_block_platforms)
+                if "all" not in allowed and self.platform not in allowed:
+                    continue
             kind = str(block.get("kind") or "text")
-            text = str(block.get("text") or "").strip()
+            if kind == "platform_text":
+                variants = block.get("text_by_platform")
+                if not isinstance(variants, dict):
+                    continue
+                normalized_platform = self.platform.split("-", 1)[0]
+                text = str(
+                    variants.get(normalized_platform, variants.get("all", "")) or ""
+                ).strip()
+                kind = "text"
+            else:
+                text = str(block.get("text") or "").strip()
             if kind in {"heading", "text"} and text:
                 blocks.append((kind, text))
             elif kind == "link" and text:

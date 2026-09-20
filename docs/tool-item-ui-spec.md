@@ -61,6 +61,18 @@
 - 指南仅在确有需要时通过正文 `button` 块声明 `target: "tool:<tool_id>"`，跳转到对应工具详情页。
 - 工具详情页可按需提供关联指南入口；从指南进入工具时，返回按钮回到原指南。
 
+### 跨平台指南正文
+
+- `guides_index.json` 可为 `title`、`summary` 声明 `title_by_platform`、`summary_by_platform`，键仅允许 `windows`、`steamos`、`macos`、`all`；客户端按当前平台选择文案，缺失时回退基础字段。
+- 指南正文可使用 `{ "kind": "platform_text", "text_by_platform": { ... } }`，客户端将其渲染为普通正文；禁止在 SteamOS/macOS 文案中把 Windows `.dll`、Windows Defender、DxDiag 或注册表修复当作可用方案。
+- 正文块可声明 `platforms` 过滤按钮或其他块。平台不匹配时客户端不渲染该块；因此 Windows 专属安全软件指南不能被 SteamOS/macOS 的补丁指南直接跳转。
+- SteamOS 补丁指南必须说明原生 `.so` 资源和 Steam 库/兼容层目录；macOS 补丁指南必须说明原生 `.dylib` 资源和 `.app`/Steam 库目录。缺少原生资源时应指导用户反馈平台，不得建议改名或套用 Windows 补丁。
+
+### 原生平台日志资料收集
+
+- Windows 收集 `DxDiag`；SteamOS 收集 `uname` 与 `/etc/os-release`；macOS 收集精简的 `system_profiler` 软件、显示信息。
+- Paradox 游戏日志同时检查 `Documents`、macOS `Library/Application Support` 和 SteamOS `~/.local/share` 下的标准目录；仅复制明确列出的文本和配置文件，不扫描用户目录或收集转储内容。
+
 ### Windows 内置 P 社启动器工具
 
 - `P 社启动器修复` 与 `P 社启动器安装工具` 是客户端内置工具，不依赖 `tools_index.json` 或云端工具附件，详情页顶部状态固定显示“已就绪”。

@@ -6,8 +6,12 @@
       "text": "常见原因"
     },
     {
-      "kind": "text",
-      "text": "补丁可能被杀毒软件或其他安全防护拦截，导致补丁文件下载后消失、无法读取或审计不通过。"
+      "kind": "platform_text",
+      "text_by_platform": {
+        "windows": "补丁可能被杀毒软件或其他安全防护拦截，导致补丁文件下载后消失、无法读取或审计不通过。",
+        "steamos": "SteamOS 只接受当前卡带声明的原生 `.so` 补丁。Windows `.dll` 不会被当作可用补丁；如果云端没有对应的 Linux/SteamOS 原生资源，一键解锁必须保持禁用。",
+        "macos": "macOS 只接受当前卡带声明的原生 `.dylib` 补丁。Windows `.dll` 不会被当作可用补丁；如果云端没有对应的 macOS 原生资源，一键解锁必须保持禁用。"
+      }
     },
     {
       "kind": "heading",
@@ -23,8 +27,12 @@
       "target": "patch-tool"
     },
     {
-      "kind": "text",
-      "text": "如果补丁状态显示三个项目均正常，请返回主页面重新执行“一键解锁”。如果缺少 unlock.dll 补丁，请点击“从云端重新下载补丁”，再点击“刷新补丁列表”，多刷新几次，观察 unlock.dll 是否出现。"
+      "kind": "platform_text",
+      "text_by_platform": {
+        "windows": "如果补丁状态显示三个项目均正常，请返回主页面重新执行“一键解锁”。如果缺少 unlock.dll 补丁，请点击“从云端重新下载补丁”，再点击“刷新补丁列表”，多刷新几次，观察 unlock.dll 是否出现。",
+        "steamos": "如果补丁状态显示所需项目均正常，请返回主页面重新执行“一键解锁”。如果缺少 `.so` 原生补丁，请点击“从云端重新下载补丁”，再点击“刷新补丁列表”。若云端仍没有原生资源，请不要手动改名或替换 Windows DLL。",
+        "macos": "如果补丁状态显示所需项目均正常，请返回主页面重新执行“一键解锁”。如果缺少 `.dylib` 原生补丁，请点击“从云端重新下载补丁”，再点击“刷新补丁列表”。若云端仍没有原生资源，请不要手动改名或替换 Windows DLL。"
+      }
     },
     {
       "kind": "button",
@@ -36,13 +44,18 @@
       "asset_name": "patch-tool-status.png"
     },
     {
-      "kind": "text",
-      "text": "如果多次刷新后仍没有 unlock.dll，可能是补丁被杀毒软件拦截。请排查安全软件记录，并在确认来源后将相关文件加入白名单，再重新下载和刷新。"
+      "kind": "platform_text",
+      "text_by_platform": {
+        "windows": "如果多次刷新后仍没有 unlock.dll，可能是补丁被杀毒软件拦截。请排查安全软件记录，并在确认来源后将相关文件加入白名单，再重新下载和刷新。",
+        "steamos": "如果多次刷新后仍没有原生 `.so`，先检查下载任务是否完成、文件是否被系统清理，以及游戏目录是否可写。SteamOS 不应通过关闭 Windows 安全软件或套用 Windows 补丁来解决；没有原生资源时请反馈卡带和平台。",
+        "macos": "如果多次刷新后仍没有原生 `.dylib`，先检查下载任务是否完成、文件是否被系统清理，以及游戏目录是否可写。macOS 不应通过关闭 Windows 安全软件或套用 Windows 补丁来解决；若系统阻止文件，请在“隐私与安全性”中确认来源后重试。"
+      }
     },
     {
       "kind": "button",
-      "text": "查看杀毒软件文件处理问题 →",
-      "target": "guide:security-interference"
+      "text": "查看文件被拦截或清理的排查指南 →",
+      "target": "guide:security-interference",
+      "platforms": ["windows"]
     },
     {
       "kind": "heading",

@@ -89,7 +89,7 @@ def test_support_collection_copies_redacted_files_and_skips_dumps(
     assert problems[0]["technical_details"] == "token=<REDACTED>"
 
 
-def test_support_collection_records_dxdiag_failure_and_non_windows_skip(
+def test_support_collection_records_dxdiag_failure_and_collects_native_system_info(
     tmp_path: Path,
 ) -> None:
     collector = SupportBundleCollector(
@@ -108,14 +108,25 @@ def test_support_collection_records_dxdiag_failure_and_non_windows_skip(
     assert any("dxdiag 返回 1" in item for item in failed.failed)
     assert any("未选择游戏" in item for item in failed.skipped)
 
-    skipped = collector.collect(
+    def run_native(command, **_kwargs):
+        if command[0] == "uname":
+            return SimpleNamespace(returncode=0, stdout="Linux steamdeck", stderr="")
+        return SimpleNamespace(returncode=0, stdout="NAME=SteamOS", stderr="")
+
+    native = SupportBundleCollector(
+        tmp_path / "native-app",
+        tmp_path / "native-data",
+        system_runner=run_native,
+    )
+    skipped = native.collect(
         app_version="0.2.0",
         launcher_version="0.1.7",
         game_id=None,
         game_root=None,
         host_platform="linux",
     )
-    assert "DxDiag.txt（当前平台不适用）" in skipped.skipped
+    assert "系统-SteamOS-uname.txt" in skipped.copied
+    assert "系统-SteamOS-os-release.txt" in skipped.copied
 
 
 def test_support_collection_retries_dxdiag_once_after_initial_failure(
@@ -151,6 +162,27 @@ def test_support_collection_retries_dxdiag_once_after_initial_failure(
     assert delays == [1.0]
     assert "系统-DxDiag.txt" in result.copied
     assert not result.failed
+
+
+def test_support_collection_finds_macos_paradox_logs_in_application_support(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "mac-home"
+    logs = home / "Library" / "Application Support" / "Paradox Interactive" / "Stellaris" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "error.log").write_text("mac error\n", encoding="utf-8")
+    _use_home(monkeypatch, home)
+    collector = SupportBundleCollector(tmp_path / "app", tmp_path / "data")
+
+    result = collector.collect(
+        app_version="0.2.0",
+        launcher_version="0.1.7",
+        game_id="stellaris",
+        game_root=None,
+        host_platform="macos",
+    )
+
+    assert (result.output_dir / "游戏-stellaris-error.log").read_text(encoding="utf-8").startswith("mac error")
 
 
 def test_support_collection_keeps_output_contained_and_avoids_name_collisions(
@@ -246,7 +278,7 @@ def test_support_collection_reports_background_stages(tmp_path: Path) -> None:
 
     assert progress == [
         "已创建收集目录",
-        "正在收集系统信息（DxDiag）",
+        "正在收集系统信息（SteamOS 系统信息）",
         "系统信息收集完成",
         "正在收集程序运行日志和问题记录",
         "程序运行日志和问题记录收集完成",

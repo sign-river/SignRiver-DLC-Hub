@@ -3983,10 +3983,15 @@ class DlcHubApplication:
         ).pack(fill="x", padx=16, pady=(0, 6))
         collection_grid = ctk.CTkFrame(body, fg_color="transparent")
         collection_grid.pack(fill="x", padx=16, pady=(0, 12))
+        system_detail = {
+            "windows": "Windows DxDiag.txt",
+            "steamos": "SteamOS uname 与发行版信息",
+            "macos": "macOS system_profiler 图形与系统信息",
+        }.get(self.host_platform, "当前平台系统信息")
         collection_items = (
             ("游戏资料", "当前选中游戏的已知日志和配置文件"),
             ("程序日志", "唏嘘南溪一键解锁工具日志"),
-            ("系统信息", "Windows DxDiag.txt"),
+            ("系统信息", system_detail),
         )
         for index, (title, detail) in enumerate(collection_items):
             item = ctk.CTkFrame(
@@ -4173,13 +4178,18 @@ class DlcHubApplication:
         installation = self.current_installation
         game_root = installation.root if installation is not None else None
         bundle = self.patch_bundle
+        native_patch_label = {
+            "windows": "Windows 补丁",
+            "steamos": "SteamOS 原生补丁",
+            "macos": "macOS 原生补丁",
+        }.get(self.host_platform, "当前平台补丁")
         status = (
-            "当前游戏未提供补丁资源。"
+            f"当前游戏未提供{native_patch_label}资源。"
             if bundle is None
             else (
-                "补丁已通过审计。"
+                f"{native_patch_label}已通过审计。"
                 if self._patch_is_healthy()
-                else "补丁未安装、未完成或审计未通过。"
+                else f"{native_patch_label}未安装、未完成或审计未通过。"
             )
         )
         details = [f"游戏目录：{game_root if game_root else '未检测到'}", f"状态：{status}"]
@@ -4235,7 +4245,7 @@ class DlcHubApplication:
         if not patch_specs:
             ctk.CTkLabel(
                 body,
-                text="当前游戏未提供补丁文件。",
+                text=f"当前游戏未提供{native_patch_label}文件。",
                 text_color=UI["muted"],
                 anchor="w",
             ).pack(fill="x", padx=16, pady=(4, 8))
@@ -4309,7 +4319,7 @@ class DlcHubApplication:
             ).pack(side="right", padx=12, pady=9)
         ctk.CTkButton(
             body,
-            text="从云端重新下载补丁",
+            text=f"从云端重新下载{native_patch_label}",
             width=170,
             command=self._redownload_patch_assets, **BUTTON_PRIMARY,
         ).pack(anchor="w", padx=16, pady=(16, 4))
@@ -10537,7 +10547,9 @@ class DlcHubApplication:
                 self._on_patch_workflow_failed(str(error))
                 return
         self.patch_task_ids = tuple(task_ids)
-        self.catalog_preview.configure(text="正在下载补丁资源（3 个文件）……")
+        self.catalog_preview.configure(
+            text=f"正在下载补丁资源（{len(specs)} 个文件）……"
+        )
         # If everything came from the cache we may need to advance immediately.
         self.window.after(50, self._maybe_advance_patch_workflow)
 

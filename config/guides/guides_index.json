@@ -5,6 +5,14 @@
       "guide_id": "network-basics",
       "title": "网络、下载与 TLS/DNS",
       "summary": "下载列表或资源时连接失败、超时，或出现 TLS、DNS 相关错误。",
+      "title_by_platform": {
+        "steamos": "SteamOS 网络、下载与 TLS/DNS",
+        "macos": "macOS 网络、下载与 TLS/DNS"
+      },
+      "summary_by_platform": {
+        "steamos": "SteamOS 桌面模式下下载列表或资源连接失败、超时，或出现 TLS、DNS 相关错误。",
+        "macos": "macOS 下下载列表或资源连接失败、超时，或出现 TLS、DNS 相关错误。"
+      },
       "summary_type": "problem_detail",
       "asset_name": "guide_network_basics.json",
       "platforms": [
@@ -15,6 +23,14 @@
       "guide_id": "game-directory-missing",
       "title": "游戏目录不存在或未选择",
       "summary": "未检测到游戏安装目录，或当前选择的目录不是该游戏的有效安装位置。",
+      "title_by_platform": {
+        "steamos": "SteamOS 游戏目录不存在或未选择",
+        "macos": "macOS 游戏目录不存在或未选择"
+      },
+      "summary_by_platform": {
+        "steamos": "未检测到 Steam 库中的 Linux/兼容层游戏目录，或当前选择的目录不是有效安装位置。",
+        "macos": "未检测到 Steam 库中的 macOS 游戏目录，或当前选择的目录不是有效安装位置。"
+      },
       "summary_type": "problem_detail",
       "asset_name": "guide_game_directory_missing.json",
       "platforms": [
@@ -25,6 +41,14 @@
       "guide_id": "disk-space",
       "title": "游戏所在磁盘空间不足",
       "summary": "游戏所在磁盘可用空间不足，导致 DLC 下载、解压或补丁写入无法完成。",
+      "title_by_platform": {
+        "steamos": "SteamOS 游戏所在磁盘空间不足",
+        "macos": "macOS 游戏所在磁盘空间不足"
+      },
+      "summary_by_platform": {
+        "steamos": "SteamOS 游戏库或兼容层所在磁盘可用空间不足，导致 DLC 下载、解压或原生补丁写入无法完成。",
+        "macos": "macOS 游戏库所在磁盘可用空间不足，导致 DLC 下载、解压或原生补丁写入无法完成。"
+      },
       "summary_type": "problem_detail",
       "asset_name": "guide_disk_space.json",
       "platforms": [
@@ -35,6 +59,14 @@
       "guide_id": "patch-state",
       "title": "补丁状态异常",
       "summary": "补丁状态未通过、缺少 unlock.dll，或补丁文件下载后消失、无法读取。",
+      "title_by_platform": {
+        "steamos": "SteamOS 原生补丁状态异常",
+        "macos": "macOS 原生补丁状态异常"
+      },
+      "summary_by_platform": {
+        "steamos": "原生 `.so` 补丁状态未通过，或补丁文件下载后消失、无法读取；Windows DLL 不适用于 SteamOS。",
+        "macos": "原生 `.dylib` 补丁状态未通过，或补丁文件下载后消失、无法读取；Windows DLL 不适用于 macOS。"
+      },
       "summary_type": "problem_detail",
       "asset_name": "guide_patch_state.json",
       "platforms": [
@@ -65,6 +97,14 @@
       "guide_id": "update-module-basics",
       "title": "程序更新或模块加载异常",
       "summary": "程序更新下载失败、更新后模块无法加载，或启动时提示模块异常。",
+      "title_by_platform": {
+        "steamos": "SteamOS 程序更新或模块加载异常",
+        "macos": "macOS 程序更新或模块加载异常"
+      },
+      "summary_by_platform": {
+        "steamos": "SteamOS 更新包下载失败、更新后模块无法加载，或启动时提示模块异常。",
+        "macos": "macOS 更新包下载失败、更新后模块无法加载，或启动时提示模块异常。"
+      },
       "summary_type": "problem_detail",
       "asset_name": "guide_update_module_basics.json",
       "platforms": [

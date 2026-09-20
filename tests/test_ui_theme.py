@@ -476,7 +476,7 @@ def test_error_guide_details_style_dynamic_actions_by_current_semantics() -> Non
     tool_center = _app_method_source("_build_tool_center_page")
     solution_navigation = _app_method_source("_activate_solution_button")
 
-    assert 'text="从云端重新下载补丁"' in patch_tool
+    assert 'text=f"从云端重新下载{native_patch_label}"' in patch_tool
     assert 'command=self._redownload_patch_assets, **BUTTON_PRIMARY' in patch_tool
     assert patch_tool.count('**BUTTON_SECONDARY') >= 5
     assert 'return BUTTON_PRIMARY' in helper_style

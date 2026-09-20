@@ -63,15 +63,29 @@ def _paths(*patterns: str) -> tuple[SupportPathSpec, ...]:
 
 
 def _paradox_profile(game_id: str, folder: str) -> GameSupportProfile:
-    root = "{documents}/Paradox Interactive/" + folder
-    return GameSupportProfile(
-        game_id,
-        _paths(
+    roots = (
+        "{documents}/Paradox Interactive/" + folder,
+        "{application_support}/Paradox Interactive/" + folder,
+        "{local_share}/Paradox Interactive/" + folder,
+    )
+    log_paths = tuple(
+        path
+        for root in roots
+        for path in (
             *(f"{root}/logs/{name}" for name in _PARADOX_LOG_NAMES),
             f"{root}/settings.txt",
             f"{root}/crashes/*.txt",
-        ),
-        _paths(f"{root}/crashes/*.dmp", f"{root}/logs/*.dmp"),
+        )
+    )
+    dump_paths = tuple(
+        path
+        for root in roots
+        for path in (f"{root}/crashes/*.dmp", f"{root}/logs/*.dmp")
+    )
+    return GameSupportProfile(
+        game_id,
+        _paths(*log_paths),
+        _paths(*dump_paths),
     )
 
 
@@ -154,6 +168,7 @@ class SupportBundleCollector:
         *,
         now: Callable[[], datetime] | None = None,
         dxdiag_runner: Callable[..., object] | None = None,
+        system_runner: Callable[..., object] | None = None,
         sleep: Callable[[float], None] | None = None,
         dxdiag_retry_delay: float = 1.0,
     ) -> None:
@@ -161,6 +176,7 @@ class SupportBundleCollector:
         self.data_root = Path(data_root).resolve(strict=False)
         self._now = now or datetime.now
         self._dxdiag_runner = dxdiag_runner or subprocess.run
+        self._system_runner = system_runner or subprocess.run
         self._sleep = sleep or time.sleep
         self._dxdiag_retry_delay = max(0.0, dxdiag_retry_delay)
         self._sanitizer = DiagnosticExporter(self.app_root, self.data_root)
@@ -190,8 +206,16 @@ class SupportBundleCollector:
         skipped_dumps: list[str] = []
         detected_platform = (host_platform or platform_module.system()).casefold()
 
-        report("正在收集系统信息（DxDiag）")
-        self._collect_dxdiag(output_dir, detected_platform, copied, skipped, failed)
+        system_label = {
+            "windows": "DxDiag",
+            "win32": "DxDiag",
+            "steamos": "SteamOS 系统信息",
+            "linux": "SteamOS 系统信息",
+            "macos": "macOS 系统信息",
+            "darwin": "macOS 系统信息",
+        }.get(detected_platform, "系统信息")
+        report(f"正在收集系统信息（{system_label}）")
+        self._collect_system_info(output_dir, detected_platform, copied, skipped, failed)
         report("系统信息收集完成")
         report("正在收集程序运行日志和问题记录")
         self._collect_signriver(
@@ -280,6 +304,50 @@ class SupportBundleCollector:
                 self._sleep(self._dxdiag_retry_delay)
 
         failed.append(f"DxDiag.txt（{failure_detail}；已自动重试 1 次）")
+
+    def _collect_system_info(
+        self,
+        destination: Path,
+        host_platform: str,
+        copied: list[str],
+        skipped: list[str],
+        failed: list[str],
+    ) -> None:
+        if host_platform in {"windows", "win32"}:
+            self._collect_dxdiag(destination, host_platform, copied, skipped, failed)
+            return
+        normalized = "macos" if host_platform in {"darwin", "mac"} else host_platform
+        if normalized not in {"steamos", "linux", "macos"}:
+            skipped.append("系统信息（当前平台不适用）")
+            return
+        commands = (
+            (
+                ["system_profiler", "SPSoftwareDataType", "SPDisplaysDataType", "-detailLevel", "mini"],
+                "系统-macOS-system-profiler.txt",
+            ),
+        ) if normalized == "macos" else (
+            (["uname", "-a"], "系统-SteamOS-uname.txt"),
+            (["cat", "/etc/os-release"], "系统-SteamOS-os-release.txt"),
+        )
+        for command, filename in commands:
+            target = self._available_target(destination, filename)
+            try:
+                completed = self._system_runner(
+                    command, check=False, capture_output=True, text=True, timeout=30,
+                )
+                stdout = str(getattr(completed, "stdout", "") or "")
+                stderr = str(getattr(completed, "stderr", "") or "")
+                return_code = int(getattr(completed, "returncode", 0) or 0)
+                content = stdout.strip()
+                if stderr.strip():
+                    content = f"{content}\n{stderr.strip()}".strip()
+                if return_code != 0 or not content:
+                    failed.append(f"{filename}（返回码 {return_code}）")
+                    continue
+                target.write_text(self._sanitizer.sanitize(content) + "\n", encoding="utf-8")
+                copied.append(filename)
+            except (OSError, subprocess.SubprocessError, UnicodeError, ValueError) as error:
+                failed.append(f"{filename}（{error}）")
 
     def _collect_signriver(
         self,
@@ -372,6 +440,8 @@ class SupportBundleCollector:
             "app_data": app_data,
             "local_app_data": local_app_data,
             "local_low": local_app_data / "Low",
+            "application_support": user_home / "Library" / "Application Support",
+            "local_share": user_home / ".local" / "share",
         }
 
     @staticmethod

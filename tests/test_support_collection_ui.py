@@ -50,5 +50,8 @@ def test_support_collection_detail_keeps_the_collection_grid_compact() -> None:
         assert "本地采集 · 安全可控" not in detail
         assert '("问题记录", "本次会话与历史问题记录")' not in detail
         assert '("程序日志", "唏嘘南溪一键解锁工具日志")' in detail
-        assert '("系统信息", "Windows DxDiag.txt")' in detail
+        assert 'system_detail = {' in detail
+        assert '"windows": "Windows DxDiag.txt"' in detail
+        assert '"steamos": "SteamOS uname 与发行版信息"' in detail
+        assert '"macos": "macOS system_profiler 图形与系统信息"' in detail
         assert "仅 Windows" not in detail

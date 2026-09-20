@@ -137,6 +137,39 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
     assert not windows_tool.applies_to("steamos")
 
 
+@pytest.mark.parametrize(
+    ("platform", "native_marker", "forbidden_marker"),
+    (
+        ("steamos", "原生 `.so`", "unlock.dll"),
+        ("macos", "原生 `.dylib`", "unlock.dll"),
+    ),
+)
+def test_native_platform_guides_describe_native_assets_only(
+    tmp_path: Path, platform: str, native_marker: str, forbidden_marker: str,
+) -> None:
+    service = GuideCatalogService(
+        tmp_path / f"{platform}-cache", bootstrap_dir=GUIDES, platform=platform,
+    )
+    entries = service.refresh_index(allow_network=False)
+    patch_entry = next(item for item in entries if item.guide_id == "patch-state")
+    directory_entry = next(item for item in entries if item.guide_id == "game-directory-missing")
+    patch_text = "\n".join(
+        block[1] for block in service.load_guide(patch_entry, allow_network=False).blocks
+        if block[0] == "text"
+    )
+    directory_text = "\n".join(
+        block[1] for block in service.load_guide(directory_entry, allow_network=False).blocks
+        if block[0] == "text"
+    )
+
+    assert native_marker in patch_text
+    assert forbidden_marker not in patch_text
+    expected_label = "SteamOS" if platform == "steamos" else "macOS"
+    assert expected_label in patch_entry.title
+    assert expected_label in directory_entry.title
+    assert "游戏根目录" in directory_text
+
+
 def test_update_guide_mentions_code_issue_and_both_latest_package_sources(tmp_path: Path) -> None:
     service = GuideCatalogService(
         tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),

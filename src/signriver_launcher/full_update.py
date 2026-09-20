@@ -274,10 +274,10 @@ class FullUpdateManager:
             if candidate.exists() or backup.exists():
                 raise FullUpdateError("macOS update swap path already exists")
             shutil.copytree(staged, candidate, symlinks=True)
-            os.replace(install, backup)
+            self._replace_bundle_directory(install, backup)
             transaction.completed.append(manifest.bundle_path)
             self._save(transaction)
-            os.replace(candidate, install)
+            self._replace_bundle_directory(candidate, install)
             if transaction.activate_version:
                 StateStore(self.paths.state_file).activate(transaction.activate_version)
             transaction.stage = "swapped"
@@ -301,8 +301,8 @@ class FullUpdateManager:
         failed = install.parent / f".{install.name}.signriver-failed-{transaction.transaction_id}"
         if backup.exists():
             if install.exists():
-                os.replace(install, failed)
-            os.replace(backup, install)
+                self._replace_bundle_directory(install, failed)
+            self._replace_bundle_directory(backup, install)
             if failed.exists():
                 shutil.rmtree(failed, ignore_errors=True)
         if candidate.exists():
@@ -320,6 +320,20 @@ class FullUpdateManager:
         shutil.rmtree(transaction.staging_path, ignore_errors=True)
         self.lock_path.unlink(missing_ok=True)
         return transaction
+
+    @staticmethod
+    def _replace_bundle_directory(source: Path, target: Path) -> None:
+        """Atomically swap app bundles, with a Windows test/runtime fallback.
+
+        macOS supports replacing one directory entry with another through
+        ``os.replace``. Windows does not expose that operation for directory
+        paths, although a same-volume rename has the same no-partial-copy
+        property for the isolated test/runtime fallback.
+        """
+        try:
+            os.replace(source, target)
+        except PermissionError:
+            source.rename(target)
 
     def _validate_staged_files(self, staging: Path, manifest: FullReleaseManifest) -> None:
         for entry in manifest.files:
