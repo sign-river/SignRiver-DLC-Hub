@@ -20,6 +20,7 @@ from .cartridge_catalog import (
 )
 from .announcement_service import AnnouncementError, AnnouncementService
 from .guides import GuideCatalogError, GuideCatalogService, GuideDocument, GuideIndexEntry, GuideTool, ToolDetailAction
+from .guides import resolve_bootstrap_dir
 from .helper_tools import HelperToolCancelled, HelperToolError, HelperToolsService
 from .download_queue import DownloadQueue
 from .install_service import AuditedInstallation, DlcInstallService, InstallServiceError
@@ -55,6 +56,7 @@ __all__ = [
     "GuideIndexEntry",
     "GuideTool",
     "ToolDetailAction",
+    "resolve_bootstrap_dir",
     "HelperToolCancelled",
     "HelperToolError",
     "HelperToolsService",

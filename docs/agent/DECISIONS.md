@@ -35,6 +35,13 @@
 - 一键排错只执行显式声明的只读检查；修复动作必须用户确认且使用受控白名单。
 - 内置指南不得因云端缺失阻断启动；平台和游戏适用范围必须可验证。
 
+### 指南资源的跨平台解析（2026-09-21）
+
+- 启动器 `RuntimePaths._seed_packaged_runtime()` 只把 `app/state.json`、`config/update.json`、`config/defaults`、`config/cartridges`、`config/announcement.json` 和应用图标复制到可写根目录，**不复制 `config/guides`**。
+- 可写根目录在 Windows 上是安装目录（两者重合），但在 macOS 是 `~/Library/Application Support/SignRiver DLC Hub`、SteamOS 是 `~/.local/share/signriver-dlc-hub`。因此客户端不能写死 `paths.root/config/guides`，否则 SteamOS/macOS 的「解决方案」列表会整体为空，而且不产生任何报错。
+- 采用方案：`resolve_bootstrap_dir()` 按“候选目录里是否真的存在 `guides_index.json`”选择指南根，候选顺序为 `paths.install/config/guides`、`paths.install/Contents/Resources/runtime/config/guides`、`paths.root/config/guides`。`paths.install` 由宿主传入 `RuntimePaths.resources_root`，已对 macOS 做 `.app` 内运行时归一化。
+- 结论：模块读取任何随包发布的只读配置时，都要容忍宿主可写目录缺少该资源；不要假设 seed 列表会覆盖全部 `config` 内容。
+
 ### UI 与生命周期（2026-08-25～2026-08-26）
 
 - 页面切换保持单次绘制提交；异步加载先显示稳定加载态。

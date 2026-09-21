@@ -177,6 +177,14 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（修复 SteamOS/macOS 指南列表为空，2026-09-21）
+
+- 根因：客户端固定从 `paths.root/config/guides` 读取指南，但启动器 `_seed_packaged_runtime()` 从不把 `config/guides` 复制到可写根目录；Windows 上 `root` 即安装目录所以正常，macOS/SteamOS 上 `root` 是用户数据目录，导致「解决方案」列表整页为空且不报错。macOS 日志中留有 2026-09-19 的“未找到对应教程”记录作为旁证。
+- 修改：`signriver_app/application/guides.py` 新增 `resolve_bootstrap_dir()`，按候选目录中是否真实存在 `guides_index.json` 选择指南根；`app_entry.py` 新增 `_guide_bootstrap_candidates()`，候选顺序为 `paths.install/config/guides`、`paths.install/Contents/Resources/runtime/config/guides`、`paths.root/config/guides`。基线与活动模块 `0.2.0` 同步实现。
+- 测试：`tests/test_platform_content.py` 新增 `resolve_bootstrap_dir` 选择规则用例与客户端装配断言；全量 `pytest -q`、Ruff、compileall、`git diff --check` 通过。
+- macOS VM：模块三件（`app_entry.py`、`application/guides.py`、`application/__init__.py`）已同步到用户目录模块副本、`.app` 内置运行时模块和隔离源码目录，并重新临时签名且通过 `codesign --verify --deep --strict`；`open` 启动后进程存活，新进程日志无指南加载错误。用户在虚拟机上直接查看「解决方案」列表即可确认。
+- 未执行：完整 macOS/SteamOS 原生重新构建、真实 DLC 下载、补丁生命周期、上传、线上清单切换、push。
+
 ## 最新任务（补丁资源缺失与原生平台专项解决方案，2026-09-21）
 
 - 根因一：客户端多处引用指南 id `patch_assets_missing`（主界面“补丁资源缺失，暂无法一键解锁”提示的跳转目标），但 `guides_index.json` 中从未存在该指南，点击后只会提示“未找到对应教程”。现已新增 `config/guides/guide_patch_assets_missing.json` 与索引项（`platforms: ["all"]`），并用 `platform_text` 分别说明 Windows 资源、SteamOS 原生 `.so`、macOS 原生 `.dylib`，明确禁止把 Windows `.dll` 改名混用。

@@ -30,6 +30,24 @@ _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _TOOL_DETAIL_ACTIONS = {"open_guide", "open_url", "open_folder"}
 
 
+def resolve_bootstrap_dir(*candidates: Path | None) -> Path | None:
+    """Pick the first candidate that actually contains the guides index.
+
+    Built-in guides ship inside the application (on macOS they live under
+    ``Contents/Resources/runtime``), while some hosts also keep a writable
+    ``config`` copy that is seeded selectively.  Selecting by the presence of
+    ``guides_index.json`` keeps the guide list working on every platform
+    instead of trusting one fixed root.
+    """
+    paths = [Path(candidate) for candidate in candidates if candidate is not None]
+    if not paths:
+        return None
+    for candidate in paths:
+        if (candidate / GUIDES_INDEX_ASSET_NAME).is_file():
+            return candidate
+    return paths[0]
+
+
 class GuideCatalogError(RuntimeError):
     """The optional troubleshooting guide catalogue could not be read."""
 
@@ -634,4 +652,4 @@ class GuideCatalogService:
             raise GuideCatalogError(describe_network_error(error, url=url, action="下载报错指南资源")) from error
 
 
-__all__ = ["GUIDES_INDEX_ASSET_NAME", "GUIDES_RELEASE_TAG", "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool", "ToolDetailAction"]
+__all__ = ["GUIDES_INDEX_ASSET_NAME", "resolve_bootstrap_dir", "GUIDES_RELEASE_TAG", "TOOLS_INDEX_ASSET_NAME", "TOOLS_RELEASE_TAG", "GuideCatalogError", "GuideCatalogService", "GuideDocument", "GuideIndexEntry", "GuideTool", "ToolDetailAction"]

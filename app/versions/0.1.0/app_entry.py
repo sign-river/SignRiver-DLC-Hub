@@ -47,6 +47,7 @@ from .signriver_app.application import (
     HelperToolsService,
     OriginalStateRestoreService,
     RestoreOriginalError,
+    resolve_bootstrap_dir,
 )
 from .signriver_app.domain import (
     Announcement,
@@ -548,7 +549,7 @@ class DlcHubApplication:
         self.host_platform = detect_host_platform().value
         self.guide_catalog = GuideCatalogService(
             self.context.paths.data / "guides",
-            bootstrap_dir=self.context.paths.root / "config" / "guides",
+            bootstrap_dir=resolve_bootstrap_dir(*self._guide_bootstrap_candidates()),
             download_source="gitlink",
             platform=self.host_platform,
         )
@@ -2935,6 +2936,26 @@ class DlcHubApplication:
         status = getattr(self, "tool_center_detail_status", None)
         if status is not None:
             status.configure(text=label, text_color=color)
+
+    def _guide_bootstrap_candidates(self) -> tuple[Path, ...]:
+        """Candidate directories that may hold the packaged guide catalogue.
+
+        The launcher seeds only part of ``config`` into the writable data root,
+        so guides must also be resolved against the configuration shipped with
+        the application (on macOS below ``Contents/Resources/runtime``).
+        """
+        paths = self.context.paths
+        install = Path(paths.install or paths.root)
+        candidates = (
+            install / "config" / "guides",
+            install / "Contents" / "Resources" / "runtime" / "config" / "guides",
+            Path(paths.root) / "config" / "guides",
+        )
+        unique: list[Path] = []
+        for candidate in candidates:
+            if candidate not in unique:
+                unique.append(candidate)
+        return tuple(unique)
 
     def _guide_tool_cache_path(self, tool: GuideTool) -> Path:
         """Return the only cache location that may hold a downloaded guide tool."""

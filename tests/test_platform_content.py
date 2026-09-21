@@ -11,7 +11,7 @@ from signriver_app.application.cartridge_catalog import (
     CartridgeCatalogError,
     CartridgeCatalogService,
 )
-from signriver_app.application.guides import GuideCatalogError, GuideCatalogService, GuideIndexEntry, GuideTool
+from signriver_app.application.guides import GuideCatalogError, GuideCatalogService, GuideIndexEntry, GuideTool, resolve_bootstrap_dir
 from signriver_app.domain import CartridgeIndexEntry, INDEX_ASSET_NAME
 from signriver_publisher.client_cartridges import build_client_cartridge_index
 from signriver_publisher.models import PublisherCartridge
@@ -791,3 +791,27 @@ def test_native_platform_guides_cover_blocked_app_and_proton(tmp_path: Path) -> 
         text = "\n".join(block[1] for block in document.blocks if block[0] == "text")
         assert text
         assert all(marker in text for marker in markers), (guide_id, text)
+
+
+def test_guides_bootstrap_dir_selects_a_directory_that_really_has_the_index(tmp_path: Path) -> None:
+    packaged = tmp_path / "bundle" / "config" / "guides"
+    packaged.mkdir(parents=True)
+    (packaged / "guides_index.json").write_text("{}", encoding="utf-8")
+    writable = tmp_path / "data-home" / "config" / "guides"
+
+    assert resolve_bootstrap_dir(packaged, writable) == packaged
+    assert resolve_bootstrap_dir(writable, packaged) == packaged
+    assert resolve_bootstrap_dir(writable) == writable
+    assert resolve_bootstrap_dir(None, None) is None
+
+
+def test_client_resolves_guides_from_the_packaged_app_bundle() -> None:
+    for version in ("0.1.0", "0.2.0"):
+        source = (ROOT / "app" / "versions" / version / "app_entry.py").read_text(encoding="utf-8")
+        assert "def _guide_bootstrap_candidates(self) -> tuple[Path, ...]:" in source
+        assert 'install / "Contents" / "Resources" / "runtime" / "config" / "guides"' in source
+        assert 'Path(paths.root) / "config" / "guides"' in source
+        ctor = source.split("self.guide_catalog = GuideCatalogService(", 1)[1].split(
+            "self.helper_tools =", 1
+        )[0]
+        assert "bootstrap_dir=resolve_bootstrap_dir(*self._guide_bootstrap_candidates())" in ctor
