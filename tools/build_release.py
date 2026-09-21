@@ -134,12 +134,18 @@ def copy_app_tree(destination: Path) -> None:
 
 
 def _latest_source_mtime(version: str) -> float:
-    """模块源码目录里最新的修改时间，用于判断模块归档是否已经过期。"""
+    """模块源码目录里最新的修改时间，用于判断模块归档是否已经过期。
+
+    只统计真正会进归档的文件：``__pycache__`` 里的 ``.pyc`` 是运行时生成的，
+    比归档新属于正常现象，不能据此判定归档过期。
+    """
     module_root = ROOT / "app" / "versions" / version
     latest = 0.0
     if not module_root.is_dir():
         return latest
     for path in module_root.rglob("*"):
+        if path.suffix in {".pyc", ".pyo"} or "__pycache__" in path.parts:
+            continue
         if path.is_file():
             latest = max(latest, path.stat().st_mtime)
     return latest

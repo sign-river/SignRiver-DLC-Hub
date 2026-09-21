@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## Windows 1.0.0 打包（2026-09-22 02:2x，含移除补丁改用云端原始库）
+
+- 触发：`remove()`/客户端移除流程改为“先取云端原始库再还原”，模块代码随之变化，重新构建 Windows 侧全部产物。
+- 命令：`tools/build_module.py --all-versions app\versions` → `tools/build_release.py --upx-dir …` → `tools/prepare_update_release.py`（三方 `--platform-package`）。构建脚本已自动同步发布器收件目录。
+- 产物（大小 / SHA-256）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 301,564 / `45decd9429424753110af8a40da1644729eb6b2953bfe12eb727c4f44a054b87`（`config/module-archives.json` 已更新）；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 21,318,160 / `42bf2cce2f79ee340ed78980fde61a217dae6dc46be4e6c74e5c0690682a9fcd`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 21,333,799 / `e2c14b1125a30e538e6eaa16d4568fc98f2fcb359fefd11a2f4e1b17d924dd60`；自解压 EXE（含同内容别名）= 21,615,063 / `d8c715ab8893f19a358464a7cd4b210a60ef911a18749ef06464b8ce5ed1bc6d`。
+- 结构核对：全量包模块目录仍只有 `0.2.0` 与 `1.0.0`，包内 1.0.0 `app_entry.py` 含 `published_original`；SFX payload 顶层只有发布目录名、对话框为中文；三个 ZIP `testzip()` 通过。清单 Windows 段 `42bf2cce…`，macOS/SteamOS 段仍是旧包哈希。
+- 顺带修复：`sync_publisher_inbox()` 的过期守卫原先把 `__pycache__/*.pyc` 也算作源码，刚打包完就报“模块归档比源码旧”而跳过同步；现改为只统计真正进归档的文件，并补 `tests/test_release_build.py::test_sync_publisher_inbox_ignores_runtime_pycache`。
+- 待办：上传模块归档、全量包、首装包与两份清单；macOS/SteamOS 需在各自虚拟机重建；本次未推送 Git。
+
 ## 移除补丁改用云端原始库（2026-09-22）
 
 - 用户提案并采纳：移除补丁不该因为“凭据缺失”就卡住——云端本来就有原始库，直接下载 + 校验 + 覆盖主库更符合直觉；只有拿不到或校验不过才报错。

@@ -223,6 +223,25 @@ def test_sync_publisher_inbox_skips_stale_module_archive(
     assert "跳过模块归档同步" in capsys.readouterr().out
 
 
+def test_sync_publisher_inbox_ignores_runtime_pycache(tmp_path, monkeypatch) -> None:
+    """`__pycache__` 里的 .pyc 比归档新时，不能误判归档过期。"""
+    monkeypatch.setattr(build_release, "ROOT", tmp_path)
+    fixture = _prepare_publisher_inbox_fixture(tmp_path)
+    os.utime(fixture["source"] / "app_entry.py", (1, 1))
+    os.utime(fixture["module"], (100, 100))
+    cache = fixture["source"] / "__pycache__"
+    cache.mkdir()
+    (cache / "app_entry.cpython-311.pyc").write_bytes(b"pyc")
+    os.utime(cache / "app_entry.cpython-311.pyc", (500, 500))
+
+    copied = build_release.sync_publisher_inbox(version="9.9.9")
+
+    assert [path.name for path in copied] == [
+        fixture["package"].name,
+        fixture["module"].name,
+    ]
+
+
 def test_sync_publisher_inbox_without_publisher_workspace(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(build_release, "ROOT", tmp_path)
 
