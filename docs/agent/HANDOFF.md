@@ -1,5 +1,16 @@
 # 当前任务交接
 
+## macOS 1.0.0 原生重建（2026-09-22，含移除补丁改造）
+
+- 通道：**VMware Tools（`vmrun -T ws -gu signriver -gp …`）**——来宾未开 SSH/SMB/VNC；`runProgramInGuest` 不回传 stdout，统一用「脚本写日志 → `copyFileFromGuestToHost` 取回」。来宾 `Darwin 24.6.0 x86_64`、Python `/Users/signriver/py312/python/bin/python3.12`（3.12.14）、PyInstaller 6.22.3，构建目录 `/Users/signriver/macos-build-20260919`。
+- 源码同步：主机归档 `.test-artifacts/signriver-macos-source-202609220241.tar.gz`（5,556,164 字节 / 811 文件，排除 `.git`、虚拟环境、`build/`、`dist/`、`.test-artifacts/`、`publisher-workspace/`、缓存与凭据）传入来宾解包覆盖；预检 `app/state.json`、`app/versions/1.0.0/{module.json,app_entry.py}` 与 `signriver_app`（81 文件）齐全，新代码标记 `patch_row_status`、`_receipt_backed_removal_ready`、`published_original` 均在。
+- 来宾测试：`tests/test_build_native_release.py`、`test_macos_update_helper.py`、`test_cross_platform_runtime.py`、`test_patch_engine.py`、`test_platform_content.py`、`test_release_build.py` 共 119 项通过、4 项跳过（依赖 7-Zip/Bandizip）；来宾未装 ruff。
+- 构建与产物：`python tools/build_native_release.py --platform macos` 状态码 0；`dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip` = 23,776,287 / `8b31ffe1c7e14e0996ff968e81ad2ff80cbeaf7a8ea35b9a4e570d431ac76ecd`；`dist/updates/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip` = 23,785,464 / `e0fc722d25587e896905c3e326e3c7e6e05c485ebe5978e7f762becaf9a40001`（主机副本在 `.test-artifacts/macos-dist/`，哈希与来宾一致）。
+- 产物核对：两个 ZIP `unzip -t` 通过；主程序 Mach-O 64-bit x86_64；runtime 内 `app/versions` 只有 `0.2.0` + `1.0.0`（体积裁剪在 macOS 同样生效）；`signriver_app` 81 文件、`config/guides` 19 项；`codesign --verify --deep --strict` 通过；包内 `app_entry.py` 与来宾源码 sha256 相同（`dc57a354…`）。启动验证：直接运行 `dist/SignRiver-DLC-Hub.app`，12 秒后进程存活（PID 6200/6202），`~/Library/Logs/DiagnosticReports` 无新增崩溃。
+- **重要坑（用户发现，已修）**：VM 里补丁工具仍显示旧文案「补丁缺失：尚未下载」。根因是 macOS 客户端优先加载**用户数据目录** `~/Library/Application Support/SignRiver DLC Hub/app/versions/1.0.0/`，那份还是 09-21 的旧代码；`.app` 里的新模块不会覆盖它（`_seed_packaged_runtime` 只在目标不存在时复制）。已把数据目录模块备份为 `1.0.0.bak-20260922-preremoval`，再同步新模块（`app_entry.py` 哈希 `dc57a354…`、`补丁缺失` 计数为 0）并重启客户端。**以后在 macOS 验证新代码必须同步数据目录模块副本，否则看到的仍是旧行为。**
+- 清单与收件：双源清单 macOS 段更新为 `e0fc722d…` / 23,785,464（Windows 段保持冻结值 `42bf2cce…`，SteamOS 段仍是旧包 `85f6f0cc…`），并同步到 `publisher-workspace/output/updates/`；`output/updates` 的 macOS 包与 `output/modules` 的模块归档已自动同步。
+- 未执行：未上传、未发布、未切换线上清单、未 push；SteamOS 仍未重建。
+
 ## Windows 1.0.0 正式发布（冻结，2026-09-22）
 
 - 用户确认：当前 Windows 构建即为 1.0.0 正式发布版本，冻结不再改动；后续 Windows 修复必须用更高版本号（例如 1.0.1）承载，否则已发布用户检测不到更新。
