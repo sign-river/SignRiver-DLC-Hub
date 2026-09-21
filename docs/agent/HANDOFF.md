@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## Windows 1.0.0 正式发布（冻结，2026-09-22）
+
+- 用户确认：当前 Windows 构建即为 1.0.0 正式发布版本，冻结不再改动；后续 Windows 修复必须用更高版本号（例如 1.0.1）承载，否则已发布用户检测不到更新。
+- 最终产物（大小 / SHA-256）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 301,564 / `45decd9429424753110af8a40da1644729eb6b2953bfe12eb727c4f44a054b87`；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 21,318,160 / `42bf2cce2f79ee340ed78980fde61a217dae6dc46be4e6c74e5c0690682a9fcd`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 21,333,799 / `e2c14b1125a30e538e6eaa16d4568fc98f2fcb359fefd11a2f4e1b17d924dd60`；自解压 EXE（含同内容别名）= 21,615,063 / `d8c715ab8893f19a358464a7cd4b210a60ef911a18749ef06464b8ce5ed1bc6d`。
+- 冻结核对（同日全绿）：工作区 `app/versions/1.0.0/app_entry.py` 与发布目录逐字节一致，且都含最新移除补丁改造（`published_original`、`_receipt_backed_removal_ready`）；模块归档与全量包内是同一份代码；全量包模块目录仅 `0.2.0` + `1.0.0`；`config/module-archives.json` 的 1.0.0 记录 = `45decd94…` / 301,564；双源清单 Windows 段 = `42bf2cce…` / 21,318,160（`mandatory: true`、`min_launcher_version: 0.1.2`）；发布器收件目录 `output/updates` 与 `output/modules` 已同步为上述新包；Git 工作区干净（HEAD `91cb093`）。
+- 上传顺序（务必遵守）：① 先把模块归档 `SignRiver-DLC-Hub-module-v1.0.0.zip` 传到 GitLink/GitHub（CI 的 `restore_module_archives.py` 会按 `config/module-archives.json` 的 sha256 校验）；② 再传全量更新包、首装 ZIP 与自解压 EXE；③ 替换两份 `update-manifest.json`；④ 最后才 `git push origin main`。
+- 随版发布内容：本次更新说明（`publisher-workspace/update-notes.json` 的 1.0.0）与云端启动公告（`publisher-workspace/announcement.json`，「1.0.0 正式版已发布」）随 hub Release 一并发布。
+- 仍然待办：macOS / SteamOS 包内客户端仍是旧逻辑（缺补丁工具行状态修复、缺“移除补丁改用云端原始库”、仍带 7 个历史模块目录），清单里这两段仍指向 09-21 的旧包；需在各自虚拟机重建后更新对应哈希。
+
 ## 1.0.0 云端启动公告文案（2026-09-22）
 
 - 需求：为 1.0.0 写一条云端启动公告（更新方式 / 使用方法 / 报错处理路径 / 求助渠道），用户提供要点，我方优化表述。
