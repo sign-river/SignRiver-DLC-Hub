@@ -30,6 +30,14 @@
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
+### Windows 1.0.0 构建与三平台更新清单（2026-09-21）
+
+- 模块归档：`tools/build_module.py --all-versions app\versions` 重建 0.1.4–1.0.0；`config/module-archives.json` 同步基线 0.1.7（未变）/0.2.0（`e011d633…`，289,622）/1.0.0（`9505e6b8…`，295,000）。
+- Windows 产物：`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip`（22,459,368 字节，SHA-256 `aa00aead…`）、`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe`（22,776,398，`5085e4fe…`，另有别名 `唏嘘南溪DLC一键解锁工具-自解压.exe`）、`dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip`（22,418,164，`954fd6aa…`）；启动器 EXE 17,702,368 字节。
+- 自解压包确认走 Bandizip 后端：`7z l` 显示 `Type = zip`、`Embedded Stub Size = 344076`，payload 顶层就是发布文件夹（无 11.9 MB 外壳）。
+- 三平台清单：`dist/updates/{gitlink,github}/update-manifest.json`，`version=1.0.0`、`kind=full`、`min_launcher_version=0.1.2`、`mandatory=true`，`platform_packages` 含 `windows-x64`（22,418,164 / `954fd6aa…`）、`macos-x64`（24,942,781 / `6253a688…`）、`steamos-x64`（45,076,499 / `85f6f0cc…`）；四条记录与实际文件哈希/大小核对一致（脚本 `.test-artifacts/verify_manifest_100.py`）。
+- 待办（用户侧）：上传模块归档（0.1.7/0.2.0/1.0.0 及各自 `.release.json`）、Windows 首装 ZIP 与自解压包、三平台全量包、两份 `update-manifest.json`，然后 `git push`；0.2.0 → 1.0.0 的真实更新 E2E 仍未执行。
+
 ### Windows 自解压包解压落点修复（2026-09-21）
 
 - 用户反馈：自解压 EXE 把文件解压到当前目录，曾在 D 盘根目录铺满整个盘。根因是 `tools/build_release.py::_build_sfx` 用 `.\<发布目录>\*` 只把目录**内容**打进 7z payload，SFX 又把内容解压到用户选择的目录。
