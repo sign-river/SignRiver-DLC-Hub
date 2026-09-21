@@ -38,7 +38,7 @@
 - 三平台清单：`dist/updates/{gitlink,github}/update-manifest.json`，`version=1.0.0`、`kind=full`、`min_launcher_version=0.1.2`、`mandatory=true`，`platform_packages` 含 `windows-x64`（22,418,164 / `954fd6aa…`）、`macos-x64`（24,942,781 / `6253a688…`）、`steamos-x64`（45,076,499 / `85f6f0cc…`）；四条记录与实际文件哈希/大小核对一致（脚本 `.test-artifacts/verify_manifest_100.py`）。
 - 待办（用户侧）：上传模块归档（0.1.7/0.2.0/1.0.0 及各自 `.release.json`）、Windows 首装 ZIP 与自解压包、三平台全量包、两份 `update-manifest.json`，然后 `git push`；0.2.0 → 1.0.0 的真实更新 E2E 仍未执行。
 - 发布器收件目录与更新说明（同日）：`publisher-workspace/output/updates/` 放入三端 1.0.0 全量包、`output/modules/` 放入 1.0.0 模块归档（用发布器自己的 `ArtifactCollector` 验证：采纳 3 个包 + 1 个模块归档），并把双源清单放到 `output/updates/{gitlink,github}/update-manifest.json`；0.1.7/0.2.0 模块归档需走「兼容发布 → 单源发布模块归档」。
-- 1.0.0 更新说明按用户要求改成简短版（只讲用户能看到的变化，不列实现细节）："【1.0.0】正式版更新：\n· 新增「报错指南」界面，提供多个参考解决方案与实用工具；\n· 支持 SteamOS 与 macOS 客户端，打不开、补丁不生效等问题都有对应指引；\n· 批量下载与一键解锁全部完成后只提示一次；\n· 优化游戏识别与补丁流程。\n建议尽快更新。"；两份清单已用该文案重新生成并同步到 `publisher-workspace/output/updates/{gitlink,github}/`。
+- 1.0.0 更新说明最终定稿（只写「报错指南」界面与其内容；不写平台支持与实现细节，因为能看到这条更新的只有 Windows 测试版用户）："【1.0.0】正式版更新：\n· 新增「报错指南」界面，把启动失败、游戏打不开、补丁不生效、文件被安全软件拦截等常见问题整理成参考解决方案；\n· 每个问题都给出具体操作步骤，并可直接跳转到相关工具或系统设置；\n· 新增「常用工具」入口：一键排错、日志资料收集、补丁工具、杀毒软件检测等，都能在界面里直接运行并查看结果；\n· 问题解决不了时，可一键收集诊断资料并附上事件 ID 反馈，方便定位。\n建议尽快更新。"；两份清单已用该文案重新生成并同步到 `publisher-workspace/output/updates/{gitlink,github}/`。
 
 ### Windows 自解压包解压落点修复（2026-09-21）
 
