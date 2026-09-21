@@ -53,8 +53,11 @@ def test_update_check_consumes_mandatory_flag() -> None:
     )
     body = ast.get_source_segment(SOURCE, method) or ""
     assert "if release.mandatory:" in body
-    assert "messagebox.showinfo(" in body
-    # The non-mandatory path must keep the askyesno skip flow.
+    # 强制更新：提示用 askokcancel（关闭即退出程序），确认后进入
+    # “不自动下载、只留下载按钮”的锁定界面。
+    assert "messagebox.askokcancel(" in body
+    assert "self._prepare_mandatory_update(release)" in body
+    # 非强制更新保留“是否立即安装”的可跳过流程。
     assert "messagebox.askyesno(" in body
 
 

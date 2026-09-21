@@ -12266,10 +12266,15 @@ class DlcHubApplication:
         except TclError:
             pass
 
-    def _set_update_activity_visible(self, visible: bool, *, checking: bool = False) -> None:
+    def _set_update_activity_visible(
+        self, visible: bool, *, checking: bool = False, show_cancel: bool = True,
+    ) -> None:
         if visible:
             self.progress.grid()
-            self.update_cancel_button.grid()
+            if show_cancel:
+                self.update_cancel_button.grid()
+            else:
+                self.update_cancel_button.grid_remove()
             if checking:
                 self.progress.configure(mode="indeterminate")
                 self.progress.start()
@@ -12311,26 +12316,24 @@ class DlcHubApplication:
             self._set_update_activity_visible(False)
             return
         if release.mandatory:
-            messagebox.showinfo(
-                "发现新版本",
+            # 强制更新：不自动下载。提示里只有“确定/取消”，关闭即退出程序；
+            # 确认后锁住主界面，只留一个「下载更新包」按钮。
+            if not messagebox.askokcancel(
+                "必须更新",
                 (
-                    f"\u68c0\u6d4b\u5230\u65b0\u7248\u672c v{release.version}"
-                    f"\uff08\u91cd\u8981\u66f4\u65b0\uff09\n\n"
+                    f"检测到新版本 v{release.version}（重要更新）\n\n"
                     f"{release.notes or ''}\n\n"
-                    "\u672c\u6b21\u66f4\u65b0\u9700\u5b8c\u6210\u540e\u624d\u80fd"
-                    "\u7ee7\u7eed\u4f7f\u7528\uff0c\u6b63\u5728\u51c6\u5907\u5b89\u88c5"
-                    "\uff0c\u8bf7\u7a0d\u5019\u2026\u2026"
+                    "本次更新必须完成后才能继续使用：\n"
+                    "· 点「确定」进入更新界面，再点「下载更新包」开始更新；\n"
+                    "· 点「取消」或关闭本提示会直接退出程序。"
                 ),
                 parent=self.window,
-            )
-            # 强制更新：先弹提示，再锁住主界面，且不提供取消入口。
+            ):
+                self._quit_for_mandatory_update()
+                return
             self._lock_window_for_mandatory_update()
-            self.status.configure(
-                text=(
-                    f"\u6b63\u5728\u51c6\u5907\u5b89\u88c5 v{release.version}"
-                    f"\uff08\u91cd\u8981\u66f4\u65b0\uff09\u2026\u2026"
-                )
-            )
+            self._prepare_mandatory_update(release)
+            return
         else:
             answer = messagebox.askyesno(
                 "发现新版本",
@@ -12342,6 +12345,34 @@ class DlcHubApplication:
                 self.update_button.configure(state="normal")
                 self._set_update_activity_visible(False)
                 return
+        self._begin_update_download(release)
+
+    def _prepare_mandatory_update(self, release) -> None:
+        """强制更新界面：隐藏取消入口，只留一个「下载更新包」按钮。"""
+        self.update_cancel_button.grid_remove()
+        self.update_cancel_button.configure(state="disabled")
+        self.update_button.configure(
+            text="下载更新包",
+            state="normal",
+            command=lambda: self._begin_update_download(release, mandatory=True),
+        )
+        self.status.configure(
+            text=(
+                f"检测到 v{release.version}（重要更新）："
+                "点「下载更新包」开始更新，更新完成前无法使用其它功能。"
+            )
+        )
+        self.progress.set(0)
+        self._set_update_activity_visible(True, show_cancel=False)
+
+    def _quit_for_mandatory_update(self) -> None:
+        """用户在强制更新提示上选择取消/关闭：直接退出程序。"""
+        self.context.logger.info("用户在强制更新提示上选择退出程序")
+        self._close()
+
+    def _begin_update_download(self, release, *, mandatory: bool = False) -> None:
+        """开始下载并安装更新包（强制更新由界面按钮触发）。"""
+        self.update_button.configure(state="disabled")
         cancel_event = threading.Event()
         self.update_download_active = True
         self.update_download_cancelling = False
@@ -12353,9 +12384,9 @@ class DlcHubApplication:
         self.update_download_started_at = time.monotonic()
         self.update_download_cancel_event = cancel_event
         self.progress.set(0)
-        self._set_update_activity_visible(True)
+        self._set_update_activity_visible(True, show_cancel=not mandatory)
         self.update_cancel_button.configure(
-            state="disabled" if release.mandatory else "normal"
+            state="disabled" if mandatory else "normal"
         )
         self.status.configure(text=f"正在下载 v{release.version}……")
         self._refresh_update_download_task()

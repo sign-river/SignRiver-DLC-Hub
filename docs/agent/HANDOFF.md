@@ -33,7 +33,7 @@
 ### 强制更新改成“启动自动检测 + 锁住界面”（2026-09-21）
 
 - 用户反馈：发布时勾了强制更新，但打开 0.2.0 客户端没有任何提示，必须手动去设置里检查。根因：`app_entry.py` 的启动检查写作 `if updates.enabled and updates.check_on_startup`，而 `config/update.json`（以及 `config/defaults/update.json`）自模块化架构起一直是 `check_on_startup: false`，因此启动根本不检查；`mandatory` 只影响“检测到后能否跳过”。
-- 修改：启动检查改为只看 `updates.enabled`（不再依赖该配置），并在 `config/update.json`、`config/defaults/update.json` 把 `check_on_startup` 设为 `true`；新增 `_lock_window_for_mandatory_update()` / `_release_mandatory_update_lock()`，检测到 `mandatory` 时先提示再锁住主窗口并禁用“取消下载”，下载/安装失败或模块安装完成后解锁；新增回归 `tests/test_ui_theme.py::test_startup_update_check_is_unconditional_and_blocks_mandatory_release`。
+- 修改：启动检查改为只看 `updates.enabled`（不再依赖该配置），并在 `config/update.json`、`config/defaults/update.json` 把 `check_on_startup` 设为 `true`；新增 `_lock_window_for_mandatory_update()` / `_release_mandatory_update_lock()`。按用户要求，强制更新**不自动下载**：先弹「必须更新」提示（`askokcancel`，点取消或关闭提示即调用 `_close()` 退出程序），确认后锁住主窗口、隐藏“取消下载”，只显示一个「下载更新包」按钮（按钮触发 `_begin_update_download(release, mandatory=True)`）；下载/安装失败或模块安装完成后解锁。回归覆盖在 `tests/test_ui_theme.py::test_startup_update_check_is_unconditional_and_blocks_mandatory_release` 与 `tests/test_ui_units_mandatory.py::test_update_check_consumes_mandatory_flag`。
 - 用户本机那份 0.2.0 测试副本（`D:\唏嘘南溪DLC一键解锁工具-v0.2.0-windows-x64\...`）已把 `config/update.json` 的 `check_on_startup` 改为 `true`（原文件备份 `.test-artifacts/user-0.2.0-update.json.bak`），用于验证“启动自动检查 → 强制更新”链路。
 - 重新构建：1.0.0 模块归档 295,492 / `554a27b5…`（`config/module-archives.json` 已同步）、Windows 全量更新 22,418,716 / `302b8130…`、首装 ZIP 22,459,923 / `37167acf…`、自解压 22,776,138 / `52164914…`；两份清单重新生成并同步到发布器收件目录，四条记录校验通过。macOS/SteamOS 包未重建（包内模块仍是旧版本；两端暂无用户）。
 
