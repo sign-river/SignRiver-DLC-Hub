@@ -161,6 +161,20 @@
 - **计划修复版本**：未定；与帮助与诊断页的信息层级和响应式布局优化统一处理。
 - **验收要点**：分别验证 0、1、多个问题记录时导航始终只显示“报错指南”；在常规、较矮和较宽窗口下检查底部区域的最小高度、文字换行、按钮可点击性和页面滚动行为，确认导出诊断仍正常可用。
 
+### KI-011：本地兜底卡带的平台可用性与云端不一致
+
+- **状态**：待排期（用户 2026-09-22 确认放到下个版本处理）
+- **优先级**：P2（只影响离线时的展示层，不触发下载，不阻断功能）
+- **发现日期**：2026-09-22
+- **影响范围**：随包发布的本地兜底卡带 `config/cartridges/*`（断网或云端 hub 拉取失败时客户端使用的展示数据）；在线时客户端读云端 `hub` 索引，不受影响。当前活动模块以 `app/state.json` 为准（发现时 `active_version = 1.0.0`）。
+- **现象**：本地索引声明的平台可用性多于实际存在的资源——`config/cartridges/cartridges_index.json` 把 文明6 (Civilization VI)、钢铁雄心4 (Hearts of Iron IV)、边缘世界 (RimWorld) 标成三端，把 都市天际线 (Cities: Skylines) 标成 Windows+SteamOS+macOS；而云端 `hub` release 的 `cartridges_index.json` 与发布器工作区 `publisher-workspace/games/*/game.json` 的 `published_platform_resources` 都是：群星三端、都市天际线 Windows+macOS、其余仅 Windows（都市天际线2 仅 Windows；文明7 仅 Windows 且只有补丁、没有 DLC 资源）。此外本地仓库缺少云端已有的 `cartridge_cities_skylines_2.json`。
+- **复现条件**：断网（或 hub 拉取失败）启动客户端，查看游戏列表中的平台可用性标记；或对比 `config/cartridges/cartridges_index.json` 与 `https://github.com/sign-river/signriver-dlc-assets/releases/download/hub/cartridges_index.json`。
+- **当前原因（已确认）**：本地卡带未随云端发布同步。`cartridge_civilization_6.json`、`cartridge_hearts_of_iron_4.json`、`cartridge_rimworld.json`、`cartridge_cities_skylines.json` 里保留了 `patch.platforms.steamos/macos` 段，本地索引据此算出了不存在的可用性。
+- **影响限制（已确认）**：离线态由 `_set_offline_state()` 禁用一键解锁并常驻“当前无网络连接，请重新连接网络后重启程序。”提示，`_set_batch_download_state()` 同时屏蔽下载入口，因此不会出现下载失败，只是展示不一致。
+- **期望行为**：本地兜底卡带的平台可用性与云端逐项一致；补齐缺失的 `cartridge_cities_skylines_2.json`。
+- **计划修复版本**：下个版本（与新增游戏支持一并处理）。
+- **验收要点**：修正后 `config/cartridges/cartridges_index.json` 的 `platform_resources` 与云端 `hub` 索引逐项一致；同步相关卡带文件的 `sha256` 与大小；`cartridge_cities_skylines_2.json` 存在且能被客户端成功解析；运行 `tests/test_platform_content.py` 等卡带定向测试；断网启动复核游戏列表标记与常驻提示。
+
 ## 已解决
 
 暂无。

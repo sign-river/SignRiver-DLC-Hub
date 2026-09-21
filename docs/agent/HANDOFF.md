@@ -1,5 +1,11 @@
 # 当前任务交接
 
+## 登记已知问题 KI-011（2026-09-22）
+
+- 用户确认把「本地兜底卡带的平台可用性与云端不一致」放到**下个版本**处理，本次只登记不修代码：`docs/known-issues.md` 新增 `KI-011`（待排期 / P2），含两件事——① 本地 `config/cartridges/cartridge_{civilization_6,hearts_of_iron_4,rimworld,cities_skylines}.json` 保留了实际不存在的 `patch.platforms.steamos/macos`，导致本地 `cartridges_index.json` 把它们的平台支持标多了（云端与发布器工作区都只有 群星三端 / 都市天际线 win+macos / 其余仅 Windows）；② 本地缺云端已有的 `cartridge_cities_skylines_2.json`。
+- 已确认的影响边界：离线态由 `_set_offline_state()` 禁用一键解锁并常驻“当前无网络连接…”提示，下载入口一并屏蔽，因此只影响离线时的展示，不会造成下载失败；在线读云端 `hub` 索引，发布 hub 又取自 `publisher-workspace/games/*/game.json` 的 `published_platform_resources`，链路本身不会把错误数据带上线。
+- 改动范围：仅 `docs/known-issues.md` 与本文档；**未修改任何运行时代码、缓存或活动模块**。`git diff --check` 通过；仅文档改动，未运行 pytest。
+
 ## 发布落点与 1.0.0 线上状态（2026-09-22）
 
 - **更新链路已上线（已核对双源）**：`signriver-dlc-assets` 的 `updates` release 中 windows `42bf2cce…` / 21,318,160、macos `e0fc722d…` / 23,785,464、steamos `184532c0…` / 43,967,168 与本地构建逐字节一致；`modules` release 的 `SignRiver-DLC-Hub-module-v1.0.0.zip` = `45decd94…` / 301,564，与 `config/module-archives.json` 一致。
