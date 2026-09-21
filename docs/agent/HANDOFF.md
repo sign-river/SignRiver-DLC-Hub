@@ -185,6 +185,15 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（macOS 1.0.0 正式包与部署，2026-09-21）
+
+- macOS VM 构建环境复检：`/Users/signriver/py312/python/bin/python3.12`（Python 3.12.14）+ PyInstaller 6.22.3 + customtkinter 5.2.2，Xcode CLT 提供 `codesign`/`install_name_tool`；构建目录 `/Users/signriver/macos-build-20260919`。
+- 源码同步后执行 `tools/build_native_release.py --platform macos`（exit=0）。
+- 产物（已回传 `.test-artifacts/macos-dist/`，与来宾 `shasum` 一致）：`SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip` 24,910,905 字节 SHA-256 `A1B036299ECC17EC59B2AEB7D8825A2201EDA32FB96A408A73EC8549DF9B5CAC`；`SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip` 24,925,924 字节 SHA-256 `439CE5C4790927CD32A0F3B897FAD19A99AFAF48DA66B8F4B51D9DB07A0D17E5`。
+- 验证：两个 ZIP `unzip -t` 通过；主程序 `Mach-O 64-bit executable x86_64`（`lipo -info` 确认非 fat）；`codesign --verify --deep --strict` 通过；包内 `Contents/Resources/runtime/app/versions/1.0.0/module.json` = 1.0.0/api 3、`signriver_app` 80 文件、`app/state.json` = 1.0.0、`config/guides` 16 条索引（含 2 条 macOS 专属指南）。
+- 部署：数据目录 `app/state.json` 备份为 `state.json.bak-before-100` 后切到 `active_version=1.0.0`；`open` 启动 1.0.0 `.app`，日志 `Starting application module 1.0.0`、`app/versions/1.0.0` 已播种，进程存活，供人工验收。
+- 未完成：Windows 1.0.0 全量包与发布器清单（`tools/build_release.py` + `tools/prepare_update_release.py`）、模块归档与三端包的上传、0.2.0 → 1.0.0 真实更新 E2E、push。当前 SteamOS VM 已关闭（一次仅运行一台虚拟机）。
+
 ## 最新任务（SteamOS 部署 1.0.0 供验收，2026-09-21）
 
 - 文档：`docs/agent/PROJECT_CONTEXT.md` 新增「模块版本目录、module.json 与 API 版本」一节，说明源码目录（0.1.0，唯一入库）／发行副本（未跟踪）／活动模块（`app/state.json`）的区别、`api_version ≤ HOST_API_VERSION` 的校验规则，以及"改代码改 0.1.0、发版复制新版本目录"的流程；提交 `5d90d7a`。
