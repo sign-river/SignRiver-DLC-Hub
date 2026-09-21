@@ -38,7 +38,7 @@
 - 三平台清单：`dist/updates/{gitlink,github}/update-manifest.json`，`version=1.0.0`、`kind=full`、`min_launcher_version=0.1.2`、`mandatory=true`，`platform_packages` 含 `windows-x64`（22,418,164 / `954fd6aa…`）、`macos-x64`（24,942,781 / `6253a688…`）、`steamos-x64`（45,076,499 / `85f6f0cc…`）；四条记录与实际文件哈希/大小核对一致（脚本 `.test-artifacts/verify_manifest_100.py`）。
 - 待办（用户侧）：上传模块归档（0.1.7/0.2.0/1.0.0 及各自 `.release.json`）、Windows 首装 ZIP 与自解压包、三平台全量包、两份 `update-manifest.json`，然后 `git push`；0.2.0 → 1.0.0 的真实更新 E2E 仍未执行。
 - 发布器收件目录与更新说明（同日）：`publisher-workspace/output/updates/` 放入三端 1.0.0 全量包、`output/modules/` 放入 1.0.0 模块归档（用发布器自己的 `ArtifactCollector` 验证：采纳 3 个包 + 1 个模块归档），并把双源清单放到 `output/updates/{gitlink,github}/update-manifest.json`；0.1.7/0.2.0 模块归档需走「兼容发布 → 单源发布模块归档」。
-- 1.0.0 更新说明改为面向用户（去掉 `system_profiler`、`uname`、指南目录解析、主表等内部术语，改用界面上可见的指南名称）："【1.0.0】正式版更新：\n· 修复 SteamOS / macOS 上「解决方案」页面空白、看不到报错教程的问题；\n· 新增 SteamOS / macOS 专属解决方案：「SteamOS 程序无法启动或提示权限不足」「SteamOS 补丁无效：游戏正在通过 Proton 运行」「macOS 提示无法打开或已损坏」「macOS 补丁安装后游戏仍未解锁」；\n· 反馈问题时收集的日志资料会自动带上当前系统的信息，排查更方便；\n· 一次下载多个 DLC 时不再每个都弹提示，全部完成后只提示一次；\n· 优化 SteamOS / macOS 的游戏识别与补丁选择，避免误用 Windows 专用的补丁文件。\n建议尽快更新。"；两份清单已用新文案重新生成并同步到收件目录。
+- 1.0.0 更新说明按用户要求改成简短版（只讲用户能看到的变化，不列实现细节）："【1.0.0】正式版更新：\n· 新增「报错指南」界面，提供多个参考解决方案与实用工具；\n· 支持 SteamOS 与 macOS 客户端，打不开、补丁不生效等问题都有对应指引；\n· 批量下载与一键解锁全部完成后只提示一次；\n· 优化游戏识别与补丁流程。\n建议尽快更新。"；两份清单已用该文案重新生成并同步到 `publisher-workspace/output/updates/{gitlink,github}/`。
 
 ### Windows 自解压包解压落点修复（2026-09-21）
 
