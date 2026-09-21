@@ -33,14 +33,20 @@ def test_startup_update_check_is_unconditional_and_blocks_mandatory_release() ->
     assert "self._lock_window_for_mandatory_update()" in source
     assert 'state="disabled" if mandatory else "normal"' in source
     assert source.count("self._release_mandatory_update_lock()") >= 4
-    # 强制更新不自动下载：提示用 askokcancel，关闭提示即退出程序；
-    # 之后只留一个「下载更新包」按钮，且不显示取消入口。
-    assert "messagebox.askokcancel(" in source
+    # 强制更新不自动下载：自定义对话框关闭即退出程序；之后只留一个
+    # 「下载更新包」按钮，且不显示取消/暂不更新入口。
+    assert "def _ask_update_choice(self, release, *, mandatory: bool) -> str:" in source
+    assert 'text="立即更新"' in source
+    assert 'text="退出程序"' in source
     assert "self._quit_for_mandatory_update()" in source
     assert "def _prepare_mandatory_update(self, release) -> None:" in source
     assert 'text="下载更新包"' in source
     assert "show_cancel=not mandatory" in source
     assert "show_cancel=False" in source
+    # 非强制更新提供 下载更新包 / 取消下载 / 暂不更新 三个入口。
+    assert "def _prepare_optional_update(self, release) -> None:" in source
+    assert 'text="暂不更新"' in source
+    assert "def _dismiss_optional_update(self, release=None) -> None:" in source
 
 
 def test_patch_tool_lists_installed_files_per_platform() -> None:

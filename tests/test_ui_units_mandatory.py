@@ -52,13 +52,14 @@ def test_update_check_consumes_mandatory_flag() -> None:
         if isinstance(node, ast.FunctionDef) and node.name == "_on_checked"
     )
     body = ast.get_source_segment(SOURCE, method) or ""
-    assert "if release.mandatory:" in body
-    # 强制更新：提示用 askokcancel（关闭即退出程序），确认后进入
-    # “不自动下载、只留下载按钮”的锁定界面。
-    assert "messagebox.askokcancel(" in body
+    assert "mandatory = bool(release.mandatory)" in body
+    # 用自定义对话框询问；强制更新关闭对话框等同于退出程序。
+    assert "self._ask_update_choice(release, mandatory=mandatory)" in body
+    assert 'if choice == "quit":' in body
+    assert "self._quit_for_mandatory_update()" in body
+    # 强制更新：锁定界面，只留下载按钮；非强制：保留三按钮入口。
     assert "self._prepare_mandatory_update(release)" in body
-    # 非强制更新保留“是否立即安装”的可跳过流程。
-    assert "messagebox.askyesno(" in body
+    assert "self._prepare_optional_update(release)" in body
 
 
 def test_no_hardcoded_kib_or_mib_ui_labels() -> None:

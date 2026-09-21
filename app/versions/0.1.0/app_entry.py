@@ -739,6 +739,8 @@ class DlcHubApplication:
         self.notice_serial = 0
         # 强制更新期间锁住主窗口，更新完成前不给用户继续使用。
         self.mandatory_update_active = False
+        # 已检测到但用户选择“暂不更新”的可选更新。
+        self.pending_update_release = None
         self.current_installation = None
         self.game_selection_generation = 0
         self.download_source_generation = 0
@@ -1552,6 +1554,7 @@ class DlcHubApplication:
         self.settings_description_boxes.append(update_description)
         update_action.grid_columnconfigure(0, weight=1)
         update_action.grid_columnconfigure(1, weight=1)
+        update_action.grid_columnconfigure(2, weight=1)
         self.update_cancel_button = ctk.CTkButton(
             update_action,
             text="取消下载",
@@ -1572,6 +1575,15 @@ class DlcHubApplication:
             width=108,
         )
         self.update_button.grid(row=0, column=1, sticky="ew")
+        self.update_later_button = ctk.CTkButton(
+            update_action,
+            text="暂不更新",
+            command=lambda: self._dismiss_optional_update(self.pending_update_release),
+            width=96,
+            **BUTTON_SECONDARY,
+        )
+        self.update_later_button.grid(row=0, column=2, sticky="ew", padx=(8, 0))
+        self.update_later_button.grid_remove()
         self.progress = ctk.CTkProgressBar(update_row, mode="determinate")
         self.progress.set(0)
         self.progress.grid(row=2, column=0, sticky="ew", pady=(12, 6))
@@ -12315,42 +12327,146 @@ class DlcHubApplication:
             self.update_button.configure(state="normal")
             self._set_update_activity_visible(False)
             return
-        if release.mandatory:
-            # 强制更新：不自动下载。提示里只有“确定/取消”，关闭即退出程序；
-            # 确认后锁住主界面，只留一个「下载更新包」按钮。
-            if not messagebox.askokcancel(
-                "必须更新",
-                (
-                    f"检测到新版本 v{release.version}（重要更新）\n\n"
-                    f"{release.notes or ''}\n\n"
-                    "本次更新必须完成后才能继续使用：\n"
-                    "· 点「确定」进入更新界面，再点「下载更新包」开始更新；\n"
-                    "· 点「取消」或关闭本提示会直接退出程序。"
-                ),
-                parent=self.window,
-            ):
-                self._quit_for_mandatory_update()
-                return
+        mandatory = bool(release.mandatory)
+        choice = self._ask_update_choice(release, mandatory=mandatory)
+        if choice == "quit":
+            # 强制更新时用户选择退出：直接关闭整个程序。
+            self._quit_for_mandatory_update()
+            return
+        if mandatory:
+            # 强制更新不自动下载：锁住主界面，只留「下载更新包」按钮。
             self._lock_window_for_mandatory_update()
             self._prepare_mandatory_update(release)
             return
+        self._prepare_optional_update(release)
+        if choice == "download":
+            self._begin_update_download(release)
+
+    def _ask_update_choice(self, release, *, mandatory: bool) -> str:
+        """自定义更新对话框，返回 ``download`` / ``later`` / ``quit``。
+
+        强制更新的措辞保持委婉（“建议先完成这次更新”），但关闭对话框等同于
+        退出程序，从而保证更新完成前无法继续使用。
+        """
+        dialog = ctk.CTkToplevel(self.window)
+        dialog.title("发现新版本")
+        dialog.configure(fg_color=UI["page"])
+        dialog.resizable(False, False)
+        dialog.transient(self.window)
+        choice = {"value": "quit" if mandatory else "later"}
+
+        def finish(value: str) -> None:
+            choice["value"] = value
+            dialog.grab_release()
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: finish(choice["value"]))
+        ctk.CTkLabel(
+            dialog,
+            text=f"发现新版本 v{release.version}",
+            text_color=UI["text"],
+            font=ctk.CTkFont(size=16, weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=22, pady=(18, 8))
+        ctk.CTkLabel(
+            dialog,
+            text=(release.notes or "").strip() or "本次更新包含若干修复与优化。",
+            text_color=UI["text_secondary"],
+            justify="left",
+            anchor="w",
+            wraplength=430,
+        ).pack(fill="x", padx=22, pady=(0, 10))
+        hint = (
+            "为了让你继续正常使用，建议先完成这次更新。\n"
+            "点「立即更新」进入更新界面，再点「下载更新包」即可下载；"
+            "点「退出程序」或关闭本窗口会退出程序。"
+            if mandatory
+            else "可点「下载更新包」立即更新，也可以点「暂不更新」稍后再说。"
+        )
+        ctk.CTkLabel(
+            dialog,
+            text=hint,
+            text_color=UI["muted"],
+            justify="left",
+            anchor="w",
+            wraplength=430,
+        ).pack(fill="x", padx=22, pady=(0, 14))
+        actions = ctk.CTkFrame(dialog, fg_color="transparent")
+        actions.pack(fill="x", padx=22, pady=(0, 18))
+        if mandatory:
+            ctk.CTkButton(
+                actions, text="立即更新", width=110,
+                command=lambda: finish("download"),
+            ).pack(side="right")
+            ctk.CTkButton(
+                actions, text="退出程序", width=110,
+                command=lambda: finish("quit"), **BUTTON_SECONDARY,
+            ).pack(side="right", padx=(0, 8))
         else:
-            answer = messagebox.askyesno(
-                "发现新版本",
-                f"发现 v{release.version}\n\n{release.notes or '是否立即安装？'}",
-                parent=self.window,
+            ctk.CTkButton(
+                actions, text="下载更新包", width=120,
+                command=lambda: finish("download"),
+            ).pack(side="right")
+            ctk.CTkButton(
+                actions, text="暂不更新", width=110,
+                command=lambda: finish("later"), **BUTTON_SECONDARY,
+            ).pack(side="right", padx=(0, 8))
+        dialog.update_idletasks()
+        try:
+            origin_x = self.window.winfo_rootx()
+            origin_y = self.window.winfo_rooty()
+            width = dialog.winfo_width()
+            height = dialog.winfo_height()
+            dialog.geometry(
+                f"+{origin_x + max((self.window.winfo_width() - width) // 2, 0)}"
+                f"+{origin_y + max((self.window.winfo_height() - height) // 3, 0)}"
             )
-            if not answer:
-                self.status.configure(text=f"已发现 v{release.version}，暂未安装")
-                self.update_button.configure(state="normal")
-                self._set_update_activity_visible(False)
-                return
-        self._begin_update_download(release)
+        except TclError:
+            pass
+        dialog.grab_set()
+        dialog.focus_force()
+        self.window.wait_window(dialog)
+        return choice["value"]
+
+    def _prepare_optional_update(self, release) -> None:
+        """非强制更新：保留下载 / 取消下载 / 暂不更新三个入口。"""
+        self.pending_update_release = release
+        self.update_button.configure(
+            text="下载更新包",
+            state="normal",
+            command=lambda: self._begin_update_download(release),
+        )
+        self.update_cancel_button.configure(state="disabled")
+        self.update_cancel_button.grid()
+        self.update_later_button.grid()
+        self.update_later_button.configure(state="normal")
+        self.progress.set(0)
+        self._set_update_activity_visible(False)
+        self.status.configure(
+            text=(
+                f"发现新版本 v{release.version}：点「下载更新包」立即更新，"
+                "或点「暂不更新」稍后再说。"
+            )
+        )
+
+    def _dismiss_optional_update(self, release=None) -> None:
+        """用户选择“暂不更新”：恢复默认更新入口。"""
+        self.pending_update_release = None
+        self.update_later_button.grid_remove()
+        self.update_cancel_button.configure(state="disabled")
+        self.update_button.configure(
+            text="检查更新", state="normal", command=self._check_update,
+        )
+        self._set_update_activity_visible(False)
+        if release is not None:
+            self.status.configure(text=f"已发现 v{release.version}，暂未更新")
 
     def _prepare_mandatory_update(self, release) -> None:
         """强制更新界面：隐藏取消入口，只留一个「下载更新包」按钮。"""
         self.update_cancel_button.grid_remove()
         self.update_cancel_button.configure(state="disabled")
+        self.update_later_button.grid_remove()
+        self.update_later_button.configure(state="disabled")
         self.update_button.configure(
             text="下载更新包",
             state="normal",
@@ -12373,6 +12489,11 @@ class DlcHubApplication:
     def _begin_update_download(self, release, *, mandatory: bool = False) -> None:
         """开始下载并安装更新包（强制更新由界面按钮触发）。"""
         self.update_button.configure(state="disabled")
+        if mandatory:
+            self.update_later_button.grid_remove()
+        else:
+            self.update_later_button.grid()
+        self.update_later_button.configure(state="disabled")
         cancel_event = threading.Event()
         self.update_download_active = True
         self.update_download_cancelling = False
@@ -12480,6 +12601,7 @@ class DlcHubApplication:
     def _update_download_cancelled(self) -> None:
         self._clear_update_download()
         self._release_mandatory_update_lock()
+        self.update_later_button.configure(state="normal")
         self.status.configure(text="程序更新下载已取消")
         self.update_button.configure(state="normal")
         self._notify("程序更新下载已取消")
@@ -12511,6 +12633,7 @@ class DlcHubApplication:
         self.status.configure(text="更新失败")
         self.update_button.configure(state="normal")
         self._release_mandatory_update_lock()
+        self.update_later_button.configure(state="normal")
         messagebox.showerror("更新失败", "程序更新未完成，请检查网络后重试。", parent=self.window)
 
     def run(self) -> None:
