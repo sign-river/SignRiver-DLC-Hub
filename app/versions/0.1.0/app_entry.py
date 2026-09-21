@@ -11125,7 +11125,7 @@ class DlcHubApplication:
             return
         if not self._require_game_stopped("移除补丁"):
             return
-        patch_paths = self.patch_profile.patch_file_paths
+        patch_paths = self.patch_profile.installed_file_paths
         restore_target = self.patch_profile.relative_file_path(
             self.patch_profile.unlocker_dll_name
         )
@@ -11227,7 +11227,7 @@ class DlcHubApplication:
         if catalog_error:
             self._show_catalog_error(catalog_error)
             return
-        patch_paths = "、".join(self.patch_profile.patch_file_paths)
+        patch_paths = "、".join(self.patch_profile.installed_file_paths)
         prior_repair = self.repair_journal.load(
             self.cartridge.cartridge_id, self.current_installation.root
         )

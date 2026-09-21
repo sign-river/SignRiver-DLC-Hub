@@ -166,6 +166,25 @@ class PatchProfile:
             for path in self.relative_file_paths(name)
         )
 
+    @property
+    def installed_file_names(self) -> tuple[str, ...]:
+        """Files the client actually writes for this platform.
+
+        ``config_format=none`` 不使用配置文件（macOS 的替换型解锁库），因此
+        面向用户的提示不应再把历史配置名当作待写入文件。
+        """
+        if self.template.config_format is PatchConfigFormat.NONE:
+            return (self.unlocker_dll_name, self.runtime_original_library_name)
+        return self.patch_file_names
+
+    @property
+    def installed_file_paths(self) -> tuple[str, ...]:
+        return tuple(
+            path
+            for name in self.installed_file_names
+            for path in self.relative_file_paths(name)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PatchBundle:

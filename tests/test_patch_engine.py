@@ -889,3 +889,20 @@ def test_config_none_profile_flags_legacy_config_residue(tmp_path: Path) -> None
 
     assert audit.health is PatchHealth.MODIFIED
     assert "icecream.ini" in audit.modified
+
+
+def test_installed_file_lists_skip_config_for_none_format() -> None:
+    """不使用配置文件时，面向用户提示的文件列表不应再包含配置名。"""
+    assert NO_CONFIG_PROFILE.installed_file_names == (
+        "steam_api64.dll",
+        "steam_api64_o.dll",
+    )
+    assert NO_CONFIG_PROFILE.installed_file_paths == (
+        "steam_api64.dll",
+        "steam_api64_o.dll",
+    )
+    assert STELLARIS_PATCH_PROFILE.patch_file_paths == (
+        "steam_api64.dll",
+        "steam_api64_o.dll",
+        "cream_api.ini",
+    )
