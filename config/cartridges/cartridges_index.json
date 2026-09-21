@@ -11,8 +11,8 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "9874648882b9874424372c2d12059aef2b0fd584cd34060a8c894bcab0e581f8",
-      "size_bytes": 2777,
+      "sha256": "ff9c6e05fc3bbda1eee3ea4fb9f1578f37411aba7e423f2e1484f657113d1005",
+      "size_bytes": 2695,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -32,8 +32,8 @@
       "game_id": "civilization_6",
       "display_name": "文明6 (Civilization VI)",
       "asset_name": "cartridge_civilization_6.json",
-      "sha256": "d99d8b5e9c5f3ed70cbbd043b9e5ab97680649e86500acd9ff3260d9e373bcaa",
-      "size_bytes": 2929,
+      "sha256": "6258c9f480ab0ece79e660d3fa24054c10e8478f368b773a47f45ac5ba080db1",
+      "size_bytes": 2846,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -53,8 +53,8 @@
       "game_id": "hearts_of_iron_4",
       "display_name": "钢铁雄心4 (Hearts of Iron IV)",
       "asset_name": "cartridge_hearts_of_iron_4.json",
-      "sha256": "332457cf6271e32fa54247dc1db5ccdeeb895d919c84e4611acae5492b66a57d",
-      "size_bytes": 2815,
+      "sha256": "f0bd6a368038fd3f0102cfa9e5f650303c3375dbf3d0bb3a11640a3efca5a762",
+      "size_bytes": 2733,
       "platform_resources": {
         "macos": {
           "patch": true,
@@ -74,8 +74,8 @@
       "game_id": "cities_skylines",
       "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "3753c42b5ef5ec6007e1f948f23d04bd7da303fe71d076ed03568a354e6fea4c",
-      "size_bytes": 2960,
+      "sha256": "634fcfb3d38b2bbaa65663c6d1fec167964df6c564e63ef11e28db7eac434072",
+      "size_bytes": 2875,
       "platform_resources": {
         "windows": {
           "patch": true,
@@ -91,8 +91,8 @@
       "game_id": "rimworld",
       "display_name": "边缘世界 (RimWorld)",
       "asset_name": "cartridge_rimworld.json",
-      "sha256": "be62b30dc1e0c863ec78f420caa5c5f55ea752825a127cd2c6df3d1d14dde981",
-      "size_bytes": 2926,
+      "sha256": "c6319bc909dbe7c9c6d779b066e9a390dfe166fd51cc57ddc82bcbc41d4f9f9a",
+      "size_bytes": 2843,
       "platform_resources": {
         "macos": {
           "patch": true,

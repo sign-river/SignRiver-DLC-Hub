@@ -1,5 +1,16 @@
 # 当前任务交接
 
+## 修复 CI：卡带索引哈希按 LF 归一化（2026-09-22）
+
+- 现象：推送后 CI 三端全红，pytest 仅 1 项失败——`tests/test_cartridge_catalog.py::test_bootstrap_index_and_documents_round_trip`（Windows/macOS 直接跑 pytest、Ubuntu 走 Xvfb 都红）；`restore_module_archives.py`（模块归档校验）与 ruff 均通过。
+- 复现：本地用 conda 建 Python 3.11 环境（CI 用的是 3.11，本地默认 3.13）跑全量 → `1 failed, 957 passed, 3 skipped`，失败项与 CI 完全一致。
+- 根因：`config/cartridges/*.json` 工作区文件是 CRLF，而 `cartridges_index.json` 里记录的 `sha256`/`size_bytes` 按 CRLF 内容计算；但 `.gitattributes` 声明 `config/cartridges/*.json text eol=lf`，CI 全新检出得到 LF 内容 → 哈希与大小都对不上。本地工作区是 CRLF，所以一直"通过"，掩盖了该问题。
+- 修复：把那 5 份卡带规范化为 LF（内容未变，仓库里本就是 LF，`git diff` 为空），并按 LF 内容重算 `cartridges_index.json` 的 `sha256`/`size_bytes`（例：stellaris 2777→2695 / `ff9c6e05fc3bbda1…`）。工作区形态与 git 检出形态从此一致。
+- 顺带清理：为复现而执行的 `pip install -e .` 改动了 `src/signriver_dlc_hub.egg-info/{PKG-INFO,SOURCES.txt}`，已还原为仓库版本（属本地安装产生的构建产物，与本次修复无关）。
+- 验证：`pytest tests/test_cartridge_catalog.py tests/test_platform_content.py` 在 3.13 与 3.11 两个解释器下均通过；全量 `pytest`（3.13）通过。
+- 影响说明：云端 `hub` release 仍是 CRLF 卡带 + 对应 CRLF 哈希（自洽，客户端校验与下载不受影响）；下次发布 hub 会按本地 LF 文件重新计算并上传，同样自洽。今日已构建的 1.0.0 包内是 CRLF 卡带 + 当时的索引，也自洽，无需重新打包。
+- 待办：重新推送本次修复并观察 CI 是否转绿。
+
 ## 模块归档目录改为 modules Release 的唯一数据源（2026-09-22）
 
 - 起因：推代码前预检发现 CI 必红——`tools/restore_module_archives.py` 会按 `config/module-archives.json` 逐个校验云端模块归档，而 0.1.7（线上 187,755 / `cf2d2a93…`，基线 233,255 / `6007a8ce…`）与 0.2.0（线上 191,187 / `896c2bbb…`，基线 289,622 / `e011d633…`）两份云端副本仍是旧构建；只有 1.0.0 匹配。历史提交一直没推送，所以这个偏差此前没被 CI 暴露。
