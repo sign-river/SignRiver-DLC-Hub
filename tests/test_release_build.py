@@ -33,14 +33,23 @@ def _sfx_payload_paths(sfx_path) -> list[str]:
     ]
 
 
+def _sfx_backend_available() -> bool:
+    """是否存在能真正产出 SFX 的后端（只有 7z 主程序不够，还要 7z.sfx 模块）。"""
+    bandizip = build_release._find_bandizip()
+    if bandizip is not None and (bandizip.parent / "bdzsfx.x86.sfx").is_file():
+        return True
+    seven_zip = build_release._find_7z()
+    return seven_zip is not None and (seven_zip.parent / "7z.sfx").is_file()
+
+
 def test_sfx_payload_keeps_the_release_folder(tmp_path) -> None:
     """自解压包必须把整个发布文件夹打进去，解压时不得散落到目标目录。
 
     回归背景：payload 曾用 ``.\\<发布目录>\\*`` 只打目录内容，用户在盘根
     目录解压时会把文件铺满整个盘。
     """
-    if build_release._find_7z() is None and build_release._find_bandizip() is None:
-        pytest.skip("本机未安装 7-Zip，跳过自解压包构建用例")
+    if not _sfx_backend_available():
+        pytest.skip("本机没有可用的自解压后端（7-Zip 需带 7z.sfx / Bandizip）")
     dist = tmp_path / "dist"
     release = dist / build_release.RELEASE_DIR_NAME
     release.mkdir(parents=True)

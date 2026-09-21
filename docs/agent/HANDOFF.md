@@ -1,5 +1,17 @@
 # 当前任务交接
 
+## SteamOS 1.0.0 原生重建（2026-09-22，含移除补丁改造）
+
+- 通道：SSH `deck@192.168.233.130`（密钥 `.test-artifacts/steamos_codex_ed25519`，辅助脚本 `.test-artifacts/steamos_guest.py`，`get` 参数顺序为「本地 远端」）。来宾 Linux 6.16.12 x86_64（SteamOS holo）、Python 3.13.5（`~/signriver-steamos-build/.venv-steamos`）、PyInstaller 6.22.3。
+- 源码同步：`.test-artifacts/signriver-native-source-20260922.tar.gz`（5,557,348 字节 / 811 文件）传入 `~/signriver-steamos-build` 解包覆盖，`.venv-steamos`、`build/`、`dist/` 不受影响；预检 `signriver_app` 81 文件与三个新代码标记齐全（tar 的 “time stamp in the future” 是宿主机/来宾时钟差，属正常告警）。
+- 来宾测试：`test_build_native_release.py`、`test_cross_platform_runtime.py`、`test_patch_engine.py`、`test_platform_content.py`、`test_release_build.py` 通过（4 项跳过）。**顺带修**：SFX 用例原先只在“既无 7-Zip 又无 Bandizip”时跳过，而 SteamOS 有 `7z` 却没有 `7z.sfx`，导致误报失败；新增 `tests/test_release_build.py::_sfx_backend_available()`（7-Zip 需带 `7z.sfx`、Bandizip 需带 `bdzsfx.x86.sfx`）后正确跳过。
+- 构建与产物：`.venv-steamos/bin/python tools/build_native_release.py --platform steamos` 成功；`dist/SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz` = 43,876,545 / `cf1a8a326f80bd21fd51c4402a6aba41567efe5f68c652de58a11e6ce41ab21c`；`dist/updates/SignRiver-DLC-Hub-full-v1.0.0-steamos-x64.zip` = 43,967,168 / `184532c02cf833ce5e94e2334626bf549858af18d982e0b20677673652aca935`（主机副本 `.test-artifacts/steamos-dist/`，哈希与来宾一致）。
+- 产物核对：`tar -tzf` 顶层为 `SignRiver-DLC-Hub-steamos-x64/`（263 条）、`unzip -t` 通过；主程序 ELF 64-bit x86-64、权限 755；runtime `app/versions` 只有 `0.2.0` + `1.0.0`；`signriver_app` 81 文件、`config/guides` 19 项；包内 `app_entry.py` 与来宾源码 sha256 相同（`dc57a354…`）。
+- 数据目录同步（与 macOS 同样的坑）：`~/.local/share/signriver-dlc-hub/app/versions/1.0.0` 原是旧代码（`6914415c…`、新标记计数 0），已备份为 `1.0.0.bak-20260922-preremoval` 并同步新模块（`dc57a354…`、旧文案计数 0）。**注意**：`pkill -f` 会匹配到自己 SSH 命令行导致会话被杀，改用 `pkill -x SignRiver-DLC-H`（按 comm 匹配）。
+- 启动验证：`DISPLAY=:0 XAUTHORITY=/home/deck/.Xauthority` 下 `timeout 15 …/SignRiver-DLC-Hub` 退出码 124（15 秒内一直存活）；launcher log 出现 `Starting application module 1.0.0`；桌面会话以 `setsid nohup … &` 启动后 12 秒进程仍在（PID 12089/12090）供用户直接查看。
+- 清单与收件：双源清单三段全部刷新——windows `42bf2cce…` / 21,318,160、macos `e0fc722d…` / 23,785,464、steamos `184532c0…` / 43,967,168，并同步到 `publisher-workspace/output/updates/`；`output/updates` 三端包与 `output/modules` 模块归档均为最新。
+- 未执行：未上传、未发布、未切换线上清单、未 push。
+
 ## macOS 1.0.0 原生重建（2026-09-22，含移除补丁改造）
 
 - 通道：**VMware Tools（`vmrun -T ws -gu signriver -gp …`）**——来宾未开 SSH/SMB/VNC；`runProgramInGuest` 不回传 stdout，统一用「脚本写日志 → `copyFileFromGuestToHost` 取回」。来宾 `Darwin 24.6.0 x86_64`、Python `/Users/signriver/py312/python/bin/python3.12`（3.12.14）、PyInstaller 6.22.3，构建目录 `/Users/signriver/macos-build-20260919`。
