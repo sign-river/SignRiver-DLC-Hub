@@ -689,6 +689,8 @@ class DlcHubApplication:
         # READY cache is reusable data, not permission to modify a game.  Only
         # downloads explicitly requested during this session may auto-install.
         self.auto_install_requested_task_ids = set()
+        # One completion toast per batch; per-DLC toasts would spam the screen.
+        self.batch_install_success_pending = False
         self.speed_test_running = False
         self.download_repository = None
         self.download_queue = None
@@ -8995,6 +8997,8 @@ class DlcHubApplication:
             DownloadState.PAUSING, DownloadState.RETRYING,
             DownloadState.VERIFYING,
         }
+        # A new batch starts with no pending completion notice.
+        self.batch_install_success_pending = False
         started = 0
         skipped = 0
         failed = 0
@@ -9917,7 +9921,9 @@ class DlcHubApplication:
         ))
         self._show_install_state(entry)
         self.catalog_preview.configure(text=f"{entry.display_name} 已自动安装到游戏目录")
-        self._notify("下载并安装成功！如游戏运行出现问题，请前往“报错指南”查看解决办法。")
+        # The batch reports one completion notice after every download and
+        # install has settled; per-DLC notices flooded the screen on SteamOS.
+        self.batch_install_success_pending = True
         self._maybe_finish_unlock_workflow()
 
     def _on_auto_install_failure(
@@ -9956,8 +9962,22 @@ class DlcHubApplication:
             self._set_batch_download_state("idle")
         if not self.auto_install_worker_running and not self._content_work_is_active():
             self._refresh_installed_dlc_paths()
+        if not self._content_work_is_active():
+            self._notify_batch_install_completion()
         self._maybe_finish_repair_workflow()
         self._maybe_finish_unlock_workflow()
+
+    def _notify_batch_install_completion(self) -> None:
+        """Show one success notice after the whole DLC batch has settled."""
+        if not self.batch_install_success_pending:
+            return
+        self.batch_install_success_pending = False
+        if self.unlock_workflow_active:
+            # The one-click unlock flow shows its own completion dialog.
+            return
+        self._notify(
+            "下载并安装成功！如游戏运行出现问题，请前往“报错指南”查看解决办法。"
+        )
 
     def _maybe_finish_unlock_workflow(self) -> None:
         """Show one success dialog only after patching and requested installs finish."""

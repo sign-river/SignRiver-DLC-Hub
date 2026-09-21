@@ -185,6 +185,14 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（DLC 批量下载只提示一次，2026-09-21）
+
+- 问题：一键解锁/批量下载时，每个 DLC 安装完成都会弹一次「下载并安装成功！…」提示条（用户反馈每下载一个就弹一次），而流程末尾本来就有一次「一键解锁成功」对话框。
+- 修改：`app/versions/0.1.0/app_entry.py` 的 `_on_auto_install_success()` 不再逐个 `_notify`，改为置位 `batch_install_success_pending`；新增 `_notify_batch_install_completion()`，仅在 `_on_auto_install_worker_done()` 判定 `not self._content_work_is_active()`（下载与安装全部结束）时提示一次，且 `unlock_workflow_active` 为真时跳过（由解锁完成对话框负责告知）。`_start_dlc_batch()` 开始时清零该标志。同一改动已同步到活动模块 `0.2.0`。
+- 测试：`tests/test_ui_theme.py` 新增 `test_dlc_batch_reports_one_completion_notice_per_batch`；全量 `pytest -q`、Ruff、compileall、`git diff --check` 通过。
+- SteamOS VM：已把更新后的 `app_entry.py` 同步到数据目录模块、包内运行时与构建源码三处并重启客户端，`signriver-check.service` active、日志 `Starting application module 0.2.0` 正常。
+- 未执行：Windows 发布包重建、macOS 端同步、上传、推送。
+
 ## SteamOS 干净基线快照（2026-09-21）
 
 - 已创建关机状态快照 `20260921-可用基线`（无内存文件，确认是 poweroff 后拍摄）。当前快照链：`steamos-installed-plasma-x11` → `下载stellaris` → `20260921-可用基线`。

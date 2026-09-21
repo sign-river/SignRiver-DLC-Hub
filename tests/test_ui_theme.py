@@ -1590,3 +1590,19 @@ def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
     # "按钮已预留" copy after an update.
     assert "按钮已预留" not in source
     assert "_show_patch_removal_placeholder" not in source
+
+
+def test_dlc_batch_reports_one_completion_notice_per_batch() -> None:
+    success = _app_method_source("_on_auto_install_success")
+    worker_done = _app_method_source("_on_auto_install_worker_done")
+    helper = _app_method_source("_notify_batch_install_completion")
+    batch = _app_method_source("_start_dlc_batch")
+
+    assert 'self._notify("下载并安装成功' not in success
+    assert "self.batch_install_success_pending = True" in success
+    assert "self._notify_batch_install_completion()" in worker_done
+    assert "if not self._content_work_is_active():" in worker_done
+    assert "if not self.batch_install_success_pending:" in helper
+    assert "if self.unlock_workflow_active:" in helper
+    assert "下载并安装成功！" in helper
+    assert "self.batch_install_success_pending = False" in batch
