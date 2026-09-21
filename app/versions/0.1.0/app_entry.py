@@ -505,6 +505,63 @@ def _format_speed(value: float) -> str:
     return f"{_format_size(value)}/s"
 
 
+PATCH_ROW_DOWNLOAD_STATE_TEXT = {
+    "queued": "补丁等待下载",
+    "downloading": "补丁下载中",
+    "pausing": "补丁暂停中",
+    "paused": "补丁已暂停",
+    "retrying": "补丁重试中",
+    "verifying": "补丁校验中",
+    "corrupt": "补丁异常：校验未通过",
+    "failed": "补丁下载失败",
+    "cancelled": "补丁下载已取消",
+}
+
+PATCH_ROW_DOWNLOAD_FAILURE_STATES = frozenset({"corrupt", "failed"})
+
+
+def patch_row_status(
+    *,
+    labels: tuple[str, ...],
+    installed: bool,
+    audit_healthy: bool,
+    audit_known: bool,
+    audit_problems: frozenset[str],
+    download_state: str | None,
+    cached_ready: bool,
+) -> tuple[str, str]:
+    """补丁工具每一行的状态文案与配色键。
+
+    行状态只描述游戏目录里的文件：下载缓存是否还在只决定「打开文件」
+    能不能用，缓存被清理并不代表补丁失效。labels 是这一行文件在安装记录
+    里的相对路径，多个安装目录时会有多项。
+    """
+    if any(label in audit_problems for label in labels):
+        if installed:
+            return "补丁不完整：部分文件缺失或被修改", "danger"
+        return "补丁已失效：文件不在游戏目录", "danger"
+    if installed and audit_healthy:
+        return "补丁正常", "success"
+    if installed and not audit_known:
+        return "已写入：缺少安装记录，建议一键修复", "muted"
+    if installed:
+        return "补丁未通过审计", "danger"
+    if download_state is None:
+        return "尚未安装：补丁资源尚未下载", "muted"
+    if download_state == "ready":
+        if cached_ready:
+            return "尚未安装：补丁资源已就绪，可直接一键解锁", "muted"
+        return "尚未安装：缓存资源已失效，请重新下载", "muted"
+    return (
+        PATCH_ROW_DOWNLOAD_STATE_TEXT.get(download_state, "补丁处理中"),
+        (
+            "danger"
+            if download_state in PATCH_ROW_DOWNLOAD_FAILURE_STATES
+            else "muted"
+        ),
+    )
+
+
 class DlcHubApplication:
     NETWORK_PROBLEM_RECORD_THRESHOLD = 3
 
@@ -4302,6 +4359,20 @@ class DlcHubApplication:
             spec.task_id: spec for spec in self._patch_download_specs()
         }
         patch_snapshots = self._patch_snapshots_by_task()
+        # 行状态只描述游戏目录里的文件：下载缓存是否还在只影响「打开文件」，
+        # 缓存被清理并不代表补丁失效。
+        row_audit = self._patch_row_audit()
+        audit_healthy = (
+            row_audit is not None and row_audit.health is PatchHealth.HEALTHY
+        )
+        audit_known = (
+            row_audit is not None and row_audit.health is not PatchHealth.UNKNOWN
+        )
+        audit_problems = frozenset(
+            (*row_audit.missing, *row_audit.modified)
+            if row_audit is not None
+            else ()
+        )
         if not patch_specs:
             ctk.CTkLabel(
                 body,
@@ -4319,13 +4390,16 @@ class DlcHubApplication:
             role_label, role_filename = display
             snapshot = patch_snapshots.get(task_id)
             path = snapshot.result_path if snapshot is not None else None
-            is_ready = (
+            cached_ready = (
                 snapshot is not None
                 and snapshot.state is DownloadState.READY
                 and snapshot.spec.filename == spec.filename
                 and path is not None
                 and path.is_file()
             )
+            labels = self._patch_row_audit_labels(role)
+            game_path = self._patch_row_game_path(role)
+            installed = game_path is not None and game_path.is_file()
             row = ctk.CTkFrame(
                 body,
                 fg_color=UI["card"],
@@ -4340,12 +4414,12 @@ class DlcHubApplication:
                 text_color=UI["text"],
                 anchor="w",
             ).pack(side="left", fill="x", expand=True, padx=12, pady=9)
-            if is_ready:
+            if installed:
                 ctk.CTkButton(
                     row,
                     text="打开位置",
                     width=86,
-                    command=lambda r=role, item=path: self._reveal_path(self._resolve_patch_target_path(r, item)),
+                    command=lambda item=game_path: self._reveal_path(item),
                     **BUTTON_SECONDARY,
                 ).pack(side="right", padx=(4, 10), pady=6)
                 open_target = self._patch_row_open_target(role, path)
@@ -4357,41 +4431,21 @@ class DlcHubApplication:
                         command=lambda item=open_target: self._open_file(item),
                         **BUTTON_SECONDARY,
                     ).pack(side="right", padx=(10, 0), pady=6)
-                ctk.CTkLabel(
-                    row,
-                    text="补丁正常",
-                    text_color=UI["success"],
-                    anchor="e",
-                ).pack(side="right", padx=(12, 8), pady=9)
-                continue
-            if snapshot is None:
-                issue = "补丁缺失：尚未下载"
-            elif snapshot.state is DownloadState.READY:
-                issue = "补丁缺失：缓存文件不可用"
-            elif snapshot.state is DownloadState.CORRUPT:
-                issue = "补丁异常：校验未通过"
-            elif snapshot.state is DownloadState.FAILED:
-                issue = "补丁下载失败"
-            elif snapshot.state is DownloadState.CANCELLED:
-                issue = "补丁下载已取消"
-            elif snapshot.state is DownloadState.QUEUED:
-                issue = "补丁等待下载"
-            elif snapshot.state is DownloadState.PAUSING:
-                issue = "补丁暂停中"
-            elif snapshot.state is DownloadState.PAUSED:
-                issue = "补丁已暂停"
-            elif snapshot.state is DownloadState.RETRYING:
-                issue = "补丁重试中"
-            elif snapshot.state is DownloadState.VERIFYING:
-                issue = "补丁校验中"
-            elif snapshot.state is DownloadState.DOWNLOADING:
-                issue = "补丁下载中"
-            else:
-                issue = "补丁处理中"
+            issue, tone = patch_row_status(
+                labels=labels,
+                installed=installed,
+                audit_healthy=audit_healthy,
+                audit_known=audit_known,
+                audit_problems=audit_problems,
+                download_state=(
+                    None if snapshot is None else str(snapshot.state.value)
+                ),
+                cached_ready=cached_ready,
+            )
             ctk.CTkLabel(
                 row,
                 text=issue,
-                text_color=UI["danger"] if "异常" in issue or "失败" in issue or "缺失" in issue else UI["muted"],
+                text_color=UI[tone],
                 anchor="e",
             ).pack(side="right", padx=12, pady=9)
         ctk.CTkButton(
@@ -10459,13 +10513,53 @@ class DlcHubApplication:
         )
         return self.PATCH_ROLE_LABELS.get(canonical, canonical), filename
 
+    def _patch_row_audit_labels(self, role: str) -> tuple[str, ...]:
+        """这一行文件在安装记录里的相对路径（多个安装目录时会有多项）。"""
+        display = self._patch_row_display(role)
+        profile = self.patch_profile
+        if display is None or profile is None:
+            return ()
+        filename = display[1]
+        return tuple(
+            filename if directory == "." else f"{directory}/{filename}"
+            for directory in profile.install_relative_dirs
+        )
+
+    def _patch_row_game_path(self, role: str) -> Path | None:
+        """这一行文件在游戏目录里的路径（不保证文件存在）。"""
+        display = self._patch_row_display(role)
+        installation = self.current_installation
+        profile = self.patch_profile
+        if display is None or installation is None or profile is None:
+            return None
+        try:
+            directory = resolve_game_directory(
+                installation.root,
+                profile.install_relative_dir,
+                field_name="patch install directory",
+            )
+        except (OSError, ValueError):
+            return None
+        return directory / display[1]
+
+    def _patch_row_audit(self):
+        """读取安装记录复检结果，供补丁文件行判断状态。"""
+        installation = self.current_installation
+        if installation is None or self.patch_bundle is None:
+            return None
+        try:
+            return self.patch_engine.audit_recorded(installation.root)
+        except Exception:
+            self.context.logger.exception("Patch file row audit failed")
+            return None
+
     def _patch_row_open_target(self, role: str, cached_path: Path | None) -> Path | None:
-        """“打开文件”的目标：下载资源，配置行则指向游戏目录里生成的文件。"""
-        if self._canonical_patch_role(role) != "appinfo_json":
-            return cached_path
-        target = self._resolve_patch_target_path(role, cached_path)
+        """“打开文件”的目标：游戏目录里的文件优先，其次下载缓存资源。"""
+        target = self._patch_row_game_path(role)
         if target is not None and target.is_file():
             return target
+        if self._canonical_patch_role(role) != "appinfo_json":
+            return cached_path
         return None
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:

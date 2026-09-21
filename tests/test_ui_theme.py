@@ -76,7 +76,17 @@ def test_patch_tool_lists_installed_files_per_platform() -> None:
         "补丁校验中",
         "补丁处理中",
     ):
-        assert f'issue = "{wording}"' in source
+        assert f'"{wording}"' in source
+    # 行状态只看游戏目录里的文件与安装记录：清理下载缓存不等于补丁失效。
+    patch_tool = source.split("def _show_patch_tool", 1)[1].split(
+        "def _refresh_patch_tool", 1
+    )[0]
+    assert "def patch_row_status(" in source
+    assert "row_audit = self._patch_row_audit()" in patch_tool
+    assert "game_path = self._patch_row_game_path(role)" in patch_tool
+    assert "installed = game_path is not None and game_path.is_file()" in patch_tool
+    assert "issue, tone = patch_row_status(" in patch_tool
+    assert "缓存文件不可用" not in source
 
 
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
@@ -436,11 +446,11 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'resolve_game_directory(' in patch_tool
     assert 'self.download_manager.cache_root' in patch_tool
     assert 'text="' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x6587, 0x4ef6)) + '"' in patch_tool
-    assert 'issue = "' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x7f3a, 0x5931, 0xff1a, 0x5c1a, 0x672a, 0x4e0b, 0x8f7d)) + '"' in patch_tool
-    assert 'issue = "' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x7f3a, 0x5931, 0xff1a, 0x7f13, 0x5b58, 0x6587, 0x4ef6, 0x4e0d, 0x53ef, 0x7528)) + '"' in patch_tool
-    assert 'if is_ready:' in patch_tool
-    assert 'text="' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x6b63, 0x5e38)) + '"' in patch_tool
-    assert 'text_color=UI["success"]' in patch_tool
+    # 行状态来自游戏目录里的文件与安装记录，不再依赖下载缓存快照。
+    assert 'if installed:' in patch_tool
+    assert 'issue, tone = patch_row_status(' in patch_tool
+    assert 'text_color=UI[tone]' in patch_tool
+    assert '"' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x6b63, 0x5e38)) + '"' in source
     assert 'open_target = self._patch_row_open_target(role, path)' in patch_tool
     assert 'if open_target is not None and self._is_file_openable(open_target):' in patch_tool
     assert 'def _is_file_openable(path: Path) -> bool' in source
