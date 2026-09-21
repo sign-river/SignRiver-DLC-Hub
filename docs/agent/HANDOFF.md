@@ -1,5 +1,12 @@
 # 当前任务交接
 
+## 发布落点与 1.0.0 线上状态（2026-09-22）
+
+- **更新链路已上线（已核对双源）**：`signriver-dlc-assets` 的 `updates` release 中 windows `42bf2cce…` / 21,318,160、macos `e0fc722d…` / 23,785,464、steamos `184532c0…` / 43,967,168 与本地构建逐字节一致；`modules` release 的 `SignRiver-DLC-Hub-module-v1.0.0.zip` = `45decd94…` / 301,564，与 `config/module-archives.json` 一致。
+- **尚未发布**：① `hub` release 的 `announcement.json` 仍是 `2026-08-23-notice`（旧公告），1.0.0 公告要经发布器「游戏支持数据」页「生成客户端 hub」→「发布 hub Release」才会同步（卡带同批）；② 首装包四份还没上传。
+- **首装包落点（用户确认）**：本项目仓库自己的 Release——GitLink `signriver/signriver-dlc-hub`、GitHub `sign-river/SignRiver-DLC-Hub`（GitHub 侧若为草稿则匿名 API 看不到，之前排查时显示 0 releases 即由此）。四份为 `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip`（`e2c14b11…`）、同版本自解压 EXE（`d8c715ab…`）、`dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip`（`8b31ffe1…`）、`dist/SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz`（`cf1a8a32…`）。已写入 `docs/program-update-release-guide.md` 的「首次安装包（手动上传到本项目 Release）」一节。
+- 待办顺序：上传首装包 → 发布 hub（公告+卡带）→ `git push origin main`。
+
 ## SteamOS 1.0.0 原生重建（2026-09-22，含移除补丁改造）
 
 - 通道：SSH `deck@192.168.233.130`（密钥 `.test-artifacts/steamos_codex_ed25519`，辅助脚本 `.test-artifacts/steamos_guest.py`，`get` 参数顺序为「本地 远端」）。来宾 Linux 6.16.12 x86_64（SteamOS holo）、Python 3.13.5（`~/signriver-steamos-build/.venv-steamos`）、PyInstaller 6.22.3。

@@ -2,11 +2,11 @@
 
 ## 当前发布基线
 
-- 当前线上正式版本：`0.1.7`
-- 当前待发布版本：`0.2.0`
+- 当前线上正式版本：`1.0.0`（2026-09-22；三端全量更新包与模块归档已在双源发布，首装包与 `hub` 公告按本文手动发布）
+- 当前待发布版本：—
 - 当前更新类型：`full`
 - 最低可自动全量更新的启动器版本：`0.1.2`
-- 模块维护基线：`0.1.6`、`0.1.7`、`0.2.0`
+- 模块维护基线：`0.1.7`、`0.2.0`、`1.0.0`
 
 后续发布必须使用高于线上版本的新版本号。业务模块的唯一受控源码是 `app/versions/0.1.0/`；修改完成后复制到新的目标版本目录，不能直接把旧的已发布版本目录作为新源码继续修改。
 
@@ -124,6 +124,28 @@ subprocess.run(
 - 配置中的大小与 SHA-256 和本地归档一致。
 - 两个平台的同版本模块归档内容一致。
 - 远端归档验证和 CI 恢复测试完成前，不清理本地目标版本目录。
+
+## 首次安装包（手动上传到本项目 Release）
+
+首装包不走发布器，也**不是** `signriver-dlc-assets` 的附件；它上传到**本项目仓库自己的 Release**（若 GitHub 侧先建草稿亦可）：
+
+- GitLink：`signriver/signriver-dlc-hub` 的 Release
+- GitHub：`sign-river/SignRiver-DLC-Hub` 的 Release
+
+每版需要上传四份，文件名与本地构建产物完全一致：
+
+| 文件 | 平台 |
+| --- | --- |
+| `dist/唏嘘南溪DLC一键解锁工具-v<版本>-windows-x64.zip` | Windows 便携版 |
+| `dist/唏嘘南溪DLC一键解锁工具-v<版本>-windows-x64-自解压.exe` | Windows 自解压版（与前者同内容，仅外层壳不同） |
+| `dist/SignRiver-DLC-Hub-v<版本>-macos-x64.app.zip` | macOS Intel x64 |
+| `dist/SignRiver-DLC-Hub-v<版本>-steamos-x64.tar.gz` | SteamOS x64 |
+
+注意：
+
+- 三个不同东西别混淆——更新链路在 `signriver-dlc-assets` 的 `updates` / `modules` release，卡带与公告在 `hub` release，首装包在本项目 Release；
+- 首装包必须来自同一次构建（与 `updates` 里的全量包同批），并在 Release 说明或校验文件里列出大小与 SHA-256；
+- 双源保持同版本、同内容，便于用户按平台选择下载。
 
 ## 保留与删除
 
