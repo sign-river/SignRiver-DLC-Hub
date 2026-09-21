@@ -177,6 +177,19 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（SteamOS 原生重建与部署，2026-09-21）
+
+- 在 SteamOS VM（`deck@192.168.233.130`）完成与 macOS 等价的交付：备份 → 源码同步 → 原生重建 → 覆盖部署 → 数据目录模块重新播种 → 启动验证 → 产物回传。
+- 备份（回滚用）：`~/.local/share/signriver-dlc-hub/app/versions/0.2.0.bak-20260921`、`~/.local/share/signriver-dlc-hub/app/state.json.bak-20260921`、`~/signriver-steamos-build/dist/SignRiver-DLC-Hub-steamos-x64.bak-20260921`，以及旧 `*.tar.gz.bak-20260921`、`*.zip.bak-20260921`。
+- 源码归档：5,202,470 字节 / 722 文件，排除 `.git`、`.venv`、`build`、`dist`、`data`、`cache`、`.test-artifacts`、`publisher-workspace`、缓存与凭据，但保留被 Git 忽略的 `app/versions/0.2.0`；SFTP 上传后覆盖解压到 `~/signriver-steamos-build`，`.venv-steamos`、`build`、`dist` 均保留。
+- 构建：`.venv-steamos/bin/python tools/build_native_release.py --platform steamos`（rc=0）。包内校验：ELF 64-bit x86-64、权限 755、`app/versions/0.2.0/signriver_app` 80 个文件、`config/guides` 19 项 / 16 条索引（含 `patch_assets_missing`、`steamos-app-permission`、`steamos-proton-native`）；`tar -tzf` 与 ZIP 完整性通过（512 项，testzip 为空）。
+- 部署：删除数据目录旧模块以触发 `paths.ensure()` 重新播种；播种后模块含新代码标记（`resolve_bootstrap_dir`=2、`platform_text`=1），共 83 个文件；数据目录 `state.json` 保持 `active_version=0.2.0`、`bad_versions` 为空。
+- 启动验证：`DISPLAY=:0` 启动后进程存活（PID 17899/17901），日志出现 `Starting application module 0.2.0`，无模块加载或指南加载错误；窗口保持打开供用户查看。
+- 端到端证明：用包内模块加载包内配置运行 `resolve_bootstrap_dir` + `GuideCatalogService(platform="steamos")`，解析到包内 `config/guides`，SteamOS 侧 8 条指南全部加载且正文为 SteamOS 专属文案。
+- 新产物（已回传 `.test-artifacts/steamos-dist/`，与来宾 `sha256sum` 完全一致）：`SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz` 44,547,367 字节 SHA-256 `6BEF73F1BA663D706210D6D4AB0CDD9A7910A135E65F0254C40A8FE96E466A64`；`SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip` 44,763,988 字节 SHA-256 `CEB0E75AB1FF82B39E39D637CBED69999A49382ED101355611864DA7CAC14E96`。
+- 本轮未改任何仓库代码（未发现 SteamOS 专属缺陷）。注意 SteamOS VM 时钟比宿主机慢约 18 小时，仅影响日志时间戳。
+- 未执行：上传发布包、线上清单切换、发布器批次、Steam 登录、真实 DLC 下载、补丁生命周期、push。
+
 ## 最新任务（清理日志收集的用户可见“跳过/忽略”措辞，2026-09-21）
 
 - 背景：日志资料收集完成弹窗原样显示内部候选路径统计（“已整理 4 个文件；跳过 27 项；失败 0 项”），用户无法得知含义且容易误解为异常。内部 `skipped`/`skipped_dumps` 字段保留，仅调整用户可见文案。
