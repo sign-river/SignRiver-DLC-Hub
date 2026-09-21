@@ -9,7 +9,9 @@
 - 7-Zip SFX 会把 payload 内容解压到用户选择的目录。打包时只能用 `7z a <archive> <发布目录名>`（连目录本身），**不能**用 `.\<发布目录>\*`——后者只打目录内容，用户在盘根目录解压会把 `app/`、EXE 等直接铺满整个盘（曾污染 D 盘）。
 - 判定与回归：`tests/test_release_build.py::test_sfx_payload_keeps_the_release_folder` 用 `7z l -slt -sccUTF-8` 断言 payload 内每个条目都以发布目录名开头；`-sccUTF-8` 用于避免中文目录名按控制台代码页输出变成乱码。
 - 现状：本机 `C:\Program Files\7-Zip` 只有标准 `7z.sfx`；它的 `ExtractTitle`/`GUIFlags`/`OverwriteMode` 等键属于 7zSD 变体，会被忽略（保留无害）。标准模块生成的 SFX 启动时会要求管理员权限（既有行为），Python 兜底 SFX（`tools/sfx_stub.py`）本来就解压到 `<exe 目录>\<发布目录名>`。
-- 默认后端是 **Python 外壳版**（`tools/build_release.py::_build_python_sfx` + `tools/sfx_stub.py`）：双击后自动解压到 `<EXE 同级目录>\<发布目录>`、弹提示并打开文件夹，不需要管理员权限（v0.1.4/v0.1.7 的自解压包就是这个方案，外壳约 11.9 MB，总包比 7z 版大约多 11 MB）。只有它失败时才退回 Bandizip SFX（`bz c -sfx:bdzsfx.x86.sfx`，stub 为 asInvoker），再不济才用 7-Zip SFX（需要管理员权限，体验最差）。
+- 默认后端是 **Bandizip SFX**（`bz c -l:9 -y -sfx:<Bandizip 目录>/bdzsfx.x86.sfx <输出.exe> <发布目录>`）：产物只有 ZIP + 约 34 KB stub，stub 以 `asInvoker` 运行（不弹 UAC），解压到 `<当前目录>\<发布目录>`——双击时当前目录就是 EXE 所在目录，所以结果仍是单一文件夹。`_find_bandizip()` 通过 PATH 与注册表安装位置定位 `bz.exe`。
+- 退路：Bandizip 不可用时用 7-Zip SFX（同样只带发布文件夹，但启动需要管理员权限），最后才是 Python 外壳版（`_build_python_sfx` + `tools/sfx_stub.py`：双击自动解压 + 提示 + 打开文件夹，落地同样是一个文件夹，但外壳本身约 11.9 MB，用户明确反对为体积换这点便利）。
+- 注意：Bandizip SFX 的解压目标是**进程当前目录**，从命令行在别的目录启动会解压到那个目录；因为有顶层发布文件夹，最坏也只是多出一个文件夹，不会铺满整个盘。
 
 ### 全量更新必须绑定同一构建产物（2026-09-04）
 

@@ -36,8 +36,8 @@
 - 修复：改为 `7z a <archive> <发布目录名>`（连目录本身一起打包），解压后只会得到 `<目标目录>\唏嘘南溪DLC一键解锁工具\...` 一个文件夹，与 ZIP 内布局一致。
 - 验证：新增 `tests/test_release_build.py::test_sfx_payload_keeps_the_release_folder`（本机有 7-Zip 时构建真实 SFX 并断言 payload 条目都以发布目录名开头，无 7-Zip 时 skip）；另用 `.test-artifacts/verify_sfx_layout.py` 实测解压，目标目录里只有发布文件夹一项。全量 `pytest` 与 Ruff 通过。
 - 备注：现有 `dist/` 里 0.2.0 的 SFX 仍是旧行为，1.0.0 构建时会自动带上此修复；标准 `7z.sfx` 生成的 SFX 会要求管理员权限（既有行为，与本次修复无关）。
-- 默认自解压后端改回 Python 外壳版（同日）：`_build_python_sfx` 重新成为首选——双击即自动解压到 `<EXE 同级>\<发布目录>` 并打开该文件夹，无需选路径、无 UAC；`_build_sfx`（Bandizip SFX asInvoker → 7-Zip SFX 需管理员）降为兜底。实测外壳产物 11,878,865 字节且内嵌 `payload.zip`；历史对照：v0.1.4/v0.1.7 的自解压包含 PyInstaller 标记、无 7z 签名（即外壳版），v0.2.0 换成了 7z 版才出现散落与 UAC。
-- 另：`_find_bandizip()` 通过 PATH 与注册表安装位置定位 `bz.exe`（本机 `D:\useless\bandizip\Bandizip\bz.exe`），Bandizip 的 SFX 为 ZIP+stub（`asInvoker`），解压落点同样是 `<EXE 同级>\<发布目录>`，已由 `tests/test_release_build.py::test_bandizip_sfx_extracts_into_a_single_folder` 覆盖。
+- 自解压后端最终定为 **Bandizip 优先**（同日）：`bz c -sfx:bdzsfx.x86.sfx <输出.exe> <发布目录>`，产物 ≈ ZIP + 34 KB stub、asInvoker 不弹 UAC、解压为单一发布文件夹；`_find_bandizip()` 走 PATH + 注册表（本机 `D:\useless\bandizip\Bandizip\bz.exe`）。7-Zip SFX 与 Python 外壳版依次兜底；外壳版实测 11,878,865 字节，用户认为为这点便利多 11 MB 不划算，故不作为默认。
+- 经验：Bandizip SFX 解压到「进程当前目录」，双击时即 EXE 所在目录；测试里不要启动 GUI SFX（会弹窗等待、遗留进程会锁住产物），改为用 7-Zip 解 payload 校验布局，见 `test_bandizip_sfx_payload_extracts_into_a_single_folder`。
 
 ### SteamOS 1.0.0 最终构建与部署（2026-09-21，来宾 16:50）
 
