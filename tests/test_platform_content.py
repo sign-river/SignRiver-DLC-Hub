@@ -902,7 +902,12 @@ def test_cities_index_only_claims_platforms_that_are_actually_published() -> Non
 
 
 def test_macos_cartridges_use_library_only_patch_layout() -> None:
-    """macOS 使用替换型解锁库：只换库文件，不再生成配置文件。"""
+    """macOS 使用替换型解锁库；卡带声明必须保持旧客户端能解析的值。
+
+    老客户端（0.2.0 及更早）会校验卡带里**所有**平台段，遇到它不认识的值
+    会直接判定卡带解析失败，导致 DLC 目录整个读不出来。因此 macOS 段继续
+    写 `cream_ini`，由客户端内部把 macOS 归一为“不生成配置文件”。
+    """
     documents = sorted((ROOT / "config" / "cartridges").glob("cartridge_*.json"))
 
     assert documents, "未找到卡带文档"
@@ -913,7 +918,7 @@ def test_macos_cartridges_use_library_only_patch_layout() -> None:
         if macos is None:
             continue
         checked += 1
-        assert macos.get("config_format") == "none", path.name
+        assert macos.get("config_format") == "cream_ini", path.name
         assert macos.get("ini_target_name") == "icecream.ini", path.name
         assert macos.get("unlocker_dll_name") == "libsteam_api.dylib", path.name
         assert (
@@ -921,6 +926,20 @@ def test_macos_cartridges_use_library_only_patch_layout() -> None:
         ), path.name
 
     assert checked == 5, "macOS 卡带数量变化时请同步更新本用例"
+
+
+def test_all_cartridges_keep_legacy_config_formats() -> None:
+    """所有平台段只能使用旧客户端认识的两个取值（发布兼容硬约束）。"""
+    legacy = {"cream_ini", "smokeapi_json"}
+    for path in sorted((ROOT / "config" / "cartridges").glob("cartridge_*.json")):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        patch = document.get("patch", {})
+        variants = [patch] if patch.get("platforms") is None else patch["platforms"].values()
+        for variant in variants:
+            value = variant.get("config_format")
+            if value is None:
+                continue
+            assert value in legacy, f"{path.name}: {value!r} 会让老客户端无法解析卡带"
 
 
 def test_stellaris_macos_patch_targets_the_game_root() -> None:

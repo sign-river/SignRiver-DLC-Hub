@@ -4,6 +4,12 @@
 
 ## 发布与更新
 
+### 卡带 config_format 只能使用老客户端认识的值（2026-09-21）
+
+- 老客户端（0.2.0 及更早）解析卡带时会校验**文档里所有平台段**，遇到不认识的值直接判定卡带解析失败，DLC 目录整个读不出来（现象：`unsupported patch config format: 'none'`，且与当前操作系统无关）。
+- 因此新增平台行为**不能**靠扩宽 `config_format` 取值实现：macOS 的“不生成配置文件”改为客户端内部规则（`PatchProfile` 对 `PatchPlatform.MACOS` 归一为 `NONE`），卡带里 macOS 段继续写 `cream_ini`。
+- 守卫：`tests/test_platform_content.py::test_all_cartridges_keep_legacy_config_formats` 限定所有平台段只能出现 `cream_ini` / `smokeapi_json`；`tests/test_patch_engine.py::test_macos_profile_always_drops_config_file` 保证客户端内部归一化。改动卡带后必须同步 `cartridges_index.json` 的哈希与大小，并重新发布云端卡带。
+
 ### 自解压包必须把发布文件夹整包写入（2026-09-21）
 
 - 7-Zip SFX 会把 payload 内容解压到用户选择的目录。打包时只能用 `7z a <archive> <发布目录名>`（连目录本身），**不能**用 `.\<发布目录>\*`——后者只打目录内容，用户在盘根目录解压会把 `app/`、EXE 等直接铺满整个盘（曾污染 D 盘）。

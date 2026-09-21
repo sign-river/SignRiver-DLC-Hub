@@ -39,7 +39,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "dlc_relative_dir": "dlc", "install_relative_dir": ".",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
-            "ini_target_name": "icecream.ini", "config_format": "none",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
     "civilization_6": {
@@ -54,7 +54,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "dlc_relative_dir": "DLC", "install_relative_dir": "Civilization VI.app/Contents/MacOS",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
-            "ini_target_name": "icecream.ini", "config_format": "none",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
     "hearts_of_iron_4": {
@@ -69,7 +69,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "dlc_relative_dir": "dlc", "install_relative_dir": "hoi4.app/Contents/MacOS",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
-            "ini_target_name": "icecream.ini", "config_format": "none",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
     "cities_skylines": {
@@ -84,7 +84,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "dlc_relative_dir": "Files", "install_relative_dir": "Cities.app/Contents/Plugins",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
-            "ini_target_name": "icecream.ini", "config_format": "none",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
     "rimworld": {
@@ -100,7 +100,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
             "dlc_relative_dir": "Data", "install_relative_dir": "RimWorldMac.app/Contents/Plugins",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
-            "ini_target_name": "icecream.ini", "config_format": "none",
+            "ini_target_name": "icecream.ini", "config_format": "cream_ini",
         },
     },
 }

@@ -30,6 +30,14 @@
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
+### 发布兼容性事故：卡带 config_format=none 打挂老客户端（2026-09-21）
+
+- 现象：用户打开已保存的 0.2.0 客户端验证 0.2.0 → 1.0.0 更新时，DLC 目录读取失败，提示 `无法从远端加载游戏卡带 stellaris: unsupported patch config format: 'none'`（GitLink/GitHub 都一样）。
+- 根因：为让 macOS 不生成配置文件，我把 5 张卡带 macOS 段的 `config_format` 写成了新值 `none`；老客户端解析卡带时会校验**所有平台段**，不认识 `none` 直接判定卡带解析失败，Windows 上也一样。云端 5 张卡带都已带该值。
+- 修复：卡带声明全部改回 `cream_ini`（仓库卡带 + `cartridges_index.json` + 发布器默认值 + 工作区 `game.json`），macOS“不生成配置文件”改由客户端内部归一化保证（新客户端行为不变）；新增硬约束测试 `test_all_cartridges_keep_legacy_config_formats`，并更新原 macOS 卡带用例断言。
+- 重建：Windows 首装 ZIP（22,457,878 / `764c24dc…`）、自解压（22,773,906 / `1687703a…`）、全量更新（22,416,674 / `67764f99…`）与两份清单已重新生成并同步到发布器收件目录；macOS/SteamOS 包与 1.0.0 模块归档不含卡带，哈希未变。
+- 待办（用户侧）：**重新发布这 5 张卡带到双源**，老客户端才能恢复读取；然后重跑 0.2.0 → 1.0.0 更新验证，并按新哈希上传 Windows 包与清单。
+
 ### Windows 1.0.0 构建与三平台更新清单（2026-09-21）
 
 - 模块归档：`tools/build_module.py --all-versions app\versions` 重建 0.1.4–1.0.0；`config/module-archives.json` 同步基线 0.1.7（未变）/0.2.0（`e011d633…`，289,622）/1.0.0（`9505e6b8…`，295,000）。
