@@ -737,6 +737,8 @@ class DlcHubApplication:
         # 断网时本地配置只用于让程序正常启动，不允许执行需要网络的解锁/下载。
         self.catalog_offline = False
         self.notice_serial = 0
+        # 强制更新期间锁住主窗口，更新完成前不给用户继续使用。
+        self.mandatory_update_active = False
         self.current_installation = None
         self.game_selection_generation = 0
         self.download_source_generation = 0
@@ -841,7 +843,9 @@ class DlcHubApplication:
         self.window.after(260, self._refresh_remote_solution_guides)
         self.window.after(350, self._scan_games)
         self.window.after(500, self._refresh_catalog)
-        if self.context.updates.enabled and self.context.updates.check_on_startup:
+        # 启动即检查更新：强制更新只有自动检测才有意义，因此不再看
+        # check_on_startup（历史配置默认写成 false，会让强制更新永远不弹）。
+        if self.context.updates.enabled:
             self.window.after(800, self._auto_check_update)
 
     @staticmethod
@@ -12242,6 +12246,26 @@ class DlcHubApplication:
 
         run(delays)
 
+    def _lock_window_for_mandatory_update(self) -> None:
+        """强制更新期间锁住主窗口：更新完成前用户不能继续使用。"""
+        self.mandatory_update_active = True
+        try:
+            self.window.attributes("-disabled", True)
+        except TclError:
+            # 少数平台不支持禁用整个窗口；此时至少不提供任何跳过入口。
+            self.context.logger.info(
+                "平台不支持禁用主窗口，强制更新仅阻止跳过"
+            )
+
+    def _release_mandatory_update_lock(self) -> None:
+        if not self.mandatory_update_active:
+            return
+        self.mandatory_update_active = False
+        try:
+            self.window.attributes("-disabled", False)
+        except TclError:
+            pass
+
     def _set_update_activity_visible(self, visible: bool, *, checking: bool = False) -> None:
         if visible:
             self.progress.grid()
@@ -12299,6 +12323,8 @@ class DlcHubApplication:
                 ),
                 parent=self.window,
             )
+            # 强制更新：先弹提示，再锁住主界面，且不提供取消入口。
+            self._lock_window_for_mandatory_update()
             self.status.configure(
                 text=(
                     f"\u6b63\u5728\u51c6\u5907\u5b89\u88c5 v{release.version}"
@@ -12328,7 +12354,9 @@ class DlcHubApplication:
         self.update_download_cancel_event = cancel_event
         self.progress.set(0)
         self._set_update_activity_visible(True)
-        self.update_cancel_button.configure(state="normal")
+        self.update_cancel_button.configure(
+            state="disabled" if release.mandatory else "normal"
+        )
         self.status.configure(text=f"正在下载 v{release.version}……")
         self._refresh_update_download_task()
 
@@ -12420,12 +12448,14 @@ class DlcHubApplication:
 
     def _update_download_cancelled(self) -> None:
         self._clear_update_download()
+        self._release_mandatory_update_lock()
         self.status.configure(text="程序更新下载已取消")
         self.update_button.configure(state="normal")
         self._notify("程序更新下载已取消")
 
     def _update_download_failed(self, message: str) -> None:
         self._clear_update_download()
+        self._release_mandatory_update_lock()
         self._show_error(message)
 
     def _full_update_prepared(self, version: str) -> None:
@@ -12439,6 +12469,7 @@ class DlcHubApplication:
     def _installed(self, version: str) -> None:
         self.progress.set(1)
         self._clear_update_download()
+        self._release_mandatory_update_lock()
         self.status.configure(text=f"v{version} 已安装，重启后生效")
         if messagebox.askyesno("更新完成", "模块更新已安全安装，是否立即重启？", parent=self.window):
             self.context.restart()
@@ -12448,6 +12479,7 @@ class DlcHubApplication:
         self._set_update_activity_visible(False)
         self.status.configure(text="更新失败")
         self.update_button.configure(state="normal")
+        self._release_mandatory_update_lock()
         messagebox.showerror("更新失败", "程序更新未完成，请检查网络后重试。", parent=self.window)
 
     def run(self) -> None:

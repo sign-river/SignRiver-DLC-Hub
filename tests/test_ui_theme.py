@@ -14,6 +14,27 @@ LAUNCHER_MAIN = Path(__file__).parents[1] / "src" / "signriver_launcher" / "main
 GUIDES_ROOT = Path(__file__).parents[1] / "config" / "guides"
 
 
+def test_startup_update_check_is_unconditional_and_blocks_mandatory_release() -> None:
+    """打开软件就检查更新；强制更新期间锁住主界面且不能取消。"""
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    # 启动检查不再依赖 check_on_startup（历史配置默认写成 false，会让强制更新永不弹出）。
+    assert (
+        "self.context.updates.enabled and self.context.updates.check_on_startup"
+        not in source
+    )
+    assert (
+        "if self.context.updates.enabled:\n"
+        "            self.window.after(800, self._auto_check_update)" in source
+    )
+    # 强制更新：锁住主窗口、禁用取消按钮，失败或安装完成后再解锁。
+    assert "def _lock_window_for_mandatory_update(self) -> None:" in source
+    assert "def _release_mandatory_update_lock(self) -> None:" in source
+    assert "self._lock_window_for_mandatory_update()" in source
+    assert 'state="disabled" if release.mandatory else "normal"' in source
+    assert source.count("self._release_mandatory_update_lock()") >= 4
+
+
 def test_patch_tool_lists_installed_files_per_platform() -> None:
     """补丁工具按平台展示真实安装的文件：配置行只在会生成配置时出现。"""
     source = APP_ENTRY.read_text(encoding="utf-8")

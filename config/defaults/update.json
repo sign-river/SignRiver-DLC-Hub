@@ -6,7 +6,7 @@
   },
   "download_source": "gitlink",
   "channel": "stable",
-  "check_on_startup": false,
+  "check_on_startup": true,
   "timeout_seconds": 20,
   "allow_insecure_http": false
 }
