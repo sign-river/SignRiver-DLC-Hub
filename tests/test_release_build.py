@@ -127,6 +127,45 @@ def test_full_release_manifest_excludes_user_state(tmp_path) -> None:
     assert [item["path"] for item in manifest["files"]] == ["launcher.exe"]
 
 
+def test_release_package_carries_only_the_active_module_and_one_fallback() -> None:
+    """随包发布的模块只有当前版本 + 最近一个已发布版本。
+
+    回归背景：``app/versions`` 会累积历史上所有模块目录，逐个打进包里只是
+    白占体积——运行哪个版本只由 ``app/state.json`` 决定，旧版本唯一的用处是
+    激活模块加载失败时给启动器一个回退目标。
+    """
+    versions = build_release.packaged_module_versions()
+    assert versions[0] == build_release.APP_VERSION
+    assert 1 <= len(versions) <= 2
+    for name in versions:
+        assert (
+            build_release.ROOT / "app" / "versions" / name / "module.json"
+        ).is_file()
+
+
+def test_release_copy_skips_historical_module_directories() -> None:
+    versions_root = build_release.ROOT / "app" / "versions"
+    names = [item.name for item in versions_root.iterdir() if item.is_dir()]
+    kept = set(names) - set(build_release._app_tree_ignore(str(versions_root), names))
+
+    assert kept == set(build_release.packaged_module_versions())
+    # 0.1.0 只是仓库里的源码基线，不是发行版本，不应随包发布。
+    if build_release.APP_VERSION != "0.1.0":
+        assert "0.1.0" not in kept
+
+
+def test_copy_app_tree_limits_module_directories(tmp_path) -> None:
+    destination = tmp_path / "app"
+
+    build_release.copy_app_tree(destination)
+
+    copied = sorted(
+        item.name for item in (destination / "versions").iterdir() if item.is_dir()
+    )
+    assert copied == sorted(build_release.packaged_module_versions())
+    assert (destination / "state.json").is_file()
+
+
 def test_full_update_archive_is_flat_and_contains_only_managed_files(
     tmp_path,
 ) -> None:

@@ -4,6 +4,13 @@
 
 ## 发布与更新
 
+### 发行包只携带当前模块与上一个已发布模块（2026-09-22）
+
+- 背景：`app/versions/` 会累积历史上所有模块目录（`0.1.0` 源码基线 + 每个发布版本），`build_release.py` 原先整目录复制，1.0.0 包里带了 7 个模块：安装目录 6.63 MB、ZIP 内 1.52 MiB。而运行哪个模块只由 `app/state.json` 的 `active_version` 决定，旧的 0.1.x 对用户没有任何作用。
+- 决策：`tools/build_release.py::packaged_module_versions()` 只保留**当前活动版本 + `config/module-archives.json` 中最近的、低于当前版本的已发布版本**（当前为 1.0.0 + 0.2.0）；`_app_tree_ignore()` / `copy_app_tree()` 负责裁剪 `app/versions`，Windows 与 SteamOS/macOS 两条构建路径（`build_native_release.py::_copy_runtime()`）共用同一函数，避免两端策略漂移。
+- 保留一个旧版本的理由：它是启动器自动回退的唯一目标（`_find_usable_module`）。没有候选时用户只会看到「程序无法继续启动」对话框（仅复制详情/打开日志/退出），程序内没有任何重新下载入口。已知局限：回退到旧模块后，旧模块看到强制更新会再次拉取新版本，所以它只是半兜底；`prevent_module_fallback` 仍可用于关闭回退。
+- 影响与验证：安装目录模块占用 6.63 MB → 2.33 MB，ZIP 约少 1 MiB。全量更新只覆盖清单内文件、从不删除目录，因此已安装用户本地的旧模块目录不会消失（回退能力不变），受影响的只有全新安装。守卫见 `tests/test_release_build.py` 的三条用例（版本集合、ignore 行为、真实复制结果）。
+
 ### 强制更新必须在启动时自动检测并锁住界面（2026-09-21）
 
 - `mandatory` 只表示“检测到后不能跳过”，它不会触发检测；检测必须由启动流程无条件发起。客户端原先把它挂在 `check_on_startup` 上，而该配置自模块化架构引入起一直是 `false`，导致强制更新实际上永远不会自动弹出（用户只能手动检查）。

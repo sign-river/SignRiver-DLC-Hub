@@ -1,5 +1,13 @@
 # 当前任务交接
 
+## 发行包模块目录裁剪（2026-09-22，方案 A）
+
+- 背景：用户发现安装目录 `app/versions/` 里躺着 7 个模块共 6.63 MB，而整个程序才二十几 MB。运行哪个模块只由 `app/state.json` 的 `active_version` 决定，0.1.0（Git 源码基线）与 0.1.4–0.1.7 对用户没有意义。
+- 实现：`tools/build_release.py` 新增 `packaged_module_versions()`（当前活动版本 + `config/module-archives.json` 中最近的较低已发布版本）、`_app_tree_ignore()` 与 `copy_app_tree()`；`tools/build_native_release.py::_copy_runtime()` 改为复用 `copy_app_tree()`，Windows 与 SteamOS/macOS 策略一致。回退机制与 `prevent_module_fallback` 保持不变（用户明确选择保留一个回退目标）。
+- 数字：安装目录模块占用 6.63 MB → 2.33 MB；ZIP 内模块部分 1.52 MiB → 0.53 MiB，整包约 21.42 MiB → 20.43 MiB。已安装用户不受影响：全量更新只覆盖清单内文件、从不删除目录，旧模块目录仍在本地。
+- 验证：新增 `tests/test_release_build.py` 三条用例（版本集合合法性、ignore 行为、真实复制结果只含所选版本）；`ruff check` 通过；`pytest tests/test_release_build.py tests/test_build_native_release.py tests/test_cross_platform_runtime.py` 22 项通过。
+- 未执行：**没有重新打包**。`dist/` 里现有的包仍是旧的 7 版本布局，下次构建（Windows 与两个虚拟机）才会变小；线上清单里的哈希也仍然指向旧包。
+
 ## Windows 1.0.0 重新打包（2026-09-21 22:21，含补丁工具行状态修复）
 
 - 触发：补丁工具行状态修复与随后的文案收敛（见下一条）改了 `app/versions/1.0.0/app_entry.py`，因此重新构建 Windows 侧全部产物。只打包 Windows；macOS/SteamOS 需要各自虚拟机内 `tools/build_native_release.py` 重建后才是同一份代码。

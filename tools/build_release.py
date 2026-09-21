@@ -22,6 +22,7 @@ from signriver_launcher.product import (  # noqa: E402
     RELEASE_SFX_NAME,
     RELEASE_ZIP_STEM,
 )
+from signriver_launcher.versioning import Version  # noqa: E402
 
 VERSION = LAUNCHER_VERSION
 PYINSTALLER_EXCLUDED_MODULES = ("numpy",)
@@ -43,6 +44,93 @@ APP_VERSION = json.loads(
     (ROOT / "app" / "state.json").read_text(encoding="utf-8")
 )["active_version"]
 APP_VERSION_ROOT = ROOT / "app" / "versions" / APP_VERSION
+
+
+def _maintained_module_versions() -> tuple[str, ...]:
+    """``config/module-archives.json`` 里仍在维护的模块版本。"""
+    try:
+        document = json.loads(
+            (ROOT / "config" / "module-archives.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return ()
+    modules = document.get("modules")
+    if not isinstance(modules, list):
+        return ()
+    return tuple(
+        str(item["version"])
+        for item in modules
+        if isinstance(item, dict) and item.get("version")
+    )
+
+
+def packaged_module_versions(active_version: str | None = None) -> tuple[str, ...]:
+    """``app/versions`` 下真正随包发布的模块目录。
+
+    ``app/versions`` 会一直累积历史模块，但它们对安装没有任何用处：运行哪个
+    版本只由 ``app/state.json`` 的 ``active_version`` 决定。因此包里只带
+    **当前版本 + 最近一个仍在维护的旧版本**，后者是激活模块加载失败时启动器
+    自动回退的目标（见 ``signriver_launcher.main._find_usable_module``）。
+    没有回退目标的新装用户一遇到坏模块就只能重新下载整个包。
+    """
+    active = active_version or APP_VERSION
+    versions_root = ROOT / "app" / "versions"
+    if not versions_root.is_dir():
+        return (active,)
+    available = {
+        item.name
+        for item in versions_root.iterdir()
+        if item.is_dir() and (item / "module.json").is_file()
+    }
+    if active not in available:
+        return tuple(sorted(available))
+    selected = [active]
+    active_key = _parse_version(active)
+    fallbacks: list[tuple[Version, str]] = []
+    for candidate in _maintained_module_versions():
+        key = _parse_version(candidate)
+        if (
+            key is None
+            or active_key is None
+            or candidate == active
+            or candidate not in available
+            or key >= active_key
+        ):
+            continue
+        fallbacks.append((key, candidate))
+    if fallbacks:
+        selected.append(max(fallbacks)[1])
+    return tuple(selected)
+
+
+def _parse_version(value: str) -> Version | None:
+    try:
+        return Version.parse(value)
+    except ValueError:
+        return None
+
+
+def _app_tree_ignore(directory, names):
+    """``shutil.copytree`` 的 ignore：只保留 :func:`packaged_module_versions`。"""
+    ignored = {
+        name
+        for name in names
+        if name in {"__pycache__", ".staging"} or name.endswith((".pyc", ".pyo"))
+    }
+    directory = Path(directory)
+    if directory.name == "versions" and directory.parent.name == "app":
+        keep = set(packaged_module_versions())
+        ignored.update(
+            name
+            for name in names
+            if name not in keep and (directory / name).is_dir()
+        )
+    return ignored
+
+
+def copy_app_tree(destination: Path) -> None:
+    """把 ``app/`` 复制到发布目录，并按需裁剪模块版本目录。"""
+    shutil.copytree(ROOT / "app", destination, ignore=_app_tree_ignore)
 
 
 def _sha256(path: Path) -> str:
@@ -455,11 +543,7 @@ def main() -> int:
             shutil.rmtree(stale)
     release.mkdir(parents=True)
     shutil.copy2(built_exe, release / RELEASE_EXE_NAME)
-    shutil.copytree(
-        ROOT / "app",
-        release / "app",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".staging"),
-    )
+    copy_app_tree(release / "app")
     shutil.copytree(
         ROOT / "config",
         release / "config",

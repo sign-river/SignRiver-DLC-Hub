@@ -22,15 +22,17 @@
 │   ├── state.json              # 当前、上一和待确认版本
 │   ├── .staging/               # 更新暂存目录
 │   └── versions/
-│       ├── 0.1.0/
+│       ├── 1.0.0/                # 当前活动模块（由 app/state.json 决定）
 │       │   ├── module.json
 │       │   ├── app_entry.py
 │       │   └── ...
-│       └── 0.1.1/
+│       └── 0.2.0/                # 最近一个已发布版本，仅用于回退
 ├── config/defaults/update.json # 出厂清单地址、通道和超时
 ├── cache/                      # Windows 下载缓存，可删除
 └── data/                       # Windows 用户设置、日志和长期数据
 ```
+
+发布时 `app/versions/` 只携带**当前活动版本 + 最近一个已发布版本**（当前为 1.0.0 与 0.2.0）；仓库里累积的历史模块目录不会打进包里，裁剪逻辑见 `tools/build_release.py::packaged_module_versions()`，SteamOS/macOS 构建复用同一函数。
 
 Windows 继续使用程序目录，保证旧用户无需迁移。SteamOS 使用 XDG 数据/缓存目录；macOS 使用 `~/Library/Application Support/SignRiver DLC Hub` 与 `~/Library/Caches/SignRiver DLC Hub`。发行资源和可写状态分离，冻结包首次启动时只复制缺失的初始资源。
 

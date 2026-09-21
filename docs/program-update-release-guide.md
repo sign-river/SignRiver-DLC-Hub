@@ -36,6 +36,8 @@ python tools/build_native_release.py --platform macos
 
 `build_module.py --all-versions` 会构建所有本地版本，再清理 `dist/modules` 中不应发布的 `0.1.0` 产物。构建后将 `config/module-archives.json` 更新为最近三个发布版本的文件名、大小和 SHA-256。
 
+`build_release.py` 复制 `app/` 时只保留**当前活动版本 + 最近一个已发布模块**（其余历史模块目录不进包），SteamOS/macOS 的 `build_native_release.py` 复用同一裁剪逻辑；因此模块归档仍可构建所有版本，而首装包/全量包不会随历史版本一起膨胀。
+
 生成全量更新的双源清单时，PowerShell 直接传中文参数可能乱码，建议通过 Python `subprocess` 调用：
 
 ```python

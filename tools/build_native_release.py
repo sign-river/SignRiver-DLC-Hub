@@ -20,6 +20,7 @@ from signriver_common.platforms import HostPlatform, detect_host_platform  # noq
 from signriver_launcher.constants import LAUNCHER_VERSION  # noqa: E402
 from tools.build_release import (  # noqa: E402
     application_hidden_imports,
+    copy_app_tree,
     pyinstaller_exclude_args,
 )
 
@@ -45,11 +46,7 @@ def _validate_release_metadata(root: Path, launcher_version: str) -> None:
 
 
 def _copy_runtime(destination: Path) -> None:
-    shutil.copytree(
-        ROOT / "app",
-        destination / "app",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".staging"),
-    )
+    copy_app_tree(destination / "app")
     shutil.copytree(
         ROOT / "config",
         destination / "config",
