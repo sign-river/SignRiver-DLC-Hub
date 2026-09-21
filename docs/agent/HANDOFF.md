@@ -177,6 +177,23 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 事故与恢复（SteamOS 快照回退，2026-09-21）
+
+- 事故：本机对 SteamOS VM 执行时钟校正（`systemctl restart systemd-timesyncd`）时时钟一次性前跳 18 小时 33 分；11 秒后 Steam 启动脚本判定客户端异常，执行 `rm -rf ~/.local/share/Steam` 自我重装，而 SteamOS 默认游戏库 `steamapps/` 位于该目录内，导致约 29 GB 游戏数据（含 Stellaris）被删除。证据：`journalctl -b -1` 中 `14:14:58 Initial clock synchronization` 紧随 `14:15:09 steam[...]: rm: cannot remove '/home/deck/.local/share/Steam': Directory not empty` 与 `app-steam@*.service ... status=1/FAILURE`。用户重启发生在 14:24，晚于删除，不是原因。
+- 恢复：将 VM 回退到快照 `下载stellaris`（磁盘 `steamos-target-128gb-000001.vmdk`，31.4 GB），Steam 客户端与 Stellaris（32 GB 库）恢复；回退同时丢弃了当天的虚拟机部署，已按下方重新完成。
+- 教训：**不要在任何 Steam 客户端可能运行/被启动的时刻改动来宾系统时钟**；正确做法是确保 Steam 完全停止后再校正时间，并把游戏库放在 `~/.local/share/Steam` 之外，避免客户端自我重装时连带删除游戏。
+- 我方引入的第二个缺陷：源码归档排除规则曾按“路径任意一层名为 cache 即排除”，误删模块内的 `signriver_app/infrastructure/cache` 包，导致 SteamOS 部署后 `ModuleNotFoundError: _signriver_app_0_2_0.signriver_app.infrastructure.cache`。已改为仅排除仓库顶层运行目录（`data`、`cache`、`build`、`dist` 等），并核对模块文件数与仓库一致（80/80）。
+
+## 最新任务（SteamOS 快照回退后重新交付，2026-09-21）
+
+- 重新生成 5,215,935 字节源码归档并覆盖解压到 `~/signriver-steamos-build`，重建 `.venv-steamos`（Python 3.13.5 + PyInstaller 6.22.3），执行 `tools/build_native_release.py --platform steamos`（rc=0）。
+- 包内校验：ELF 64-bit x86-64、755、`app/versions/0.2.0/signriver_app` 80 文件、`config/guides` 19 项 / 16 条索引（含 `patch_assets_missing`、`steamos-app-permission`、`steamos-proton-native`）；`tar -tzf` 与 ZIP 校验通过（500 项，testzip 为空）。
+- 部署：清掉用坏包播种的 `~/.local/share/signriver-dlc-hub/app/versions/0.2.0` 后重新播种（83 文件），客户端经 `systemd-run --user` 启动并保持运行，日志 `Starting application module 0.2.0` 无错误。
+- 端到端：包内模块 + 包内配置解析到 `dist/.../config/guides`，SteamOS 侧 8 条指南全部加载成功。
+- 新产物（已回传 `.test-artifacts/steamos-dist/`，与来宾 `sha256sum` 一致）：`SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz` 44,547,181 字节 SHA-256 `A494C9679B71F0FEEFC3C66C781DE4588EDDB109FE27DFCC957481EC51DEB2B7`；`SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip` 44,763,958 字节 SHA-256 `3B77CEC4F11B97111D5C2B22CE9BC562C9D5F2820F132C75A4C68019CFAFA4D5`。
+- 时钟：已在 Steam 停止状态下重新校正为 `Asia/Shanghai` 并启用 NTP，与宿主机一致。
+- 未完成/待办：游戏库仍在 `~/.local/share/Steam` 内，存在再次被客户端自我重装删除的风险，建议迁移到独立库目录（待用户确认后执行）。未执行上传、清单切换、发布器批次、Steam 登录、真实 DLC 下载、push。
+
 ## 最新任务（SteamOS 原生重建与部署，2026-09-21）
 
 - 在 SteamOS VM（`deck@192.168.233.130`）完成与 macOS 等价的交付：备份 → 源码同步 → 原生重建 → 覆盖部署 → 数据目录模块重新播种 → 启动验证 → 产物回传。
