@@ -885,8 +885,20 @@ class PatchEngine:
         return PatchRestoreReadiness(True, True, original.path.is_file())
 
     @_with_installation_lock
-    def remove(self, game_root: Path) -> tuple[str, ...]:
-        """Restore the primary library first, then remove only verified managed files."""
+    def remove(
+        self,
+        game_root: Path,
+        *,
+        published_original: Path | None = None,
+        published_original_sha256: str | None = None,
+    ) -> tuple[str, ...]:
+        """Restore the primary library first, then remove only verified managed files.
+
+        ``published_original`` 是发布侧的原生库资产（客户端已按卡带元数据校验
+        过大小与 SHA-256）。凭据缺失或损坏、而调用方又能提供这份资产时，用它
+        覆盖主库并清掉补丁槽位，而不是拒绝操作——这是“移除补丁”唯一能确定原版
+        内容的另一条来源。
+        """
         game_root = Path(game_root).resolve(strict=True)
         readiness = self.inspect_original_restore(game_root)
         if not readiness.patch_detected:
@@ -894,9 +906,13 @@ class PatchEngine:
                 return ()
             raise PatchError(readiness.reason)
         if not readiness.ready:
-            if readiness.provenance_unknown:
-                raise PatchProvenanceUnknownError(readiness.reason)
-            raise PatchError(readiness.reason)
+            if published_original is None:
+                if readiness.provenance_unknown:
+                    raise PatchProvenanceUnknownError(readiness.reason)
+                raise PatchError(readiness.reason)
+            return self._restore_with_published_original(
+                game_root, published_original, published_original_sha256
+            )
         record = self._load_installation_record(game_root)
         if record is None:
             raise PatchError("补丁安装凭据不可用，拒绝自动恢复")
@@ -948,9 +964,86 @@ class PatchEngine:
         self._delete_installation_record(game_root)
         return tuple(dict.fromkeys(touched))
 
-    def restore_original(self, game_root: Path) -> tuple[str, ...]:
+    def _restore_with_published_original(
+        self,
+        game_root: Path,
+        published_original: Path,
+        published_original_sha256: str | None,
+    ) -> tuple[str, ...]:
+        """用发布侧原生库还原：写回主库，并清掉补丁槽位。
+
+        调用方（客户端）已经按卡带元数据校验过下载缓存里那份资产；这里的
+        ``published_original_sha256`` 是可选的二次确认，任一步不通过都直接取消，
+        不会碰游戏目录。
+        """
+        source = Path(published_original)
+        if not source.is_file():
+            raise PatchError("云端原始库不可用，已取消移除")
+        original_bytes = source.read_bytes()
+        if published_original_sha256 and (
+            self._sha256_bytes(original_bytes) != published_original_sha256
+        ):
+            raise PatchError("云端原始库校验失败，已取消移除")
+        if not _looks_like_binary(original_bytes[:4096]):
+            raise PatchError("云端原始库二进制格式无效，已取消移除")
+        self._reject_oversized_dll(source, "云端原始库")
+        original_hash = self._sha256_bytes(original_bytes)
+        original_mode = source.stat().st_mode & 0o777 if os.name != "nt" else None
+        unlocker_name = self.profile.unlocker_dll_name
+        runtime_name = self.profile.runtime_original_library_name
+        ini_name = self.profile.template.ini_target_name
+        actions: list[_Action] = []
+        transaction_root = self._make_transaction_root("remove")
+        touched: list[str] = []
+        try:
+            for directory, root in zip(
+                self.profile.install_relative_dirs, self._patch_roots(game_root)
+            ):
+                unlocker = root / unlocker_name
+                already_original = False
+                if unlocker.is_file():
+                    try:
+                        already_original = self._sha256_file(unlocker) == original_hash
+                    except OSError:
+                        already_original = False
+                if not already_original:
+                    if unlocker.exists():
+                        self._backup_file(unlocker, transaction_root, actions)
+                    self._write_file_atomic(
+                        original_bytes, unlocker, actions, mode=original_mode
+                    )
+                    if self._sha256_file(unlocker) != original_hash:
+                        raise PatchError("恢复主库后校验失败")
+                    touched.append(self._relative_file_path(directory, unlocker_name))
+                for path, name in ((root / runtime_name, runtime_name), (root / ini_name, ini_name)):
+                    if not path.is_file():
+                        continue
+                    self._backup_file(path, transaction_root, actions)
+                    path.unlink()
+                    actions.append(_DeletedFile(path, actions[-1].backup_path))
+                    touched.append(self._relative_file_path(directory, name))
+        except Exception:
+            self._rollback(actions)
+            self._cleanup_transaction(transaction_root)
+            raise
+        else:
+            self._cleanup_transaction(transaction_root)
+        self._delete_installation_record(game_root)
+        return tuple(dict.fromkeys(touched))
+
+    def restore_original(
+        self,
+        game_root: Path,
+        *,
+        published_original: Path | None = None,
+        published_original_sha256: str | None = None,
+    ) -> tuple[str, ...]:
         """Compatibility name for the fail-closed original restore transaction."""
-        return self.remove(game_root)
+        return self.remove(
+            game_root,
+            published_original=published_original,
+            published_original_sha256=published_original_sha256,
+        )
 
     # ---- internal helpers ---------------------------------------------------
 

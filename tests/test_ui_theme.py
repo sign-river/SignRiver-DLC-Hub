@@ -108,6 +108,35 @@ def test_patch_remove_provenance_refusal_is_presented_as_a_warning() -> None:
     assert 'self._notify("补丁未能移除", error=True)' in handler
 
 
+def test_patch_removal_downloads_published_original_before_restoring() -> None:
+    """移除补丁时先取云端原始库并校验，再改写游戏目录。"""
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    begin = source.split("def _begin_patch_removal", 1)[1].split(
+        "def _run_patch_removal", 1
+    )[0]
+    remover = source.split("def _run_patch_removal", 1)[1].split(
+        "def _patch_original_asset_sha256", 1
+    )[0]
+
+    assert 'ready.get("original_dll") is None' in begin
+    # 有完整凭据时保持离线可移除，不强制下载云端原始库。
+    assert "self._receipt_backed_removal_ready()" in begin
+    assert "def _receipt_backed_removal_ready(self) -> bool:" in source
+    assert 'self._start_patch_downloads(action="remove", roles=("original_dll",))' in begin
+    assert "published_original=original" in remover
+    assert "published_original_sha256=expected_sha256" in remover
+    assert "def _patch_original_asset_sha256(self) -> str | None:" in source
+    # 下载完成的动作必须被消费掉，不能污染下一次一键解锁。
+    assert 'self.patch_after_download_action = action' in source
+    assert 'self.patch_after_download_action = None' in source
+    assert (
+        'needed = ("original_dll",) if self.patch_after_download_action == "remove" else None'
+        in source
+    )
+    # 移除补丁只需原始库，不用等解锁库与配置文件。
+    assert "def _patch_ready_paths(\n        self, *, roles: tuple[str, ...] | None = None\n    ) -> dict[str, Path] | None:" in source
+
+
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
     source = CURRENT_APP_ENTRY.read_text(encoding="utf-8")
 
@@ -1682,7 +1711,9 @@ def test_remove_patch_button_uses_real_engine_instead_of_placeholder() -> None:
 
     assert 'command=self._remove_patch' in source
     assert "def _remove_patch" in source
-    assert "engine.restore_original(game_root)" in source
+    # 移除补丁现在走「先取云端原始库再还原」的路径，真实引擎调用带上了资产参数。
+    assert "engine.restore_original(" in source
+    assert "published_original=original" in source
     assert "OriginalStateRestoreService(" in source
     assert "RestoreScope" not in source
     assert "彻底恢复" not in source

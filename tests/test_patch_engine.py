@@ -743,6 +743,63 @@ def test_restore_original_blocks_uncredentialed_runtime_copy(tmp_path: Path) -> 
         engine.restore_original(game_root)
     assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
 
+def test_remove_with_published_original_restores_without_receipt(tmp_path: Path) -> None:
+    """凭据缺失时改用云端原始库还原：写回主库并清掉补丁槽位。"""
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
+    (game_root / "steam_api64_o.dll").write_bytes(VANILLA_GAME_DLL)
+    (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
+    _unlocker, original, _appinfo = write_complete_patch_sources(tmp_path)
+
+    touched = engine.restore_original(game_root, published_original=original)
+
+    assert set(touched) == {"steam_api64.dll", "steam_api64_o.dll", "cream_api.ini"}
+    assert (game_root / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert not (game_root / "steam_api64_o.dll").exists()
+    assert not (game_root / "cream_api.ini").exists()
+
+
+def test_remove_with_published_original_verifies_hash_before_touching(
+    tmp_path: Path,
+) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
+    (game_root / "steam_api64_o.dll").write_bytes(VANILLA_GAME_DLL)
+    (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
+    _unlocker, original, _appinfo = write_complete_patch_sources(tmp_path)
+
+    with pytest.raises(PatchError, match="云端原始库校验失败"):
+        engine.restore_original(
+            game_root,
+            published_original=original,
+            published_original_sha256="0" * 64,
+        )
+
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game_root / "steam_api64_o.dll").is_file()
+    assert (game_root / "cream_api.ini").is_file()
+
+
+def test_remove_with_unavailable_published_original_is_refused(tmp_path: Path) -> None:
+    engine = make_engine(tmp_path)
+    game_root = tmp_path / "game"
+    game_root.mkdir()
+    (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
+    (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
+
+    with pytest.raises(PatchError, match="云端原始库不可用"):
+        engine.restore_original(
+            game_root, published_original=tmp_path / "missing-original.dll"
+        )
+
+    assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game_root / "cream_api.ini").is_file()
+
+
 def test_recorded_restore_verifies_backup_and_removes_receipt(tmp_path: Path) -> None:
     engine = make_engine(tmp_path)
     game_root = tmp_path / "game"

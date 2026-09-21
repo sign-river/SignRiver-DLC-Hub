@@ -10624,22 +10624,34 @@ class DlcHubApplication:
             if item.spec.task_id in self.patch_task_roles
         }
 
-    def _patch_ready_paths(self) -> dict[str, Path] | None:
-        """Return {role: cached_path} when both release-side patch assets are ready."""
+    def _patch_ready_paths(
+        self, *, roles: tuple[str, ...] | None = None
+    ) -> dict[str, Path] | None:
+        """Return {role: cached_path} when the needed release-side assets are ready.
+
+        ``roles`` 为空表示补丁工具的全部资产（默认行为）；只关心某一项时（例如
+        移除补丁只需云端原始库）可以只等那一项就绪。
+        """
         if self.patch_bundle is None:
             return None
         snapshots = self._patch_snapshots_by_task()
         specs = {
             spec.task_id: spec for spec in self._patch_download_specs()
         }
+        wanted = set(roles) if roles is not None else None
         paths: dict[str, Path] = {}
         for task_id, role in self.patch_task_roles.items():
+            canonical = self._canonical_patch_role(role)
+            if wanted is not None and canonical not in wanted:
+                continue
             snapshot = snapshots.get(task_id)
             if snapshot is None or snapshot.state is not DownloadState.READY:
                 return None
             if snapshot.result_path is None or not snapshot.result_path.is_file():
                 return None
-            paths[self._canonical_patch_role(role)] = snapshot.result_path
+            paths[canonical] = snapshot.result_path
+        if wanted is not None and not wanted.issubset(paths):
+            return None
         # Extra sanity: make sure the ready cache still belongs to the latest
         # bundle we resolved.  The cache is content-addressed, so a stale
         # snapshot with a different filename means the bundle rotated.
@@ -10651,9 +10663,15 @@ class DlcHubApplication:
                 return None
         return paths
 
-    def _missing_ready_patch_asset(self):
+    def _missing_ready_patch_asset(self, *, roles: tuple[str, ...] | None = None):
         """Return a READY snapshot whose cached file vanished externally."""
-        for snapshot in self._patch_snapshots_by_task().values():
+        wanted = set(roles) if roles is not None else None
+        snapshots = self._patch_snapshots_by_task()
+        for task_id, snapshot in snapshots.items():
+            if wanted is not None:
+                role = self._canonical_patch_role(self.patch_task_roles.get(task_id, ""))
+                if role not in wanted:
+                    continue
             if snapshot.state is not DownloadState.READY:
                 continue
             if snapshot.result_path is None or not snapshot.result_path.is_file():
@@ -10775,12 +10793,26 @@ class DlcHubApplication:
             )
         return actual_hash
 
-    def _start_patch_downloads(self) -> None:
+    def _start_patch_downloads(
+        self,
+        *,
+        action: str = "apply",
+        roles: tuple[str, ...] | None = None,
+    ) -> None:
+        """下载补丁资源；``action`` 决定下载完成后执行应用补丁还是移除补丁。"""
         if self.download_queue is None or self.patch_bundle is None:
             return
+        self.patch_after_download_action = action
         self.patch_workflow_state = "downloading"
         self._set_batch_download_state("patch_downloading")
-        specs = self._patch_download_specs()
+        wanted = set(roles) if roles is not None else None
+        specs = tuple(
+            spec
+            for spec in self._patch_download_specs()
+            if wanted is None
+            or self._canonical_patch_role(self.patch_task_roles.get(spec.task_id, ""))
+            in wanted
+        )
         snapshots = self._patch_snapshots_by_task()
         active_states = {
             DownloadState.QUEUED, DownloadState.DOWNLOADING,
@@ -10825,9 +10857,11 @@ class DlcHubApplication:
     def _maybe_advance_patch_workflow(self) -> None:
         if self.patch_workflow_state != "downloading":
             return
-        ready = self._patch_ready_paths()
+        # 移除补丁只需要云端原始库，不用等解锁库/配置文件。
+        needed = ("original_dll",) if self.patch_after_download_action == "remove" else None
+        ready = self._patch_ready_paths(roles=needed)
         if ready is None:
-            missing_ready = self._missing_ready_patch_asset()
+            missing_ready = self._missing_ready_patch_asset(roles=needed)
             if missing_ready is not None:
                 self._on_patch_workflow_failed(
                     self._patch_security_software_message(
@@ -10852,6 +10886,10 @@ class DlcHubApplication:
         self._apply_patch_after_download(ready)
 
     def _apply_patch_after_download(self, ready_paths: dict[str, Path]) -> None:
+        if self.patch_after_download_action == "remove":
+            self.patch_after_download_action = None
+            self._run_patch_removal(ready_paths)
+            return
         if self.current_installation is None:
             self._on_patch_workflow_failed("未选择游戏目录")
             return
@@ -11134,6 +11172,11 @@ class DlcHubApplication:
         if self.repair_workflow_active:
             self._on_repair_failed(message)
             return
+        if self.patch_after_download_action == "remove":
+            # 移除补丁时下载原始库失败：按移除流程提示，不要说成“一键解锁未完成”。
+            self.patch_after_download_action = None
+            self._on_patch_remove_failed(message)
+            return
         self.patch_workflow_state = "idle"
         self.patch_task_ids = ()
         self.pending_dlc_batch_task_ids = ()
@@ -11305,20 +11348,64 @@ class DlcHubApplication:
         )
         if not messagebox.askyesno(
             "确认移除补丁",
-            f"将清理以下补丁文件，并把原版备份还原为 {restore_target}：\n"
+            f"将清理以下补丁文件，并把原版库还原为 {restore_target}：\n"
             + "\n".join(f"· {path}" for path in patch_paths)
             + "\n"
+            "若本程序没有这份补丁的安装凭据，会先从云端下载原始库并校验后再还原。\n"
             "请先关闭游戏。是否继续？",
             parent=self.window,
         ):
             return
+        self._begin_patch_removal()
+
+    def _begin_patch_removal(self) -> None:
+        """移除补丁：先拿到校验过的云端原始库，再改写游戏目录。"""
+        ready = self._patch_ready_paths() or {}
+        if ready.get("original_dll") is None and not self._receipt_backed_removal_ready():
+            if self.patch_bundle is None:
+                self._on_patch_remove_failed(
+                    "当前游戏没有可下载的补丁资源，无法确认原版库来源；"
+                    "请刷新目录后重试，或用游戏平台验证游戏文件完整性。"
+                )
+                return
+            # 需要云端原始库：复用补丁资源下载流程，下载并校验完成后继续移除。
+            self.catalog_preview.configure(text="正在下载云端原始库……")
+            self._start_patch_downloads(action="remove", roles=("original_dll",))
+            return
+        self._run_patch_removal(ready)
+
+    def _receipt_backed_removal_ready(self) -> bool:
+        """安装凭据完整时不需要云端原始库，离线也能还原。"""
+        if self.current_installation is None:
+            return False
+        try:
+            readiness = self.patch_engine.inspect_original_restore(
+                self.current_installation.root
+            )
+        except Exception:
+            self.context.logger.exception("Patch restore preflight failed")
+            return False
+        return bool(readiness.ready)
+
+    def _run_patch_removal(self, ready: dict[str, Path]) -> None:
+        if self.current_installation is None:
+            self._on_patch_remove_failed("未选择游戏目录")
+            return
         game_root = self.current_installation.root
         engine = self.patch_engine
+        original = ready.get("original_dll")
+        expected_sha256 = self._patch_original_asset_sha256()
+        self.patch_workflow_state = "applying"
         self._set_batch_download_state("restoring")
+        self.catalog_preview.configure(text="正在恢复原版库……")
 
         def worker() -> None:
             try:
-                touched = engine.restore_original(game_root)
+                touched = engine.restore_original(
+                    game_root,
+                    published_original=original,
+                    published_original_sha256=expected_sha256,
+                )
                 self._post_ui(
                     lambda touched=touched: self._on_patch_removed(touched)
                 )
@@ -11333,7 +11420,17 @@ class DlcHubApplication:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _patch_original_asset_sha256(self) -> str | None:
+        """卡带里登记的云端原生库 SHA-256（下载时已校验，这里再确认一次）。"""
+        bundle = self.patch_bundle
+        asset = getattr(bundle, "original_dll", None) if bundle is not None else None
+        value = getattr(asset, "sha256", None)
+        return value if isinstance(value, str) and self._valid_sha256(value) else None
+
     def _on_patch_removed(self, touched: tuple[str, ...]) -> None:
+        self.patch_workflow_state = "idle"
+        # 补丁资源下载完成后要执行的动作：apply（默认）或 remove（移除补丁）。
+        self.patch_after_download_action: str | None = None
         self._set_batch_download_state("idle")
         if not touched:
             self.catalog_preview.configure(text="游戏目录中未检测到补丁文件")
@@ -11354,6 +11451,7 @@ class DlcHubApplication:
     def _on_patch_remove_failed(
         self, message: str, error: Exception | None = None
     ) -> None:
+        self.patch_workflow_state = "idle"
         self._set_batch_download_state("idle")
         if isinstance(error, PatchProvenanceUnknownError):
             # 只是无法确认补丁来源，文件一个都没动：用提示级呈现，别写成“失败”。

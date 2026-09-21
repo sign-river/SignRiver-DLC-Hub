@@ -247,6 +247,7 @@ def test_integrity_failure_never_calls_patch_engine_apply(
     }
     app.download_queue = Mock()
     app.patch_task_ids = tuple(app.patch_task_roles)
+    app.patch_after_download_action = None
     app.catalog_preview = Mock()
     app._set_batch_download_state = Mock()
     app._record_patch_problem = Mock()

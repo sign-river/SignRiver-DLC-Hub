@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## 移除补丁改用云端原始库（2026-09-22）
+
+- 用户提案并采纳：移除补丁不该因为“凭据缺失”就卡住——云端本来就有原始库，直接下载 + 校验 + 覆盖主库更符合直觉；只有拿不到或校验不过才报错。
+- 引擎：`PatchEngine.remove()/restore_original()` 新增可选参数 `published_original` / `published_original_sha256`。凭据不可用时，只要调用方给出（客户端已按卡带元数据校验过的）原始库，就执行 `_restore_with_published_original()`：校验文件存在/二进制格式/可选 SHA-256 → 把原版库写回主库槽位 → 删除 `_o` 与配置文件槽位 → 删除旧凭据；全程走事务备份，任一步失败整体回滚且不动游戏目录。没有该参数时行为不变（仍抛 `PatchProvenanceUnknownError`）。
+- 客户端：`_remove_patch` 拆成 `_begin_patch_removal()` + `_run_patch_removal()`。没有凭据时先看缓存里有没有云端原始库（`_patch_ready_paths(roles=("original_dll",))`），没有就用 `_start_patch_downloads(action="remove", roles=("original_dll",))` 走既有下载/校验流水线，下载完成后由 `_apply_patch_after_download()` 转交移除流程；`_patch_original_asset_sha256()` 把卡带登记的 SHA-256 再传给引擎做二次确认。有完整凭据时 `_receipt_backed_removal_ready()` 直接走原路径，**离线也能移除**，不强制下载。
+- 失败提示：下载失败/资产缺失时仍走 `_on_patch_remove_failed()`；凭据缺失且云端不可用时才是提示级的「无法确认当前补丁的来源」（上一节文案保留）。
+- 版本对齐：`app/versions/0.1.0/` 改动已定向同步到 `app/versions/1.0.0/`（`app_entry.py`、`signriver_app/infrastructure/patching/engine.py`），同步前确认两边差异仅为本次改动。
+- 验证：`tests/test_patch_engine.py` 新增三例（凭据缺失时用云端原始库还原成功、SHA-256 不符时不动文件、原始库缺失时报错且不动文件）；`tests/test_ui_theme.py` 新增/更新断言（下载-再-移除的接线、凭据存在时不强制下载）；`tests/test_client_problem_center.py` 的裸对象用例补上 `patch_after_download_action` 属性；`ruff` 与全量 `pytest` 通过。
+
 ## 补丁来源未知的提示改为“可操作提示”（2026-09-22）
 
 - 用户反馈：一键移除补丁时弹出的「补丁安装凭据缺失或损坏，无法证明主库和原生库来源」读起来像文件损坏，实际只是程序无法确认当前目录里补丁的来源；解决办法也很简单。
