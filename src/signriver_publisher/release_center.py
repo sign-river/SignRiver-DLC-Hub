@@ -15,6 +15,7 @@ import customtkinter as ctk
 
 from .release_models import CheckResult, ReleaseKind, ReleasePlan, ReleaseStatus
 from .release_service import ReleaseService
+from signriver_common.platforms import open_directory
 from signriver_launcher.constants import LAUNCHER_VERSION
 
 
@@ -220,12 +221,35 @@ class ReleaseCenter(ctk.CTkFrame):
         self.inbox_entry = ctk.CTkEntry(content)
         self.inbox_entry.grid(row=1, column=1, padx=12, pady=8, sticky="ew")
         self.inbox_entry.insert(0, str(self.default_inbox))
-        ctk.CTkButton(content, text="选择目录", width=92, command=self._choose_inbox).grid(row=1, column=2, padx=(0, 12), pady=8)
+        inbox_actions = ctk.CTkFrame(content, fg_color="transparent")
+        inbox_actions.grid(row=1, column=2, padx=(0, 12), pady=8, sticky="e")
+        ctk.CTkButton(
+            inbox_actions, text="选择目录", width=92, command=self._choose_inbox
+        ).pack(side="left")
+        ctk.CTkButton(
+            inbox_actions,
+            text="打开目录",
+            width=92,
+            command=lambda: self._open_directory_entry(self.inbox_entry),
+        ).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(content, text="模块归档目录").grid(row=2, column=0, padx=12, pady=8, sticky="w")
         self.module_inbox_entry = ctk.CTkEntry(content)
         self.module_inbox_entry.grid(row=2, column=1, padx=12, pady=8, sticky="ew")
         self.module_inbox_entry.insert(0, str(self.default_module_inbox))
-        ctk.CTkButton(content, text="选择目录", width=92, command=self._choose_module_inbox).grid(row=2, column=2, padx=(0, 12), pady=8)
+        module_inbox_actions = ctk.CTkFrame(content, fg_color="transparent")
+        module_inbox_actions.grid(row=2, column=2, padx=(0, 12), pady=8, sticky="e")
+        ctk.CTkButton(
+            module_inbox_actions,
+            text="选择目录",
+            width=92,
+            command=self._choose_module_inbox,
+        ).pack(side="left")
+        ctk.CTkButton(
+            module_inbox_actions,
+            text="打开目录",
+            width=92,
+            command=lambda: self._open_directory_entry(self.module_inbox_entry),
+        ).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(content, text="更新说明", anchor="nw").grid(row=3, column=0, padx=12, pady=(12, 8), sticky="nw")
         self.notes_entry = ctk.CTkTextbox(content, height=150)
         self.notes_entry.grid(row=3, column=1, columnspan=2, padx=(12, 12), pady=(12, 8), sticky="ew")
@@ -502,6 +526,23 @@ class ReleaseCenter(ctk.CTkFrame):
         if selected:
             self.module_inbox_entry.delete(0, "end")
             self.module_inbox_entry.insert(0, selected)
+
+    def _open_directory_entry(self, entry: ctk.CTkEntry) -> None:
+        """打开路径框里的目录；目录不存在时给出提示而不是抛异常。"""
+        raw = entry.get().strip()
+        path = Path(raw).expanduser() if raw else None
+        if path is None or not path.is_dir():
+            messagebox.showinfo(
+                "目录不存在",
+                f"这个位置还不是一个目录：\n{raw or '（路径为空）'}\n\n"
+                "可以先用「选择目录」选一个已有位置，或先把目录建出来。",
+                parent=self,
+            )
+            return
+        try:
+            open_directory(path)
+        except Exception as error:  # noqa: BLE001 - 由系统调用失败原因决定
+            messagebox.showerror("无法打开目录", str(error), parent=self)
 
     def _ensure_program_batch(self) -> tuple[ReleasePlan, bool]:
         """Create the internal record on demand; it is never a user-facing step."""

@@ -1,5 +1,12 @@
 # 当前任务交接
 
+## 发布器「发布包与归档」增加打开目录按钮（2026-09-22）
+
+- 需求：发布器「发布包与归档 → 发布包与归档模块提交」的两个路径框（三端包收件目录、模块归档目录）原本只有「选择目录」，用户要求在右侧补一个「打开目录」。
+- 实现：`src/signriver_publisher/release_center.py` 的两行改为透明 Frame 里并排放「选择目录 / 打开目录」，新增 `_open_directory_entry()`——路径不存在时用提示框说明（不调用系统打开命令），系统调用失败时给错误提示而不是抛异常；打开用 `signriver_common.platforms.open_directory()`（Windows `os.startfile`，macOS `open`，Linux `xdg-open`）。
+- 验证：`tests/test_publisher_ui_threading.py` 新增三条（两个按钮与两处连接的源码断言、已存在目录会调用打开、缺失目录与调用失败分别走提示）；`ruff` 通过；该文件 76 项与全量 `pytest` 均通过。
+- 未执行：未重新构建发布器 EXE（`tools/build_publisher.py`），日常用 `publisher.py` 跑源码即可看到新按钮。
+
 ## 发行包模块目录裁剪（2026-09-22，方案 A）
 
 - 背景：用户发现安装目录 `app/versions/` 里躺着 7 个模块共 6.63 MB，而整个程序才二十几 MB。运行哪个模块只由 `app/state.json` 的 `active_version` 决定，0.1.0（Git 源码基线）与 0.1.4–0.1.7 对用户没有意义。

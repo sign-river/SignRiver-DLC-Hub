@@ -975,6 +975,63 @@ def test_release_center_directory_picker_starts_at_current_inbox() -> None:
     assert 'current if current.is_dir() else self.default_inbox' in source
 
 
+def test_release_center_preparation_page_can_open_inbox_directories() -> None:
+    """两个目录框除了「选择目录」外都提供「打开目录」。"""
+    source = inspect.getsource(ReleaseCenter._build_preparation_page)
+
+    assert source.count('text="选择目录"') == 2
+    assert source.count('text="打开目录"') == 2
+    assert source.count("self._open_directory_entry(") == 2
+
+
+def test_release_center_opens_existing_inbox_directory(monkeypatch, tmp_path) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr(
+        release_center_ui, "open_directory", lambda path, *a, **k: opened.append(path)
+    )
+    notices: list[tuple] = []
+    monkeypatch.setattr(
+        release_center_ui.messagebox, "showinfo", lambda *a, **k: notices.append(a)
+    )
+
+    ReleaseCenter._open_directory_entry(
+        object(), SimpleNamespace(get=lambda: str(tmp_path))
+    )
+
+    assert opened == [tmp_path]
+    assert notices == []
+
+
+def test_release_center_open_directory_reports_missing_or_failing_path(
+    monkeypatch, tmp_path
+) -> None:
+    notices: list[tuple] = []
+    errors: list[tuple] = []
+    monkeypatch.setattr(
+        release_center_ui.messagebox, "showinfo", lambda *a, **k: notices.append(a)
+    )
+    monkeypatch.setattr(
+        release_center_ui.messagebox, "showerror", lambda *a, **k: errors.append(a)
+    )
+
+    # 目录不存在：只提示，不调用系统打开命令。
+    missing = tmp_path / "not-created-yet"
+    ReleaseCenter._open_directory_entry(
+        object(), SimpleNamespace(get=lambda: str(missing))
+    )
+    assert notices and errors == []
+
+    # 目录存在但系统调用失败：给出错误提示而不是抛异常。
+    def _fail(_path, *_args, **_kwargs):
+        raise OSError("no handler")
+
+    monkeypatch.setattr(release_center_ui, "open_directory", _fail)
+    ReleaseCenter._open_directory_entry(
+        object(), SimpleNamespace(get=lambda: str(tmp_path))
+    )
+    assert errors
+
+
 def test_release_center_local_file_comparison_provides_visible_feedback() -> None:
     source = inspect.getsource(ReleaseCenterUiMixin._capture_release_center_baseline)
     comparison_source = inspect.getsource(ReleaseCenter._render_local_remote_comparison)
