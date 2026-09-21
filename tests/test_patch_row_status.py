@@ -99,9 +99,10 @@ def test_audit_problems_are_reported_per_file() -> None:
     ) == ("补丁正常", "success")
 
 
-def test_installed_without_receipt_asks_for_repair() -> None:
+def test_installed_without_receipt_only_states_the_record_is_missing() -> None:
+    """缺少安装记录只做陈述，不引导用户去点一键修复。"""
     assert _status(installed=True, audit_known=False) == (
-        "已写入：缺少安装记录，建议一键修复",
+        "已写入：缺少安装记录",
         "muted",
     )
 

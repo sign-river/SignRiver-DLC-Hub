@@ -1,10 +1,10 @@
 # 当前任务交接
 
-## Windows 1.0.0 重新打包（2026-09-21 22:19，含补丁工具行状态修复）
+## Windows 1.0.0 重新打包（2026-09-21 22:21，含补丁工具行状态修复）
 
-- 触发：补丁工具行状态修复（见下一条）改了 `app/versions/1.0.0/app_entry.py`，因此重新构建 Windows 侧全部产物。只打包 Windows；macOS/SteamOS 需要各自虚拟机内 `tools/build_native_release.py` 重建后才是同一份代码。
+- 触发：补丁工具行状态修复与随后的文案收敛（见下一条）改了 `app/versions/1.0.0/app_entry.py`，因此重新构建 Windows 侧全部产物。只打包 Windows；macOS/SteamOS 需要各自虚拟机内 `tools/build_native_release.py` 重建后才是同一份代码。
 - 命令：`tools/build_module.py --all-versions app\versions` → `tools/build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64` → `tools/prepare_update_release.py`（用 Python 传中文 notes，`--platform-package` 依次带 windows/macos/steamos 三方包）。
-- 产物（大小 / SHA-256）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 298,237 / `defdaefa304c1210e104bd7e10f64ca2955994b2c2850ab1696181dfa6bbc123`；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 22,423,989 / `d87958c7433b71c59854ceba7628732cd06a5b1f57bf0d4723c835aaf8153d4c`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 22,465,196 / `bca4ea3131675931b323758303abc2a5f6c3137574ba20de0311d1987aefdbbf`；自解压 EXE（含同内容别名）`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` = 22,779,626 / `ecce6c39e86989bc6087e763167d58dafca660a5f5b1bb9cbd02267606aaaded`。
+- 产物（大小 / SHA-256，此版为最终值）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 298,223 / `12b68e83fa2041999d7ed4c649fcd84e54c6ab63e51737d9df641f5db6136ab6`；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 22,423,761 / `d55fd489f97b5583f49ae1b8681b0d2e7186954675e8597433909edcf7cbeb60`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 22,464,968 / `e3ca73b598d1efa2ebe0af2473f9d0bc87df75c258a4647d62bf7d9bc52cd523`；自解压 EXE（含同内容别名）`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` = 22,779,258 / `252ea793e49969c2c50e98a6d9c9e544bc6d1e1c6df86aa2139ce1f863802262`。
 - 清单与基线：`config/module-archives.json` 的 1.0.0 记录已更新为新哈希与大小；`dist/updates/{gitlink,github}/update-manifest.json` 已重新生成并同步到 `publisher-workspace/output/updates/{gitlink,github}/`（Windows 段指向新哈希，macOS/SteamOS 段仍是旧包哈希）。
 - 验证：三个 ZIP 的 `zipfile.testzip()` 均为 None；包内 `app/versions/1.0.0/app_entry.py` 与工作区一致（含 `patch_row_status`），`dist/唏嘘南溪DLC一键解锁工具/app/versions/1.0.0/app_entry.py` 与源码除换行符外逐字节相同。
 - 待办：① 用新包重新上传模块归档、两个更新包与两份清单；② macOS/SteamOS 包内客户端仍是旧逻辑，需在各自虚拟机重建后再更新清单对应哈希；③ 未推送 Git（`config/module-archives.json` 与本文档需随代码提交）。
@@ -12,7 +12,7 @@
 ## 补丁工具行状态改为“以游戏目录与安装记录为准”（2026-09-21）
 
 - 用户反馈：刚解锁后每行显示准确，重启客户端后文件仍在原位却出现「补丁缺失：缓存文件不可用」。根因是 `_show_patch_tool` 的行渲染只用下载缓存快照（`DownloadState.READY` 且缓存文件存在）判断状态：缓存被清理、或快照里的资源名与 release 资产名不一致时，即使游戏目录里的文件完全正确也会报缺失；而同页顶部审计（`audit_recorded`）此时仍显示“已通过审计”，两处自相矛盾。
-- 修复：新增模块级纯函数 `patch_row_status()`（`app/versions/0.1.0/app_entry.py`）统一行状态——① 安装记录里该文件 missing/modified → 缺失/异常；② 文件在游戏目录且审计 HEALTHY → 「补丁正常」；③ 已写入但无安装记录 → 提示一键修复；④ 未安装时才显示下载与缓存状态。下载缓存只决定「打开文件」与能否直接安装，不再决定补丁是否有效。
+- 修复：新增模块级纯函数 `patch_row_status()`（`app/versions/0.1.0/app_entry.py`）统一行状态——① 安装记录里该文件 missing/modified → 缺失/异常；② 文件在游戏目录且审计 HEALTHY → 「补丁正常」；③ 已写入但无安装记录 → 只陈述「已写入：缺少安装记录」（不引导用户去点一键修复，用户要求文案到此为止）；④ 未安装时才显示下载与缓存状态。下载缓存只决定「打开文件」与能否直接安装，不再决定补丁是否有效。
 - UI 侧配套：新增 `_patch_row_audit()`、`_patch_row_audit_labels()`、`_patch_row_game_path()`；`_patch_row_open_target()` 改为“游戏目录里的文件优先，其次下载缓存资源”；“打开位置”按钮直接定位游戏目录里的真实文件。
 - 文案：删除误导性的「补丁缺失：缓存文件不可用」；未安装行的缓存提示改为「尚未安装：缓存资源已失效，请重新下载」。
 - 版本对齐：`app/versions/1.0.0/app_entry.py`（`app/state.json` 的 `active_version`）在修改前与 `0.1.0` 逐行一致，已按功能范围同步，两边 SHA-256 均为 `98550f89…`。（`app/versions/*` 被 Git 忽略，需重启客户端才会加载新代码。）

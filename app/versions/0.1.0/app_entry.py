@@ -543,7 +543,7 @@ def patch_row_status(
     if installed and audit_healthy:
         return "补丁正常", "success"
     if installed and not audit_known:
-        return "已写入：缺少安装记录，建议一键修复", "muted"
+        return "已写入：缺少安装记录", "muted"
     if installed:
         return "补丁未通过审计", "danger"
     if download_state is None:
