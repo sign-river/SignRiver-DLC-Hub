@@ -1,5 +1,17 @@
 # 当前任务交接
 
+## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
+
+- 现象：macOS VM 中 1.0.0 客户端启动约 5 秒后进程退出，`~/Library/Logs/DiagnosticReports` 新增两份 `.ips`，异常为 `EXC_BAD_ACCESS (SIGSEGV) KERN_INVALID_ADDRESS at 0x8`。
+- 根因：崩溃线程是后台工作线程，堆栈为 `sorted(生成器)` → 构造对象 → `gc_collect_main` → `slot_tp_finalize` → `Tkapp_Call` → `Tcl_EvalObjv` → `Tk_FontObjCmd`。即工作线程触发 GC 时回收了 tkinter 字体对象，在非主线程执行了 Tcl `font delete`；macOS 自带 Tk 未开启线程支持，直接段错误。
+- 修改：新增 `app/versions/0.1.0/signriver_app/infrastructure/tk_thread_safety.py`，包装 `tkinter.font.Font`、`tkinter.Variable`、`tkinter.Image` 的 `__del__`——工作线程只登记待清理对象，主线程执行真正的 Tcl 释放；`app_entry.py` 在创建 Tk 后调用 `install_tk_finalizer_guard()`，UI 事件泵每 50ms 调 `flush_tk_finalizers(limit=200)`。已定向同步到活动模块 `app/versions/1.0.0/`。
+- 测试：新增 `tests/test_tk_thread_safety.py` 4 项（守护幂等、工作线程延后、主线程立即释放、入口接线）。Windows：`pytest -q tests/test_tk_thread_safety.py tests/test_ui_theme.py tests/test_platform_content.py tests/test_loader.py` 通过，Ruff 通过。来宾（macOS，py312 环境临时安装 pytest 9.1.1）：`pytest -q tests/test_build_native_release.py tests/test_tk_thread_safety.py tests/test_cross_platform_runtime.py` 16 项通过。
+- 重建：来宾 `/Users/signriver/macos-build-20260919`，`python tools/build_native_release.py --platform macos` 状态码 0，产物 `dist/SignRiver-DLC-Hub.app`、`dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip`、`dist/updates/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip`。
+- 校验：两个 ZIP `unzip -t` 通过；主程序 `Mach-O 64-bit executable x86_64`；`codesign --verify --deep --strict` 通过；包内 `app/state.json.active_version=1.0.0`、`app/versions/1.0.0/signriver_app/` 81 个文件且含 `tk_thread_safety.py`、`config/guides` 16 条。
+- 启动验证：先把数据目录旧模块改名为 `1.0.0.bak-20260921-tkguard` 让启动器重新播种；`open dist/SignRiver-DLC-Hub.app` 后进程存活超过 40 秒，无新增崩溃报告，日志出现 `Starting application module 1.0.0`、`已同步 2 款游戏`、`已加载 都市天际线 (Cities: Skylines) 的支持数据`。用户当前看到的客户端就是该 `dist/SignRiver-DLC-Hub.app`。
+- 回传：`.test-artifacts/macos-dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip`（24,920,421 字节，SHA-256 `5b334546022434997122bb1011cb52b6830f2ac41bc0ba0f99f05c1f6df6771f`）、`.test-artifacts/macos-dist/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip`（24,935,654 字节，SHA-256 `34e3e995bf29b8af5bf1386f6937696fb9334cc40641d3b82f7a99654ed2359f`），与来宾 `shasum -a 256` 一致。
+- 本轮未执行：真实 DLC 下载、补丁生命周期、Steam 登录、游戏内运行、上传、线上清单切换、push；未安装到 `~/Applications`。
+
 ## 发布器原生平台补丁资源构建（2026-09-21）
 
 - 根因：客户端已经按平台卡带字段读取原生库名，但发布器构建只复制 Windows 的 `unlocker.dll` / `original.dll` 及旧别名，不会处理 `patch_platforms` 声明的 macOS/SteamOS 原生文件。

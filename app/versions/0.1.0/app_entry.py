@@ -89,6 +89,10 @@ from .signriver_app.infrastructure.security_software import (
     is_windows_security_product,
     preferred_security_product_executable,
 )
+from .signriver_app.infrastructure.tk_thread_safety import (
+    flush_pending as flush_tk_finalizers,
+    install as install_tk_finalizer_guard,
+)
 from .signriver_app.infrastructure.gpu_driver import (
     GpuDriverInfo,
     discover_gpu_drivers,
@@ -510,6 +514,8 @@ class DlcHubApplication:
         ctk.set_default_color_theme("blue")
         self.window = ctk.CTk()
         self._install_gui_exception_handler()
+        # 工作线程回收 tkinter 对象时不允许碰 Tcl，见 tk_thread_safety。
+        install_tk_finalizer_guard()
         # Build the whole UI while the window is hidden so users
         # never see a blank shell filling in gradually.
         self.window.withdraw()
@@ -7143,6 +7149,8 @@ class DlcHubApplication:
     def _drain_ui_events(self) -> None:
         if not self.ui_event_pump_running:
             return
+        # 后台线程回收的 tkinter 对象统一在这里（主线程）释放 Tcl 资源。
+        flush_tk_finalizers(limit=200)
         for _ in range(250):
             try:
                 callback = self.ui_events.get_nowait()

@@ -29,6 +29,13 @@
 
 ## 客户端安全与兼容
 
+### tkinter 终结器只能在主线程调用 Tcl（2026-09-21）
+
+- macOS 自带 Tk 未开启线程支持，任何非主线程的 Tcl 调用都可能以 `EXC_BAD_ACCESS` 直接终止进程，无法用 Python 异常捕获。
+- `tkinter.font.Font`、`tkinter.Variable`、`tkinter.Image` 的 `__del__` 会释放 Tcl 资源。后台线程触发分代回收时这些终结器就在错误线程上执行，因此客户端启动时必须调用 `signriver_app/infrastructure/tk_thread_safety.py` 的 `install()`，并由 UI 事件泵定期 `flush_pending()`。
+- 后台线程仍然禁止直接操作控件；新增后台任务必须继续通过 `_post_ui` 回主线程。
+- 判定方法：崩溃报告 `faultingThread` 非 0，且堆栈同时出现 `Tcl_EvalObjv` / `Tkapp_Call` 与 `gc_collect_main` / `slot_tp_finalize`，即属此类问题。
+
 ### 原生平台补丁资源由发布器显式物化（2026-09-21）
 
 - `patch_platforms` 只描述客户端应读取的平台库名；只把 `libsteam_api.so` / `libsteam_api.dylib` 放进 `patches/` 不会自动变成 Release 附件。
