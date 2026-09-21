@@ -30,6 +30,14 @@
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
+### macOS 1.0.0 最终发布包（2026-09-21 04:49 构建，冻结）
+
+- 产物：`dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip`（24,927,322 字节，SHA-256 `0757469ad194e1df3206a6269d2fcb52f24fc1d46cc7584dd0823c4ed851e77f`）与 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip`（24,942,781 字节，SHA-256 `6253a6884057fa50e29b5a7c4b86352c302f731e717aa14b6f6680f2d66fd50f`）。
+- 一致性核对：主机 `.test-artifacts/macos-dist/` 两份 ZIP 的 SHA-256 与来宾 `~/macos-build-20260919/dist/` 完全一致；app.zip 内 `SignRiver-DLC-Hub.app/Contents/MacOS/SignRiver-DLC-Hub` 与来宾已部署 `.app` 的主程序同为 `4207b430…`；包内 `config/cartridges/cartridge_stellaris.json` 为 `13d92382…`（含 `install_relative_dir: "."` 修正）。虚拟机中正在运行的客户端（04:49:45 启动）就是该 `.app`。
+- 版本信息：模块 `1.0.0`、`api_version 3`、宿主 `app/state.json` 的 `active_version=1.0.0`、`bad_versions` 为空；`codesign --verify --deep --strict` 通过，主程序 x86_64。构建源码为 `f86b0a9`。
+- 该包包含本日全部修复：tkinter 终结器线程守护、补丁工具按平台显示落地文件、macOS 强制无配置、下载状态文案、universal（fat）Mach-O 资源校验、取消入口常驻与 32 KiB 分块、Stellaris 补丁目录指向游戏根目录。
+- 待办（内容侧，非本包）：重新上传 Stellaris 的 macOS 补丁资源（`libsteam_api_o.dylib` 换成根目录 670,560 字节那份）并重新发布 Stellaris 卡带；云端卡带当前仍声明包内目录。
+
 - 现象：macOS VM 中 1.0.0 客户端启动约 5 秒后进程退出，`~/Library/Logs/DiagnosticReports` 新增两份 `.ips`，异常为 `EXC_BAD_ACCESS (SIGSEGV) KERN_INVALID_ADDRESS at 0x8`。
 - 根因：崩溃线程是后台工作线程，堆栈为 `sorted(生成器)` → 构造对象 → `gc_collect_main` → `slot_tp_finalize` → `Tkapp_Call` → `Tcl_EvalObjv` → `Tk_FontObjCmd`。即工作线程触发 GC 时回收了 tkinter 字体对象，在非主线程执行了 Tcl `font delete`；macOS 自带 Tk 未开启线程支持，直接段错误。
 - 修改：新增 `app/versions/0.1.0/signriver_app/infrastructure/tk_thread_safety.py`，包装 `tkinter.font.Font`、`tkinter.Variable`、`tkinter.Image` 的 `__del__`——工作线程只登记待清理对象，主线程执行真正的 Tcl 释放；`app_entry.py` 在创建 Tk 后调用 `install_tk_finalizer_guard()`，UI 事件泵每 50ms 调 `flush_tk_finalizers(limit=200)`。已定向同步到活动模块 `app/versions/1.0.0/`。
