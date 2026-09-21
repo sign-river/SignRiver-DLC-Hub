@@ -30,6 +30,15 @@
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
+### SteamOS 1.0.0 最终构建与部署（2026-09-21，来宾 16:50）
+
+- 来宾通道：SSH `deck@192.168.233.130`；快照回滚后 `~/.ssh/authorized_keys` 被清空，本轮改用 paramiko（临时 venv `.test-artifacts/tmp-ssh-venv`，密码只放进程环境变量 `SIGNRIVER_GUEST_PASSWORD`）并按 `.test-artifacts/steamos_guest.py` 重新装回公钥。辅助脚本 `steamos_guest.py` 支持 run/put/get/install-key，`get` 的参数顺序是「本地 远端」。
+- 构建：源码归档 `signriver-steamos-source-20260921j.tar.gz` 解包到 `~/signriver-steamos-build`（保留 `.venv-steamos`、`build/`、`dist/`），`tools/build_native_release.py --platform steamos` 状态码 0；来宾定向测试 180 项通过（需先 `mkdir -p .test-artifacts`，归档不含该目录，否则 pytest 的 basetemp 报错）。
+- 产物：`dist/SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz`（44,817,592 字节，SHA-256 `b40eea969eb5237a45acad82c771672ee620db0f2bdbba0e13947ee41cd79cac`）与 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-steamos-x64.zip`（45,076,499 字节，SHA-256 `85f6f0cc1c23a2e954a426af9a60ebf8b0897e39063e046d3425c9464ee1d60d`）；`tar -tzf`/`unzip -t` 通过，`dist/SignRiver-DLC-Hub-steamos-x64/SignRiver-DLC-Hub` 为 x86-64 ELF、权限 755。
+- 一致性：发布包内 `SignRiver-DLC-Hub-steamos-x64/SignRiver-DLC-Hub` 与部署目录中的二进制同为 `b5ba62251543190d1860994c3a982741b4894aa146c648d389306e2aeebd8f41`；主机副本在 `.test-artifacts/steamos-dist/`，哈希与来宾一致。
+- 部署与验收：数据目录模块 `1.0.0` 改名为 `1.0.0.bak-20260921-final` 由启动器重新播种（新模块含 `looks_like_native_library` 等今日修复），以 `DISPLAY=:0 XAUTHORITY=/home/deck/.Xauthority` 启动 GUI（PID 10182/10186），`launcher.log` 出现 `Starting application module 1.0.0` 与同步结果，等待用户界面验收。
+- 备注：宿主与来宾时钟相差约 2.8 小时，`tar` 解包会提示 "time stamp in the future"，属提示性告警，不影响构建。
+
 ### macOS 1.0.0 最终发布包（2026-09-21 04:49 构建，冻结）
 
 - 产物：`dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip`（24,927,322 字节，SHA-256 `0757469ad194e1df3206a6269d2fcb52f24fc1d46cc7584dd0823c4ed851e77f`）与 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip`（24,942,781 字节，SHA-256 `6253a6884057fa50e29b5a7c4b86352c302f731e717aa14b6f6680f2d66fd50f`）。
