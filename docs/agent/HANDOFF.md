@@ -30,6 +30,13 @@
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
+### Windows 自解压包解压落点修复（2026-09-21）
+
+- 用户反馈：自解压 EXE 把文件解压到当前目录，曾在 D 盘根目录铺满整个盘。根因是 `tools/build_release.py::_build_sfx` 用 `.\<发布目录>\*` 只把目录**内容**打进 7z payload，SFX 又把内容解压到用户选择的目录。
+- 修复：改为 `7z a <archive> <发布目录名>`（连目录本身一起打包），解压后只会得到 `<目标目录>\唏嘘南溪DLC一键解锁工具\...` 一个文件夹，与 ZIP 内布局一致。
+- 验证：新增 `tests/test_release_build.py::test_sfx_payload_keeps_the_release_folder`（本机有 7-Zip 时构建真实 SFX 并断言 payload 条目都以发布目录名开头，无 7-Zip 时 skip）；另用 `.test-artifacts/verify_sfx_layout.py` 实测解压，目标目录里只有发布文件夹一项。全量 `pytest` 与 Ruff 通过。
+- 备注：现有 `dist/` 里 0.2.0 的 SFX 仍是旧行为，1.0.0 构建时会自动带上此修复；标准 `7z.sfx` 生成的 SFX 会要求管理员权限（既有行为，与本次修复无关）。
+
 ### SteamOS 1.0.0 最终构建与部署（2026-09-21，来宾 16:50）
 
 - 来宾通道：SSH `deck@192.168.233.130`；快照回滚后 `~/.ssh/authorized_keys` 被清空，本轮改用 paramiko（临时 venv `.test-artifacts/tmp-ssh-venv`，密码只放进程环境变量 `SIGNRIVER_GUEST_PASSWORD`）并按 `.test-artifacts/steamos_guest.py` 重新装回公钥。辅助脚本 `steamos_guest.py` 支持 run/put/get/install-key，`get` 的参数顺序是「本地 远端」。

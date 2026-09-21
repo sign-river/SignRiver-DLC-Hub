@@ -171,7 +171,9 @@ def _build_sfx(release: Path, archive_7z: Path, sfx_path: Path) -> bool:
             "-t7z",
             "-mx=9",
             str(archive_7z),
-            f".\\{release.name}\\*",
+            # 必须连发布文件夹本身一起打包：SFX 会把内容解压到用户选择的
+            # 目录，只打目录内容会让文件散落到目标盘根目录（曾污染整个盘）。
+            release.name,
         ],
         cwd=release.parent,
         check=True,

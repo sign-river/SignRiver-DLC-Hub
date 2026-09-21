@@ -4,6 +4,12 @@
 
 ## 发布与更新
 
+### 自解压包必须把发布文件夹整包写入（2026-09-21）
+
+- 7-Zip SFX 会把 payload 内容解压到用户选择的目录。打包时只能用 `7z a <archive> <发布目录名>`（连目录本身），**不能**用 `.\<发布目录>\*`——后者只打目录内容，用户在盘根目录解压会把 `app/`、EXE 等直接铺满整个盘（曾污染 D 盘）。
+- 判定与回归：`tests/test_release_build.py::test_sfx_payload_keeps_the_release_folder` 用 `7z l -slt -sccUTF-8` 断言 payload 内每个条目都以发布目录名开头；`-sccUTF-8` 用于避免中文目录名按控制台代码页输出变成乱码。
+- 现状：本机 `C:\Program Files\7-Zip` 只有标准 `7z.sfx`；它的 `ExtractTitle`/`GUIFlags`/`OverwriteMode` 等键属于 7zSD 变体，会被忽略（保留无害）。标准模块生成的 SFX 启动时会要求管理员权限（既有行为），Python 兜底 SFX（`tools/sfx_stub.py`）本来就解压到 `<exe 目录>\<发布目录名>`。
+
 ### 全量更新必须绑定同一构建产物（2026-09-04）
 
 - ZIP、`update-manifest.json`、发布器准备记录和 GitLink/GitHub 附件必须来自同一次构建。

@@ -1,8 +1,51 @@
 import json
+import re
+import subprocess
 import zipfile
+
+import pytest
 
 from tools import build_release
 from tools.build_release import build_full_update_archive, write_release_manifest
+
+
+def test_sfx_payload_keeps_the_release_folder(tmp_path) -> None:
+    """自解压包必须把整个发布文件夹打进去，解压时不得散落到目标目录。
+
+    回归背景：payload 曾用 ``.\\<发布目录>\\*`` 只打目录内容，用户在盘根
+    目录解压时会把文件铺满整个盘。
+    """
+    seven_zip = build_release._find_7z()
+    if seven_zip is None:
+        pytest.skip("本机未安装 7-Zip，跳过自解压包构建用例")
+    dist = tmp_path / "dist"
+    release = dist / build_release.RELEASE_DIR_NAME
+    release.mkdir(parents=True)
+    (release / build_release.RELEASE_EXE_NAME).write_bytes(b"MZ")
+    (release / "使用说明.txt").write_text("exe 与 app、config 同目录", encoding="utf-8")
+    sfx_path = dist / "release-sfx.exe"
+
+    assert build_release._build_sfx(release, dist / "release.7z", sfx_path) is True
+
+    listing = subprocess.run(
+        # -sccUTF-8：7z 默认按控制台代码页输出，中文目录名会变成乱码。
+        [str(seven_zip), "l", "-slt", "-sccUTF-8", str(sfx_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    payload = re.split(r"-{10,}\r?\n", listing, maxsplit=1)[-1]
+    paths = [
+        line.split(" = ", 1)[1].strip()
+        for line in payload.splitlines()
+        if line.startswith("Path = ")
+    ]
+
+    assert paths, listing
+    for path in paths:
+        assert path.replace("/", "\\").startswith(build_release.RELEASE_DIR_NAME), path
 
 
 def test_release_build_analyzes_external_application_dependencies(monkeypatch) -> None:
