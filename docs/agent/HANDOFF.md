@@ -177,6 +177,14 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## SteamOS 干净基线快照（2026-09-21）
+
+- 已创建关机状态快照 `20260921-可用基线`（无内存文件，确认是 poweroff 后拍摄）。当前快照链：`steamos-installed-plasma-x11` → `下载stellaris` → `20260921-可用基线`。
+- 制作过程：停掉 Steam 与客户端程序 → 写入游戏库登记（`~/.local/share/Steam/{steamapps,config}/libraryfolders.vdf`）→ `systemctl poweroff` → `vmrun snapshot`。首次拍摄误在关机过程中进行（带了 8 GB 内存文件），已删除并重拍；期间遇到残留 `.vmx.lck`（持有者 PID 已不存在），将其改名释放后快照成功。
+- 基线内容：Stellaris 28 GB（`~/Games/SteamLibrary/steamapps/common/Stellaris`，3 个 appmanifest，`StateFlags=4`）；客户端发布包已部署（`~/signriver-steamos-build`）且 `~/.local/share/signriver-dlc-hub` 数据目录正常；`~/register-steam-library.sh` 与 `~/Games/SteamLibrary/libraryfolders.vdf.backup` 用于重新登记游戏库。
+- 已知情况：该基线的 Steam 客户端仍处于"已下载但未落地"的历史状态（`package/*.installed` 缺失）。首次启动 Steam 时它会自动补装客户端（约 496 MB，2–3 分钟）；**补装会重建 `~/.local/share/Steam`，但不会再删除游戏**（游戏已在 Steam 根目录之外）。补装并登录后若库里未显示 Stellaris，执行 `~/register-steam-library.sh` 再重启 Steam，或在 设置 → 存储空间 → 添加驱动器 中选择 `/home/deck/Games/SteamLibrary`（不会重新下载）。
+- 经验：SteamOS 正常启动参数带 `-skipinitialbootstrap`；在客户端有未应用更新时用该参数启动会导致"下载→不安装→下次再下载"的循环，此时用 `steam.sh -steamdeck`（不带该参数）可让更新真正落地。
+
 ## 游戏库迁移与三项恢复（SteamOS，2026-09-21）
 
 - 二次事故：用户尝试打开 Steam 时，Steam 再次自我重装客户端并清空 `~/.local/share/Steam`，游戏库第二次被删（已由快照恢复）。定位到快照 `下载stellaris` 是在 **Steam 客户端更新途中**拍的（`package/` 只有 `beta`，没有 `*.installed`），因此该快照下每次启动 Steam 都会触发一次完整客户端重装。
