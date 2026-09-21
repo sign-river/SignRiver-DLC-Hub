@@ -306,6 +306,45 @@ def test_program_preflight_requires_current_module_archive(tmp_path: Path) -> No
     assert plan.status is ReleaseStatus.PREFLIGHT_FAILED
 
 
+def test_module_inbox_syncs_historical_archives_with_the_current_one(
+    tmp_path: Path,
+) -> None:
+    """模块归档目录是 modules Release 的唯一数据源：历史版本也一并上传。"""
+    service = ReleaseService(tmp_path / "workspace")
+    updates = make_inbox(tmp_path / "updates", version="1.0.0")
+    modules = tmp_path / "modules"
+    modules.mkdir()
+    write_module_archive(modules / "SignRiver-DLC-Hub-module-v0.2.0.zip", version="0.2.0")
+    write_module_archive(modules / "SignRiver-DLC-Hub-module-v1.0.0.zip", version="1.0.0")
+
+    plan = service.create_program_batch(
+        version="1.0.0",
+        inbox=updates,
+        module_inbox=modules,
+        notes="说明。建议尽快更新。",
+        remote_targets=targets(),
+    )
+    archives = [item for item in plan.artifacts if item.role == "module_archive"]
+    assert sorted(item.version for item in archives) == ["0.2.0", "1.0.0"]
+    required = {item.version: item.required for item in archives}
+    assert required == {"0.2.0": False, "1.0.0": True}
+
+    plan = service.preflight(plan.batch_id)
+    check = next(item for item in plan.preflight if item.check_id == "program.module_archives")
+    assert check.result.value == "pass"
+    assert check.evidence["extra_versions"] == ["0.2.0"]
+
+    service.confirm(plan.batch_id)
+    update_providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
+    module_providers = {source: MemoryProvider(source) for source in ("gitlink", "github")}
+    plan = service.execute_program(plan.batch_id, update_providers, module_providers)
+
+    assert plan.status is ReleaseStatus.COMPLETED
+    for provider in module_providers.values():
+        assert "SignRiver-DLC-Hub-module-v0.2.0.zip" in provider.assets
+        assert "SignRiver-DLC-Hub-module-v1.0.0.zip" in provider.assets
+
+
 
 def test_game_content_batch_reuses_same_unexecuted_output(tmp_path: Path) -> None:
     service = ReleaseService(tmp_path / "workspace")

@@ -1,5 +1,17 @@
 # 当前任务交接
 
+## 模块归档目录改为 modules Release 的唯一数据源（2026-09-22）
+
+- 起因：推代码前预检发现 CI 必红——`tools/restore_module_archives.py` 会按 `config/module-archives.json` 逐个校验云端模块归档，而 0.1.7（线上 187,755 / `cf2d2a93…`，基线 233,255 / `6007a8ce…`）与 0.2.0（线上 191,187 / `896c2bbb…`，基线 289,622 / `e011d633…`）两份云端副本仍是旧构建；只有 1.0.0 匹配。历史提交一直没推送，所以这个偏差此前没被 CI 暴露。
+- 用户要求的工作流：把需要上传的模块归档放进「模块归档目录」，点一次同步即可——于是改成**目录里放什么就同步什么**：
+  - `ArtifactCollector.collect_program_module_artifacts()` 不再按目标版本过滤，收集目录里全部有效模块归档；与目标版本一致的那份 `required=True`，历史版本 `required=False`。
+  - `ReleasePreflightService._check_program_module_archives()` 只要求「存在与目标版本一致的归档」，历史版本记入 `evidence.extra_versions`，提示会说明"其中历史版本 N 个会一并同步"。
+  - `ReleasePreflightService._program_checks()` 的版本一致性检查只看 `required=True` 的产物，避免历史模块被判成版本不一致。
+  - 上传阶段 `UploadProgramModulesStage` 本来就会把批次里全部 `module_archive` 传到 `modules` Release（双源同名替换），无需改动。
+- 现场处理：把 `dist/modules/SignRiver-DLC-Hub-module-v0.1.7.zip`（233,255 / `6007a8ce…`）与 `-v0.2.0.zip`（289,622 / `e011d633…`）复制进 `publisher-workspace/output/modules/`（原有 v1.0.0），工作区探测产生的两个临时草稿批次已删除，用户此前完成的批次保留。
+- 验证：新增 `tests/test_publisher_release_service.py::test_module_inbox_syncs_historical_archives_with_the_current_one`（三份归档被收集、只有目标版本 required、预检 PASS 且 `extra_versions=["0.2.0"]`、双源都上传两份历史归档）；发布器相关 3 个测试文件与全量 `pytest` 通过。
+- 待办：用户在发布器点「验证并查看差异」→「发布文件」同步模块归档后，我方复验 `modules` Release 的 0.1.7/0.2.0 哈希，再执行 `git push origin main`（本地 410 个提交未推送）。
+
 ## 登记已知问题 KI-011（2026-09-22）
 
 - 用户确认把「本地兜底卡带的平台可用性与云端不一致」放到**下个版本**处理，本次只登记不修代码：`docs/known-issues.md` 新增 `KI-011`（待排期 / P2），含两件事——① 本地 `config/cartridges/cartridge_{civilization_6,hearts_of_iron_4,rimworld,cities_skylines}.json` 保留了实际不存在的 `patch.platforms.steamos/macos`，导致本地 `cartridges_index.json` 把它们的平台支持标多了（云端与发布器工作区都只有 群星三端 / 都市天际线 win+macos / 其余仅 Windows）；② 本地缺云端已有的 `cartridge_cities_skylines_2.json`。

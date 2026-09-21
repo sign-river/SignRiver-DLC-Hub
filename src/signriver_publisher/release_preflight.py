@@ -166,7 +166,13 @@ class ReleasePreflightService:
         roles = {item.role for item in plan.artifacts}
         missing = sorted(_PROGRAM_REQUIRED_ROLES - roles)
         target_version = str(plan.target.get("version", "")).strip()
-        inconsistent = sorted({item.version for item in plan.artifacts if item.version and item.version != target_version})
+        # 只有本次发布必须使用的产物才参与版本一致性判断；模块归档目录里的历史
+        # 版本会被一并同步到 modules Release，它们的版本号本来就不等于目标版本。
+        inconsistent = sorted({
+            item.version
+            for item in plan.artifacts
+            if item.required and item.version and item.version != target_version
+        })
         module_archives = [item for item in plan.artifacts if item.role == "module_archive"]
         return (
             PreflightCheck(
@@ -207,25 +213,39 @@ class ReleasePreflightService:
         artifacts, fingerprint: str, target_version: str
     ) -> PreflightCheck:
         errors: dict[str, str] = {}
-        if not artifacts:
-            errors["module_archive"] = "未找到与当前版本匹配的模块归档"
+        matched_target = False
+        extra_versions: list[str] = []
         for artifact in artifacts:
             try:
                 info = inspect_module_archive(Path(artifact.local_path))
             except (OSError, ValueError) as error:
                 errors[artifact.filename] = str(error)
                 continue
-            if info.version != target_version:
-                errors[artifact.filename] = (
-                    f"模块版本不匹配：期望 {target_version}，实际 {info.version}"
-                )
+            if info.version == target_version:
+                matched_target = True
+            else:
+                # 模块归档目录里的历史版本会一并同步到 modules Release，
+                # 用于让云端与仓库基线保持一致，因此不算错误。
+                extra_versions.append(info.version)
+        if not matched_target:
+            errors["module_archive"] = (
+                f"未找到与当前版本匹配的模块归档（期望 {target_version}）"
+            )
         return PreflightCheck(
             check_id="program.module_archives",
             category="program",
             result=CheckResult.FAIL if errors else CheckResult.PASS,
             hard_gate=True,
             message=(
-                f"模块归档已就绪（{len(artifacts)} 个）。"
+                (
+                    f"模块归档已就绪（{len(artifacts)} 个"
+                    + (
+                        f"，其中历史版本 {len(extra_versions)} 个会一并同步"
+                        if extra_versions
+                        else ""
+                    )
+                    + "）。"
+                )
                 if not errors
                 else "模块归档缺失、损坏或版本不匹配。"
             ),
@@ -234,7 +254,11 @@ class ReleasePreflightService:
                 if not errors
                 else "在模块归档目录放入当前版本的 SignRiver-DLC-Hub-module-v<版本>.zip 后重新验证。"
             ),
-            evidence={"archive_count": len(artifacts), "errors": errors},
+            evidence={
+                "archive_count": len(artifacts),
+                "extra_versions": sorted(extra_versions),
+                "errors": errors,
+            },
             input_fingerprint=fingerprint,
         )
     @staticmethod

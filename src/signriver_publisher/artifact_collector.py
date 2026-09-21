@@ -77,10 +77,15 @@ class ArtifactCollector:
     def collect_program_module_artifacts(
         self, directory: Path | str, *, version: str
     ) -> list[ReleaseArtifact]:
-        """Collect valid module archives for the same program version.
+        """Collect every valid module archive kept in the module inbox.
 
         The collector checks both the conventional ``modules`` child directory
         and the inbox root, while de-duplicating by resolved path.
+
+        模块归档目录是 ``modules`` Release 的唯一数据源：目录里放什么就同步
+        什么，所以历史版本也一并收集（它们会被重新上传，保证云端始终等于仓库
+        基线——CI 会按 ``config/module-archives.json`` 逐个校验这些哈希）。
+        只有与本次发布版本一致的那份是 ``required``，缺失即预检失败。
         """
         root = Path(directory)
         if not root.is_dir():
@@ -100,11 +105,12 @@ class ArtifactCollector:
                 info = inspect_module_archive(path)
             except (OSError, ValueError):
                 continue
-            if info.version != version:
-                continue
             artifacts.append(
                 fingerprint_artifact(
-                    path, role="module_archive", version=version, required=True
+                    path,
+                    role="module_archive",
+                    version=info.version,
+                    required=info.version == version,
                 )
             )
         return artifacts
