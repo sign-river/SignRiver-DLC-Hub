@@ -1,5 +1,13 @@
 # 当前任务交接
 
+## 1.0.0 云端启动公告文案（2026-09-22）
+
+- 需求：为 1.0.0 写一条云端启动公告（更新方式 / 使用方法 / 报错处理路径 / 求助渠道），用户提供要点，我方优化表述。
+- 落地位置：写进发布器草稿与启用态——`publisher-workspace/announcement-draft.json`（`enabled: true`）与 `publisher-workspace/announcement.json`（会被复制进下一次生成的 hub Release，即云端 `announcement.json`）。`publisher-workspace/` 不入库，故本条只记录在交接里；发布器「管理启动公告」打开即是新内容，保存/发布 hub 后生效。
+- 内容要点（标题「1.0.0 正式版已发布」，id `2026-09-22-v1-0-0-release`，日期 2026-09-22）：更新方式＝设置 →「检查更新」；使用方法＝「DLC 库」页选游戏 →「一键解锁」；报错先点「一键修复」→ 不行的看「报错指南」的排查步骤与解决方案 →「报错指南 → 常用工具」里的日志资料收集/补丁工具/杀毒软件检测等可自助排查 → 仍无法解决带截图 +「运行日志」复制的日志到 QQ 群 1061299021。用词已对齐界面真实按钮名（检查更新、一键修复、DLC 库、报错指南、常用工具、运行日志）。
+- 校验：发布器 `PublisherWorkspace.load_announcement_draft()` 读取并通过 `AnnouncementDraft.validate()`；客户端 `Announcement.from_dict()` 解析通过（正文 359 字，公告对话框 560×420 可滚动）；`announcement_status()` 返回「已启用：1.0.0 正式版已发布」。公告 id 与旧版不同，已选择「不再提示」的客户端会重新显示。
+- 未执行：没有发布 hub Release（需要发布器凭据与用户确认），客户端内置兜底公告 `config/announcement.json`（云端读取失败时显示）保持原样不动。
+
 ## Windows 1.0.0 打包（2026-09-22 02:2x，含移除补丁改用云端原始库）
 
 - 触发：`remove()`/客户端移除流程改为“先取云端原始库再还原”，模块代码随之变化，重新构建 Windows 侧全部产物。
