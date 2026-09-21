@@ -55,3 +55,15 @@ def test_support_collection_detail_keeps_the_collection_grid_compact() -> None:
         assert '"steamos": "SteamOS uname 与发行版信息"' in detail
         assert '"macos": "macOS system_profiler 图形与系统信息"' in detail
         assert "仅 Windows" not in detail
+
+
+def test_support_collection_wording_avoids_user_facing_skip_language() -> None:
+    for app_entry in APP_ENTRIES:
+        source = app_entry.read_text(encoding="utf-8")
+
+        assert "未找到的文件会安全跳过" not in source
+        assert "发现并跳过" not in source
+        assert "跳过 {skipped} 个已下载" not in source
+        assert "个崩溃转储（.dmp）体积较大，未一并打包" in source
+        assert "已有 {skipped} 项无需重新下载" in source
+        assert "未运行（该工具不是可捕获输出的诊断工具）" in source

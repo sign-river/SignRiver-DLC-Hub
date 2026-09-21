@@ -4068,7 +4068,7 @@ class DlcHubApplication:
             return "正在后台整理资料；完成后可直接打开本次收集文件夹。"
         if self.last_support_collection_output is not None:
             return f"最近一次收集：{self.last_support_collection_output.name}"
-        return "尚未收集资料。请选择游戏后开始；未找到的文件会安全跳过。"
+        return "尚未收集资料。请选择游戏后开始。"
 
     def _start_support_collection(self) -> None:
         if self.support_collection_running:
@@ -4136,8 +4136,8 @@ class DlcHubApplication:
         details = [result.summary]
         if result.skipped_dumps:
             details.append(
-                f"发现并跳过 {len(result.skipped_dumps)} 个 .dmp 崩溃转储；"
-                "如论坛管理员需要，请按原路径自行补传。"
+                f"另有 {len(result.skipped_dumps)} 个崩溃转储（.dmp）体积较大，未一并打包；"
+                "如需要请按原路径单独提供。"
             )
         if result.failed:
             details.append("部分资料未能读取，详情请查看运行日志。")
@@ -5350,7 +5350,7 @@ class DlcHubApplication:
             self._open_guide_tool_detail_from_quick_check(selected_tool)
         if tool.run_mode == "open":
             self._add_quick_check_result(
-                f"{tool.title}：跳过（不是可捕获输出的诊断工具）。",
+                f"{tool.title}：未运行（该工具不是可捕获输出的诊断工具）。",
                 tool.quick_check_problem_guide or "update-module-basics",
                 tool_detail_action=tool_detail_action,
             )
@@ -9043,7 +9043,7 @@ class DlcHubApplication:
         self.catalog_preview.configure(
             text=(
                 f"补丁已完成 · 开始 {started} 个 DLC 下载任务"
-                f"，跳过 {skipped} 个已下载/已安装/进行中项目"
+                f"，已有 {skipped} 项无需重新下载"
                 f"，提交失败 {failed} 个"
                 "；任务将按列表顺序逐个下载"
             )

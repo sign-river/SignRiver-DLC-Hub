@@ -286,3 +286,20 @@ def test_support_collection_reports_background_stages(tmp_path: Path) -> None:
         "当前游戏日志与配置收集完成",
         "正在汇总收集结果",
     ]
+
+
+def test_support_collection_summary_hides_internal_skip_bookkeeping(tmp_path: Path) -> None:
+    collector = SupportBundleCollector(tmp_path / "app", tmp_path / "data")
+    result = collector.collect(
+        app_version="0.2.0",
+        launcher_version="0.1.7",
+        game_id="stellaris",
+        game_root=None,
+        host_platform="macos",
+    )
+
+    assert result.skipped
+    assert "跳过" not in result.summary
+    assert "忽略" not in result.summary
+    assert result.summary.startswith("已整理 ")
+    assert "失败" not in result.summary

@@ -177,6 +177,15 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（清理日志收集的用户可见“跳过/忽略”措辞，2026-09-21）
+
+- 背景：日志资料收集完成弹窗原样显示内部候选路径统计（“已整理 4 个文件；跳过 27 项；失败 0 项”），用户无法得知含义且容易误解为异常。内部 `skipped`/`skipped_dumps` 字段保留，仅调整用户可见文案。
+- 修改：`SupportCollectionResult.summary` 改为“已整理 N 个文件。”；收集工具默认提示去掉“未找到的文件会安全跳过”；崩溃转储提示改为“另有 N 个崩溃转储（.dmp）体积较大，未一并打包”；一键排错中不可捕获输出的工具改为“未运行（…）”；一键解锁进度文案改为“已有 N 项无需重新下载”。基线与活动模块 `0.2.0` 同步。
+- 契约：`docs/tool-item-ui-spec.md` 明确“跳过/忽略”计数不得出现在用户可见文案，只用于内部与诊断明细。
+- 测试：`tests/test_support_bundle.py` 新增 summary 不含跳过/忽略/失败的用例，`tests/test_support_collection_ui.py` 新增客户端措辞回归用例；全量 `pytest -q`、Ruff、compileall、`git diff --check` 通过。
+- macOS VM：模块文件已同步到用户目录模块副本、`.app` 内置运行时和隔离源码目录，重新临时签名并验证通过，应用已重启（22:47 启动）供用户查看。
+- 未执行：完整 macOS/SteamOS 原生重新构建、真实 DLC 下载、补丁生命周期、上传、线上清单切换、push。
+
 ## 最新任务（修复 SteamOS/macOS 指南列表为空，2026-09-21）
 
 - 根因：客户端固定从 `paths.root/config/guides` 读取指南，但启动器 `_seed_packaged_runtime()` 从不把 `config/guides` 复制到可写根目录；Windows 上 `root` 即安装目录所以正常，macOS/SteamOS 上 `root` 是用户数据目录，导致「解决方案」列表整页为空且不报错。macOS 日志中留有 2026-09-19 的“未找到对应教程”记录作为旁证。

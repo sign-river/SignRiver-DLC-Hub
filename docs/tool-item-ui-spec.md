@@ -80,6 +80,7 @@
 
 - Windows 收集 `DxDiag`；SteamOS 收集 `uname` 与 `/etc/os-release`；macOS 收集精简的 `system_profiler` 软件、显示信息。
 - Paradox 游戏日志同时检查 `Documents`、macOS `Library/Application Support` 和 SteamOS `~/.local/share` 下的标准目录；仅复制明确列出的文本和配置文件，不扫描用户目录或收集转储内容。
+- 收集结果面向用户只报告“已整理 N 个文件”，并在出现读取失败时提示失败；内部候选路径未命中的“跳过/忽略”计数不得出现在弹窗、状态文案和完成提示里，它们只用于程序内部与后续诊断明细。
 
 ### Windows 内置 P 社启动器工具
 

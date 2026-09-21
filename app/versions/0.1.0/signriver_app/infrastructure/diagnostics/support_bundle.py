@@ -44,11 +44,8 @@ class SupportCollectionResult:
 
     @property
     def summary(self) -> str:
-        return (
-            f"已整理 {len(self.copied)} 个文件；"
-            f"跳过 {len(self.skipped)} 项；"
-            f"失败 {len(self.failed)} 项。"
-        )
+        """User-facing summary; read failures are reported separately by the UI."""
+        return f"已整理 {len(self.copied)} 个文件。"
 
 
 _PARADOX_LOG_NAMES = ("error.log", "exceptions.log", "game.log", "system.log")
