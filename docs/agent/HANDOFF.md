@@ -187,7 +187,7 @@
 - 启动验证：`DISPLAY=:0` 启动后进程存活（PID 17899/17901），日志出现 `Starting application module 0.2.0`，无模块加载或指南加载错误；窗口保持打开供用户查看。
 - 端到端证明：用包内模块加载包内配置运行 `resolve_bootstrap_dir` + `GuideCatalogService(platform="steamos")`，解析到包内 `config/guides`，SteamOS 侧 8 条指南全部加载且正文为 SteamOS 专属文案。
 - 新产物（已回传 `.test-artifacts/steamos-dist/`，与来宾 `sha256sum` 完全一致）：`SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz` 44,547,367 字节 SHA-256 `6BEF73F1BA663D706210D6D4AB0CDD9A7910A135E65F0254C40A8FE96E466A64`；`SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip` 44,763,988 字节 SHA-256 `CEB0E75AB1FF82B39E39D637CBED69999A49382ED101355611864DA7CAC14E96`。
-- 本轮未改任何仓库代码（未发现 SteamOS 专属缺陷）。注意 SteamOS VM 时钟比宿主机慢约 18 小时，仅影响日志时间戳。
+- 本轮未改任何仓库代码（未发现 SteamOS 专属缺陷）。SteamOS VM 时钟已于 2026-09-21 校正：该机未装 open-vm-tools，虚拟机挂起/恢复后 `systemd-timesyncd` 未重新同步，导致时钟落后宿主机 18 小时 33 分；执行 `sudo systemctl restart systemd-timesyncd` 后立即通过 NTP 校正，并把时区统一为 `Asia/Shanghai`、回写 RTC，现与宿主机一致（差异 ≤1 秒）。若再次挂起后出现时间偏差，同样用该命令修复。
 - 未执行：上传发布包、线上清单切换、发布器批次、Steam 登录、真实 DLC 下载、补丁生命周期、push。
 
 ## 最新任务（清理日志收集的用户可见“跳过/忽略”措辞，2026-09-21）
