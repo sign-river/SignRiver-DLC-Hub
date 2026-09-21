@@ -873,3 +873,39 @@ def test_cities_skylines_macos_validation_rejects_flat_windows_style_root(tmp_pa
 
     assert not validation.valid
     assert any("Cities.app/Contents/MacOS/Cities" in item for item in validation.errors)
+
+
+def test_cities_skylines_macos_missing_dlc_dir_is_only_a_warning(tmp_path: Path) -> None:
+    """启动文件存在时，DLC 目录声明错误不应再表现成“找不到游戏根目录”。"""
+    root = tmp_path / "Cities_Skylines"
+    macos = root / "Cities.app" / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    (macos / "Cities").write_bytes(b"exe")  # 只有可执行文件，没有 Resources/Files
+    cartridge = _cities_cartridge("macos")
+
+    validation = cartridge.adapter.validate(root)
+
+    assert validation.valid, validation.errors
+    assert any("未找到必要目录" in item for item in validation.warnings)
+
+
+def test_cities_index_only_claims_platforms_that_are_actually_published() -> None:
+    index = json.loads(
+        (ROOT / "config" / "cartridges" / "cartridges_index.json").read_text(encoding="utf-8")
+    )
+    entry = next(item for item in index["cartridges"] if item["game_id"] == "cities_skylines")
+
+    assert entry["platform_resources"] == {
+        "windows": {"patch": True, "dlc": True},
+        "macos": {"patch": True, "dlc": True},
+    }, "未上传 SteamOS 资源时不得声明 steamos 可用"
+
+
+def test_game_detection_failure_shows_the_specific_reason() -> None:
+    source = (ROOT / "app" / "versions" / "0.1.0" / "app_entry.py").read_text(encoding="utf-8")
+    block = source.split('self.game_status.configure(text="未检测到有效安装")', 1)[1].split(
+        "installation = next(", 1
+    )[0]
+
+    assert "issue.adapter_id == self.cartridge.adapter.descriptor.adapter_id" in block
+    assert "检测失败原因：" in block

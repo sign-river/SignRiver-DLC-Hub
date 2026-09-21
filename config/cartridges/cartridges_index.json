@@ -77,15 +77,11 @@
       "sha256": "3753c42b5ef5ec6007e1f948f23d04bd7da303fe71d076ed03568a354e6fea4c",
       "size_bytes": 2960,
       "platform_resources": {
-        "macos": {
-          "patch": true,
-          "dlc": true
-        },
-        "steamos": {
-          "patch": true,
-          "dlc": true
-        },
         "windows": {
+          "patch": true,
+          "dlc": true
+        },
+        "macos": {
           "patch": true,
           "dlc": true
         }

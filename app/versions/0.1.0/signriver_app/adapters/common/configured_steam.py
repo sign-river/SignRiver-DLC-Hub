@@ -114,6 +114,9 @@ class ConfiguredSteamAdapter:
                 errors.append(missing_executable)
             else:
                 warnings.append(missing_executable)
+        # 启动文件存在就足以证明这是游戏根目录；卡带声明的 DLC/补丁目录
+        # 缺失只应作为警告，否则一处布局声明错误会表现成"找不到游戏根目录"。
+        root_confirmed = executable.is_file()
         for relative in self.required_relative_dirs:
             try:
                 directory = resolve_game_directory(
@@ -121,10 +124,17 @@ class ConfiguredSteamAdapter:
                     field_name="required game directory", strict_root=False,
                 )
             except ValueError as error:
-                errors.append(str(error))
+                if root_confirmed:
+                    warnings.append(str(error))
+                else:
+                    errors.append(str(error))
                 continue
             if not directory.is_dir():
-                errors.append(f"未找到必要目录：{relative}")
+                message = f"未找到必要目录：{relative}"
+                if root_confirmed:
+                    warnings.append(f"{message}（卡带声明的 DLC/补丁目录可能不正确，相关操作会失败）")
+                else:
+                    errors.append(message)
         metadata = {"steam_app_id": self.steam_app_id}
         if errors:
             return ValidationResult.failure(

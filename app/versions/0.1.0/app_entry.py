@@ -11809,8 +11809,20 @@ class DlcHubApplication:
             self.install_recovery_key = None
             self.install_recovery_pending = None
             self.game_status.configure(text="未检测到有效安装")
+            # 校验失败的具体原因（例如卡带声明的 DLC/补丁目录不存在）必须
+            # 直接显示出来，否则用户只会看到"找不到游戏根目录"而无从排查。
+            failure_detail = next(
+                (
+                    issue.message
+                    for issue in getattr(report, "issues", ())
+                    if issue.adapter_id == self.cartridge.adapter.descriptor.adapter_id
+                    and issue.message
+                ),
+                "",
+            )
+            hint = f"可使用“选择目录”手动指定 {game_name} 根目录"
             self.game_path.configure(
-                text=f"可使用“选择目录”手动指定 {game_name} 根目录"
+                text=f"{hint}\n检测失败原因：{failure_detail}" if failure_detail else hint
             )
             self.open_game_button.configure(state="disabled")
             self.launch_game_button.configure(state="disabled")
