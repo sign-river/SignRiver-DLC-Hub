@@ -12,6 +12,7 @@
   5. 顺带改进 `DiagnosticExporter.sanitize()`：同时按“解析符号链接后的真实路径”和“调用方传入的显示路径”替换应用目录（macOS `/tmp → /private/tmp`、SteamOS `/home → /var/home`），避免只替换一种形态而漏掉。
 - 版本对齐：第 5 条只落在 Git 跟踪基线 `app/versions/0.1.0/`（**仅基线实现**）；活动模块 `app/versions/1.0.0/` 与已发布包保持冻结不动（该改动只是脱敏 token 更精确，原始路径在任一形态下都不会泄漏，发布包将在下个版本带上）。
 - 验证：本机 Windows 全量 `pytest` + `ruff` 通过；SteamOS 来宾全量通过（Linux）；macOS 来宾全量通过（Darwin）。CI 待本轮推送后确认。
+- 追加修复（同日，第二轮 CI）：三端仍有失败，全部是 **CI 环境问题**——`restore_module_archives.py` 那一步原先带 `if: runner.os == 'Windows'`，于是 macOS/Linux 上 `app/versions/` 里只有 Git 跟踪的 `0.1.0`，依赖 `0.2.0`/`1.0.0` 目录的用例（`test_platform_content`、`test_support_collection_ui`、`test_release_build`）必然 `FileNotFoundError` 或断言失败。已删除该条件，三个平台都恢复已发布模块（顺带在 macOS/Linux 上也校验了模块归档哈希）。
 
 ## 修复 CI：卡带索引哈希按 LF 归一化（2026-09-22）
 
