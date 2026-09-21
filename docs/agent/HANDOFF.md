@@ -185,6 +185,13 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（SteamOS 部署 1.0.0 供验收，2026-09-21）
+
+- 文档：`docs/agent/PROJECT_CONTEXT.md` 新增「模块版本目录、module.json 与 API 版本」一节，说明源码目录（0.1.0，唯一入库）／发行副本（未跟踪）／活动模块（`app/state.json`）的区别、`api_version ≤ HOST_API_VERSION` 的校验规则，以及"改代码改 0.1.0、发版复制新版本目录"的流程；提交 `5d90d7a`。
+- SteamOS 虚拟机已部署 1.0.0 供人工验收：把 `SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz` 上传后在 `~/signriver-steamos-build/dist/` 解压；旧部署改名为 `SignRiver-DLC-Hub-steamos-x64.0.2.0-bak` 保留；数据目录 `app/state.json` 备份为 `state.json.bak-before-100` 后切到 `active_version=1.0.0`（previous 0.2.0、bad_versions 空）。
+- 验证：客户端日志 `Starting application module 1.0.0`；数据目录自动播种 `app/versions/1.0.0`（83 文件）；包内模块 + 包内配置端到端解析成功（SteamOS 8 条指南、bootstrap 目录正确）；Stellaris 29 GB 完好。
+- 未执行：0.2.0 → 1.0.0 自动更新 E2E（需要先上传模块归档与发布清单）、macOS/Windows 1.0.0 包、上传与 push。
+
 ## 最新任务（1.0.0 版本升级与 SteamOS 正式包，2026-09-21）
 
 - 已提交此前遗留的未提交修复（`c465cba`：优先使用支持当前平台的卡带主表与原生补丁资源）。
