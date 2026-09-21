@@ -25,6 +25,17 @@ def test_patch_tool_lists_installed_files_per_platform() -> None:
     assert "profile.template.config_format is PatchConfigFormat.NONE" in source
     assert 'text=f"{role_label}：{role_filename}"' in source
     assert "if display is None:" in source
+    # 每一行都要反映真实下载状态，排队中的任务不能写成“下载中”。
+    for wording in (
+        "补丁等待下载",
+        "补丁下载中",
+        "补丁暂停中",
+        "补丁已暂停",
+        "补丁重试中",
+        "补丁校验中",
+        "补丁处理中",
+    ):
+        assert f'issue = "{wording}"' in source
 
 
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:

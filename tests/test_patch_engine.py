@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE
-from signriver_app.domain import PatchHealth, PatchProfile, PatchTemplate
+from signriver_app.domain import (
+    PatchConfigFormat,
+    PatchHealth,
+    PatchPlatform,
+    PatchProfile,
+    PatchTemplate,
+)
 from signriver_app.infrastructure.patching import (
     PatchEngine,
     PatchError,
@@ -906,3 +912,21 @@ def test_installed_file_lists_skip_config_for_none_format() -> None:
         "steam_api64_o.dll",
         "cream_api.ini",
     )
+
+
+def test_macos_profile_always_drops_config_file() -> None:
+    """macOS 一律按替换型解锁库处理，忽略卡带里残留的配置声明。"""
+    legacy = replace(
+        STELLARIS_PATCH_PROFILE,
+        platform=PatchPlatform.MACOS,
+        template=replace(
+            STELLARIS_PATCH_PROFILE.template,
+            ini_target_name="icecream.ini",
+            config_format=PatchConfigFormat.CREAM_INI,
+        ),
+    )
+
+    assert legacy.template.config_format is PatchConfigFormat.NONE
+    # 历史配置名仍保留，用于清理旧流程遗留的文件。
+    assert legacy.template.ini_target_name == "icecream.ini"
+    assert legacy.installed_file_names == ("steam_api64.dll", "steam_api64_o.dll")

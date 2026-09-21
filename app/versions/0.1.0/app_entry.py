@@ -4357,8 +4357,20 @@ class DlcHubApplication:
                 issue = "补丁下载失败"
             elif snapshot.state is DownloadState.CANCELLED:
                 issue = "补丁下载已取消"
-            else:
+            elif snapshot.state is DownloadState.QUEUED:
+                issue = "补丁等待下载"
+            elif snapshot.state is DownloadState.PAUSING:
+                issue = "补丁暂停中"
+            elif snapshot.state is DownloadState.PAUSED:
+                issue = "补丁已暂停"
+            elif snapshot.state is DownloadState.RETRYING:
+                issue = "补丁重试中"
+            elif snapshot.state is DownloadState.VERIFYING:
+                issue = "补丁校验中"
+            elif snapshot.state is DownloadState.DOWNLOADING:
                 issue = "补丁下载中"
+            else:
+                issue = "补丁处理中"
             ctk.CTkLabel(
                 row,
                 text=issue,

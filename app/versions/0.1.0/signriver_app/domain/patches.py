@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from .catalog import ReleaseAsset
@@ -107,6 +107,17 @@ class PatchProfile:
             raise ValueError("appinfo asset name must reference a .json file")
         if self.appinfo_asset_name.casefold() == self.template.ini_target_name.casefold():
             raise ValueError("appinfo asset name must differ from ini target name")
+        if (
+            self.platform is PatchPlatform.MACOS
+            and self.template.config_format is not PatchConfigFormat.NONE
+        ):
+            # macOS 使用替换型解锁库：平台不使用配置文件，忽略卡带里可能残留的
+            # 历史声明（例如旧版云端卡带仍写着 cream_ini）。
+            object.__setattr__(
+                self,
+                "template",
+                replace(self.template, config_format=PatchConfigFormat.NONE),
+            )
         object.__setattr__(
             self,
             "install_relative_dir",
