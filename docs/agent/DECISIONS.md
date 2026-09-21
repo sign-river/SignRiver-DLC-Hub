@@ -46,7 +46,9 @@
 
 - 实测：`otool -L Stellaris/stellaris.app/Contents/MacOS/stellaris` 得到 `@executable_path/../../../libsteam_api.dylib`。`@executable_path` 是 `stellaris.app/Contents/MacOS`，向上三级回到**游戏根目录**，所以 Stellaris macOS 真正加载的是根目录那份库（670,560 字节）；包内 `Contents/MacOS/libsteam_api.dylib`（5,195,264 字节）只是随包副本。
 - 结论：macOS 卡带的 `install_relative_dir` 必须写成主程序实际解析到的那一级（Stellaris 为 `.`），不能因为“包内也有同名库”就假定补丁位置——写错会得到“补丁显示正常、游戏实际没生效”的假象。
-- 判定方法：对主程序执行 `otool -L <主程序> | grep -i steam`，按 `@executable_path` 展开真实路径后再定目录。HOI4、文明 6、RimWorld 的 macOS 声明尚未按此核对（三者当前没有 macOS 资产，未发布）。
+- 判定方法：对主程序执行 `otool -L <主程序> | grep -i steam`，按 `@executable_path` 展开真实路径后再定目录。
+- 平台资产必须是目标平台的二进制：Stellaris 的 macOS “原版”资产曾经就是 Windows CreamAPI 的 `steam_api64.dll`（两者都是 5,195,264 字节、SHA-256 `0ff4a7c9…`），而发布器与客户端都不校验原版资产的格式，结果把一个 PE 文件写进了 macOS 游戏目录。发布 macOS 资产前必须核对文件类型（Mach-O / universal）与 SHA-256，不能只看大小。
+- 已由用户确认：钢铁雄心 IV、文明 6、边缘世界不在 macOS 支持范围内；它们卡带里的 `patch.platforms.macos` 只是占位，不得据此发布。
 
 ### tkinter 终结器只能在主线程调用 Tcl（2026-09-21）
 
