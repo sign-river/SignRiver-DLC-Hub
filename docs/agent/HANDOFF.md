@@ -6,16 +6,16 @@
 - 实现：`tools/build_release.py` 新增 `packaged_module_versions()`（当前活动版本 + `config/module-archives.json` 中最近的较低已发布版本）、`_app_tree_ignore()` 与 `copy_app_tree()`；`tools/build_native_release.py::_copy_runtime()` 改为复用 `copy_app_tree()`，Windows 与 SteamOS/macOS 策略一致。回退机制与 `prevent_module_fallback` 保持不变（用户明确选择保留一个回退目标）。
 - 数字：安装目录模块占用 6.63 MB → 2.33 MB；ZIP 内模块部分 1.52 MiB → 0.53 MiB，整包约 21.42 MiB → 20.43 MiB。已安装用户不受影响：全量更新只覆盖清单内文件、从不删除目录，旧模块目录仍在本地。
 - 验证：新增 `tests/test_release_build.py` 三条用例（版本集合合法性、ignore 行为、真实复制结果只含所选版本）；`ruff check` 通过；`pytest tests/test_release_build.py tests/test_build_native_release.py tests/test_cross_platform_runtime.py` 22 项通过。
-- 未执行：**没有重新打包**。`dist/` 里现有的包仍是旧的 7 版本布局，下次构建（Windows 与两个虚拟机）才会变小；线上清单里的哈希也仍然指向旧包。
+- 打包：2026-09-22 01:22 已完成 Windows 侧重建（见下一条），发布目录 `app/versions` 只含 `0.2.0` 与 `1.0.0`；macOS/SteamOS 待重建。
 
-## Windows 1.0.0 重新打包（2026-09-21 22:21，含补丁工具行状态修复）
+## Windows 1.0.0 打包（2026-09-22 01:22，体积裁剪 + 补丁工具修复）
 
-- 触发：补丁工具行状态修复与随后的文案收敛（见下一条）改了 `app/versions/1.0.0/app_entry.py`，因此重新构建 Windows 侧全部产物。只打包 Windows；macOS/SteamOS 需要各自虚拟机内 `tools/build_native_release.py` 重建后才是同一份代码。
-- 命令：`tools/build_module.py --all-versions app\versions` → `tools/build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64` → `tools/prepare_update_release.py`（用 Python 传中文 notes，`--platform-package` 依次带 windows/macos/steamos 三方包）。
-- 产物（大小 / SHA-256，此版为最终值）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 298,223 / `12b68e83fa2041999d7ed4c649fcd84e54c6ab63e51737d9df641f5db6136ab6`；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 22,423,761 / `d55fd489f97b5583f49ae1b8681b0d2e7186954675e8597433909edcf7cbeb60`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 22,464,968 / `e3ca73b598d1efa2ebe0af2473f9d0bc87df75c258a4647d62bf7d9bc52cd523`；自解压 EXE（含同内容别名）`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` = 22,779,258 / `252ea793e49969c2c50e98a6d9c9e544bc6d1e1c6df86aa2139ce1f863802262`。
-- 清单与基线：`config/module-archives.json` 的 1.0.0 记录已更新为新哈希与大小；`dist/updates/{gitlink,github}/update-manifest.json` 已重新生成并同步到 `publisher-workspace/output/updates/{gitlink,github}/`（Windows 段指向新哈希，macOS/SteamOS 段仍是旧包哈希）。
-- 验证：三个 ZIP 的 `zipfile.testzip()` 均为 None；包内 `app/versions/1.0.0/app_entry.py` 与工作区一致（含 `patch_row_status`），`dist/唏嘘南溪DLC一键解锁工具/app/versions/1.0.0/app_entry.py` 与源码除换行符外逐字节相同。
-- 待办：① 用新包重新上传模块归档、两个更新包与两份清单；② macOS/SteamOS 包内客户端仍是旧逻辑，需在各自虚拟机重建后再更新清单对应哈希；③ 未推送 Git（`config/module-archives.json` 与本文档需随代码提交）。
+- 触发：`packaged_module_versions()` 裁剪后的首次构建，同时带上 21:58/22:22 的补丁工具行状态修复与文案收敛（只改代码，未动版本号与线上清单）。
+- 命令：`tools/build_module.py --all-versions app\versions` → `tools/build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64` → `tools/prepare_update_release.py`（Python 传中文 notes，`--platform-package` 依次带 windows/macos/steamos）。
+- 产物（大小 / SHA-256，此版为当前值）：模块 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 298,223 / `12b68e83fa2041999d7ed4c649fcd84e54c6ab63e51737d9df641f5db6136ab6`（与上一版逐字节相同，`config/module-archives.json` 无需改动）；全量更新 `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 21,313,696 / `4b7b2846b784f2e4a92e5dda4ed60d7670a8c776deeabd7936e604169bf9871f`；首装 ZIP `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` = 21,329,335 / `adf7890d4926b383953881d9edd424ffd18e8b568ebb4a7f6a6ab03103413598`；自解压 EXE（含同内容别名）`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` = 21,611,044 / `df2b5c4b39ee9a20b902fff6b521cad4c493496c4a702b5a448c3b68fe62a1b0`。
+- 结构核对：发布目录 `app/versions` 只含 `0.2.0` 与 `1.0.0`；全量包 220 个条目（上一版 596 条）、`release-manifest.json` 219 条；包内 1.0.0 模块含 `patch_row_status` 且不含「建议一键修复」；三个 ZIP 的 `zipfile.testzip()` 均为 None。
+- 清单：`dist/updates/{gitlink,github}/update-manifest.json` 已重新生成并同步到 `publisher-workspace/output/updates/`（Windows 段 `4b7b2846…` / 21,313,696，macOS/SteamOS 段仍是旧包哈希）。
+- 待办：① 上传模块归档、全量包、首装包与两份清单；② macOS/SteamOS 需在各自虚拟机用 `build_native_release.py` 重建（它们的包内客户端仍是旧逻辑，也还是 7 版本布局）；③ 本次仅本地提交，未推送。
 
 ## 补丁工具行状态改为“以游戏目录与安装记录为准”（2026-09-21）
 
