@@ -38,6 +38,8 @@ python tools/build_native_release.py --platform macos
 
 `build_release.py` 复制 `app/` 时只保留**当前活动版本 + 最近一个已发布模块**（其余历史模块目录不进包），SteamOS/macOS 的 `build_native_release.py` 复用同一裁剪逻辑；因此模块归档仍可构建所有版本，而首装包/全量包不会随历史版本一起膨胀。
 
+构建结束后脚本会自动把该平台的全量更新包同步到发布器默认收件目录 `publisher-workspace/output/updates`，并把当前版本的模块归档同步到 `publisher-workspace/output/modules`（发布器「发布包与归档」页直接读这两个目录）。模块归档比模块源码旧时会跳过并提示先运行 `build_module.py`，避免把上一次构建的旧归档发出去。
+
 生成全量更新的双源清单时，PowerShell 直接传中文参数可能乱码，建议通过 Python `subprocess` 调用：
 
 ```python

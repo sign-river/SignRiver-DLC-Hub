@@ -133,6 +133,60 @@ def copy_app_tree(destination: Path) -> None:
     shutil.copytree(ROOT / "app", destination, ignore=_app_tree_ignore)
 
 
+def _latest_source_mtime(version: str) -> float:
+    """模块源码目录里最新的修改时间，用于判断模块归档是否已经过期。"""
+    module_root = ROOT / "app" / "versions" / version
+    latest = 0.0
+    if not module_root.is_dir():
+        return latest
+    for path in module_root.rglob("*"):
+        if path.is_file():
+            latest = max(latest, path.stat().st_mtime)
+    return latest
+
+
+def sync_publisher_inbox(
+    *, platform: str = "windows", version: str | None = None
+) -> list[Path]:
+    """把刚构建的产物同步到发布器收件目录。
+
+    发布器「发布包与归档」页默认从 ``publisher-workspace/output`` 收件：三端包
+    在 ``updates``，模块归档在 ``modules``。以前每次构建后都要手工搬文件，容易
+    漏搬或把旧包发出去，所以直接在这里同步。没有发布器工作区（例如 CI 或
+    SteamOS/macOS 来宾机）时静默跳过。模块归档比源码旧时跳过并提示，避免把
+    过期模块带进发布。
+    """
+    version = version or VERSION
+    output_root = ROOT / "publisher-workspace" / "output"
+    if not (output_root / "updates").is_dir() and not (output_root / "modules").is_dir():
+        return []
+    copied: list[Path] = []
+    package = (
+        ROOT / "dist" / "updates"
+        / f"SignRiver-DLC-Hub-full-v{version}-{platform}-x64.zip"
+    )
+    if package.is_file():
+        target = output_root / "updates"
+        target.mkdir(parents=True, exist_ok=True)
+        destination = target / package.name
+        shutil.copy2(package, destination)
+        copied.append(destination)
+    module_archive = ROOT / "dist" / "modules" / f"SignRiver-DLC-Hub-module-v{version}.zip"
+    if module_archive.is_file():
+        if module_archive.stat().st_mtime < _latest_source_mtime(version):
+            print(
+                "跳过模块归档同步："
+                f"{module_archive.name} 比源码旧，请先运行 tools/build_module.py"
+            )
+        else:
+            target = output_root / "modules"
+            target.mkdir(parents=True, exist_ok=True)
+            destination = target / module_archive.name
+            shutil.copy2(module_archive, destination)
+            copied.append(destination)
+    return copied
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file:
@@ -597,6 +651,8 @@ def main() -> int:
 
     print(f"Release folder:  {release}")
     print(f"Launcher EXE:    {release / RELEASE_EXE_NAME}")
+    for synced in sync_publisher_inbox():
+        print(f"发布器收件：      {synced}")
     return 0
 
 

@@ -1,5 +1,13 @@
 # 当前任务交接
 
+## 构建后自动同步发布器收件目录（2026-09-22）
+
+- 需求：用户发现发布器收件目录 `publisher-workspace/output/updates` 里的 1.0.0 包还是 09-21 21:42 的旧构建，要求把新包搬过去，并且以后每次打包后都自动搬。
+- 实现：`tools/build_release.py` 新增 `sync_publisher_inbox()`（把 `dist/updates/SignRiver-DLC-Hub-full-v<版本>-<平台>-x64.zip` 复制到 `publisher-workspace/output/updates`，把 `dist/modules/SignRiver-DLC-Hub-module-v<版本>.zip` 复制到 `publisher-workspace/output/modules`）与 `_latest_source_mtime()` 守卫——模块归档比模块源码旧时跳过并提示先跑 `build_module.py`；没有发布器工作区时静默跳过。`build_release.py` 主流程末尾与 `build_native_release.py` 构建结束都会调用它（来宾机没有 `publisher-workspace`，自动跳过）。
+- 本轮已同步：`output/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` = 21,313,696 / `4b7b2846…`；`output/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` = 298,223 / `12b68e83…`。**收件目录里的 macos（09-21 19:49）与 steamos（09-21 20:02）仍是旧包**，要等各自虚拟机重建后才会更新。
+- 验证：`tests/test_release_build.py` 新增三条（新鲜产物同步、模块归档过期时跳过并提示、无发布器工作区时不动文件）；`ruff` 通过；全量 `pytest` 通过。
+- 文档：`AGENTS.md` 标准构建步骤新增第 7 条，`docs/program-update-release-guide.md` 同步说明自动收件行为。
+
 ## 发布器「发布包与归档」增加打开目录按钮（2026-09-22）
 
 - 需求：发布器「发布包与归档 → 发布包与归档模块提交」的两个路径框（三端包收件目录、模块归档目录）原本只有「选择目录」，用户要求在右侧补一个「打开目录」。

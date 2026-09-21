@@ -22,6 +22,7 @@ from tools.build_release import (  # noqa: E402
     application_hidden_imports,
     copy_app_tree,
     pyinstaller_exclude_args,
+    sync_publisher_inbox,
 )
 
 
@@ -166,6 +167,8 @@ def main() -> int:
         dist / "updates" / f"SignRiver-DLC-Hub-full-v{LAUNCHER_VERSION}-{args.platform}-x64.zip",
     )
     print(install)
+    for synced in sync_publisher_inbox(platform=args.platform):
+        print(f"发布器收件：      {synced}")
     return 0
 
 

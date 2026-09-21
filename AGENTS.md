@@ -61,6 +61,7 @@
 4. `tools/build_release.py --upx-dir C:\Users\32173\AppData\Local\tools\upx\upx-5.0.2-win64`（全量更新包）。
 5. `tools/prepare_update_release.py dist\updates\SignRiver-DLC-Hub-full-v<版本>-windows-x64.zip --version <版本> --kind full --min-launcher-version 0.1.2 --notes "<更新说明>" --mandatory`（双源清单，notes 与 update-notes.json 保持一致；PowerShell 传中文参数会乱码，用 Python subprocess 调用）。
 6. 同步 `config/module-archives.json` 的 `sha256` / `size`（模块维护基线：最近 3 个版本）。
+7. 构建脚本（`build_release.py` / `build_native_release.py`）会自动把该平台的全量更新包与当前版本的模块归档复制到发布器默认收件目录 `publisher-workspace/output/updates` 与 `publisher-workspace/output/modules`，不需要手工搬运；模块归档比源码旧时会跳过并提示先运行 `build_module.py`，没有发布器工作区的机器（CI、SteamOS/macOS 来宾）自动跳过。
 
 ## 其他注意
 

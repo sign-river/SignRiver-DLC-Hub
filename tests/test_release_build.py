@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import zipfile
@@ -164,6 +165,68 @@ def test_copy_app_tree_limits_module_directories(tmp_path) -> None:
     )
     assert copied == sorted(build_release.packaged_module_versions())
     assert (destination / "state.json").is_file()
+
+
+def _prepare_publisher_inbox_fixture(tmp_path, version: str = "9.9.9") -> dict:
+    """搭一个最小的 dist + 发布器收件目录，供同步测试使用。"""
+    (tmp_path / "dist" / "updates").mkdir(parents=True)
+    (tmp_path / "dist" / "modules").mkdir(parents=True)
+    package = tmp_path / "dist" / "updates" / (
+        f"SignRiver-DLC-Hub-full-v{version}-windows-x64.zip"
+    )
+    package.write_bytes(b"package")
+    module = tmp_path / "dist" / "modules" / f"SignRiver-DLC-Hub-module-v{version}.zip"
+    module.write_bytes(b"module")
+    source = tmp_path / "app" / "versions" / version
+    source.mkdir(parents=True)
+    (source / "app_entry.py").write_text("x", encoding="utf-8")
+    inbox = tmp_path / "publisher-workspace" / "output"
+    (inbox / "updates").mkdir(parents=True)
+    (inbox / "modules").mkdir(parents=True)
+    return {"package": package, "module": module, "source": source, "inbox": inbox}
+
+
+def test_sync_publisher_inbox_copies_fresh_artifacts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(build_release, "ROOT", tmp_path)
+    fixture = _prepare_publisher_inbox_fixture(tmp_path)
+    os.utime(fixture["source"] / "app_entry.py", (1, 1))
+    os.utime(fixture["module"], (100, 100))
+
+    copied = build_release.sync_publisher_inbox(version="9.9.9")
+
+    assert [path.name for path in copied] == [
+        fixture["package"].name,
+        fixture["module"].name,
+    ]
+    assert (fixture["inbox"] / "updates" / fixture["package"].name).read_bytes() == (
+        b"package"
+    )
+    assert (fixture["inbox"] / "modules" / fixture["module"].name).read_bytes() == (
+        b"module"
+    )
+
+
+def test_sync_publisher_inbox_skips_stale_module_archive(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(build_release, "ROOT", tmp_path)
+    fixture = _prepare_publisher_inbox_fixture(tmp_path)
+    # 源码比模块归档新：说明归档是上一次构建的产物，不能带进发布。
+    os.utime(fixture["module"], (1, 1))
+    os.utime(fixture["source"] / "app_entry.py", (100, 100))
+
+    copied = build_release.sync_publisher_inbox(version="9.9.9")
+
+    assert [path.name for path in copied] == [fixture["package"].name]
+    assert not (fixture["inbox"] / "modules" / fixture["module"].name).exists()
+    assert "跳过模块归档同步" in capsys.readouterr().out
+
+
+def test_sync_publisher_inbox_without_publisher_workspace(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(build_release, "ROOT", tmp_path)
+
+    assert build_release.sync_publisher_inbox() == []
+    assert not (tmp_path / "publisher-workspace").exists()
 
 
 def test_full_update_archive_is_flat_and_contains_only_managed_files(
