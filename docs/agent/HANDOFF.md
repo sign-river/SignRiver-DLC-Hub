@@ -11,8 +11,9 @@
   4. `test_diagnostics.py` 断言导出结果一定是 `<APP_ROOT>`；但当出厂目录位于用户主目录之下（macOS/SteamOS 的常见部署方式）时，问题记录创建阶段已把 home 前缀替换成 `<user-home>`，导出阶段再也认不出完整应用目录。→ 断言改为“以 `<APP_ROOT>` 或 `<user-home>` 开头且原始路径不出现”，保留隐私校验意图。
   5. 顺带改进 `DiagnosticExporter.sanitize()`：同时按“解析符号链接后的真实路径”和“调用方传入的显示路径”替换应用目录（macOS `/tmp → /private/tmp`、SteamOS `/home → /var/home`），避免只替换一种形态而漏掉。
 - 版本对齐：第 5 条只落在 Git 跟踪基线 `app/versions/0.1.0/`（**仅基线实现**）；活动模块 `app/versions/1.0.0/` 与已发布包保持冻结不动（该改动只是脱敏 token 更精确，原始路径在任一形态下都不会泄漏，发布包将在下个版本带上）。
-- 验证：本机 Windows 全量 `pytest` + `ruff` 通过；SteamOS 来宾全量通过（Linux）；macOS 来宾全量通过（Darwin）。CI 待本轮推送后确认。
+- 验证：本机 Windows 全量 `pytest` + `ruff` 通过；SteamOS 来宾全量通过（Linux）；macOS 来宾全量通过（Darwin）。
 - 追加修复（同日，第二轮 CI）：三端仍有失败，全部是 **CI 环境问题**——`restore_module_archives.py` 那一步原先带 `if: runner.os == 'Windows'`，于是 macOS/Linux 上 `app/versions/` 里只有 Git 跟踪的 `0.1.0`，依赖 `0.2.0`/`1.0.0` 目录的用例（`test_platform_content`、`test_support_collection_ui`、`test_release_build`）必然 `FileNotFoundError` 或断言失败。已删除该条件，三个平台都恢复已发布模块（顺带在 macOS/Linux 上也校验了模块归档哈希）。
+- 结论（2026-09-22）：CI run `35649501911`（head `582c14c`）三端全绿 —— `windows-latest` / `macos-15-intel` / `ubuntu-24.04` 均为 success。第三轮只改了 CI workflow 本身、未动产品代码，因此无需再来宾复跑；本轮任务闭环，远端 `origin/main` 即 `582c14c`。
 
 ## 修复 CI：卡带索引哈希按 LF 归一化（2026-09-22）
 
@@ -23,7 +24,7 @@
 - 顺带清理：为复现而执行的 `pip install -e .` 改动了 `src/signriver_dlc_hub.egg-info/{PKG-INFO,SOURCES.txt}`，已还原为仓库版本（属本地安装产生的构建产物，与本次修复无关）。
 - 验证：`pytest tests/test_cartridge_catalog.py tests/test_platform_content.py` 在 3.13 与 3.11 两个解释器下均通过；全量 `pytest`（3.13）通过。
 - 影响说明：云端 `hub` release 仍是 CRLF 卡带 + 对应 CRLF 哈希（自洽，客户端校验与下载不受影响）；下次发布 hub 会按本地 LF 文件重新计算并上传，同样自洽。今日已构建的 1.0.0 包内是 CRLF 卡带 + 当时的索引，也自洽，无需重新打包。
-- 待办：重新推送本次修复并观察 CI 是否转绿。
+- 结论：修复已推送并经 CI 证实（见上文 run `35649501911`，三端全绿）。
 
 ## 模块归档目录改为 modules Release 的唯一数据源（2026-09-22）
 
