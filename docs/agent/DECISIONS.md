@@ -29,6 +29,13 @@
 
 ## 客户端安全与兼容
 
+### macOS 解锁库必须做符号差集校验（2026-09-21）
+
+- macOS 上替换 `libsteam_api.dylib` 的解锁库必须导出目标游戏所需的全部 flat API 符号：dyld 在加载期解析两级命名空间绑定，缺一个符号整库加载失败，表现为白屏或直接退出，Python 层无法捕获。
+- 发布前必须做差集校验：游戏二进制用 `nm -u -arch x86_64` 得到需求集合，候选库用 `nm -gU -arch x86_64` 得到导出集合，差集非空即阻止上传；同时确认架构包含 x86_64。
+- IceCream（`krnya/icecream` `0c8f746`）只导出 17 个符号，缺少 `SteamAPI_InitSafe`、`SteamAPI_RestartAppIfNecessary`，只适用于少数游戏；Goldberg/GSE 系构建（实测 1,188 个符号）覆盖完整 flat API，是 macOS 的默认选择。
+- 替换型模拟器（Goldberg/GSE）读取库旁边的 `steam_settings/DLC.txt`（每行 `appid=名称`）与 `steam_settings/steam_appid.txt`；不需要原版代理，但客户端仍应保留 `libsteam_api_o.dylib` 作为恢复凭据。
+
 ### tkinter 终结器只能在主线程调用 Tcl（2026-09-21）
 
 - macOS 自带 Tk 未开启线程支持，任何非主线程的 Tcl 调用都可能以 `EXC_BAD_ACCESS` 直接终止进程，无法用 Python 异常捕获。

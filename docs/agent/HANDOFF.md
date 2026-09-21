@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## macOS 城市天际线白屏：改用 Goldberg/GSE 解锁库（2026-09-21）
+
+- 根因：IceCream（`krnya/icecream` 提交 `0c8f746`）只导出 17 个符号，缺 `SteamAPI_InitSafe` 与 `SteamAPI_RestartAppIfNecessary`；`ColossalNative` 在 dyld 加载期解析失败（`Symbol not found: _SteamAPI_InitSafe`），游戏停在白屏。上游 `main` 与该提交源码一致，README 自述仅 Hearts of Iron IV 验证过。
+- 候选来源：GitHub 仓库 `da-wood69/goldberg-emulator-macos`（LGPL-3.0，描述为 Goldberg 的 macOS universal 构建），release `macos-universal-2026-09-02` 资产 `ge-macos-universal-2026-09-02.zip`（4,470,778 字节），发布方给出的 sha256 `d17c3d9d1bb9ae23175fdce303ae446e40fe49a7a1642c5d2b3087779ee84de3` 与本地下载一致；包内 `libsteam_api.dylib` 为 5,310,608 字节，sha256 `4ad99f3d949f22878ee8309bfdf792f4f7c20aef4a166a0b8c479876043d58bc`，universal（x86_64 + arm64）。
+- 符号门槛：`ColossalNative` 需要 12 个 Steam 符号，候选库导出 1,188 个，差集为空（含 `SteamAPI_InitSafe`、`SteamAPI_RestartAppIfNecessary`）。
+- VM 部署：现状备份到 `~/cs-patch-backup-20260921/`（IceCream 库、原版 `libsteam_api_o.dylib`、`icecream.ini`）；把候选库放到 `Cities.app/Contents/Plugins/ColossalNative.bundle/Contents/MacOS/libsteam_api.dylib`；新建 `steam_settings/DLC.txt`（76 条 `appid=名称`）、`steam_settings/steam_appid.txt`（255710）、`steam_settings/force_language.txt`（schinese）。
+- 验证：经 Paradox 启动器进入游戏主菜单成功（用户确认），新 `Player.log` 不再出现 `Symbol not found`；未执行真实存档、联机与 DLC 内容可用性检查。
+- 待办：客户端与发布器目前仍按 `cream_ini` 生成 `icecream.ini`（`app/versions/0.1.0/signriver_app/infrastructure/patching/engine.py`、`src/signriver_publisher/cream.py`，以及各卡带 JSON 的 `config_format`/`ini_target_name`），要改用 GSE 的 `steam_settings/DLC.txt` 才能让“一键解锁”产出同一套结果；LGPL-3.0 需随包附许可证与出处；候选库哈希需固定进发布清单。本轮未上传、未发布、未推送。
+
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
 
 - 现象：macOS VM 中 1.0.0 客户端启动约 5 秒后进程退出，`~/Library/Logs/DiagnosticReports` 新增两份 `.ips`，异常为 `EXC_BAD_ACCESS (SIGSEGV) KERN_INVALID_ADDRESS at 0x8`。
