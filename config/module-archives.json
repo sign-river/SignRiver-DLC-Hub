@@ -4,12 +4,6 @@
   "release": "modules",
   "modules": [
     {
-      "version": "0.1.6",
-      "filename": "SignRiver-DLC-Hub-module-v0.1.6.zip",
-      "sha256": "49529c22d9183fe3d35c75da6783aaf0553d606a0890670855cdc732f2638a5b",
-      "size": 187755
-    },
-    {
       "version": "0.1.7",
       "filename": "SignRiver-DLC-Hub-module-v0.1.7.zip",
       "sha256": "6007a8ceee5ecd99b937025115889a08c9c9ee5c3bf185ceb76bb6d770d1fd35",
@@ -20,6 +14,12 @@
       "filename": "SignRiver-DLC-Hub-module-v0.2.0.zip",
       "sha256": "b368c82085169086e4b49fe669b704522085c0178dd3c44b8d106ba47c8cab43",
       "size": 287183
+    },
+    {
+      "version": "1.0.0",
+      "filename": "SignRiver-DLC-Hub-module-v1.0.0.zip",
+      "sha256": "abe3f32f7a85696cf21ef8bf55a33a306eecfe9da1c740af1c003f58f472d9de",
+      "size": 289617
     }
   ],
   "repositories": {
