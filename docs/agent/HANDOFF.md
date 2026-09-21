@@ -185,6 +185,16 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（1.0.0 版本升级与 SteamOS 正式包，2026-09-21）
+
+- 已提交此前遗留的未提交修复（`c465cba`：优先使用支持当前平台的卡带主表与原生补丁资源）。
+- 版本升级（提交 `b3e3935`）：新建 `app/versions/1.0.0/`（源码取自 0.1.0 基线，`module.json` 改为 `version 1.0.0` + `api_version 3`，与 Host API 3 一致）；`app/state.json` → `active_version 1.0.0`、`previous_version 0.2.0`、`bad_versions` 为空；`src/signriver_launcher/constants.py` → `LAUNCHER_VERSION 1.0.0`；`publisher-workspace/update-notes.json` 新增 1.0.0 中文更新说明。
+- 模块归档：`tools/build_module.py --all-versions app\versions` 生成 `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip`（289,617 字节，SHA-256 `abe3f32f7a85696cf21ef8bf55a33a306eecfe9da1c740af1c003f58f472d9de`），`config/module-archives.json` 更新为最近 3 个版本（0.1.7 / 0.2.0 / 1.0.0）。注意：本地重建的 0.2.0 模块归档与登记值不一致（源码在 0.2.0 发布后有修复），**不要重新上传 0.2.0 模块归档**，除非同步更新登记。
+- SteamOS 1.0.0 原生包（在 SteamOS VM 内构建，rc=0，已回传 `.test-artifacts/steamos-dist/`，双侧 sha256 一致）：`SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz` 44,804,617 字节 SHA-256 `FE2484B346AE49C84FD703252445294F47CD7B2497524DEB7EFF050F1B753C8A`；`SignRiver-DLC-Hub-full-v1.0.0-steamos-x64.zip` 45,060,428 字节 SHA-256 `04FDBCC05A599B2C25E96C4019256D4D6F70F4D63522672BC27131DFCBA109AD`。
+- 包内校验：ELF 64-bit x86-64、755、`app/versions/1.0.0/signriver_app` 80 文件、`config/guides` 16 条索引、包内 `module.json` = 1.0.0/api 3、`app/state.json` = 1.0.0；tar 与 ZIP 完整性通过（595 项）。
+- 全量 `pytest`、Ruff 通过；本轮提交全部为本地提交，未推送。
+- 未完成（按用户要求，三个平台齐备后再推送）：macOS 1.0.0 原生包（需切换到 macOS VM，一次只能开一台虚拟机）、Windows 1.0.0 全量包与发布器清单（`tools/build_release.py` + `tools/prepare_update_release.py`）、模块归档与各平台包的上传、0.2.0 → 1.0.0 真实更新 E2E（含 `min_launcher_version` 冻结包验证）。
+
 ## 最新任务（SteamOS 重新构建并导入基线，2026-09-21）
 
 - 起因：Steam 客户端因快照残留的"更新未落地"状态进入"下载→重启→再下载"循环，界面（Chromium 内核的 `steamwebhelper`，桌面显示为 `Chromium-browser`）每隔数秒抢焦点并留下崩溃转储；排查确认系统未安装任何独立浏览器，这是 Steam 自身行为。
