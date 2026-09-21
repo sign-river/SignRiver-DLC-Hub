@@ -1606,3 +1606,28 @@ def test_dlc_batch_reports_one_completion_notice_per_batch() -> None:
     assert "if self.unlock_workflow_active:" in helper
     assert "下载并安装成功！" in helper
     assert "self.batch_install_success_pending = False" in batch
+
+
+def test_offline_mode_blocks_unlock_and_keeps_a_persistent_notice() -> None:
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    assert 'OFFLINE_NOTICE_TEXT = "当前无网络连接，请重新连接网络后重启程序。"' in source
+    assert "self.offline_notice = ctk.CTkLabel(" in source
+
+    unlock = _app_method_source("_one_click_unlock")
+    assert "if self.catalog_offline:" in unlock
+    assert "self.OFFLINE_NOTICE_TEXT" in unlock
+
+    batch = _app_method_source("_set_batch_download_state")
+    assert "if self.catalog_offline:" in batch
+    assert 'text="无网络连接"' in batch
+
+    offline = _app_method_source("_set_offline_state")
+    assert "notice.pack_forget()" in offline
+    assert "after=self.catalog_status" in offline
+
+    error = _app_method_source("_show_catalog_error")
+    assert "ProblemCategory.NETWORK" in error
+    assert "self._set_offline_state(offline)" in error
+
+    catalog = _app_method_source("_show_catalog")
+    assert "self._set_offline_state(False)" in catalog

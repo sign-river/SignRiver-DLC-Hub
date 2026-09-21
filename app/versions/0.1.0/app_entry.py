@@ -726,6 +726,8 @@ class DlcHubApplication:
         self.compact_layout = None
         self.tool_center_columns = None
         self.catalog_online = False
+        # 断网时本地配置只用于让程序正常启动，不允许执行需要网络的解锁/下载。
+        self.catalog_offline = False
         self.notice_serial = 0
         self.current_installation = None
         self.game_selection_generation = 0
@@ -1237,6 +1239,17 @@ class DlcHubApplication:
             anchor="w",
         )
         self.catalog_status.pack(fill="x", padx=24)
+        self.offline_notice = ctk.CTkLabel(
+            catalog_card,
+            text=self.OFFLINE_NOTICE_TEXT,
+            anchor="w",
+            justify="left",
+            text_color="#B26A00",
+            fg_color=UI["warning_surface"],
+            corner_radius=8,
+            wraplength=880,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
         catalog_freshness_row = ctk.CTkFrame(catalog_card, fg_color="transparent")
         catalog_freshness_row.pack(fill="x", padx=24, pady=(2, 0))
         self.catalog_freshness = ctk.CTkLabel(
@@ -8029,6 +8042,7 @@ class DlcHubApplication:
         if request_generation is not None and request_generation != self.catalog_request_generation:
             return
         self.catalog_online = True
+        self._set_offline_state(False)
         self._clear_catalog_network_failures(
             cartridge_id=cartridge_id or self.cartridge.cartridge_id,
             source=source or self.user_settings.download_source,
@@ -8238,6 +8252,20 @@ class DlcHubApplication:
         self.catalog_preview.configure(text=f"已从缓存恢复 {count} 个已下载 DLC")
         self._schedule_ready_installs()
 
+    OFFLINE_NOTICE_TEXT = "当前无网络连接，请重新连接网络后重启程序。"
+
+    def _set_offline_state(self, offline: bool) -> None:
+        """断网时禁用一键解锁并常驻提示；联网成功后自动恢复。"""
+        self.catalog_offline = bool(offline)
+        notice = getattr(self, "offline_notice", None)
+        if notice is not None and notice.winfo_exists():
+            if self.catalog_offline:
+                if not notice.winfo_ismapped():
+                    notice.pack(fill="x", padx=24, pady=(6, 0), after=self.catalog_status)
+            else:
+                notice.pack_forget()
+        self._set_batch_download_state(self.batch_download_state)
+
     def _show_catalog_error(
         self, message: str, *, error: BaseException | None = None,
         generation: int | None = None, cartridge_id: str | None = None,
@@ -8258,6 +8286,15 @@ class DlcHubApplication:
                 source=source or self.user_settings.download_source,
             )
         self.catalog_online = False
+        offline = False
+        if error is not None:
+            try:
+                offline = classify_exception(
+                    error, stage="catalog_refresh", purpose="DLC catalog refresh"
+                ).category is ProblemCategory.NETWORK
+            except Exception:
+                offline = False
+        self._set_offline_state(offline)
         self.catalog_refresh_button.configure(state="normal")
         self.catalog_status.configure(text="DLC 目录读取失败")
         self.catalog_preview.configure(text=message)
@@ -8876,6 +8913,9 @@ class DlcHubApplication:
 
     def _one_click_unlock(self) -> None:
         """Button command: patch first, then download and install selected DLC."""
+        if self.catalog_offline:
+            self._notify(self.OFFLINE_NOTICE_TEXT, error=True)
+            return
         if self.patch_workflow_state in {"downloading", "applying"}:
             self.catalog_preview.configure(text="补丁流程正在执行，请稍候……")
             return
@@ -9092,6 +9132,12 @@ class DlcHubApplication:
         elif self.install_recovery_failed:
             self.download_selected_button.configure(
                 text="请重新扫描", state="disabled"
+            )
+        if self.catalog_offline:
+            # 断网状态下本地配置仅用于避免启动报错，不得允许任何需要
+            # 网络的解锁/下载动作。
+            self.download_selected_button.configure(
+                state="disabled", text="无网络连接"
             )
         # 补丁下载同样由下载队列管理，必须提供可见的取消入口；应用补丁、
         # 修复和恢复阶段没有可安全中断的下载任务，因此继续隐藏该按钮。
