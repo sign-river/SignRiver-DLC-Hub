@@ -19,6 +19,7 @@ from signriver_app.domain import (
 from signriver_app.infrastructure.patching import (
     PatchEngine,
     PatchError,
+    looks_like_native_library,
     parse_appinfo_document,
     render_cream_api_ini,
 )
@@ -930,3 +931,25 @@ def test_macos_profile_always_drops_config_file() -> None:
     # 历史配置名仍保留，用于清理旧流程遗留的文件。
     assert legacy.template.ini_target_name == "icecream.ini"
     assert legacy.installed_file_names == ("steam_api64.dll", "steam_api64_o.dll")
+
+
+@pytest.mark.parametrize(
+    "magic",
+    [
+        b"MZ",  # PE
+        b"\x7fELF",  # ELF
+        b"\xcf\xfa\xed\xfe",  # thin Mach-O 64
+        b"\xfe\xed\xfa\xcf",  # thin Mach-O 64 (BE)
+        b"\xca\xfe\xba\xbe",  # universal Mach-O (GSE macOS 库就是这种)
+        b"\xbe\xba\xfe\xca",  # universal Mach-O (BE)
+        b"\xca\xfe\xba\xbf",  # universal Mach-O 64
+        b"\xbf\xba\xfe\xca",  # universal Mach-O 64 (BE)
+    ],
+)
+def test_looks_like_native_library_accepts_universal_macho(magic: bytes) -> None:
+    assert looks_like_native_library(magic + b"\x00" * 8) is True
+
+
+@pytest.mark.parametrize("bad", [b"<html>", b"", b"\x00\x01\x02\x03"])
+def test_looks_like_native_library_rejects_non_libraries(bad: bytes) -> None:
+    assert looks_like_native_library(bad) is False

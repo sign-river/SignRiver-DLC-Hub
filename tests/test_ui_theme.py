@@ -25,6 +25,12 @@ def test_patch_tool_lists_installed_files_per_platform() -> None:
     assert "profile.template.config_format is PatchConfigFormat.NONE" in source
     assert 'text=f"{role_label}：{role_filename}"' in source
     assert "if display is None:" in source
+    # 补丁下载资源走统一的原生库识别，universal（fat）Mach-O 也必须被接受。
+    assert "looks_like_native_library(header)" in source
+    assert 'header[:4] in {b"\\xcf\\xfa\\xed\\xfe", b"\\xfe\\xed\\xfa\\xcf"}' not in source
+    # 下载中必须始终能看到取消入口，进度事件到达时也要重新同步。
+    assert "self._sync_cancel_all_button()" in source
+    assert "def _sync_cancel_all_button(self) -> None:" in source
     # 每一行都要反映真实下载状态，排队中的任务不能写成“下载中”。
     for wording in (
         "补丁等待下载",
@@ -1148,13 +1154,19 @@ def test_client_hides_outer_shell_and_destroys_children_before_root() -> None:
 
 def test_download_cancel_button_is_visible_during_patch_downloads() -> None:
     source = APP_ENTRY.read_text(encoding="utf-8")
-    state_method = source.split("def _set_batch_download_state", 1)[1].split(
+    state_method = source.split("def _sync_cancel_all_button", 1)[1].split(
         "def _cancel_all_downloads", 1
     )[0]
 
-    assert '"patch_downloading"' not in state_method.split(
-        "interactive = state not in", 1
+    excluded = state_method.split(
+        "interactive = self.batch_download_state not in", 1
     )[1].split("}", 1)[0]
+    assert '"patch_downloading"' not in excluded
+    assert '"cancelling"' in excluded
+    drain_method = source.split("def _drain_ui_events", 1)[1].split(
+        "def _update_global_status", 1
+    )[0]
+    assert "self._sync_cancel_all_button()" in drain_method
     assert "def _cancel_downloads_for_close" in source
     assert "self.download_queue.cancel_many(task_ids)" in source
 

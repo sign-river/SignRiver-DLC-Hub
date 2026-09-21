@@ -82,6 +82,7 @@ from .signriver_app.infrastructure.patching import (
     PatchEngine,
     PatchError,
     RepairJournal,
+    looks_like_native_library,
 )
 from .signriver_app.infrastructure.speed_test import measure_download_speed
 from .signriver_app.infrastructure.security_software import (
@@ -7198,6 +7199,9 @@ class DlcHubApplication:
                 )
             finally:
                 self.gui_operation_context = previous_context
+        # 每个界面 tick 同步一次取消入口：队列里还有可取消任务时必须可见，
+        # 避免“先进入下载状态、后入队”导致按钮一直不出现。
+        self._sync_cancel_all_button()
         if self.ui_event_pump_running:
             self.window.after(50, self._drain_ui_events)
 
@@ -9167,31 +9171,8 @@ class DlcHubApplication:
             )
         # 补丁下载同样由下载队列管理，必须提供可见的取消入口；应用补丁、
         # 修复和恢复阶段没有可安全中断的下载任务，因此继续隐藏该按钮。
-        interactive = state not in {
-            "cancelling", "patch_applying", "repairing",
-            "restoring", "installing",
-        }
-        cancelable_states = {
-            DownloadState.QUEUED, DownloadState.DOWNLOADING,
-            DownloadState.PAUSING, DownloadState.PAUSED,
-            DownloadState.RETRYING, DownloadState.VERIFYING,
-        }
-        has_cancelable_download = bool(self.download_queue) and any(
-            item.state in cancelable_states
-            for item in self.download_queue.snapshots()
-        )
-        if interactive and has_cancelable_download:
-            self.cancel_all_downloads_button.grid(
-                row=0, column=3, padx=(8, 0)
-            )
-            self.cancel_all_downloads_button.configure(state="normal")
-        else:
-            self.cancel_all_downloads_button.grid_remove()
-        task_cancel_button = getattr(self, "task_cancel_all_downloads_button", None)
-        if task_cancel_button is not None:
-            task_cancel_button.configure(
-                state="normal" if interactive and has_cancelable_download else "disabled"
-            )
+        self._sync_cancel_all_button()
+
         repair_button = getattr(self, "repair_button", None)
         remove_patch_button = getattr(self, "remove_patch_button", None)
         restore_original_button = getattr(self, "restore_original_button", None)
@@ -9215,6 +9196,37 @@ class DlcHubApplication:
             selection_toggle = getattr(self, "selection_toggle_button", None)
             if selection_toggle is not None:
                 selection_toggle.configure(state="disabled")
+
+    def _sync_cancel_all_button(self) -> None:
+        """Refresh the visible cancel entry for whatever is downloading now.
+
+        补丁下载与 DLC 下载共用同一个队列：只要队列里还有可取消的任务，
+        就必须显示取消入口。进度事件到达时也要重新同步一次，否则
+        “先进入下载状态、后入队”的顺序会让按钮一直不出现。
+        """
+        interactive = self.batch_download_state not in {
+            "cancelling", "patch_applying", "repairing",
+            "restoring", "installing",
+        }
+        cancelable_states = {
+            DownloadState.QUEUED, DownloadState.DOWNLOADING,
+            DownloadState.PAUSING, DownloadState.PAUSED,
+            DownloadState.RETRYING, DownloadState.VERIFYING,
+        }
+        has_cancelable_download = bool(self.download_queue) and any(
+            item.state in cancelable_states
+            for item in self.download_queue.snapshots()
+        )
+        if interactive and has_cancelable_download:
+            self.cancel_all_downloads_button.grid(row=0, column=3, padx=(8, 0))
+            self.cancel_all_downloads_button.configure(state="normal")
+        else:
+            self.cancel_all_downloads_button.grid_remove()
+        task_cancel_button = getattr(self, "task_cancel_all_downloads_button", None)
+        if task_cancel_button is not None:
+            task_cancel_button.configure(
+                state="normal" if interactive and has_cancelable_download else "disabled"
+            )
 
     def _cancel_all_downloads(self) -> None:
         if self.download_queue is None or self.batch_download_state == "cancelling":
@@ -9720,12 +9732,7 @@ class DlcHubApplication:
             elif role == "unlocker_dll":
                 with path.open("rb") as stream:
                     header = stream.read(8)
-                binary_magic = (
-                    header.startswith(b"MZ")
-                    or header.startswith(b"\x7fELF")
-                    or header[:4] in {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}
-                )
-                if not binary_magic:
+                if not looks_like_native_library(header):
                     raise ValueError(f"patch library {expected_filename} has an invalid binary format")
             return None
 

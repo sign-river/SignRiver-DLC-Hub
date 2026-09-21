@@ -30,7 +30,9 @@ _SAFE_FILENAME = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f]+$")
 @dataclass(frozen=True, slots=True)
 class DownloadPolicy:
     attempts: int = 3
-    chunk_size: int = 256 * 1024
+    # 取消/暂停只在每个分块之间检查，分块越大，点击取消后的响应越慢；
+    # 慢速网络下一块 256 KiB 可能要好几秒，这里降到 32 KiB。
+    chunk_size: int = 32 * 1024
     timeout: float | None = 30
     retry_delay: float = 0.5
     max_bytes_per_second: int | None = None

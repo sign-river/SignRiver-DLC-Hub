@@ -117,8 +117,15 @@ def _looks_like_binary(data: bytes) -> bool:
             b"\xcf\xfa\xed\xfe",  # MH_CIGAM_64
             b"\xca\xfe\xba\xbe",  # FAT_MAGIC
             b"\xbe\xba\xfe\xca",  # FAT_CIGAM
+            b"\xca\xfe\xba\xbf",  # FAT_MAGIC_64
+            b"\xbf\xba\xfe\xca",  # FAT_CIGAM_64
         )
     )
+
+
+def looks_like_native_library(data: bytes) -> bool:
+    """Public helper: 原生库可能是瘦 Mach-O，也可能是 universal（fat）包。"""
+    return _looks_like_binary(data)
 
 
 def parse_appinfo_document(data: bytes | str) -> Mapping[str, object]:
