@@ -89,6 +89,25 @@ def test_patch_tool_lists_installed_files_per_platform() -> None:
     assert "缓存文件不可用" not in source
 
 
+def test_patch_remove_provenance_refusal_is_presented_as_a_warning() -> None:
+    """补丁来源未知只是“程序无法确认来源”，不该显示成“补丁移除失败”的错误框。"""
+    source = APP_ENTRY.read_text(encoding="utf-8")
+    imports = source.split(
+        "from .signriver_app.infrastructure.patching import", 1
+    )[1].split(")", 1)[0]
+    handler = source.split("def _on_patch_remove_failed", 1)[1].split(
+        "def _update_repair_journal", 1
+    )[0]
+
+    assert "PatchProvenanceUnknownError" in imports
+    assert "isinstance(error, PatchProvenanceUnknownError)" in handler
+    assert 'messagebox.showwarning("未能自动移除补丁"' in handler
+    assert 'self._notify("未改动任何文件")' in handler
+    # 其它失败仍走错误级提示。
+    assert "messagebox.showerror(" in handler
+    assert 'self._notify("补丁未能移除", error=True)' in handler
+
+
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
     source = CURRENT_APP_ENTRY.read_text(encoding="utf-8")
 

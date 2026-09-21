@@ -19,6 +19,7 @@ from signriver_app.domain import (
 from signriver_app.infrastructure.patching import (
     PatchEngine,
     PatchError,
+    PatchProvenanceUnknownError,
     looks_like_native_library,
     parse_appinfo_document,
     render_cream_api_ini,
@@ -681,7 +682,7 @@ def test_remove_blocks_uncredentialed_patch_without_original(tmp_path: Path) -> 
     (game_root / "steam_api64.dll").write_bytes(UNLOCKER_BODY)
     (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
 
-    with pytest.raises(PatchError, match="凭据缺失或损坏"):
+    with pytest.raises(PatchProvenanceUnknownError, match="无法确认当前补丁的来源"):
         engine.remove(game_root)
     assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
     assert (game_root / "cream_api.ini").is_file()
@@ -719,8 +720,12 @@ def test_restore_original_refuses_patch_without_original_backup(tmp_path: Path) 
     readiness = engine.inspect_original_restore(game_root)
 
     assert readiness.ready is False
-    assert "凭据缺失或损坏" in readiness.reason
-    with pytest.raises(PatchError, match="凭据缺失或损坏"):
+    assert readiness.provenance_unknown is True
+    assert "无法确认当前补丁的来源" in readiness.reason
+    # 提示必须给出可操作的出路，而不是只丢一句“失败”。
+    assert "一键解锁工具" in readiness.reason
+    assert "验证游戏文件完整性" in readiness.reason
+    with pytest.raises(PatchProvenanceUnknownError, match="无法确认当前补丁的来源"):
         engine.restore_original(game_root)
     assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
     assert (game_root / "cream_api.ini").is_file()
@@ -734,7 +739,7 @@ def test_restore_original_blocks_uncredentialed_runtime_copy(tmp_path: Path) -> 
     (game_root / "steam_api64_o.dll").write_bytes(VANILLA_GAME_DLL)
     (game_root / "cream_api.ini").write_bytes(b"[steam]\n")
 
-    with pytest.raises(PatchError, match="凭据缺失或损坏"):
+    with pytest.raises(PatchProvenanceUnknownError, match="无法确认当前补丁的来源"):
         engine.restore_original(game_root)
     assert (game_root / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
 

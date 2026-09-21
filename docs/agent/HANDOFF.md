@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## 补丁来源未知的提示改为“可操作提示”（2026-09-22）
+
+- 用户反馈：一键移除补丁时弹出的「补丁安装凭据缺失或损坏，无法证明主库和原生库来源」读起来像文件损坏，实际只是程序无法确认当前目录里补丁的来源；解决办法也很简单。
+- 文案：`engine._uncredentialed_removal_reason()` 换成——「无法确认当前补丁的来源：这份补丁不是本程序安装的（缺少安装凭据），程序无法判断哪个文件才是游戏原版，所以这一次没有改动任何文件。」并给出两条出路：① 用「一键解锁工具」重新安装一次（会先清空当前补丁再写入，完成后凭据就会生成，之后即可正常移除）；② 或用游戏平台（Steam）验证游戏文件完整性还原原版库，再删除目录里剩余的 `<runtime>` 与 `<ini>`（按平台取真实文件名）。
+- 呈现：新增 `PatchProvenanceUnknownError`（`PatchError` 子类）与 `PatchRestoreReadiness.provenance_unknown`；`remove()` 只在“来源未知”这一种拒绝上抛该子类，客户端 `_on_patch_remove_failed()` 对它的处理从「补丁移除失败」红色错误框改为提示级——标题「未能自动移除补丁」、`showwarning`、通知「未改动任何文件」；其它失败仍是错误级。
+- 校验前提：`engine.apply()` 确实会把发布侧原版写回 `<runtime>`、重写解锁库与配置并写入新凭据（`_write_installation_record` + `audit_recorded`），所以提示里的第一条出路成立。
+- 版本对齐：改动落在 `app/versions/0.1.0/`（基线），已定向同步到活动模块 `app/versions/1.0.0/` 的三个文件（`app_entry.py`、`signriver_app/infrastructure/patching/{engine,__init__}.py`），同步前已确认两边除本次改动外逐行一致；重启客户端即生效，发布包需要下次构建才会带上。
+- 验证：`tests/test_patch_engine.py` 改为断言新文案（含「一键解锁工具」「验证游戏文件完整性」两条出路）与 `PatchProvenanceUnknownError` 类型；`tests/test_ui_theme.py` 新增一条界面级断言（提示级呈现 + 其它失败仍报错）；`ruff` 与全量 `pytest` 通过。
+
 ## 自解压包对话框汉化（2026-09-22）
 
 - 追加修复（同日）：汉化后手工重建自解压包时把**相对路径** `dist/<发布目录>` 传给了 `bz.exe`，Bandizip 据此把 `dist\` 也存进了 payload，用户解压后在目标目录里凭空多出一层 `dist`。`_build_bandizip_sfx()` 现在固定 `cwd=release.parent` 并只传 `release.name`（输出路径先 `resolve()`），与 7-Zip 兜底路径写法一致；重新生成后 payload 顶层只有 `唏嘘南溪DLC一键解锁工具`，实测解压结果为单一文件夹（21,611,055 / `25eaade15958fccfce5db6cb88f237102c5ced441ad988fb74e19637ac373437`）。回归见 `tests/test_release_build.py::test_bandizip_sfx_payload_ignores_relative_parent_directory`。

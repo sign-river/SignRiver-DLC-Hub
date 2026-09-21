@@ -65,6 +65,15 @@ class PatchError(RuntimeError):
     """Raised when a patch operation cannot complete safely."""
 
 
+class PatchProvenanceUnknownError(PatchError):
+    """目录里有补丁痕迹，但没有本程序的安装凭据。
+
+    这不是文件损坏或安装失败：程序只是不知道当前补丁是谁装的、哪个文件才是
+    游戏原版，于是拒绝自动改动游戏目录。单独的异常类型让界面可以用提示级而
+    不是错误级的呈现，并把「重新安装一次补丁」或「用游戏平台还原」讲清楚。
+    """
+
+
 def _with_installation_lock(method):
     """Serialize destructive operations for one game installation."""
     @wraps(method)
@@ -96,6 +105,8 @@ class PatchRestoreReadiness:
     patch_detected: bool
     backup_available: bool
     reason: str = ""
+    # 只有“补丁来源未知”这一种拒绝需要界面温和提示，故单独标记。
+    provenance_unknown: bool = False
 
 
 def _ini_bool(value: bool) -> str:
@@ -807,6 +818,24 @@ class PatchEngine:
             )
         raise PatchError("可信原生库缺失；请重新下载补丁资产后修复或移除")
 
+    def _uncredentialed_removal_reason(self) -> str:
+        """凭据缺失时的移除提示：说明只是来源未知，并给出两条最省事的做法。"""
+        runtime = self.profile.runtime_original_library_name
+        leftovers = (
+            f"{runtime} 和 {self.profile.template.ini_target_name}"
+            if self.profile.template.config_format is not PatchConfigFormat.NONE
+            else runtime
+        )
+        return (
+            "无法确认当前补丁的来源：这份补丁不是本程序安装的（缺少安装凭据），"
+            "程序无法判断哪个文件才是游戏原版，所以这一次没有改动任何文件。\n\n"
+            "两种处理方式，任选其一即可：\n"
+            "· 用「一键解锁工具」重新安装一次：它会先清空当前补丁再写入，"
+            "完成后凭据就会生成，之后就能正常移除补丁；\n"
+            f"· 或者用游戏平台（Steam）验证游戏文件完整性来还原原版库，"
+            f"再删除目录里剩余的 {leftovers}。"
+        )
+
     def inspect_original_restore(self, game_root: Path) -> PatchRestoreReadiness:
         """Preflight a fail-closed return to the original primary library."""
         game_root = Path(game_root).resolve(strict=True)
@@ -827,16 +856,19 @@ class PatchEngine:
         if record is None:
             if not patch_detected and all(unlocker.is_file() for unlocker, _runtime, _ini in managed_paths):
                 return PatchRestoreReadiness(True, False, False)
-            reason = (
-                "补丁安装凭据缺失或损坏，无法证明主库和原生库来源；请通过游戏平台验证游戏文件"
-                if patch_detected
-                else "游戏主库缺失；请通过游戏平台验证游戏文件"
-            )
+            if patch_detected:
+                return PatchRestoreReadiness(
+                    False,
+                    True,
+                    any(runtime.is_file() for _unlocker, runtime, _ini in managed_paths),
+                    self._uncredentialed_removal_reason(),
+                    provenance_unknown=True,
+                )
             return PatchRestoreReadiness(
                 False,
-                patch_detected,
-                any(runtime.is_file() for _unlocker, runtime, _ini in managed_paths),
-                reason,
+                False,
+                False,
+                "游戏主库缺失；请通过游戏平台验证游戏文件",
             )
         try:
             original = self._resolve_recorded_original(game_root, record)
@@ -862,6 +894,8 @@ class PatchEngine:
                 return ()
             raise PatchError(readiness.reason)
         if not readiness.ready:
+            if readiness.provenance_unknown:
+                raise PatchProvenanceUnknownError(readiness.reason)
             raise PatchError(readiness.reason)
         record = self._load_installation_record(game_root)
         if record is None:

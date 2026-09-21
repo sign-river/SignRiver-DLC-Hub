@@ -81,6 +81,7 @@ from .signriver_app.infrastructure.log_reader import read_tail_lines
 from .signriver_app.infrastructure.patching import (
     PatchEngine,
     PatchError,
+    PatchProvenanceUnknownError,
     RepairJournal,
     looks_like_native_library,
 )
@@ -11325,7 +11326,9 @@ class DlcHubApplication:
                 self.context.logger.exception("Patch removal failed")
                 message = str(error) or "补丁移除失败"
                 self._post_ui(
-                    lambda message=message: self._on_patch_remove_failed(message)
+                    lambda message=message, error=error: self._on_patch_remove_failed(
+                        message, error
+                    )
                 )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -11348,8 +11351,16 @@ class DlcHubApplication:
             parent=self.window,
         )
 
-    def _on_patch_remove_failed(self, message: str) -> None:
+    def _on_patch_remove_failed(
+        self, message: str, error: Exception | None = None
+    ) -> None:
         self._set_batch_download_state("idle")
+        if isinstance(error, PatchProvenanceUnknownError):
+            # 只是无法确认补丁来源，文件一个都没动：用提示级呈现，别写成“失败”。
+            self.catalog_preview.configure(text="未确认补丁来源，文件保持不变")
+            self._notify("未改动任何文件")
+            messagebox.showwarning("未能自动移除补丁", message, parent=self.window)
+            return
         self.catalog_preview.configure(text="补丁未能移除，请关闭游戏后重试。")
         self._notify("补丁未能移除", error=True)
         messagebox.showerror(
