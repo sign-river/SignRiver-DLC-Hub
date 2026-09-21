@@ -398,6 +398,10 @@ def _build_bandizip_sfx(release: Path, sfx_path: Path) -> bool:
     module = bandizip.parent / "bdzsfx.x86.sfx"
     if not module.is_file():
         return False
+    # 必须在发布目录的父目录里、只传文件夹名给 bz.exe：传相对路径（例如
+    # dist\发布目录）时 Bandizip 会把外层目录名一起存进 payload，用户解压后
+    # 会多出一层目录。
+    sfx_path = sfx_path.resolve()
     sfx_path.unlink(missing_ok=True)
     result = subprocess.run(
         [
@@ -405,11 +409,12 @@ def _build_bandizip_sfx(release: Path, sfx_path: Path) -> bool:
             "c",
             "-l:9",
             "-y",
-            f"-sfx:{module}",
+            f"-sfx:{module.resolve()}",
             str(sfx_path),
             # 传入发布目录本身（不是 \*），保证解压后落在单一文件夹里。
-            str(release),
+            release.name,
         ],
+        cwd=release.parent,
         capture_output=True,
         text=True,
         encoding="utf-8",

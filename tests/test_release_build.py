@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -260,6 +261,40 @@ def test_bandizip_sfx_language_block_missing_keeps_file_untouched(tmp_path) -> N
 
     assert build_release.localize_bandizip_sfx_language(sfx) is False
     assert sfx.read_bytes() == before
+
+
+def test_bandizip_sfx_payload_ignores_relative_parent_directory(
+    tmp_path, monkeypatch
+) -> None:
+    """用相对路径传发布目录时，外层目录名（例如 dist）不能被打进 payload。
+
+    回归背景：手工重建自解压包时传入 ``dist/<发布目录>``，Bandizip 把 ``dist\\``
+    一起存进了 payload，用户解压后凭空多出一层目录。
+    """
+    bandizip = build_release._find_bandizip()
+    if bandizip is None or not (bandizip.parent / "bdzsfx.x86.sfx").is_file():
+        pytest.skip("本机未安装 Bandizip，跳过自解压 payload 用例")
+    if build_release._find_7z() is None:
+        pytest.skip("缺少 7-Zip，无法列出 SFX payload")
+    work = tmp_path / "work"
+    release = work / "dist" / build_release.RELEASE_DIR_NAME
+    (release / "app").mkdir(parents=True)
+    (release / "app" / "state.json").write_text("{}", encoding="utf-8")
+    (release / build_release.RELEASE_EXE_NAME).write_bytes(b"MZ")
+    sfx_path = work / "out.exe"
+    monkeypatch.chdir(work)
+
+    assert build_release._build_bandizip_sfx(
+        Path("dist") / build_release.RELEASE_DIR_NAME, sfx_path
+    )
+
+    tops: set[str] = set()
+    for entry in _sfx_payload_paths(sfx_path):
+        parts = entry.replace("/", "\\").split("\\")
+        if parts[-1] == sfx_path.name:
+            continue
+        tops.add(parts[0])
+    assert tops == {build_release.RELEASE_DIR_NAME}
 
 
 def test_full_update_archive_is_flat_and_contains_only_managed_files(
