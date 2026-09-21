@@ -1080,6 +1080,27 @@ class PublisherWorkspace:
             records.append(self._record("patch", source.stem, source.stem.replace("_", " "), source, output))
             expected.add(asset_name)
 
+        for platform, role, asset_name in self._published_platform_patch_files(profile):
+            source = patch_by_name.get(asset_name.casefold())
+            if source is None or not source.is_file():
+                raise WorkspaceError(
+                    f"补丁目录缺少 {platform} 平台资源 {asset_name}"
+                )
+            if source.is_symlink():
+                raise WorkspaceError(f"不允许符号链接：{source.name}")
+            if asset_name in expected:
+                raise WorkspaceError(f"补丁资源名冲突：{asset_name}")
+            output = target / asset_name
+            shutil.copy2(source, output)
+            records.append(self._record(
+                "patch",
+                f"{platform}_{role}",
+                f"{platform} {role.replace('_', ' ')}",
+                source,
+                output,
+            ))
+            expected.add(asset_name)
+
         for source, alias in self._materialize_legacy_patch_aliases(profile, target):
             records.append(self._record(
                 "patch", alias.stem, alias.stem.replace("_", " "), source, alias,
@@ -1557,6 +1578,44 @@ class PublisherWorkspace:
             digest = self._verified_file_sha256(path)
             assets.append(PublishAsset(path, path.name, stat.st_size, digest))
         return tuple(assets)
+
+    @staticmethod
+    def _published_platform_patch_files(
+        profile: GameProfile,
+    ) -> tuple[tuple[str, str, str], ...]:
+        """Return native patch files explicitly marked as published.
+
+        ``patch_platforms`` declares the client-side filenames, while
+        ``published_platform_resources`` says which declarations have actually
+        been prepared for release.  Requiring the files only for the latter
+        keeps old profiles and not-yet-prepared native variants buildable.
+        """
+        published = profile.published_platform_resources or {}
+        files: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for platform, spec in sorted(profile.patch_platforms.items()):
+            if platform.casefold() == "windows":
+                continue
+            availability = published.get(platform)
+            if not isinstance(availability, dict) or not availability.get("patch"):
+                continue
+            if not isinstance(spec, dict):
+                raise WorkspaceError(f"{platform} 平台补丁配置格式不正确")
+            for role, field_name in (
+                ("unlocker", "unlocker_dll_name"),
+                ("original", "runtime_original_library_name"),
+            ):
+                asset_name = str(spec.get(field_name) or "").strip()
+                if not asset_name or Path(asset_name).name != asset_name:
+                    raise WorkspaceError(
+                        f"{platform} 平台补丁文件名配置不正确：{field_name}"
+                    )
+                folded = asset_name.casefold()
+                if folded in seen:
+                    raise WorkspaceError(f"补丁资源名重复：{asset_name}")
+                seen.add(folded)
+                files.append((platform, role, asset_name))
+        return tuple(files)
 
     @staticmethod
     def _validate_release_parts(names: tuple[str, ...]) -> None:

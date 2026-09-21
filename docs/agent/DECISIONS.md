@@ -29,6 +29,13 @@
 
 ## 客户端安全与兼容
 
+### 原生平台补丁资源由发布器显式物化（2026-09-21）
+
+- `patch_platforms` 只描述客户端应读取的平台库名；只把 `libsteam_api.so` / `libsteam_api.dylib` 放进 `patches/` 不会自动变成 Release 附件。
+- `published_platform_resources[platform].patch = true` 是发布承诺。发布器必须按卡带声明的 `unlocker_dll_name` 和 `runtime_original_library_name` 物化原文件名到输出目录，写入 `catalog.json`，并在任一文件缺失时阻止构建。
+- 未明确标记为已发布的平台不得因本地目录存在原生文件而自动声明可用，避免客户端看到不完整的发布状态。
+
+
 ### 工具、指南和诊断（2026-08-23～2026-08-25）
 
 - 指南与工具按独立索引和发布源维护；客户端只下载附件，不自动执行未知脚本或命令。

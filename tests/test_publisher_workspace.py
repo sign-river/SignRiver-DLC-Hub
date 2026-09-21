@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import random
 import shutil
@@ -415,6 +416,68 @@ def test_builds_each_dlc_and_patch_and_generates_appinfo(tmp_path: Path) -> None
         assert all(item.compress_type == zipfile.ZIP_DEFLATED for item in archive.infolist())
     appinfo = json.loads((workspace.output_dir / "stellaris" / "stellaris_appinfo.json").read_text(encoding="utf-8"))
     assert appinfo == appinfo_payload
+
+
+def test_builds_declared_native_patch_libraries(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = replace(
+        workspace.initialize(),
+        published_platform_resources={
+            "windows": {"patch": True, "dlc": True},
+            "steamos": {"patch": True, "dlc": True},
+            "macos": {"patch": True, "dlc": True},
+        },
+    )
+    workspace.save_game(profile)
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    payloads = {
+        "steam_api64.dll": b"windows unlocker",
+        "steam_api64_o.dll": b"windows original",
+        "libsteam_api.so": b"steamos unlocker",
+        "libsteam_api_o.so": b"steamos original",
+        "libsteam_api.dylib": b"macos unlocker",
+        "libsteam_api_o.dylib": b"macos original",
+    }
+    for name, payload in payloads.items():
+        (patches / name).write_bytes(payload)
+
+    records = workspace.build(profile)
+    output = workspace.output_dir / profile.game_id
+    native_names = {
+        "libsteam_api.so",
+        "libsteam_api_o.so",
+        "libsteam_api.dylib",
+        "libsteam_api_o.dylib",
+    }
+    publish_assets = workspace.publish_assets(profile)
+
+    assert native_names <= {record.asset_name for record in records}
+    assert native_names <= {asset.name for asset in publish_assets}
+    assert native_names <= {path.name for path in output.iterdir()}
+    catalog = json.loads((output / "catalog.json").read_text(encoding="utf-8"))
+    assert native_names <= {item["name"] for item in catalog["assets"]}
+
+
+def test_declared_native_patch_libraries_are_required(tmp_path: Path) -> None:
+    workspace = PublisherWorkspace(
+        tmp_path / "publisher", appinfo_provider=sample_appinfo
+    )
+    profile = replace(
+        workspace.initialize(),
+        published_platform_resources={
+            "windows": {"patch": True, "dlc": True},
+            "macos": {"patch": True, "dlc": True},
+        },
+    )
+    workspace.save_game(profile)
+    patches = workspace.game_dir(profile.game_id) / "patches"
+    (patches / profile.patch_unlocker_name).write_bytes(b"windows unlocker")
+    (patches / profile.patch_runtime_original_name).write_bytes(b"windows original")
+
+    with pytest.raises(WorkspaceError, match="libsteam_api.dylib"):
+        workspace.build(profile)
 
 
 def test_successful_build_writes_verified_completion_manifest(tmp_path: Path) -> None:

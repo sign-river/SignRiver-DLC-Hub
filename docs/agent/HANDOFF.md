@@ -1,5 +1,13 @@
 # 当前任务交接
 
+## 发布器原生平台补丁资源构建（2026-09-21）
+
+- 根因：客户端已经按平台卡带字段读取原生库名，但发布器构建只复制 Windows 的 `unlocker.dll` / `original.dll` 及旧别名，不会处理 `patch_platforms` 声明的 macOS/SteamOS 原生文件。
+- 修改：`src/signriver_publisher/workspace.py` 在 `published_platform_resources[platform].patch == true` 时，按 `patch_platforms` 中的 `unlocker_dll_name` / `runtime_original_library_name` 从 `patches/` 复制到发布输出目录，并纳入 `catalog.json`；缺文件时构建失败。未标记为已发布的平台不受影响。
+- 测试：`tests/test_publisher_workspace.py` 新增原生库输出与缺文件阻止构建用例；全文件 87 项、`tests/test_dlc_catalog.py` 14 项、`tests/test_patch_platforms.py` 18 项通过；Ruff 与 `git diff --check` 通过。
+- 真实工作区核对：macOS 有 `libsteam_api.dylib` 与 `libsteam_api_o.dylib`；SteamOS 当前只有 `libsteam_api_o.so`，缺少 `libsteam_api.so`。现有 SmokeAPI 候选文件为 `publisher-workspace/acceptance/steamos/SmokeAPI-v4.1.3/libsteam_api.so`（尚未复制到 Stellaris 的 `patches/`）。
+- 本轮未执行：真实 Stellaris 重新构建、上传、双源回读、线上主表切换、push。
+
 ## macOS 原生库导出与 SteamOS VM 切换（2026-09-20）
 
 - 从 macOS Sequoia VM 的 Stellaris 安装目录复制截图选中的 `libsteam_api.dylib` 到 Windows 临时导出目录 `.test-artifacts/libsteam_api.dylib`；文件大小 `5,195,264` 字节，SHA-256 为 `0FF4A7C9D44A600BF514D069982D884C0ADD67431BAE24341063C18CE310A11F`。
