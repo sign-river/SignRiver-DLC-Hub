@@ -56,6 +56,7 @@ from .signriver_app.domain import (
     DownloadState,
     InstallHealth,
     PatchBundle,
+    PatchConfigFormat,
     PatchHealth,
     UserSettings,
     resolve_game_directory,
@@ -4292,9 +4293,13 @@ class DlcHubApplication:
                 anchor="w",
             ).pack(fill="x", padx=16, pady=(4, 8))
         for task_id, role in self.patch_task_roles.items():
+            display = self._patch_row_display(role)
+            if display is None:
+                continue
             spec = patch_specs.get(task_id)
             if spec is None:
                 continue
+            role_label, role_filename = display
             snapshot = patch_snapshots.get(task_id)
             path = snapshot.result_path if snapshot is not None else None
             is_ready = (
@@ -4314,7 +4319,7 @@ class DlcHubApplication:
             row.pack(fill="x", padx=16, pady=4)
             ctk.CTkLabel(
                 row,
-                text=f"{self._canonical_patch_role(role)}：{spec.filename}",
+                text=f"{role_label}：{role_filename}",
                 text_color=UI["text"],
                 anchor="w",
             ).pack(side="left", fill="x", expand=True, padx=12, pady=9)
@@ -10388,6 +10393,35 @@ class DlcHubApplication:
     def _canonical_patch_role(role: str) -> str:
         """Accept the pre-0.2.0 backup role while using the current patch API."""
         return "original_dll" if role == "original_backup_dll" else role
+
+    PATCH_ROLE_LABELS = {
+        "unlocker_dll": "解锁库",
+        "original_dll": "备份库",
+        "appinfo_json": "配置文件",
+    }
+
+    def _patch_row_display(self, role: str) -> tuple[str, str] | None:
+        """Return the label and file name shown for one patch row.
+
+        Rows describe what ends up in the game directory: the two libraries
+        always, plus the rendered configuration on platforms that use one.
+        ``config_format=none``（macOS 的替换型解锁库）不生成配置文件，因此
+        该平台不再显示配置行。
+        """
+        canonical = self._canonical_patch_role(role)
+        profile = self.patch_profile
+        if profile is None:
+            return self.PATCH_ROLE_LABELS.get(canonical, canonical), canonical
+        if canonical == "appinfo_json":
+            if profile.template.config_format is PatchConfigFormat.NONE:
+                return None
+            return self.PATCH_ROLE_LABELS[canonical], profile.template.ini_target_name
+        filename = (
+            profile.unlocker_dll_name
+            if canonical == "unlocker_dll"
+            else profile.runtime_original_library_name
+        )
+        return self.PATCH_ROLE_LABELS.get(canonical, canonical), filename
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
         """Materialize the complete release-side patch payload when available."""

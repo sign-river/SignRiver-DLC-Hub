@@ -14,6 +14,19 @@ LAUNCHER_MAIN = Path(__file__).parents[1] / "src" / "signriver_launcher" / "main
 GUIDES_ROOT = Path(__file__).parents[1] / "config" / "guides"
 
 
+def test_patch_tool_lists_installed_files_per_platform() -> None:
+    """补丁工具按平台展示真实安装的文件：配置行只在会生成配置时出现。"""
+    source = APP_ENTRY.read_text(encoding="utf-8")
+
+    assert "PATCH_ROLE_LABELS" in source
+    assert '"解锁库"' in source
+    assert '"备份库"' in source
+    assert '"配置文件"' in source
+    assert "profile.template.config_format is PatchConfigFormat.NONE" in source
+    assert 'text=f"{role_label}：{role_filename}"' in source
+    assert "if display is None:" in source
+
+
 def test_current_update_ui_surfaces_version_cancel_and_transient_task() -> None:
     source = CURRENT_APP_ENTRY.read_text(encoding="utf-8")
 
