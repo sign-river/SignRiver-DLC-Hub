@@ -343,6 +343,49 @@ def _find_bandizip() -> Path | None:
     return None
 
 
+_BANDIZIP_SFX_LANG_MARKER = b"\xef\xbb\xbf[LANG]\r\n"
+
+# Bandizip 的 SFX stub 自身不含任何文案：bz.exe 打包时把界面文案作为 UTF-8
+# 文本块追加在 SFX 文件末尾（BOM + ``[LANG]``，键名与 ``langs/*.lang`` 一致）。
+# 这块内容取决于打包机上 Bandizip 的界面语言（默认英文），所以发布包统一替换
+# 成中文：既让用户看到中文对话框，也避免同一份包在不同机器上打包出现中英混杂。
+_BANDIZIP_SFX_LANG_ZH = (
+    "STATIC_TARGET_PATH\t= 目标路径:\r\n"
+    "BTN_SELECT_FOLDER\t\t= 浏览...\r\n"
+    "BTN_EXTRACT\t\t\t= 开始解压\r\n"
+    "BTN_CLOSE\t\t\t\t= 关闭\r\n"
+    "BTN_CANCEL\t\t\t= 取消\r\n"
+    "BTN_OPEN_FOLDER\t\t= 打开文件夹\r\n"
+    "CHK_OVERWRITE\t\t\t= 覆盖已有文件\r\n"
+    "ERR_ERROR_OCCURRED\t= 发生错误\r\n"
+    "ASK_OVERWRITE\t\t\t= 目标位置已有同名文件，是否覆盖？\r\n"
+    "MSG_COMPLETED\t\t\t= 解压完成！\r\n"
+    "MB_OK\t\t\t\t\t= 确定\r\n"
+    "MB_YES\t\t\t\t= 是\r\n"
+    "MB_NO\t\t\t\t\t= 否\r\n"
+)
+
+
+def localize_bandizip_sfx_language(sfx_path: Path) -> bool:
+    """把 Bandizip SFX 末尾的 ``[LANG]`` 文本块替换成中文。
+
+    只改这一块追加数据，不动 EXE 本体与 ZIP 负载；找不到该块时返回 False，
+    调用方按原样发布。
+    """
+    try:
+        data = sfx_path.read_bytes()
+    except OSError:
+        return False
+    start = data.rfind(_BANDIZIP_SFX_LANG_MARKER)
+    if start < 0:
+        return False
+    block = _BANDIZIP_SFX_LANG_MARKER + _BANDIZIP_SFX_LANG_ZH.encode("utf-8")
+    if data[start:] == block:
+        return True
+    sfx_path.write_bytes(data[:start] + block)
+    return True
+
+
 def _build_bandizip_sfx(release: Path, sfx_path: Path) -> bool:
     """Build the self-extractor with Bandizip when it is installed.
 
@@ -372,7 +415,11 @@ def _build_bandizip_sfx(release: Path, sfx_path: Path) -> bool:
         encoding="utf-8",
         errors="replace",
     )
-    return result.returncode == 0 and sfx_path.is_file()
+    if result.returncode != 0 or not sfx_path.is_file():
+        return False
+    if localize_bandizip_sfx_language(sfx_path):
+        print("SFX dialog language: 中文")
+    return True
 
 
 def _build_sfx(release: Path, archive_7z: Path, sfx_path: Path) -> bool:

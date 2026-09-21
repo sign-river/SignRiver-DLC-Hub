@@ -229,6 +229,39 @@ def test_sync_publisher_inbox_without_publisher_workspace(tmp_path, monkeypatch)
     assert not (tmp_path / "publisher-workspace").exists()
 
 
+def test_bandizip_sfx_language_block_is_localized(tmp_path) -> None:
+    """Bandizip 自解压对话框的 [LANG] 块要被换成中文。
+
+    `bz.exe` 按打包机的界面语言把文案作为 UTF-8 文本块追加在 SFX 末尾，默认
+    是英文；发布包统一替换成中文，保持用户看到一致的中文界面。
+    """
+    sfx = tmp_path / "release-sfx.exe"
+    english_block = (
+        b"\xef\xbb\xbf[LANG]\r\n"
+        b"STATIC_TARGET_PATH\t= Target Path :\r\n"
+        b"MSG_COMPLETED\t\t\t= Extraction successful!\r\n"
+    )
+    sfx.write_bytes(b"MZ payload" + english_block)
+
+    assert build_release.localize_bandizip_sfx_language(sfx) is True
+
+    data = sfx.read_bytes()
+    assert data.startswith(b"MZ payload")
+    assert "目标路径".encode("utf-8") in data
+    assert "解压完成！".encode("utf-8") in data
+    assert b"Target Path" not in data
+    assert data.endswith("否\r\n".encode("utf-8"))
+
+
+def test_bandizip_sfx_language_block_missing_keeps_file_untouched(tmp_path) -> None:
+    sfx = tmp_path / "plain-sfx.exe"
+    sfx.write_bytes(b"MZ payload without language block")
+    before = sfx.read_bytes()
+
+    assert build_release.localize_bandizip_sfx_language(sfx) is False
+    assert sfx.read_bytes() == before
+
+
 def test_full_update_archive_is_flat_and_contains_only_managed_files(
     tmp_path,
 ) -> None:

@@ -1,5 +1,13 @@
 # 当前任务交接
 
+## 自解压包对话框汉化（2026-09-22）
+
+- 现象：Bandizip 自解压包的对话框（Target Path / Browse / Start / Overwrite…）是英文。排查结论：`bdzsfx.x86.sfx` stub 自身不含任何文案——`bz.exe` 打包时把界面文案作为 UTF-8 文本块**追加在 SFX 文件末尾**（BOM + `[LANG]`，键名与 `Bandizip/langs/SimpChinese.lang` 里的 `STATIC_TARGET_PATH` / `BTN_EXTRACT` 等一致），内容取决于打包机上 Bandizip 的界面语言，默认英文（`bz.exe` 无 `-lang` 开关，改注册表 `HKCU\Software\Bandizip\language` 也无效）。
+- 实现：`tools/build_release.py` 新增 `localize_bandizip_sfx_language()`（用内置中文文案替换末尾 `[LANG]` 块，只改追加数据、不动 EXE 与 ZIP 负载），`_build_bandizip_sfx()` 成功后自动调用；找不到该块时保持原样，所以退化到 7-Zip SFX / Python 外壳时不受影响（Python 外壳版本来就是中文）。
+- 重新生成：`dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` = 21,616,375 / `5e4a05edf45050ac8a1fdee6bbc078193c9351453426a24ea66089a182a27e2d`（别名文件同内容）。首装 ZIP 未变（`adf7890d…`），全量更新包与双源清单都不受影响；`7z l -slt` 复核 payload 267 条正常。
+- 验证：新增两条回归（`[LANG]` 块被替换成中文且不动 EXE 前缀、缺少该块时文件保持原样）；`ruff` 与全量 `pytest` 通过。
+- 未完成：需要用户双击该自解压包确认对话框真的显示中文（我无法截取桌面验证渲染结果）。
+
 ## 构建后自动同步发布器收件目录（2026-09-22）
 
 - 需求：用户发现发布器收件目录 `publisher-workspace/output/updates` 里的 1.0.0 包还是 09-21 21:42 的旧构建，要求把新包搬过去，并且以后每次打包后都自动搬。
