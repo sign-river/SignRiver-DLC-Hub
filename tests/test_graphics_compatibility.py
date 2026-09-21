@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import subprocess
+import pytest
 from pathlib import Path
 
 
@@ -33,6 +35,10 @@ def test_non_windows_diagnosis_is_safe(monkeypatch) -> None:
     assert not result.repairable
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="DxDiag 重试路径依赖 Windows 的 Path/临时目录语义",
+)
 def test_dxdiag_retries_after_timeout_and_clears_partial_output(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(module.os, "name", "nt")
     calls = []

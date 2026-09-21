@@ -42,6 +42,12 @@ def _build_bootstrap_with_missing_default(tmp_path: Path) -> Path:
             "asset_name": "cartridge_cities_skylines_2.json",
             "sha256": "0" * 64,
             "size_bytes": 123,
+            # 无 platform_resources 的条目按“仅 Windows 可用”处理，这里显式声明
+            # 三端可用，才能在任何平台上都走到“文件缺失/损坏”的目标分支。
+            "platform_resources": {
+                platform: {"patch": True, "dlc": True}
+                for platform in ("windows", "steamos", "macos")
+            },
         },
     )
     (bootstrap / INDEX_ASSET_NAME).write_text(
@@ -81,6 +87,10 @@ def test_default_cartridge_failure_preserves_the_real_error(tmp_path: Path) -> N
                 "asset_name": "cartridge_stellaris.json",
                 "sha256": "0" * 64,
                 "size_bytes": 123,
+                "platform_resources": {
+                    platform: {"patch": True, "dlc": True}
+                    for platform in ("windows", "steamos", "macos")
+                },
             }
         ],
     }

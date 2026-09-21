@@ -17,7 +17,12 @@ from signriver_common.problems import sanitize_technical_details
 class DiagnosticExporter:
     def __init__(self, app_root: Path, data_root: Path) -> None:
         self.app_root = Path(app_root).resolve(strict=False)
+        # 调用方传入的原始形态也要保留：macOS（/tmp → /private/tmp）与
+        # SteamOS（/home → /var/home）上解析符号链接后的路径与日志里写的
+        # 路径不同，只按解析结果替换会漏掉应用目录。
+        self.app_root_display = Path(app_root)
         self.data_root = Path(data_root).resolve(strict=False)
+        self.user_home_display = Path.home()
         self.user_home = Path.home().resolve(strict=False)
 
     def export(
@@ -94,8 +99,18 @@ class DiagnosticExporter:
         # Replace the more specific application path first. It commonly lives
         # below the user profile; reversing the order makes <APP_ROOT>
         # impossible to recognize once the parent has already been redacted.
-        result = text.replace(str(self.app_root), "<APP_ROOT>")
-        result = result.replace(str(self.user_home), "<USER_HOME>")
+        # 同时匹配“解析符号链接后的真实路径”和“调用方传入的显示路径”。
+        result = text
+        for candidate in sorted(
+            {str(self.app_root), str(self.app_root_display)}, key=len, reverse=True
+        ):
+            if candidate:
+                result = result.replace(candidate, "<APP_ROOT>")
+        for candidate in sorted(
+            {str(self.user_home), str(self.user_home_display)}, key=len, reverse=True
+        ):
+            if candidate:
+                result = result.replace(candidate, "<USER_HOME>")
         result = sanitize_technical_details(result)
         result = re.sub(
             r"(?i)\b(authorization|token|password|cookie)\s*[:=]\s*[^\s,;]+",

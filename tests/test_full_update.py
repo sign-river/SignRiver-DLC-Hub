@@ -144,6 +144,10 @@ def test_windows_full_update_uses_compact_same_volume_paths(tmp_path: Path) -> N
     assert paths.full_update_backup_dir.anchor == paths.root.anchor
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows 路径长度守卫依赖 WindowsPath 语义，POSIX 上无法模拟",
+)
 def test_windows_full_update_rejects_excessive_staged_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

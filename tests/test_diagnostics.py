@@ -100,9 +100,13 @@ def test_diagnostic_export_redacts_secrets_paths_and_url_queries(tmp_path: Path)
         }
     ]
     assert report["problems"][0]["event_id"] == problem.event_id
-    assert report["problems"][0]["technical_details"] == (
-        "root=<APP_ROOT> token=<REDACTED> https://example.test/report<redacted>"
-    )
+    # 问题记录在创建时就会把用户主目录替换成 <user-home>。当出厂目录恰好位于
+    # 主目录之下（macOS/SteamOS 的常见部署方式）时，导出阶段已经认不出完整的
+    # 应用目录，只剩 <user-home> 前缀；两种形态都必须保证原始路径不出现。
+    details = report["problems"][0]["technical_details"]
+    assert " token=<REDACTED> https://example.test/report<redacted>" in details
+    assert details.startswith(("root=<APP_ROOT>", "root=<user-home>"))
+    assert str(app_root) not in details
     combined = json.dumps(report) + exported_log
     assert "hunter2" not in combined
     assert "secret-token" not in combined

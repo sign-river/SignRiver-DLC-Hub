@@ -1,5 +1,18 @@
 # 当前任务交接
 
+## 修复 POSIX（macOS/SteamOS）测试失败并让 CI 转绿（2026-09-22）
+
+- 现象：首次推送后 CI 只有 Windows 通过；macOS 与 Ubuntu 失败，且日志以 `NotImplementedError: cannot instantiate 'WindowsPath' on your system` 的 pytest INTERNALERROR 结束（失败详情被吞掉，只能看到 7% 处两个 `F`）。
+- 复现环境：本机 conda 新建 Python 3.11（CI 版本）+ SteamOS 来宾（Linux，Py3.13）+ macOS 来宾（Darwin，Py3.12），把当前源码同步进去跑全量，逐项定位。
+- 根因与修复（均在 Git 跟踪的 `tests/` 与基线 `app/versions/0.1.0/` 内）：
+  1. `test_full_update.py::test_windows_full_update_rejects_excessive_staged_path` 在 POSIX 上把 `os.name` 改成 `"nt"` 后调用 `Path(...)`，触发 `WindowsPath` 无法实例化；失败又发生在 `os.name` 被改动的窗口内，使 pytest 生成失败报告时一起崩溃（INTERNALERROR 的元凶）。→ 该用例加 `skipif(os.name != "nt")`。
+  2. `test_cartridge_default_fallback.py` 两个用例的伪造索引条目没有 `platform_resources`，而无该字段的条目按“仅 Windows 可用”处理，导致 macOS/SteamOS 上走不到预期分支。→ 显式声明三端可用（本机模拟三平台验证）。
+  3. `test_graphics_compatibility.py::test_dxdiag_retries_after_timeout_and_clears_partial_output`、`test_security_software.py::test_discover_security_products_parses_unique_absolute_executables` 依赖 Windows 的 `Path`/可执行文件语义，POSIX 上必然失败。→ 各自加 `skipif(os.name != "nt")`。
+  4. `test_diagnostics.py` 断言导出结果一定是 `<APP_ROOT>`；但当出厂目录位于用户主目录之下（macOS/SteamOS 的常见部署方式）时，问题记录创建阶段已把 home 前缀替换成 `<user-home>`，导出阶段再也认不出完整应用目录。→ 断言改为“以 `<APP_ROOT>` 或 `<user-home>` 开头且原始路径不出现”，保留隐私校验意图。
+  5. 顺带改进 `DiagnosticExporter.sanitize()`：同时按“解析符号链接后的真实路径”和“调用方传入的显示路径”替换应用目录（macOS `/tmp → /private/tmp`、SteamOS `/home → /var/home`），避免只替换一种形态而漏掉。
+- 版本对齐：第 5 条只落在 Git 跟踪基线 `app/versions/0.1.0/`（**仅基线实现**）；活动模块 `app/versions/1.0.0/` 与已发布包保持冻结不动（该改动只是脱敏 token 更精确，原始路径在任一形态下都不会泄漏，发布包将在下个版本带上）。
+- 验证：本机 Windows 全量 `pytest` + `ruff` 通过；SteamOS 来宾全量通过（Linux）；macOS 来宾全量通过（Darwin）。CI 待本轮推送后确认。
+
 ## 修复 CI：卡带索引哈希按 LF 归一化（2026-09-22）
 
 - 现象：推送后 CI 三端全红，pytest 仅 1 项失败——`tests/test_cartridge_catalog.py::test_bootstrap_index_and_documents_round_trip`（Windows/macOS 直接跑 pytest、Ubuntu 走 Xvfb 都红）；`restore_module_archives.py`（模块归档校验）与 ruff 均通过。

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +17,10 @@ sys.modules[spec.name] = security
 spec.loader.exec_module(security)
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows 可执行文件路径判定只在 Windows 上有意义",
+)
 def test_discover_security_products_parses_unique_absolute_executables() -> None:
     def runner(*_args, **_kwargs):
         return SimpleNamespace(
