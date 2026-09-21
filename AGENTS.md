@@ -40,6 +40,12 @@
 
 # 构建 / 发布流程约定（所有 AI 必须遵守）
 
+## 打包时机（重要）
+
+- **未经用户当次明确要求，不得执行任何打包/构建动作**：包括 `tools/build_module.py`、`tools/build_release.py`、`tools/prepare_update_release.py`、`tools/build_publisher.py`，以及 SteamOS/macOS 虚拟机内的 `tools/build_native_release.py`；也不得自动重新生成清单或回传/同步发布包。
+- 改代码、改文案、改界面时只做必要的定向验证（语法/静态检查、直接受影响的定向测试）。产物重建一律等用户说“打包/构建/出包”时再执行，避免为了文字改动反复重算模块与清单哈希。
+- 需要用户看界面效果时，优先用源码启动客户端（`launcher.py`）或发布器（`publisher.py`），不要为此重新打包。
+
 ## 更新说明（重要）
 
 - 每次构建新版本（例如 0.1.7）并准备发布时，**必须同步完善** `publisher-workspace/update-notes.json` 中该版本的更新说明：
