@@ -91,6 +91,27 @@ python tools\build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 4. `PLAN.md`；
 5. `STATUS.md` 与 `README.md` 中的历史描述。
 
+## 模块版本目录、module.json 与 API 版本（2026-09-21 补充）
+
+### 三个概念
+
+- **源码目录**：`app/versions/0.1.0/` 是仓库里**唯一被 Git 跟踪**的模块源码（`.gitignore` 中 `/app/versions/*` 全部忽略，仅放行 `0.1.0`）。目录名是历史遗留，**里面的代码始终是最新代码**；不要用目录名推断功能年代。
+- **发行副本**：`app/versions/<版本>/`（如 `0.2.0`、`1.0.0`）都是从未跟踪目录复制出来的副本，仅用于构建与运行，不入库。它们与 `0.1.0` 的代码内容一致，差别只在 `module.json` 的 `version` 与 `api_version`。
+- **活动模块**：`app/state.json` 的 `active_version` 决定客户端实际加载哪个版本目录；启动器要求 `state.active_version` == 目录名 == `module.json.version`，三者不一致会拒绝加载。
+
+### `api_version` 的语义
+
+- `module.json` 的 `api_version` 表示"该模块要求宿主（启动器）提供到第几代 API"，由 `src/signriver_launcher/constants.py` 的 `HOST_API_VERSION`（当前 3）定义上限。
+- 校验规则（`src/signriver_launcher/models.py`）：`api_version > HOST_API_VERSION` 时拒绝加载并提示更新；**小于等于都允许**。因此 `api_version 1` 的老模块仍可运行，而声明 4 的模块会被当前启动器拒绝。
+- 新建版本时 `api_version` 应采用当前 `HOST_API_VERSION`，不要沿用旧目录的值（例如 0.1.0 目录里的 `api_version` 仍是 1）。
+
+### 日常开发与发版流程
+
+1. **改代码只改 `app/versions/0.1.0/`**（唯一源码；需要当前客户端立刻生效时，再把同一改动"定向同步"到 `app/state.json` 指向的活动版本目录）。
+2. **发版**：把 `0.1.0` 复制为 `app/versions/<新版本>/`，只修改 `module.json` 的 `version`（= 新版本号）与 `api_version`（= 当前 `HOST_API_VERSION`）。
+3. 同步 `app/state.json` 的 `active_version`、`src/signriver_launcher/constants.py` 的 `LAUNCHER_VERSION`、`publisher-workspace/update-notes.json` 的版本说明，并重新构建模块归档后更新 `config/module-archives.json`。
+4. **不要重新上传旧版本（如 0.2.0）的模块归档**：源码在该版本发布后仍有修复，本地重建产物与线上登记哈希不一致，重传会导致 CI 校验失败。
+
 ## 不可忽略的稳定约束
 
 - 不得重置、清理或覆盖不属于当前任务的未提交改动；
