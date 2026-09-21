@@ -16,6 +16,8 @@
 - 符号门槛：`ColossalNative` 需要 12 个 Steam 符号，候选库导出 1,188 个，差集为空（含 `SteamAPI_InitSafe`、`SteamAPI_RestartAppIfNecessary`）。
 - VM 部署：现状备份到 `~/cs-patch-backup-20260921/`（IceCream 库、原版 `libsteam_api_o.dylib`、`icecream.ini`）；把候选库放到 `Cities.app/Contents/Plugins/ColossalNative.bundle/Contents/MacOS/libsteam_api.dylib`；新建 `steam_settings/DLC.txt`（76 条 `appid=名称`）、`steam_settings/steam_appid.txt`（255710）、`steam_settings/force_language.txt`（schinese）。
 - 验证：经 Paradox 启动器进入游戏主菜单成功（用户确认），新 `Player.log` 不再出现 `Symbol not found`；未执行真实存档、联机与 DLC 内容可用性检查。
+- VM 游戏性能调优（同日）：`~/Library/Application Support/Colossal Order/Cities_Skylines/gameSettings.cgs` 的 8 个画质键（dofMode/antialiasing/texturesQuality/shadowsQuality/shadowsDistance/anisotropicFiltering/levelOfDetail/vsync）全部写 0（原地改 4 字节小端整数，文件长度不变）；Unity 偏好改为窗口化 1280x720 且画质 0；Steam `localconfig.vdf`（userdata/1390570194）在 `Software/Valve/Steam/apps/255710/LaunchOptions` 写入 `-screen-width 1280 -screen-height 720 -screen-fullscreen 0 -noWorkshop -disableMods`。修改前备份在 `~/game-perf-backup-20260921/`。仍未解决：`Cities` 的输入监控权限需要用户在系统设置里勾选（TCC 数据库读不到，无法代改）。
+- VM 操作备忘：Steam 的正确启动入口是 `/Applications/Steam.app`（`open -a` 该路径）；`Steam.AppBundle` 本身没有可执行入口，`launchctl submit` 与直接跑 `steam_osx` 都不稳定。改 `localconfig.vdf` 前必须先用 `steam_osx -shutdown` 正常退出，否则会被覆盖。来宾的 `py312` Python 可用于二进制/文本补丁。
 - 待办：客户端与发布器目前仍按 `cream_ini` 生成 `icecream.ini`（`app/versions/0.1.0/signriver_app/infrastructure/patching/engine.py`、`src/signriver_publisher/cream.py`，以及各卡带 JSON 的 `config_format`/`ini_target_name`），要改用 GSE 的 `steam_settings/DLC.txt` 才能让“一键解锁”产出同一套结果；LGPL-3.0 需随包附许可证与出处；候选库哈希需固定进发布清单。本轮未上传、未发布、未推送。
 
 ## macOS 1.0.0 启动崩溃修复与原生重建（2026-09-21）
