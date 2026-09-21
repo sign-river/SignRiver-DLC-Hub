@@ -185,6 +185,14 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（SteamOS 重新构建并导入基线，2026-09-21）
+
+- 起因：Steam 客户端因快照残留的"更新未落地"状态进入"下载→重启→再下载"循环，界面（Chromium 内核的 `steamwebhelper`，桌面显示为 `Chromium-browser`）每隔数秒抢焦点并留下崩溃转储；排查确认系统未安装任何独立浏览器，这是 Steam 自身行为。
+- 处理：先用最新源码（含 DLC 批量提示修复）在虚拟机内原生重建 → 导出产物 → 回退到快照 `20260921-可用基线` → 再导入新包部署。
+- 新产物（已回传 `.test-artifacts/steamos-dist/`，与来宾 `sha256sum` 一致）：`SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz` 44,548,109 字节 SHA-256 `F07902BF0814B780B18E5F673E5871710F00A12B1EE01E4496246D1D7A7BD936`；`SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip` 44,765,083 字节 SHA-256 `25B790A71319714673987845938F4E7ED1817B306974CDD932832A4DFEF578CF`。
+- 部署：包解压到 `~/signriver-steamos-build/dist/SignRiver-DLC-Hub-steamos-x64`；旧的数据目录模块改名 `0.2.0.bak-before-import` 后由启动器重新播种（83 文件，含 `_notify_batch_install_completion`）；客户端经 `systemd-run --user` 启动正常，SteamOS 侧 8 条指南全部解析通过；Stellaris 28 GB 仍在客户端目录之外。
+- 仍待处理：该基线的 Steam 客户端依旧是"更新已下载未落地"状态，直接启动 Steam 会再次进入循环（游戏数据安全）。需要时用 `~/signriver-steamos-build/../.local/share/Steam/steam.sh -steamdeck`（不加 `-skipinitialbootstrap`）启动一次完成更新，之后建议重拍基线快照。
+
 ## 最新任务（DLC 批量下载只提示一次，2026-09-21）
 
 - 问题：一键解锁/批量下载时，每个 DLC 安装完成都会弹一次「下载并安装成功！…」提示条（用户反馈每下载一个就弹一次），而流程末尾本来就有一次「一键解锁成功」对话框。
