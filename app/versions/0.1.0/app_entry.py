@@ -4331,12 +4331,13 @@ class DlcHubApplication:
                     command=lambda r=role, item=path: self._reveal_path(self._resolve_patch_target_path(r, item)),
                     **BUTTON_SECONDARY,
                 ).pack(side="right", padx=(4, 10), pady=6)
-                if self._is_file_openable(path):
+                open_target = self._patch_row_open_target(role, path)
+                if open_target is not None and self._is_file_openable(open_target):
                     ctk.CTkButton(
                         row,
                         text="打开文件",
                         width=86,
-                        command=lambda item=path: self._open_file(item),
+                        command=lambda item=open_target: self._open_file(item),
                         **BUTTON_SECONDARY,
                     ).pack(side="right", padx=(10, 0), pady=6)
                 ctk.CTkLabel(
@@ -10422,6 +10423,15 @@ class DlcHubApplication:
             else profile.runtime_original_library_name
         )
         return self.PATCH_ROLE_LABELS.get(canonical, canonical), filename
+
+    def _patch_row_open_target(self, role: str, cached_path: Path | None) -> Path | None:
+        """“打开文件”的目标：下载资源，配置行则指向游戏目录里生成的文件。"""
+        if self._canonical_patch_role(role) != "appinfo_json":
+            return cached_path
+        target = self._resolve_patch_target_path(role, cached_path)
+        if target is not None and target.is_file():
+            return target
+        return None
 
     def _patch_download_specs(self) -> tuple[DownloadSpec, ...]:
         """Materialize the complete release-side patch payload when available."""

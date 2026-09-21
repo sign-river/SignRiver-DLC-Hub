@@ -389,7 +389,8 @@ def test_tool_center_uses_detail_pages_and_only_declared_tools_in_quick_check() 
     assert 'if is_ready:' in patch_tool
     assert 'text="' + ''.join(chr(code) for code in (0x8865, 0x4e01, 0x6b63, 0x5e38)) + '"' in patch_tool
     assert 'text_color=UI["success"]' in patch_tool
-    assert 'if self._is_file_openable(path):' in patch_tool
+    assert 'open_target = self._patch_row_open_target(role, path)' in patch_tool
+    assert 'if open_target is not None and self._is_file_openable(open_target):' in patch_tool
     assert 'def _is_file_openable(path: Path) -> bool' in source
     assert 'library_suffixes = (".dll", ".dylib", ".so", ".bundle", ".a", ".lib")' in source
     assert 'dialog = ctk.CTkToplevel(self.window)' not in source.split('def _show_patch_tool', 1)[1].split('def _redownload_patch_assets', 1)[0]
