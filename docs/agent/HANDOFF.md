@@ -1,5 +1,14 @@
 # 当前任务交接
 
+## macOS 补丁改为“只换库”模式（2026-09-21）
+
+- 决策：macOS 不再生成任何解锁配置文件（不做 `icecream.ini`，也不做 GSE 的 `steam_settings/DLC.txt`），解锁语义交给替换型库默认的“全部解锁”；游戏只会加载已下载的 DLC。程序行为固定为：把原库改名为 `libsteam_api_o.dylib` 备份 → 写入新的 `libsteam_api.dylib`；还原时先用备份覆盖主库、再删除 `_o` 与遗留配置文件。
+- 客户端实现：`PatchConfigFormat` 新增 `none`（`app/versions/0.1.0/signriver_app/domain/patches.py`、`domain/cartridges.py` 白名单）。`infrastructure/patching/engine.py` 在 `none` 模式下不写配置、事务性删除历史遗留的同名配置（如 `icecream.ini`），凭据里的 `ini_sha256` 记为空串；`audit()` / `audit_recorded()` 把“配置文件不应存在”作为健康条件，残留文件会被报成需要修复。
+- 卡带与发布器：`config/cartridges/cartridge_{stellaris,civilization_6,hearts_of_iron_4,rimworld,cities_skylines}.json` 的 `patch.platforms.macos.config_format` 改为 `none`（`ini_target_name` 保留 `icecream.ini` 作为历史清理目标），同步更新 `cartridges_index.json` 的 SHA-256/大小；发布器默认值 `src/signriver_publisher/models.py` 同步改为 `none`。
+- 验证：`pytest -q`（全量）通过；新增回归 `tests/test_patch_engine.py::test_config_none_profile_swaps_library_and_clears_legacy_config` 与 `::test_config_none_profile_flags_legacy_config_residue`，以及卡带漂移守卫 `tests/test_platform_content.py::test_macos_cartridges_use_library_only_patch_layout`。
+- 已弃用基线：icecream 的 macOS 库缺 `SteamAPI_InitSafe` / `SteamAPI_RestartAppIfNecessary`，会造成白屏，不再用于 macOS 发布；macOS 改用 Goldberg/GSE 的 universal `libsteam_api.dylib`（详见 `docs/cross-platform-patch.md` 的基线段）。
+- 待办：把 macOS 的补丁资产替换为 GSE 库（放进 `publisher-workspace/games/<slug>/patches/`）、随包附 LGPL-3.0 许可证与出处；在虚拟机里重建 1.0.0 客户端包并做一次“清空配置文件后仍能进游戏”的复测；SteamOS 端重建仍未执行。
+
 ## macOS 城市天际线白屏：改用 Goldberg/GSE 解锁库（2026-09-21）
 
 - 根因：IceCream（`krnya/icecream` 提交 `0c8f746`）只导出 17 个符号，缺 `SteamAPI_InitSafe` 与 `SteamAPI_RestartAppIfNecessary`；`ColossalNative` 在 dyld 加载期解析失败（`Symbol not found: _SteamAPI_InitSafe`），游戏停在白屏。上游 `main` 与该提交源码一致，README 自述仅 Hearts of Iron IV 验证过。

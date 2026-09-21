@@ -20,9 +20,9 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 | --- | --- | --- | --- |
 | Windows x64 | CreamAPI `steam_api64.dll` | `steam_api64_o.dll` | PE x86_64 |
 | SteamOS x64 | SmokeAPI 64 位 proxy，发布名 `libsteam_api.so` | `libsteam_api_o.so` | ELF x86_64 |
-| macOS Intel x64 | icecream `libsteam_api.dylib` | `libsteam_api_o.dylib` | Mach-O x86_64 |
+| macOS Intel x64 | Goldberg/GSE `libsteam_api.dylib`（替换型，运行时不读 `_o`） | `libsteam_api_o.dylib`（仅作恢复凭据） | Mach-O universal 且含 x86_64 |
 
-代理库运行时仍要求同目录 `_o`，但内容只能来自：
+Windows/SteamOS 的代理库运行时仍要求同目录 `_o`；macOS 使用替换型解锁库，运行时不读 `_o`，`_o` 只保留为“恢复原版”的凭据。原生库内容只能来自：
 
 1. 与有效凭据匹配的当前用户原生库保险库；
 2. 与有效凭据匹配的游戏目录 `_o`，导入保险库后使用；
@@ -30,12 +30,13 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 
 不得从发布资产、其他游戏、其他安装或其他用户复制原生库。完整生命周期见 [原生库生命周期、迁移与修复操作手册](original-library-lifecycle.md)。
 
-平台二进制不得提交到源码仓库。代理资源发布记录必须包含上游版本或提交号、SHA-256 与许可证。SmokeAPI Linux 支持和 icecream 均按实验性功能处理；HOI4 是 0.2.0 唯一要求真实游戏验收的非 Windows 卡带。
+平台二进制不得提交到源码仓库。代理资源发布记录必须包含上游版本或提交号、SHA-256 与许可证。SmokeAPI Linux 支持与 Goldberg/GSE macOS 构建均按实验性功能处理；HOI4 是 0.2.0 唯一要求真实游戏验收的非 Windows 卡带。
 
 0.2.0 的固定代理库上游基线：
 
 - SmokeAPI：`v4.1.3`，Unlicense；SteamOS x64 官方 `libsmoke_api64.so` 的 SHA-256 为 `dcb21dc733d38c51b5d673c581edd31f995bbdbaff5582540ece7981eb94b6d2`。
-- icecream：[`krnya/icecream`](https://github.com/krnya/icecream) 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d`，MIT；源码归档 SHA-256 为 `49aca4f18cb5a2aedc18d577936d9342a3ff1d937eb2e16b157793c4c85c4b80`；macOS 原生 x86_64 `libsteam_api.dylib` 大小为 `612,912` 字节，SHA-256 为 `68a32d893a00df57010396e439116f33193f44de0d0a817361b4bf1550936daa`。
+- macOS 替换型解锁库：[`da-wood69/goldberg-emulator-macos`](https://github.com/da-wood69/goldberg-emulator-macos)（LGPL-3.0）release `macos-universal-2026-09-02`；包内 `libsteam_api.dylib` 为 universal（x86_64 + arm64），大小 `5,310,608` 字节，SHA-256 `4ad99f3d949f22878ee8309bfdf792f4f7c20aef4a166a0b8c479876043d58bc`；发布 ZIP 的 SHA-256 为 `d17c3d9d1bb9ae23175fdce303ae446e40fe49a7a1642c5d2b3087779ee84de3`。
+- 已弃用基线：icecream [`krnya/icecream`](https://github.com/krnya/icecream) 提交 `0c8f74628d00b944ebbb750bf84c34a91475419d`（MIT）只导出 17 个符号，缺少 `SteamAPI_InitSafe`、`SteamAPI_RestartAppIfNecessary`，会让依赖这些符号的游戏在加载期直接失败（白屏）。不再用于 macOS 发布。
 
 ## 卡带平台字段
 
@@ -46,7 +47,7 @@ macOS `.app` 内的初始运行资源位于 `Contents/Resources/runtime`。首�
 - `install_relative_dir`
 - `unlocker_dll_name`
 - `runtime_original_library_name`
-- 配置文件名和 `config_format`
+- 配置文件名和 `config_format`：`cream_ini`、`smokeapi_json`，或 `none`。`none` 表示该平台不使用配置文件：安装时不生成配置，只清理同名的历史配置文件（macOS 已切换为该模式）。
 - `interference_files`：安装补丁前需要清理的、相对于每个实际补丁写入目录的显式文件路径列表。Windows 使用 `patch.interference_files`，SteamOS/macOS 在各自 `patch.platforms.<platform>` 中独立声明；同一列表会应用到 `install_relative_dir` 和每个 `additional_install_relative_dirs`，禁止绝对路径、`..`、目录、符号链接目标和通配符。
 
 补丁安装会在写入代理库、原生库和配置文件前清理这些干扰文件。清理动作属于同一事务：任一删除、写入或最终校验失败都会回滚已删除文件；安装成功后清理结果不会在移除补丁时恢复。未配置该字段时按空列表处理。

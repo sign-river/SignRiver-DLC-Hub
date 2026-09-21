@@ -58,7 +58,7 @@
         "unlocker_dll_name": "libsteam_api.dylib",
         "runtime_original_library_name": "libsteam_api_o.dylib",
         "ini_target_name": "icecream.ini",
-        "config_format": "cream_ini",
+        "config_format": "none",
         "interference_files": [
           "Juuj_Steam.json",
           "Juuj_更新发布地址.html",

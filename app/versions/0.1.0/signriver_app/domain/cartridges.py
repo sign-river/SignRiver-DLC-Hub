@@ -20,7 +20,7 @@ _SUPPORTED_INSPECTORS = frozenset(
 )
 _SUPPORTED_DLC_DELIVERY_MODES = frozenset({"download_packages", "built_in"})
 _SUPPORTED_PLATFORMS = frozenset({"windows", "steamos", "macos"})
-_SUPPORTED_CONFIG_FORMATS = frozenset({"cream_ini", "smokeapi_json"})
+_SUPPORTED_CONFIG_FORMATS = frozenset({"cream_ini", "smokeapi_json", "none"})
 CARTRIDGE_INDEX_SCHEMA = 1
 CARTRIDGE_DOCUMENT_SCHEMA = 1
 HUB_RELEASE_TAG = "hub"

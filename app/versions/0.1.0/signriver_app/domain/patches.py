@@ -30,6 +30,8 @@ class PatchConfigFormat(StrEnum):
 
     CREAM_INI = "cream_ini"
     SMOKEAPI_JSON = "smokeapi_json"
+    # 平台不使用配置文件：安装时不生成配置，只清理历史遗留的同名配置文件。
+    NONE = "none"
 
 
 def host_patch_platform() -> PatchPlatform:

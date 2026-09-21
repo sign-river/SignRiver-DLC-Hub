@@ -810,3 +810,82 @@ def test_stellaris_patch_profile_matches_publisher_expectations() -> None:
     assert profile.runtime_original_library_name == "steam_api64_o.dll"
     assert profile.appinfo_asset_name == "stellaris_appinfo.json"
     assert profile.template.ini_target_name == "cream_api.ini"
+
+
+# ---- config_format=none (macOS 替换型解锁库) -------------------------------
+
+
+NO_CONFIG_PROFILE = replace(
+    STELLARIS_PATCH_PROFILE,
+    template=replace(
+        STELLARIS_PATCH_PROFILE.template,
+        ini_target_name="icecream.ini",
+        config_format="none",
+    ),
+)
+
+
+def test_config_none_profile_swaps_library_and_clears_legacy_config(
+    tmp_path: Path,
+) -> None:
+    """替换型解锁库只换库文件，不生成配置，并清掉上一套流程遗留的文件。"""
+    engine = PatchEngine(NO_CONFIG_PROFILE, tmp_path / "data")
+    game = tmp_path / "game"
+    game.mkdir()
+    (game / "steam_api64.dll").write_bytes(VANILLA_GAME_DLL)
+    (game / "icecream.ini").write_text("[steam]\nunlockall = True\n", encoding="utf-8")
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+
+    result = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="stellaris",
+    )
+
+    assert (game / "steam_api64.dll").read_bytes() == UNLOCKER_BODY
+    assert (game / "steam_api64_o.dll").read_bytes() == VANILLA_GAME_DLL
+    assert not (game / "icecream.ini").exists()
+    assert result.receipt.ini_sha256 == ""
+    assert result.receipt.ini_bytes == 0
+    assert result.ini_written is False
+    assert engine.audit_recorded(game).health is PatchHealth.HEALTHY
+
+    # 重复应用必须保持幂等：缺少配置文件不能被视为损坏。
+    second = engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="stellaris",
+    )
+    assert second.audit_after.health is PatchHealth.HEALTHY
+
+    touched = engine.remove(game)
+
+    assert (game / "steam_api64.dll").read_bytes() == VANILLA_GAME_DLL
+    assert not (game / "steam_api64_o.dll").exists()
+    assert not (game / "icecream.ini").exists()
+    assert "steam_api64_o.dll" in touched
+
+
+def test_config_none_profile_flags_legacy_config_residue(tmp_path: Path) -> None:
+    """配置文件重新出现时应被审计为需要修复，而不是当作健康状态。"""
+    engine = PatchEngine(NO_CONFIG_PROFILE, tmp_path / "data")
+    game = tmp_path / "game"
+    game.mkdir()
+    unlocker, original, appinfo = write_complete_patch_sources(tmp_path)
+    engine.apply(
+        game,
+        unlocker_dll_source=unlocker,
+        original_dll_source=original,
+        appinfo_json_source=appinfo,
+        game_id="stellaris",
+    )
+    (game / "icecream.ini").write_text("[steam]\nunlockall = True\n", encoding="utf-8")
+
+    audit = engine.audit_recorded(game)
+
+    assert audit.health is PatchHealth.MODIFIED
+    assert "icecream.ini" in audit.modified

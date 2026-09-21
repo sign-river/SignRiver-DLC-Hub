@@ -901,6 +901,28 @@ def test_cities_index_only_claims_platforms_that_are_actually_published() -> Non
     }, "未上传 SteamOS 资源时不得声明 steamos 可用"
 
 
+def test_macos_cartridges_use_library_only_patch_layout() -> None:
+    """macOS 使用替换型解锁库：只换库文件，不再生成配置文件。"""
+    documents = sorted((ROOT / "config" / "cartridges").glob("cartridge_*.json"))
+
+    assert documents, "未找到卡带文档"
+    checked = 0
+    for path in documents:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        macos = document.get("patch", {}).get("platforms", {}).get("macos")
+        if macos is None:
+            continue
+        checked += 1
+        assert macos.get("config_format") == "none", path.name
+        assert macos.get("ini_target_name") == "icecream.ini", path.name
+        assert macos.get("unlocker_dll_name") == "libsteam_api.dylib", path.name
+        assert (
+            macos.get("runtime_original_library_name") == "libsteam_api_o.dylib"
+        ), path.name
+
+    assert checked == 5, "macOS 卡带数量变化时请同步更新本用例"
+
+
 def test_game_detection_failure_shows_the_specific_reason() -> None:
     source = (ROOT / "app" / "versions" / "0.1.0" / "app_entry.py").read_text(encoding="utf-8")
     block = source.split('self.game_status.configure(text="未检测到有效安装")', 1)[1].split(
