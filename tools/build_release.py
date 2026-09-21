@@ -155,8 +155,88 @@ def _find_7z() -> Path | None:
     return None
 
 
+def _find_bandizip() -> Path | None:
+    """Locate Bandizip's console tool (``bz.exe``).
+
+    Bandizip ships ``bdzsfx.x86.sfx`` next to ``bz.exe``; its SFX stub runs as
+    ``asInvoker``（不弹 UAC），解压时把 payload 的顶层文件夹放到 EXE 同级目录。
+    """
+    candidates = [shutil.which("bz"), shutil.which("bz.exe")]
+    if sys.platform == "win32":
+        try:
+            import winreg
+        except ImportError:  # pragma: no cover - 非 Windows 不会走到这里
+            winreg = None
+        if winreg is not None:
+            roots = (
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+            )
+            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for root in roots:
+                    try:
+                        with winreg.OpenKey(hive, root) as key:
+                            count = winreg.QueryInfoKey(key)[0]
+                    except OSError:
+                        continue
+                    for index in range(count):
+                        try:
+                            with winreg.OpenKey(key, winreg.EnumKey(key, index)) as entry:
+                                display = str(winreg.QueryValueEx(entry, "DisplayName")[0])
+                                if "bandizip" not in display.casefold():
+                                    continue
+                                location = str(
+                                    winreg.QueryValueEx(entry, "InstallLocation")[0]
+                                ).strip()
+                        except OSError:
+                            continue
+                        if location:
+                            candidates.append(str(Path(location) / "bz.exe"))
+    for item in candidates:
+        if not item:
+            continue
+        path = Path(item)
+        if path.is_file():
+            return path
+    return None
+
+
+def _build_bandizip_sfx(release: Path, sfx_path: Path) -> bool:
+    """Build the self-extractor with Bandizip when it is installed.
+
+    与 7-Zip 的 SFX 相比，Bandizip 的 stub 以 ``asInvoker`` 运行，不需要
+    管理员权限；解压结果同样是 ``<EXE 同级目录>\\<发布目录>``。
+    """
+    bandizip = _find_bandizip()
+    if bandizip is None:
+        return False
+    module = bandizip.parent / "bdzsfx.x86.sfx"
+    if not module.is_file():
+        return False
+    sfx_path.unlink(missing_ok=True)
+    result = subprocess.run(
+        [
+            str(bandizip),
+            "c",
+            "-l:9",
+            "-y",
+            f"-sfx:{module}",
+            str(sfx_path),
+            # 传入发布目录本身（不是 \*），保证解压后落在单一文件夹里。
+            str(release),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return result.returncode == 0 and sfx_path.is_file()
+
+
 def _build_sfx(release: Path, archive_7z: Path, sfx_path: Path) -> bool:
     """Build a GUI 7-Zip SFX so users extract before running the app."""
+    if _build_bandizip_sfx(release, sfx_path):
+        return True
     seven_zip = _find_7z()
     if seven_zip is None:
         return False
@@ -210,7 +290,11 @@ def _build_sfx(release: Path, archive_7z: Path, sfx_path: Path) -> bool:
 
 
 def _build_python_sfx(archive_zip: Path, sfx_path: Path) -> bool:
-    """Fallback SFX built with PyInstaller when 7-Zip is not installed."""
+    """PyInstaller 外壳版自解压包（默认方案）。
+
+    双击后自动解压到 ``<EXE 同级目录>\\<发布目录>``，不需要选择路径、
+    不需要管理员权限，完成后提示并打开该文件夹；v0.1.x 一直用它。
+    """
     dist = ROOT / "dist"
     work = ROOT / "build"
     icon_path = ROOT / "config" / "app.ico"
@@ -413,6 +497,9 @@ def main() -> int:
     sfx_alias = dist / RELEASE_SFX_NAME
     archive_7z = dist / f"{RELEASE_ZIP_STEM}-v{VERSION}.7z"
     built_sfx = False
+    # 优先用 Bandizip/7-Zip 的 SFX 模块：产物只有 ZIP + 几十 KB 的 stub，
+    # 其中 Bandizip 的 stub 以 asInvoker 运行（不弹 UAC）且解压到单一文件夹；
+    # Python 外壳版会多出约 11.9 MB，只在两个模块都不可用时兜底。
     if _build_sfx(release, archive_7z, sfx_path):
         built_sfx = True
     elif _build_python_sfx(archive, sfx_path):
