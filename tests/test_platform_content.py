@@ -923,6 +923,27 @@ def test_macos_cartridges_use_library_only_patch_layout() -> None:
     assert checked == 5, "macOS 卡带数量变化时请同步更新本用例"
 
 
+def test_stellaris_macos_patch_targets_the_game_root() -> None:
+    """Stellaris 本体链接 @executable_path/../../../libsteam_api.dylib。
+
+    macOS 上游戏真正加载的是游戏根目录那份库，补丁不能再写到
+    ``stellaris.app/Contents/MacOS``（那里只是随包附带的副本）。
+    """
+    document = json.loads(
+        (ROOT / "config" / "cartridges" / "cartridge_stellaris.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    macos = document["patch"]["platforms"]["macos"]
+
+    assert macos["install_relative_dir"] == "."
+    assert macos["executable_relative_path"] == (
+        "stellaris.app/Contents/MacOS/stellaris"
+    )
+    assert macos["unlocker_dll_name"] == "libsteam_api.dylib"
+    assert macos["runtime_original_library_name"] == "libsteam_api_o.dylib"
+
+
 def test_game_detection_failure_shows_the_specific_reason() -> None:
     source = (ROOT / "app" / "versions" / "0.1.0" / "app_entry.py").read_text(encoding="utf-8")
     block = source.split('self.game_status.configure(text="未检测到有效安装")', 1)[1].split(

@@ -36,7 +36,7 @@ BUILTIN_PATCH_PLATFORMS: dict[str, dict[str, dict[str, object]]] = {
         },
         "macos": {
             "executable_relative_path": "stellaris.app/Contents/MacOS/stellaris",
-            "dlc_relative_dir": "dlc", "install_relative_dir": "stellaris.app/Contents/MacOS",
+            "dlc_relative_dir": "dlc", "install_relative_dir": ".",
             "unlocker_dll_name": "libsteam_api.dylib",
             "runtime_original_library_name": "libsteam_api_o.dylib",
             "ini_target_name": "icecream.ini", "config_format": "none",

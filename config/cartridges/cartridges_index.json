@@ -11,8 +11,8 @@
       "game_id": "stellaris",
       "display_name": "群星 (Stellaris)",
       "asset_name": "cartridge_stellaris.json",
-      "sha256": "75826f7051279aa8fd74674a132139ab4b796dc461b0910061fe5650fb26a21e",
-      "size_bytes": 2799,
+      "sha256": "13d9238283e4b4b470ac405dd42e992340fef872734b5b010222e28e2dad5c16",
+      "size_bytes": 2772,
       "platform_resources": {
         "macos": {
           "patch": true,

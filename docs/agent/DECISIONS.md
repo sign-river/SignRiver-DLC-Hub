@@ -42,6 +42,12 @@
 - IceCream（`krnya/icecream` `0c8f746`）只导出 17 个符号，缺少 `SteamAPI_InitSafe`、`SteamAPI_RestartAppIfNecessary`，只适用于少数游戏；Goldberg/GSE 系构建（实测 1,188 个符号）覆盖完整 flat API，是 macOS 的默认选择。
 - 替换型模拟器（Goldberg/GSE）读取库旁边的 `steam_settings/DLC.txt`（每行 `appid=名称`）与 `steam_settings/steam_appid.txt`；不需要原版代理，但客户端仍应保留 `libsteam_api_o.dylib` 作为恢复凭据。
 
+### macOS 补丁目录必须按主程序的加载路径确定（2026-09-21）
+
+- 实测：`otool -L Stellaris/stellaris.app/Contents/MacOS/stellaris` 得到 `@executable_path/../../../libsteam_api.dylib`。`@executable_path` 是 `stellaris.app/Contents/MacOS`，向上三级回到**游戏根目录**，所以 Stellaris macOS 真正加载的是根目录那份库（670,560 字节）；包内 `Contents/MacOS/libsteam_api.dylib`（5,195,264 字节）只是随包副本。
+- 结论：macOS 卡带的 `install_relative_dir` 必须写成主程序实际解析到的那一级（Stellaris 为 `.`），不能因为“包内也有同名库”就假定补丁位置——写错会得到“补丁显示正常、游戏实际没生效”的假象。
+- 判定方法：对主程序执行 `otool -L <主程序> | grep -i steam`，按 `@executable_path` 展开真实路径后再定目录。HOI4、文明 6、RimWorld 的 macOS 声明尚未按此核对（三者当前没有 macOS 资产，未发布）。
+
 ### tkinter 终结器只能在主线程调用 Tcl（2026-09-21）
 
 - macOS 自带 Tk 未开启线程支持，任何非主线程的 Tcl 调用都可能以 `EXC_BAD_ACCESS` 直接终止进程，无法用 Python 异常捕获。
