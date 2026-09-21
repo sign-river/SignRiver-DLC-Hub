@@ -177,6 +177,13 @@
 - 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
 - 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
 - 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 游戏库迁移与三项恢复（SteamOS，2026-09-21）
+
+- 二次事故：用户尝试打开 Steam 时，Steam 再次自我重装客户端并清空 `~/.local/share/Steam`，游戏库第二次被删（已由快照恢复）。定位到快照 `下载stellaris` 是在 **Steam 客户端更新途中**拍的（`package/` 只有 `beta`，没有 `*.installed`），因此该快照下每次启动 Steam 都会触发一次完整客户端重装。
+- 已完成迁移（游戏库移出 Steam 根目录）：`~/.local/share/Steam/steamapps/{common,downloading,appmanifest_*.acf}` → `~/Games/SteamLibrary/steamapps/`；并在 `steamapps/libraryfolders.vdf` 与 `config/libraryfolders.vdf` 两个位置登记第二个库（`/home/deck/Games/SteamLibrary`）。之后 Steam 再重装客户端只会重建客户端，不会再删除游戏。
+- 当前状态：Stellaris 28 GB 位于 `/home/deck/Games/SteamLibrary/steamapps/common/Stellaris`（`appmanifest_281990.acf` 状态 `StateFlags=4`）；Steam 客户端已更新完成并显示登录窗口（客户端重装导致登录状态丢失，需重新登录一次）；`dolphin` 已打开该目录；我们的客户端已重新部署并运行（`signriver-check.service` active，模块 `0.2.0`）。
+- 注意事项：不要在 Steam 运行时改动来宾系统时钟（历史事故触发条件之一）；本 VM 的快照仍保留一份未完成客户端安装的状态，若回退到该快照会再次触发客户端重装（对已迁移的游戏库无害）。
+
 ## 事故与恢复（SteamOS 快照回退，2026-09-21）
 
 - 事故：本机对 SteamOS VM 执行时钟校正（`systemctl restart systemd-timesyncd`）时时钟一次性前跳 18 小时 33 分；11 秒后 Steam 启动脚本判定客户端异常，执行 `rm -rf ~/.local/share/Steam` 自我重装，而 SteamOS 默认游戏库 `steamapps/` 位于该目录内，导致约 29 GB 游戏数据（含 Stellaris）被删除。证据：`journalctl -b -1` 中 `14:14:58 Initial clock synchronization` 紧随 `14:15:09 steam[...]: rm: cannot remove '/home/deck/.local/share/Steam': Directory not empty` 与 `app-steam@*.service ... status=1/FAILURE`。用户重启发生在 14:24，晚于删除，不是原因。
