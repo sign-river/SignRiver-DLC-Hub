@@ -12,7 +12,8 @@ from signriver_app.application.cartridge_catalog import (
     CartridgeCatalogService,
 )
 from signriver_app.application.guides import GuideCatalogError, GuideCatalogService, GuideIndexEntry, GuideTool, resolve_bootstrap_dir
-from signriver_app.domain import CartridgeIndexEntry, INDEX_ASSET_NAME
+from signriver_app.adapters.document_cartridge import build_cartridge_from_document
+from signriver_app.domain import CartridgeDocument, CartridgeIndexEntry, INDEX_ASSET_NAME
 from signriver_publisher.client_cartridges import build_client_cartridge_index
 from signriver_publisher.models import PublisherCartridge
 from signriver_publisher.workspace import PublisherWorkspace
@@ -815,3 +816,60 @@ def test_client_resolves_guides_from_the_packaged_app_bundle() -> None:
             "self.helper_tools =", 1
         )[0]
         assert "bootstrap_dir=resolve_bootstrap_dir(*self._guide_bootstrap_candidates())" in ctor
+
+
+def _build_macos_cities_tree(root: Path) -> None:
+    """Recreate the real Cities: Skylines macOS layout observed on the test VM."""
+    macos = root / "Cities.app" / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    (macos / "Cities").write_bytes(b"exe")
+    files = root / "Cities.app" / "Contents" / "Resources" / "Files"
+    (files / "Radio").mkdir(parents=True)
+    plugins = root / "Cities.app" / "Contents" / "Plugins" / "ColossalNative.bundle" / "Contents" / "MacOS"
+    plugins.mkdir(parents=True)
+    (plugins / "libsteam_api.dylib").write_bytes(b"steam")
+
+
+def _cities_cartridge(platform: str):
+    document = json.loads(
+        (ROOT / "config" / "cartridges" / "cartridge_cities_skylines.json").read_text(encoding="utf-8")
+    )
+    return build_cartridge_from_document(CartridgeDocument.from_dict(document), platform=platform)
+
+
+def test_cities_skylines_macos_layout_is_declared_with_app_bundle_paths(tmp_path: Path) -> None:
+    document = json.loads(
+        (ROOT / "config" / "cartridges" / "cartridge_cities_skylines.json").read_text(encoding="utf-8")
+    )
+    macos = document["patch"]["platforms"]["macos"]
+
+    assert macos["executable_relative_path"] == "Cities.app/Contents/MacOS/Cities"
+    assert macos["dlc_relative_dir"] == "Cities.app/Contents/Resources/Files"
+    assert macos["install_relative_dir"] == (
+        "Cities.app/Contents/Plugins/ColossalNative.bundle/Contents/MacOS"
+    )
+    assert document["dlc_relative_dir"] == "Files", "Windows 目录布局不能被改动"
+
+
+def test_cities_skylines_macos_validation_accepts_real_app_bundle_layout(tmp_path: Path) -> None:
+    root = tmp_path / "Cities_Skylines"
+    _build_macos_cities_tree(root)
+    cartridge = _cities_cartridge("macos")
+
+    validation = cartridge.adapter.validate(root)
+
+    assert validation.valid, validation.errors
+    assert validation.executable == root / "Cities.app" / "Contents" / "MacOS" / "Cities"
+
+
+def test_cities_skylines_macos_validation_rejects_flat_windows_style_root(tmp_path: Path) -> None:
+    """A root without the app bundle (old Windows-style layout) must not validate."""
+    root = tmp_path / "Cities_Skylines"
+    (root / "Files").mkdir(parents=True)
+    (root / "Cities.exe").write_bytes(b"exe")
+    cartridge = _cities_cartridge("macos")
+
+    validation = cartridge.adapter.validate(root)
+
+    assert not validation.valid
+    assert any("Cities.app/Contents/MacOS/Cities" in item for item in validation.errors)

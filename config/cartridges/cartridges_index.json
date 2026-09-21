@@ -74,8 +74,8 @@
       "game_id": "cities_skylines",
       "display_name": "都市天际线 (Cities: Skylines)",
       "asset_name": "cartridge_cities_skylines.json",
-      "sha256": "12b7cb75591ba1338d0e0c63b63aee846a208d429128d8e6278cee4f58433752",
-      "size_bytes": 2808,
+      "sha256": "3753c42b5ef5ec6007e1f948f23d04bd7da303fe71d076ed03568a354e6fea4c",
+      "size_bytes": 2960,
       "platform_resources": {
         "macos": {
           "patch": true,
