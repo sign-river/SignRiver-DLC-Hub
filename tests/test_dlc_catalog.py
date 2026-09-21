@@ -9,7 +9,13 @@ import pytest
 
 from signriver_app.adapters.stellaris import STELLARIS_PATCH_PROFILE, StellarisGameCartridge
 from signriver_app.application import StellarisCatalogService
-from signriver_app.domain import PatchBundle, ReleaseAsset
+from signriver_app.domain import (
+    PatchBundle,
+    PatchPlatform,
+    PatchProfile,
+    PatchTemplate,
+    ReleaseAsset,
+)
 from signriver_app.infrastructure.catalog import GitLinkReleaseSource, GitLinkSourceConfig, PackageInspectionError, inspect_stellaris_package
 
 
@@ -112,6 +118,59 @@ def test_catalog_snapshot_reports_missing_patch_assets() -> None:
     assert snapshot.patch_bundle is None
     # We only have the AppInfo file in the small payload; the proxy library is missing.
     assert set(snapshot.missing_patch_assets) == {"original.dll", "unlocker.dll"}
+
+
+def test_native_catalog_does_not_treat_windows_dlls_as_patch_assets() -> None:
+    native_profile = PatchProfile(
+        unlocker_dll_name="libsteam_api.dylib",
+        runtime_original_library_name="libsteam_api_o.dylib",
+        appinfo_asset_name="stellaris_appinfo.json",
+        template=PatchTemplate("icecream.ini"),
+        platform=PatchPlatform.MACOS,
+    )
+    service = StellarisCatalogService(
+        make_full_source(), patch_profile=native_profile,
+    )
+
+    snapshot = service.refresh_snapshot()
+
+    assert snapshot.patch_bundle is None
+    assert set(snapshot.missing_patch_assets) == {
+        "libsteam_api.dylib", "libsteam_api_o.dylib",
+    }
+
+
+def test_native_catalog_accepts_only_native_library_names() -> None:
+    payload_bytes = json.dumps({
+        "releases": [{
+            "id": "1",
+            "tag_name": "ste",
+            "attachments": [
+                {"id": 1, "title": "libsteam_api.dylib", "url": "/native"},
+                {"id": 2, "title": "libsteam_api_o.dylib", "url": "/original"},
+                {"id": 3, "title": "stellaris_appinfo.json", "url": "/appinfo"},
+            ],
+        }]
+    }).encode()
+    source = GitLinkReleaseSource(
+        GitLinkSourceConfig("signriver", "file-warehouse"),
+        fetch=lambda *_args: payload_bytes,
+    )
+    native_profile = PatchProfile(
+        unlocker_dll_name="libsteam_api.dylib",
+        runtime_original_library_name="libsteam_api_o.dylib",
+        appinfo_asset_name="stellaris_appinfo.json",
+        template=PatchTemplate("icecream.ini"),
+        platform=PatchPlatform.MACOS,
+    )
+
+    snapshot = StellarisCatalogService(
+        source, patch_profile=native_profile,
+    ).refresh_snapshot()
+
+    assert snapshot.missing_patch_assets == ()
+    assert snapshot.patch_bundle is not None
+    assert snapshot.patch_bundle.unlocker_dll.name == "libsteam_api.dylib"
 
 
 def test_catalog_snapshot_without_profile_never_returns_patch_bundle() -> None:

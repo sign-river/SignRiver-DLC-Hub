@@ -100,13 +100,11 @@ class CartridgeCatalogService:
         """Load the hub index, preferring a fresh remote copy when possible."""
         self.ensure_dirs()
         remote_error: Exception | None = None
+        candidates: list[tuple[str, CartridgeIndex]] = []
         if allow_network:
             try:
                 index = self._fetch_remote_index()
-                self._write_json(self._index_cache_path(), index.to_dict())
-                self.index = index
-                self.index_source = "remote"
-                return index
+                candidates.append(("remote", index))
             except Exception as error:
                 remote_error = error
                 LOGGER.warning("Remote cartridge index refresh failed: %s", error)
@@ -118,11 +116,27 @@ class CartridgeCatalogService:
                 continue
             try:
                 index = CartridgeIndex.from_dict(self._read_json(path))
-                self.index = index
-                self.index_source = label
-                return index
+                candidates.append((label, index))
             except Exception as error:
                 LOGGER.warning("Ignoring unusable %s cartridge index: %s", label, error)
+        if candidates:
+            # A hub may temporarily expose only Windows assets while a client
+            # already bundles native platform metadata.  Prefer the first
+            # current-platform-compatible candidate so a fresh but incomplete
+            # remote index cannot overwrite the bundled macOS/SteamOS path.
+            label, index = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if self._index_supports_current_platform(candidate[1])
+                ),
+                candidates[0],
+            )
+            if label == "remote":
+                self._write_json(self._index_cache_path(), index.to_dict())
+            self.index = index
+            self.index_source = label
+            return index
         if remote_error is not None:
             raise CartridgeCatalogError(
                 f"无法加载游戏卡带主表：{remote_error}"
@@ -404,6 +418,10 @@ class CartridgeCatalogService:
         from ..domain import host_patch_platform
 
         return host_patch_platform().value
+
+    def _index_supports_current_platform(self, index: CartridgeIndex) -> bool:
+        platform = self._current_platform_name()
+        return any(entry.is_available_on(platform) for entry in index.cartridges)
 
     @staticmethod
     def _load_bootstrap_document(

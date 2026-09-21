@@ -99,6 +99,32 @@ def test_catalog_loads_default_from_bootstrap_without_network(tmp_path: Path) ->
     assert "群星 (Stellaris)" in service.loaded_cartridges
 
 
+def test_catalog_ignores_windows_only_index_for_native_bootstrap(tmp_path: Path) -> None:
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    for source in BOOTSTRAP.glob("*.json"):
+        (bootstrap / source.name).write_bytes(source.read_bytes())
+    stale_index = json.loads((bootstrap / INDEX_ASSET_NAME).read_text(encoding="utf-8"))
+    for entry in stale_index["cartridges"]:
+        entry["platform_resources"] = {"windows": {"patch": True, "dlc": True}}
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / INDEX_ASSET_NAME).write_text(
+        json.dumps(stale_index, ensure_ascii=False), encoding="utf-8"
+    )
+
+    service = CartridgeCatalogService(
+        cache, bootstrap_dir=bootstrap, source=object(), platform="macos"
+    )
+
+    index = service.refresh_index(allow_network=False)
+
+    assert service.index_source == "bootstrap"
+    assert index.default_game_id == "stellaris"
+    loaded = service.load_default_cartridge(allow_network=False)
+    assert loaded.cartridge.patch_profile.unlocker_dll_name == "libsteam_api.dylib"
+
+
 def test_catalog_lazy_loads_other_games_from_bootstrap(tmp_path: Path) -> None:
     service = CartridgeCatalogService(
         tmp_path / "cache",

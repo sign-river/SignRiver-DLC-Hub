@@ -141,9 +141,38 @@ class ReleaseCatalogService:
         profile = self.patch_profile
         if profile is None:
             return None, ()
+        # Release assets are shared by all host platforms.  The historical
+        # stable aliases (unlocker.dll/original.dll) are Windows assets and
+        # must never be reused for a native profile: doing so would let a PE
+        # DLL be downloaded as a Mach-O/ELF library and then pass a hash-only
+        # post-apply audit.  Native releases must publish the profile's real
+        # library names (libsteam_api.dylib/.so and their _o counterparts).
+        platform = str(getattr(profile, "platform", "windows")).casefold()
+        if platform == "windows":
+            patch_names = {
+                "unlocker.dll": "unlocker_dll",
+                "original.dll": "original_dll",
+                str(profile.unlocker_dll_name).casefold(): "unlocker_dll",
+                str(profile.runtime_original_library_name).casefold(): "original_dll",
+            }
+        else:
+            patch_names = {
+                str(profile.unlocker_dll_name).casefold(): "unlocker_dll",
+                str(profile.runtime_original_library_name).casefold(): "original_dll",
+            }
+        required_names = (
+            {
+                str(profile.unlocker_dll_name).casefold(): "unlocker_dll",
+                str(profile.runtime_original_library_name).casefold(): "original_dll",
+            }
+            if platform != "windows"
+            else {
+                "unlocker.dll": "unlocker_dll",
+                "original.dll": "original_dll",
+            }
+        )
         wanted = {
-            "unlocker.dll": "unlocker_dll",
-            "original.dll": "original_dll",
+            **patch_names,
             profile.appinfo_asset_name.casefold(): "appinfo_json",
         }
         found: dict[str, ReleaseAsset] = {}
@@ -154,7 +183,11 @@ class ReleaseCatalogService:
             found[role] = asset
         missing = tuple(
             sorted(
-                name for name, role in wanted.items() if role not in found
+                name for name, role in {
+                    **required_names,
+                    profile.appinfo_asset_name.casefold(): "appinfo_json",
+                }.items()
+                if role not in found
             )
         )
         if missing:
