@@ -1,0 +1,52 @@
+{
+  "guide_id": "patch_assets_missing",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
+      "kind": "platform_text",
+      "text_by_platform": {
+        "windows": "云端目前没有为该游戏发布 Windows 补丁资源（解锁文件、原版备份文件和 AppInfo），或者刷新目录时资源没有同步下来。",
+        "steamos": "云端目前没有为该游戏发布 SteamOS 原生补丁资源（如 `libsteam_api.so` 等 Linux 原生运行库）。Windows 的 `.dll` 补丁在 SteamOS 上不可用。",
+        "macos": "云端目前没有为该游戏发布 macOS 原生补丁资源（如 `libsteam_api.dylib` 等 macOS 原生运行库）。Windows 的 `.dll` 补丁在 macOS 上不可用。"
+      }
+    },
+    {
+      "kind": "heading",
+      "text": "建议操作"
+    },
+    {
+      "kind": "text",
+      "text": "先返回主界面点击“刷新目录”，让客户端重新读取当前平台的最新资源，再查看“一键解锁”是否恢复可用。"
+    },
+    {
+      "kind": "button",
+      "text": "返回主界面刷新目录 →",
+      "target": "dlc-home"
+    },
+    {
+      "kind": "platform_text",
+      "text_by_platform": {
+        "windows": "如果刷新后仍提示补丁资源缺失，说明该游戏当前确实还没有发布 Windows 补丁资源。请等待发布更新，不要手动放入来源不明的 DLL。",
+        "steamos": "如果刷新后仍提示补丁资源缺失，说明该游戏当前还没有发布 SteamOS 原生补丁资源。请不要把 Windows 的 `steam_api64.dll` 改名为 `.so` 后使用，这样做不会生效。",
+        "macos": "如果刷新后仍提示补丁资源缺失，说明该游戏当前还没有发布 macOS 原生补丁资源。请不要把 Windows 的 `steam_api64.dll` 改名为 `.dylib` 后使用，这样做不会生效。"
+      }
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "请联系开发者并说明游戏名称、当前平台和“补丁资源缺失”提示，必要时附上截图。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
+    }
+  ],
+  "tools": []
+}

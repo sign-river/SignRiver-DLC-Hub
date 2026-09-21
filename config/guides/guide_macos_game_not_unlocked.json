@@ -1,0 +1,53 @@
+{
+  "guide_id": "macos-game-not-unlocked",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
+      "kind": "text",
+      "text": "补丁已经显示安装成功，但游戏里 DLC 仍未解锁，常见原因是：游戏没有从 Steam 启动、游戏文件在补丁之后被 Steam 校验覆盖，或者补丁文件与当前游戏主程序的架构不一致。"
+    },
+    {
+      "kind": "heading",
+      "text": "建议操作"
+    },
+    {
+      "kind": "text",
+      "text": "先确认游戏是从 Steam 启动的（不要直接双击游戏主程序），并且补丁安装后没有在 Steam 里执行过“验证游戏文件完整性”。"
+    },
+    {
+      "kind": "text",
+      "text": "返回主界面检查补丁状态是否为“已正常安装并通过校验”；如果提示不一致或缺失，请重新执行“一键解锁”。"
+    },
+    {
+      "kind": "button",
+      "text": "返回主界面重新一键解锁 →",
+      "target": "dlc-home"
+    },
+    {
+      "kind": "text",
+      "text": "如果仍然无效，请打开补丁工具确认原生补丁文件确实存在于游戏目录中，并确认下载的是 macOS 原生补丁而不是 Windows 版补丁。"
+    },
+    {
+      "kind": "button",
+      "text": "打开补丁工具 →",
+      "target": "patch-tool"
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "请联系开发者并说明游戏名称、macOS 版本、补丁状态截图和启动方式（Steam 启动或直接启动）。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
+    }
+  ],
+  "tools": []
+}

@@ -1,0 +1,44 @@
+{
+  "guide_id": "steamos-proton-native",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
+      "kind": "text",
+      "text": "SteamOS 上的补丁针对游戏的 Linux 原生版本。如果你在 Steam 里给这个游戏强制开启了 Proton/兼容层，实际运行的是 Windows 版本，原生 `.so` 补丁不会被加载，于是看起来“补丁安装成功但游戏仍未解锁”。"
+    },
+    {
+      "kind": "heading",
+      "text": "建议操作"
+    },
+    {
+      "kind": "text",
+      "text": "请在 Steam 中右键该游戏 → 属性 → 兼容性，确认没有勾选“强制使用特定 Steam Play 兼容性工具”，让游戏使用原生 Linux 版本；然后返回本工具重新执行“一键解锁”。"
+    },
+    {
+      "kind": "button",
+      "text": "返回主界面重新一键解锁 →",
+      "target": "dlc-home"
+    },
+    {
+      "kind": "text",
+      "text": "如果该游戏本身只有 Windows 版本、必须通过 Proton 运行，那么它不属于当前 SteamOS 原生补丁的适用范围，请不要混用两套补丁文件。"
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "请联系开发者并说明游戏名称、是否开启 Proton、补丁状态和启动方式，必要时附上截图。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
+    }
+  ],
+  "tools": []
+}

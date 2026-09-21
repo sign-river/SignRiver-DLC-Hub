@@ -74,6 +74,24 @@
       ]
     },
     {
+      "guide_id": "patch_assets_missing",
+      "title": "补丁资源缺失，无法一键解锁",
+      "summary": "当前游戏在所选平台没有已发布的补丁资源，“一键解锁”会保持禁用。",
+      "title_by_platform": {
+        "steamos": "SteamOS 原生补丁资源缺失",
+        "macos": "macOS 原生补丁资源缺失"
+      },
+      "summary_by_platform": {
+        "steamos": "云端没有该游戏的 SteamOS 原生 `.so` 补丁资源，Windows DLL 不可用，“一键解锁”会保持禁用。",
+        "macos": "云端没有该游戏的 macOS 原生 `.dylib` 补丁资源，Windows DLL 不可用，“一键解锁”会保持禁用。"
+      },
+      "summary_type": "problem_detail",
+      "asset_name": "guide_patch_assets_missing.json",
+      "platforms": [
+        "all"
+      ]
+    },
+    {
       "guide_id": "security-interference",
       "title": "杀毒软件隔离、拦截或删除文件问题",
       "summary": "本程序、下载缓存或游戏目录中的文件可能被安全软件隔离、阻止或删除。",
@@ -117,7 +135,9 @@
       "summary": "启动器 DLC 列表提示无法确认 DLC 拥有者，但不影响 DLC 使用。",
       "summary_type": "problem_detail",
       "asset_name": "guide_paradox_launcher_dlc_warning.json",
-      "platforms": ["windows"]
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "guide_id": "paradox-launcher-steam-error",
@@ -125,7 +145,9 @@
       "summary": "启动器更新后补丁失效，启动时提示 Steam 运行时通讯错误。",
       "summary_type": "problem_detail",
       "asset_name": "guide_paradox_launcher_steam_error.json",
-      "platforms": ["windows"]
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "guide_id": "paradox-launcher-crash-null",
@@ -133,7 +155,9 @@
       "summary": "游戏似乎出现崩溃或意外终止（退出代码 null）。此问题可以通过验证游戏文件完整性和停用任何 Mod 来解决。使用 Windows 系统的用户可能还需要安装 Visual C++ Redistributable 和 .NET Framework。",
       "summary_type": "problem_detail",
       "asset_name": "guide_paradox_launcher_crash_null.json",
-      "platforms": ["windows"]
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "guide_id": "graphics-device-compatibility",
@@ -141,7 +165,49 @@
       "summary": "启动游戏时提示 Failed to create a graphics device，或 DirectDraw/Direct3D 加速被禁用。",
       "summary_type": "problem_detail",
       "asset_name": "guide_graphics_device_compatibility.json",
-      "platforms": ["windows"]
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "guide_id": "macos-app-blocked",
+      "title": "macOS 提示无法打开或已损坏",
+      "summary": "首次运行或更新后 macOS 拦截应用，提示“无法打开，因为 Apple 无法检查……”或“已损坏，无法打开”。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_macos_app_blocked.json",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "guide_id": "macos-game-not-unlocked",
+      "title": "macOS 补丁安装后游戏仍未解锁",
+      "summary": "补丁显示安装成功，但游戏内 DLC 仍未解锁，或补丁被 Steam 校验覆盖。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_macos_game_not_unlocked.json",
+      "platforms": [
+        "macos"
+      ]
+    },
+    {
+      "guide_id": "steamos-app-permission",
+      "title": "SteamOS 程序无法启动或提示权限不足",
+      "summary": "解压出来的程序缺少可执行权限，或在只读位置、游戏模式下无法启动。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_steamos_app_permission.json",
+      "platforms": [
+        "steamos"
+      ]
+    },
+    {
+      "guide_id": "steamos-proton-native",
+      "title": "SteamOS 补丁无效：游戏正在通过 Proton 运行",
+      "summary": "强制使用 Proton/兼容层时运行的是 Windows 版本，Linux 原生补丁不会生效。",
+      "summary_type": "problem_detail",
+      "asset_name": "guide_steamos_proton_native.json",
+      "platforms": [
+        "steamos"
+      ]
     }
   ]
 }

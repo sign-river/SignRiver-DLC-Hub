@@ -68,6 +68,14 @@
 - 正文块可声明 `platforms` 过滤按钮或其他块。平台不匹配时客户端不渲染该块；因此 Windows 专属安全软件指南不能被 SteamOS/macOS 的补丁指南直接跳转。
 - SteamOS 补丁指南必须说明原生 `.so` 资源和 Steam 库/兼容层目录；macOS 补丁指南必须说明原生 `.dylib` 资源和 `.app`/Steam 库目录。缺少原生资源时应指导用户反馈平台，不得建议改名或套用 Windows 补丁。
 
+### 补丁资源缺失与原生平台专项指南
+
+- 客户端“补丁资源缺失”提示固定跳转 `patch_assets_missing`；该指南必须存在于 `guides_index.json`，否则点击后只会提示“未找到对应教程”。任何新增的 `_open_solution_article(<id>)` 引用都必须同时提供同 id 的索引项和详情文件。
+- `patch_assets_missing` 面向全平台，正文用 `platform_text` 分别说明 Windows 资源、SteamOS 原生 `.so` 资源和 macOS 原生 `.dylib` 资源，并明确禁止把 Windows `.dll` 改名后混用。
+- macOS 专项指南：`macos-app-blocked`（Gatekeeper 拦截与“已损坏”处理）、`macos-game-not-unlocked`（补丁后仍未解锁的排查），`platforms` 仅声明 `macos`。
+- SteamOS 专项指南：`steamos-app-permission`（可执行权限与桌面模式）、`steamos-proton-native`（通过 Proton 运行时原生补丁不生效），`platforms` 仅声明 `steamos`。
+- 两端专项指南不得把 Windows 专属工具（Defender、DirectX、注册表修复）当作解决方案；涉及终端操作的说明只做文字指导，不由客户端代为执行。
+
 ### 原生平台日志资料收集
 
 - Windows 收集 `DxDiag`；SteamOS 收集 `uname` 与 `/etc/os-release`；macOS 收集精简的 `system_profiler` 软件、显示信息。

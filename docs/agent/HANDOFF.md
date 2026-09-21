@@ -1,5 +1,58 @@
 # 当前任务交接
 
+## macOS 原生库导出与 SteamOS VM 切换（2026-09-20）
+
+- 从 macOS Sequoia VM 的 Stellaris 安装目录复制截图选中的 `libsteam_api.dylib` 到 Windows 临时导出目录 `.test-artifacts/libsteam_api.dylib`；文件大小 `5,195,264` 字节，SHA-256 为 `0FF4A7C9D44A600BF514D069982D884C0ADD67431BAE24341063C18CE310A11F`。
+- macOS VM `D:\\vmware\\macos-vm\\macOS Sequoia.vmx` 已通过 VMware 正常挂起；未关机、未修改 VMX。
+- 已启动 SteamOS VMware VM：`D:\\vmware\\steamos\\workstation\\SteamOS-VMware.vmx`。未执行 SteamOS 构建命令或资源上传。
+
+## 原生平台补丁资源严格隔离（2026-09-20）
+
+- 云端核对：GitLink/GitHub 的 `hub/cartridges_index.json` 当前所有卡带仅标记 `windows`；群星 `stellaris` Release 只有 `unlocker.dll`、`original.dll`、`steam_api64.dll`、`steam_api64_o.dll` 与 AppInfo，没有 `libsteam_api.so` 或 `libsteam_api.dylib`。当前不能宣称云端已有 SteamOS/macOS 补丁。
+- 根因：客户端 `ReleaseCatalogService` 过去只按通用角色名解析补丁，macOS/SteamOS 也会接受 Windows DLL，并在后续哈希审计中被误判为健康。
+- 修改：`app/versions/0.1.0/signriver_app/application/dlc_catalog.py` 对 Windows 保留旧别名；SteamOS/macOS 只接受卡带平台字段声明的原生库文件名。缺少原生资产时返回缺失补丁，阻止下载与“一键解锁成功”；同步到活动模块 `app/versions/0.2.0/`，未整目录覆盖。
+- 测试：`tests/test_dlc_catalog.py` 新增 Windows DLL 不得冒充 macOS 补丁、原生文件名可正常解析的回归覆盖；`pytest -q tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_platform_content.py` 全部通过；compileall 与 `git diff --check` 通过。
+- 发布说明：当前发布器的 `patches/` 工作区和既有 Release 命名只产出 Windows 稳定资产；仅把 `.so`/`.dylib` 丢进目录不会自动生成原生 Release 资产，也不会更新 `published_platform_resources`。原生补丁需先按平台扩展发布器资源合同、生成平台原生资产并回读双源，再把对应平台标记为已发布。本轮未上传、未改云端。
+- 当前 VM 已同步客户端模块源码；需重启 VM 中活动客户端后，macOS 无原生补丁时应显示资源缺失/禁用一键解锁，而不是成功。
+
+## 发布器补丁列表显示文件大小（2026-09-20）
+
+- 修改范围：`src/signriver_publisher/content_management_ui.py`、`tests/test_publisher_ui_threading.py`。
+- 本地资源页的“补丁资源”列表现在在文件名与删除按钮之间显示每个补丁文件大小；使用 B/KB/MB/GB 格式，文件在刷新期间消失时显示“大小未知”。DLC 文件夹列表保持原布局。
+- 已执行：`& .\\.venv\\Scripts\\python.exe -m pytest -q tests/test_publisher_ui_threading.py`（通过）；`& .\\.venv\\Scripts\\python.exe -m ruff check src/signriver_publisher/content_management_ui.py tests/test_publisher_ui_threading.py`（通过）；`& .\\.venv\\Scripts\\python.exe -m compileall -q src/signriver_publisher/content_management_ui.py tests/test_publisher_ui_threading.py`（通过）；`git diff --check`（通过）。
+- 未执行：发布器 GUI 人工验收、构建发布器 EXE、资源发布和推送；当前源码发布器需重启后查看界面。
+
+## macOS 平台主表兼容修复（2026-09-20）
+
+- 根因：VM 用户目录的远端卡带主表只含 Windows `platform_resources`，启动时优先于包内兼容主表，导致 macOS 默认群星被误判为“暂无资源”。这不是 `.app` 缺少 `0.2.0` 模块。
+- 修改：`app/versions/0.1.0/signriver_app/application/cartridge_catalog.py` 的主表选择会跳过不包含当前平台任何资源的候选，优先使用包内兼容主表；同步测试 `tests/test_cartridge_catalog.py`。活动版本目录中的同文件已定向同步，未整目录覆盖。
+- 验证：定向卡带/平台测试 46 项通过；Ruff、compileall、`git diff --check` 通过；macOS 原生包重新构建成功，ZIP 完整性、x86_64 Mach-O、签名和包内 `0.2.0` 内容均通过。
+- VM：`/Users/signriver/macos-build-20260919/dist/SignRiver-DLC-Hub.app` 已重新打开，客户端进程存活。旧 Windows-only 数据主表已可恢复地备份为 `~/Library/Application Support/SignRiver DLC Hub/data/cartridges/cartridges_index.windows-only-20260920.json`；未删除数据。
+- 手动打开路径：Finder 使用 `Command + Shift + G`，输入 `/Users/signriver/macos-build-20260919/dist/SignRiver-DLC-Hub.app`。
+- 本轮未执行真实 DLC 下载、补丁生命周期、Steam 登录、游戏内运行、上传、线上清单切换、commit 或 push。
+
+## 发布器同名 DLC 导入覆盖（2026-09-20）
+
+- 修改范围：`src/signriver_publisher/workspace.py`、`tests/test_publisher_workspace.py`。
+- 修复同名 DLC 重复导入时递增生成新编号的问题：按安装目录名匹配已有托管目录，并通过暂存备份安全替换；单个 DLC、根目录批量导入、共享文件对和聚合叶目录导入均支持同名覆盖，覆盖失败会恢复旧目录。
+- 已新增 `CityStations` 同名覆盖回归测试；替换已有 DLC 不会消耗新的自动编号。
+- 已执行：`& .\\.venv\\Scripts\\python.exe -m pytest -q tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py`（通过）；`& .\\.venv\\Scripts\\python.exe -m ruff check src/signriver_publisher/workspace.py tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py`（通过）；`& .\\.venv\\Scripts\\python.exe -m compileall -q src/signriver_publisher tests/test_publisher_workspace.py tests/test_publisher_ui_threading.py`（通过）；`git diff --check`（通过）。
+- 未执行：发布器 GUI 人工验收、构建发布器 EXE、资源发布和推送；当前源码发布器需重启后验证界面导入流程。
+
+## macOS 原生构建收尾（2026-09-19）
+
+- 活动客户端版本：`0.2.0`；实际活动模块为 `app/versions/0.2.0/`，本轮采用“正式原生构建”对齐方式，未修改版本号、`app/state.json` 或线上清单。
+- Windows 侧工作区在开始和结束时均保持无受跟踪改动；分支 `main`，HEAD `d12a25a47afc2eee17fa4c5d6f2c2a8e07ef3e18`。交接文档此前记录的旧 HEAD 已过时，以 Git 实际状态为准。
+- 已执行定向测试：`\.venv\Scripts\python.exe -m pytest -q tests/test_build_native_release.py tests/test_macos_update_helper.py tests/test_cross_platform_runtime.py`，13 项通过。
+- 来宾：`D:\vmware\macos-vm\macOS Sequoia.vmx`，通过 VMware Tools 受控通道连接；来宾确认 `Darwin 24.6.0 x86_64`。因系统 Python 仅为 Xcode 占位程序，在 `/Users/signriver/py312` 放置临时 Intel Python 3.12.14，并安装 Command Line Tools for Xcode 16.4 以提供 `install_name_tool`；未修改 VMX、未升级 macOS。
+- 构建目录：`/Users/signriver/macos-build-20260919`；命令：`python tools/build_native_release.py --platform macos`，构建状态码 0。
+- 来宾产物：`dist/SignRiver-DLC-Hub.app`、`dist/SignRiver-DLC-Hub-v0.2.0-macos-x64.app.zip`、`dist/updates/SignRiver-DLC-Hub-full-v0.2.0-macos-x64.zip`。
+- 首装 ZIP（修复后重建）：`24,578,931` bytes，SHA-256 `03C148B01722B00AD52D68D53790AA6EEC67A2B77802CE44982FFDEEEC847C05`；全量更新 ZIP：`24,593,063` bytes，SHA-256 `0E319EAE87EAE0AC77E2839EF9C223F5620B87E7A36C013E2D8DBBCB5AD67BF8`。Windows 侧临时副本位于 `.test-artifacts/fixed-app.zip` 与 `.test-artifacts/fixed-update.zip`。
+- 验证通过：两个 ZIP 在来宾 `unzip -t`；主程序 `Mach-O 64-bit executable x86_64` 且 `lipo -info` 为 `x86_64`；`codesign --verify --deep --strict`；`.app` 内 `app/versions/0.2.0/signriver_app/` 80 个文件、`app/state.json.active_version` 为 `0.2.0` 且 `bad_versions` 为空。
+- 启动验证：从隔离构建目录用 `open dist/SignRiver-DLC-Hub.app` 启动，观察至少 8 秒有进程记录；无新增 `~/Library/Logs/DiagnosticReports` 崩溃报告；随后仅结束隔离进程，未安装到 `~/Applications`。
+- 未执行：真实 DLC 下载、补丁生命周期、Steam 登录、游戏内运行、远端上传、线上清单切换、commit、push；未修改或覆盖用户应用目录。
+
+
 ## 本次任务（Windows 客户端打包，2026-09-13）
 
 - 活动客户端版本：`0.2.0`；按正式 Windows 流程重新构建模块归档和全量更新包。
@@ -110,3 +163,33 @@
 - `python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0 tools`：通过。
 - `git diff --check`：通过。
 - 未执行 GUI、真实上传、推送或完整远端包下载。
+## 最新任务（SteamOS 原生构建）
+
+- 已将当前工作区源码（含未提交的跨平台补丁选择与索引过滤修复）及活动模块 `0.2.0` 同步到 SteamOS VMware 虚拟机，在 `Linux x86_64` / Python 3.13.5 环境内建立隔离构建环境并运行 `python tools/build_native_release.py --platform steamos`。
+- 已生成并复制回工作区：`[SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz](../../.test-artifacts/steamos-dist/SignRiver-DLC-Hub-v0.2.0-steamos-x64.tar.gz)`（44,531,151 字节，SHA-256 `db26e35a01ca6358f9960de27e1ab56f2763d5c570ac187684f1a1da343fe352`）和 `[SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip](../../.test-artifacts/steamos-dist/SignRiver-DLC-Hub-full-v0.2.0-steamos-x64.zip)`（44,749,426 字节，SHA-256 `14c410fa557cf0704f0e1104c7c052ab7006ab26d8e0d20d58b9305dd1286ec1`）。
+- 已验证：tar.gz 可解包；ZIP `testzip` 通过；两个包均含 `app/state.json` 与完整 `app/versions/0.2.0/`；活动版本为 `0.2.0`；主程序为 ELF 64-bit x86-64（机器类型 62）。已在虚拟机中直接启动主程序观察 8 秒，进程保持运行至超时退出（退出码 124），未报告启动崩溃。
+- 已执行定向测试：`tests/test_build_native_release.py`、`tests/test_cross_platform_runtime.py`、`tests/test_patch_platforms.py`、`tests/test_dlc_catalog.py`、`tests/test_cartridge_catalog.py`、`tests/test_platform_content.py`，全部通过。未执行真实 DLC 下载、补丁生命周期、Steam 登录、远端上传、线上清单切换、commit 或 push。
+- 当前活动模块对齐方式：本次使用源码归档中的完整 `app/versions/0.2.0/` 进行正式 SteamOS 构建；未修改 `app/state.json`，用户运行该包前无需额外同步。SteamOS VM 保持运行，macOS VM 已挂起。
+## 最新任务（SteamOS/macOS 平台专属指南与组件适配）
+
+- 修改范围：`config/guides/{guides_index,guide_network_basics,guide_game_directory_missing,guide_disk_space,guide_patch_state,guide_update_module_basics}.json`、`docs/tool-item-ui-spec.md`、`app/versions/0.1.0/{app_entry.py,signriver_app/application/guides.py,signriver_app/infrastructure/diagnostics/support_bundle.py}`，以及对应 `0.2.0` 活动模块同步文件和定向测试。
+- 指南目录新增平台文案能力：索引支持 `title_by_platform`/`summary_by_platform`，正文支持 `platform_text` 与块级 `platforms` 过滤。SteamOS/macOS 的补丁指南明确只接受原生 `.so`/`.dylib`，不再显示 `unlock.dll`、Windows Defender 或 Windows 专属替代方案；游戏目录、网络、磁盘空间和更新指南同步说明 Steam 库、兼容层、`.app` 和原生包差异。
+- 补丁工具组件按当前平台显示“SteamOS 原生补丁”/“macOS 原生补丁”，下载提示使用真实补丁文件数量；日志资料收集组件按平台显示系统信息类型。资料收集器现在在 SteamOS 收集 `uname` 与 `/etc/os-release`，在 macOS 收集精简 `system_profiler` 信息，并为 Paradox 日志增加 macOS `Library/Application Support` 与 SteamOS `~/.local/share` 路径。
+- 当前活动版本：`0.2.0`；采用“基线实现 + 定向同步到当前活动模块”，未修改 `app/state.json`。用户重启活动客户端后生效；本轮未重新构建或发布原生包。
+- 已执行：`pytest -q tests/test_platform_content.py tests/test_support_bundle.py tests/test_support_collection_ui.py tests/test_ui_theme.py tests/test_diagnostics.py tests/test_dlc_catalog.py tests/test_cartridge_catalog.py tests/test_cross_platform_runtime.py`（全部通过）；Ruff、compileall、`git diff --check` 均通过。未执行 GUI 人工验收、云端资源上传、线上清单切换、commit 或 push。
+## 最新任务（补丁资源缺失与原生平台专项解决方案，2026-09-21）
+
+- 根因一：客户端多处引用指南 id `patch_assets_missing`（主界面“补丁资源缺失，暂无法一键解锁”提示的跳转目标），但 `guides_index.json` 中从未存在该指南，点击后只会提示“未找到对应教程”。现已新增 `config/guides/guide_patch_assets_missing.json` 与索引项（`platforms: ["all"]`），并用 `platform_text` 分别说明 Windows 资源、SteamOS 原生 `.so`、macOS 原生 `.dylib`，明确禁止把 Windows `.dll` 改名混用。
+- 根因二：macOS 客户端从 `~/Library/Application Support/SignRiver DLC Hub/app/versions/0.2.0/` 加载模块，而此前只更新了 `.app/Contents/Resources/runtime/`，用户目录模块副本仍是旧代码，因此日志收集卡片继续显示“Windows DxDiag.txt”，且旧 `guides.py` 不认识 `platform_text`，平台化指南正文被整体丢弃。现已把最新模块文件同步到用户目录模块副本。
+- 新增平台专项指南：`macos-app-blocked`（Gatekeeper 拦截与“已损坏”）、`macos-game-not-unlocked`（补丁后仍未解锁）、`steamos-app-permission`（可执行权限与桌面模式）、`steamos-proton-native`（通过 Proton 运行时原生补丁不生效）。
+- 契约同步：`docs/tool-item-ui-spec.md` 增加“补丁资源缺失与原生平台专项指南”一节，并明确任何 `_open_solution_article(<id>)` 引用都必须同时提供同 id 的索引项和详情文件。
+- 验证：`tests/test_platform_content.py` 新增“客户端引用的指南 id 必须存在”和平台专项指南覆盖用例，全量 `pytest -q` 通过；Ruff、`git diff --check` 通过。
+- macOS VM：新指南已同步到 `/Users/signriver/macos-build-20260919/config/guides`、`.app/Contents/Resources/runtime/config/guides`，并重新临时签名且通过 `codesign --verify --deep --strict`；用户目录模块副本已更新（`app_entry.py`/`guides.py` 新代码标记已核对）。需完全退出后重新打开客户端才会生效。
+- 未执行：完整 macOS/SteamOS 原生重新构建、真实 DLC 下载、补丁生命周期、上传、线上清单切换、push。
+
+## 最新操作（macOS VM 同步最新活动模块，2026-09-21）
+
+- macOS VM `D:\\vmware\\macos-vm\\macOS Sequoia.vmx` 已通过 VMware Tools 受控通道同步当前活动模块 `0.2.0` 的最新 `app_entry.py`、指南/诊断/卡带目录/DLC 目录模块，以及 `config/guides/` 平台指南文件。
+- 同步目标包括隔离源码目录 `/Users/signriver/macos-build-20260919/` 和现有测试包 `/Users/signriver/macos-build-20260919/dist/SignRiver-DLC-Hub.app/Contents/Resources/runtime/`；未覆盖用户 `~/Applications` 安装目录或用户数据目录。
+- 修改 `.app` 内运行时后已在来宾内使用临时签名重新签署，并通过 `codesign --verify --deep --strict`；未启动客户端，等待用户在 Finder 手动双击查看。
+- 手动打开路径：`/Users/signriver/macos-build-20260919/dist/SignRiver-DLC-Hub.app`。本次未重新执行完整 macOS 原生构建、未上传、未切换线上清单、未 commit 或 push。

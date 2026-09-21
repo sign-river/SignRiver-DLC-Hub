@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -116,7 +117,8 @@ def test_guide_catalog_filters_platforms_and_keeps_tools_on_demand(tmp_path: Pat
 
     assert [entry.guide_id for entry in entries] == [
         "network-basics", "game-directory-missing", "disk-space", "patch-state",
-        "update-module-basics",
+        "patch_assets_missing", "update-module-basics",
+        "steamos-app-permission", "steamos-proton-native",
     ]
     windows_entries = GuideCatalogService(
         tmp_path / "windows-cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
@@ -758,3 +760,34 @@ def test_tools_catalog_is_independent_from_guides(tmp_path: Path) -> None:
 
     assert tools == ()
     assert seen == []
+
+
+def test_every_guide_referenced_by_the_client_exists(tmp_path: Path) -> None:
+    app_entry = (ROOT / "app" / "versions" / "0.1.0" / "app_entry.py").read_text(encoding="utf-8")
+    referenced = set(re.findall(r'_open_solution_article\("([a-z0-9_-]+)"', app_entry))
+    service = GuideCatalogService(
+        tmp_path / "cache", bootstrap_dir=GUIDES, platform="windows", opener=object(),
+    )
+    available = {entry.guide_id for entry in service.refresh_index(allow_network=False)}
+    assert referenced
+    assert referenced <= available
+
+
+def test_native_platform_guides_cover_blocked_app_and_proton(tmp_path: Path) -> None:
+    expectations = {
+        "macos": ("macos-app-blocked", ("隐私与安全性", "仍要打开")),
+        "macos-proton": ("macos-game-not-unlocked", ("补丁工具", "一键解锁")),
+        "steamos": ("steamos-proton-native", ("Proton", "属性")),
+        "steamos-permission": ("steamos-app-permission", ("执行", "桌面模式")),
+    }
+    for label, (guide_id, markers) in expectations.items():
+        platform = label.split("-", 1)[0]
+        service = GuideCatalogService(
+            tmp_path / label, bootstrap_dir=GUIDES, platform=platform, opener=object(),
+        )
+        entries = service.refresh_index(allow_network=False)
+        entry = next(item for item in entries if item.guide_id == guide_id)
+        document = service.load_guide(entry, allow_network=False)
+        text = "\n".join(block[1] for block in document.blocks if block[0] == "text")
+        assert text
+        assert all(marker in text for marker in markers), (guide_id, text)

@@ -1,0 +1,43 @@
+{
+  "guide_id": "steamos-app-permission",
+  "blocks": [
+    {
+      "kind": "heading",
+      "text": "常见原因"
+    },
+    {
+      "kind": "text",
+      "text": "SteamOS 桌面模式下从压缩包直接解压出来的程序，默认可能没有“可执行”权限；如果程序放在只读位置或压缩包预览中，也会无法启动。"
+    },
+    {
+      "kind": "heading",
+      "text": "建议操作"
+    },
+    {
+      "kind": "text",
+      "text": "请先把压缩包完整解压到主目录或桌面等可写位置，不要直接在只读位置或压缩包里运行。然后在 Dolphin 文件管理器中右键程序文件 → 属性 → 权限，勾选“允许文件作为程序执行”，再双击运行。"
+    },
+    {
+      "kind": "text",
+      "text": "如果没有 Dolphin，也可以在终端里进入解压后的目录，执行 chmod +x 加上程序文件名后再运行。"
+    },
+    {
+      "kind": "text",
+      "text": "如果程序在游戏模式下无法显示界面，请切换到桌面模式运行；游戏模式不适合运行本工具的窗口界面。"
+    },
+    {
+      "kind": "heading",
+      "text": "仍无法解决时"
+    },
+    {
+      "kind": "text",
+      "text": "请联系开发者并说明 SteamOS 版本、启动方式和完整报错信息，必要时附上截图。"
+    },
+    {
+      "kind": "link",
+      "text": "点击联系开发者（QQ群）  →",
+      "url": "https://qm.qq.com/q/NQRer2RHmC"
+    }
+  ],
+  "tools": []
+}
