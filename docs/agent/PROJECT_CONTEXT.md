@@ -1,10 +1,10 @@
 # SignRiver DLC Hub 项目背景
 
-> 最后核对：2026-08-16（Asia/Shanghai）
+> 最后核对：2026-09-23（Asia/Shanghai）
 
 ## 项目目标
 
-SignRiver DLC Hub 是一个面向多款 Steam 游戏的桌面 DLC 管理器。当前正式线上版本为 `0.1.7`，开发目标为 `0.2.0`：在保持 Windows x64 既有行为和升级链路的前提下，补齐 SteamOS x64 与 macOS Intel x64 的原生运行、补丁、更新和真实游戏验收。
+SignRiver DLC Hub 是一个面向多款 Steam 游戏的桌面 DLC 管理器。当前正式线上版本为 `1.0.0`，Windows x64、SteamOS x64 与 macOS Intel x64 三端均已交付（`0.2.0` 是引入跨平台能力的那一版，现已作为回退模块保留）。后续工作以维护、缺陷修复、扩充游戏卡带和平台可用性对齐为主。
 
 ## 核心架构
 
@@ -78,7 +78,7 @@ python tools\build_publisher.py --upx-dir C:\Users\32173\AppData\Local\tools\upx
 
 - `README.md`：面向开发者和使用者的总体说明；
 - `STATUS.md`：已发布稳定基线的简要状态，不承担实时交接；
-- `PLAN.md`：`0.2.0` 的范围、验收标准和路线图；
+- `PLAN.md`：`0.2.0` 跨平台计划的范围与验收结论（已完成，作为历史计划保留）；
 - `docs/current-progress.md`：版本产物、详细进展和已知边界；
 - `docs/agent/HANDOFF.md`：最新任务交接，允许高频更新；
 - `docs/agent/DECISIONS.md`：关键方案及失败经验。

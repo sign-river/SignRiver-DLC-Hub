@@ -1,5 +1,7 @@
 # SignRiver DLC Hub 0.2.0 跨平台适配与验收计划
 
+> 状态：**已完成**。本计划的范围随 `0.2.0` 实现、并由 `1.0.0`（2026-09-22）三端正式发布收尾。`0.2.0` 现在是 `1.0.0` 的回退模块。当前状态以 `docs/agent/HANDOFF.md` 与 `docs/current-progress.md` 为准，本文保留范围与验收结论用于追溯。
+
 ## 目标
 
 在不改变 Windows x64 现有行为、安装数据和升级链路的前提下，将客户端扩展到 SteamOS x64 和 macOS Intel x64，并由 Windows 发布器统一管理三个平台的资源与更新包。
@@ -111,5 +113,5 @@
 - [x] SteamOS 冻结包本地全量更新 E2E：平台包选择、自动重启、数据保留、权限恢复、事务确认及故障回滚。
 - [x] SteamOS HOI4 + SmokeAPI 真实验收及补丁修复/移除/原版恢复。
 - [x] 完成 macOS VMware（实际镜像为 Sequoia/Darwin 24）初始设置；俄语界面已修复为简体中文，本地账户已创建并进入桌面。
-- [ ] macOS Intel icecream、客户端、HOI4 和更新回滚验收。
-- [ ] 三平台最终包与清单核验、文档、提交和发布顺序确认。
+- [x] macOS Intel 客户端与更新回滚验收；HOI4 相关验收按后续结论不再作为发布门槛（macOS 解锁库已从 icecream 改用 Goldberg/GSE 替换型库，见 `docs/cross-platform-patch.md`）。
+- [x] 三平台最终包与双源清单核验、文档整理、提交与发布顺序确认（`1.0.0`，2026-09-22）。

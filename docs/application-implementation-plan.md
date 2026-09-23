@@ -1,5 +1,6 @@
 # SignRiver DLC Hub 模块化实施规划
 
+> 历史文档：本文是 `0.1.x` 时期的设计草案，其内容已由后续实现取代，仅用于追溯设计取舍；当前状态见 `docs/agent/HANDOFF.md` 与 `docs/current-progress.md`。
 > 状态：设计草案 v1
 >
 > 日期：2026-07-11

@@ -35,8 +35,9 @@ description: 执行 SignRiver DLC Hub 的“进入新上下文”核对流程：
      ```powershell
      python -m pytest -q
      python -m ruff check .
-     python -m compileall -q src app/versions/0.1.0 app/versions/0.2.0
+     python -m compileall -q src app/versions/0.1.0 app/versions/<active_version>
      ```
+     `<active_version>` 取 `app/state.json` 的 `active_version`（当前为 `1.0.0`），不要写死具体版本号。
    - 若用户已明确后续任务，优先执行该任务直接涉及的测试；在开始修改前至少说明哪些测试已执行、哪些尚未执行。
 4. 将文档记录与实际代码、Git 状态和可重复测试结果逐项比对。
 

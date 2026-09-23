@@ -1,8 +1,35 @@
 # SignRiver DLC Hub 当前进度
 
-更新时间：2026-08-17（Asia/Shanghai）
+更新时间：2026-09-23（Asia/Shanghai）
 
-## 2026-08-17 发布准备快照（覆盖下方旧候选数据）
+## 当前状态（2026-09-23）
+
+- 当前线上正式版本：`1.0.0`（2026-09-22 发布）；启动器 `1.0.0`，Host API `3`，活动模块 `1.0.0`。
+- 三端发行形式：Windows 便携 ZIP + 自解压 EXE、SteamOS 便携 `tar.gz`、macOS Intel ad-hoc 签名 `.app.zip`。
+- 更新链路：`updates` Release 已上线三平台全量更新包与 GitLink/GitHub 双源清单；`modules` Release 的模块维护基线为 `0.1.7`、`0.2.0`、`1.0.0`。
+- CI：`windows-latest` / `ubuntu-24.04` / `macos-15-intel` 三端 pytest 与 Ruff 全绿（2026-09-22 起，最新 run `35650193420`）。
+- 已知差异：本地兜底卡带 10 条、云端主表 11 条，且部分卡带的平台可用性声明偏宽，见 `docs/known-issues.md` 的 `KI-011`。
+
+### 1.0.0 发布产物（2026-09-23 本机实测复核）
+
+| 产物 | 大小（字节） | SHA-256 |
+| --- | --- | --- |
+| `dist/modules/SignRiver-DLC-Hub-module-v1.0.0.zip` | 301,564 | `45decd9429424753110af8a40da1644729eb6b2953bfe12eb727c4f44a054b87` |
+| `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-windows-x64.zip` | 21,318,160 | `42bf2cce2f79ee340ed78980fde61a217dae6dc46be4e6c74e5c0690682a9fcd` |
+| `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-macos-x64.zip` | 23,785,464 | `e0fc722d25587e896905c3e326e3c7e6e05c485ebe5978e7f762becaf9a40001` |
+| `dist/updates/SignRiver-DLC-Hub-full-v1.0.0-steamos-x64.zip` | 43,967,168 | `184532c02cf833ce5e94e2334626bf549858af18d982e0b20677673652aca935` |
+| `dist/SignRiver-DLC-Hub-v1.0.0-macos-x64.app.zip` | 23,776,287 | `8b31ffe1c7e14e0996ff968e81ad2ff80cbeaf7a8ea35b9a4e570d431ac76ecd` |
+| `dist/SignRiver-DLC-Hub-v1.0.0-steamos-x64.tar.gz` | 43,876,545 | `cf1a8a326f80bd21fd51c4402a6aba41567efe5f68c652de58a11e6ce41ab21c` |
+| `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64.zip` | 21,333,799 | `e2c14b1125a30e538e6eaa16d4568fc98f2fcb359fefd11a2f4e1b17d924dd60` |
+| `dist/唏嘘南溪DLC一键解锁工具-v1.0.0-windows-x64-自解压.exe` | 21,615,063 | `d8c715ab8893f19a358464a7cd4b210a60ef911a18749ef06464b8ce5ed1bc6d` |
+
+自解压 EXE 与同内容别名大小一致；`config/module-archives.json` 的 `1.0.0` 记录与上表模块归档一致。
+
+### 历史记录
+
+下面从「2026-08-17 发布准备快照」开始的内容是 `0.2.0` 发布前的状态记录，保留用于追溯，**不再代表当前状态**。
+
+## 2026-08-17 发布准备快照（历史，已被 1.0.0 发布取代）
 
 - `0.2.0`“统一问题中心与补丁健壮性优化”代码已完成；Windows frozen 更新失败回滚已用最终打包 EXE 完成真实 E2E。
 - 当前只有 Windows 原生候选是基于本轮最终源码重建的：launcher 为 `16,927,805` 字节，SHA-256 `89ae7fc6a0979e2d889fef4e47a9ede70453a5e2978c7ae11f20d9add9a79271`；全量更新包为 `18,791,906` 字节，SHA-256 `16683e3e80cf75ff287b5194d3c32ddeeb0105e2c357169e10cf94b6a5f554bc`。
@@ -14,7 +41,9 @@
 - 尚未上传任何 `0.2.0` 资产，尚未替换线上正式清单，尚未 commit/push。下方旧候选包和历史验证数据仅供追溯，以本节和 `docs/agent/HANDOFF.md` 为准。
 
 
-## 当前结论
+## 历史结论（0.2.0 发布前，2026-08-17）
+
+> 以下结论记录于 2026-08-17（`0.2.0` 发布前），已被 `1.0.0` 发布取代，仅用于追溯。
 
 - 当前线上正式版本：`0.1.7`
 - 当前开发/待发布版本：`0.2.0`
@@ -82,7 +111,7 @@
 - 程序更新真实上传进度、暂停/继续、更新说明草稿和强制更新选项。
 - 模块归档批量发布，以及双源更新清单的安全上传顺序。
 
-## 最近线上发布产物（0.1.7）
+## 历史线上发布产物（0.1.7，已被 1.0.0 取代）
 
 ### 全量更新包
 
