@@ -13,7 +13,7 @@
   - `docs/agent/HANDOFF.md`：按 `DOCUMENT-MANAGEMENT.md` 阈值（原 567 行 / 117 KB）把 2026-09-21 及更早条目归档到 `archive/HANDOFF-2026-09-23-history.md`。
   - `docs/application-implementation-plan.md`、`docs/publisher-refactor-plan.md`、`docs/publisher-refactor-acceptance.md`：补充历史计划标注。
   - `.agents/skills/project-context-switch/SKILL.md`：`compileall` 示例不再写死 `0.2.0`。
-- 验证：本地 `.venv\Scripts\python.exe -m pytest` = **961 passed**、0 失败、0 跳过（2026-09-23，pytest 9.1.1）；`ruff check src tests tools app/versions/0.1.0` 通过；`1.0.0` 的 8 个发布产物大小与 SHA-256 已在本机 `dist/` 重新实测并写入 `docs/current-progress.md`；本次未执行构建、打包、上传或推送。
+- 验证：本地 `.venv\Scripts\python.exe -m pytest` = **961 passed**、0 失败、0 跳过（2026-09-23，pytest 9.1.1）；`ruff check src tests tools app/versions/0.1.0` 通过；`1.0.0` 的 8 个发布产物大小与 SHA-256 已在本机 `dist/` 重新实测并写入 `docs/current-progress.md`；本次未执行构建、打包或上传；文档提交 `f4526f9` 已经用户确认后推送，CI run `35840313641` 三端（Windows / Ubuntu / macOS）全绿。
 - 版本对齐：本次只改文档，不涉及客户端代码，**不需要**同步活动模块或让用户重启客户端。
 - 下一步：`KI-011`（兜底卡带平台可用性与云端不一致）仍待排期；README 如需英文版或补截图另行确认。
 - 风险：`STATUS.md`、`PLAN.md`、`docs/current-progress.md` 都带有「当前状态」性质，后续版本发布后需要继续同步，避免再次过期。
